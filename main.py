@@ -4,13 +4,27 @@ import random
 from datetime import datetime, timedelta, timezone
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def get_env_int(name: str, default: int = 0) -> int:
+    value = os.getenv(name)
+    if not value:
+        return default
+
+    try:
+        return int(value)
+    except ValueError:
+        print(f"[WARN] {name} must be an integer")
+        return default
+
+
 TOKEN = os.getenv("DISCORD_TOKEN")
-STARTUP_CHANNEL_ID = int(os.getenv("STARTUP_CHANNEL_ID", "0"))
+STARTUP_CHANNEL_ID = get_env_int("STARTUP_CHANNEL_ID")
+SCHEDULE_CHANNEL_ID = get_env_int("SCHEDULE_CHANNEL_ID")
 STATE_FILE = "data/state.json"
 HAYUSU_ENTER_GIF = "assets/transitions/hayusu_enter.gif"
 HAYUSU_EXIT_GIF = "assets/transitions/hayusu_exit.gif"
@@ -19,6 +33,7 @@ HAYUSU_TRIGGER_RATE = 122
 HAYUSU_RESPONSE = "チェルさんこれギャバいっすよ"
 HAYUSU_ENTER_MESSAGE = "# はゆすモード\n\n# 突入"
 HAYUSU_EXIT_MESSAGE = "# はゆすモード\n\n# 終了"
+END_OF_SERVICE_MESSAGE = "サ終やめませんか？"
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -41,6 +56,10 @@ DEFAULT_STATE = {
     "mode_until": None,
     "last_hayusu_trigger_month": None,
     "annual_message_sent_years": [],
+}
+
+DEFAULT_RESPONSES = {
+    "end_of_service_message": END_OF_SERVICE_MESSAGE,
 }
 
 
@@ -66,6 +85,15 @@ def save_state(state: dict) -> None:
             f.write("\n")
     except OSError as e:
         print(f"Failed to save {STATE_FILE}: {e}")
+
+
+def save_json_file(path: str, data) -> None:
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+    except OSError as e:
+        print(f"Failed to save {path}: {e}")
 
 
 def load_state() -> dict:
@@ -107,6 +135,10 @@ def get_current_month() -> str:
     return get_now().strftime("%Y-%m")
 
 
+def get_local_now() -> datetime:
+    return datetime.now().astimezone()
+
+
 def parse_iso_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -125,6 +157,16 @@ def load_responses() -> dict:
     responses = load_json_file("data/responses.json", {})
     if not isinstance(responses, dict):
         return {}
+
+    should_save = False
+    for key, value in DEFAULT_RESPONSES.items():
+        if key not in responses:
+            responses[key] = value
+            should_save = True
+
+    if should_save:
+        save_json_file("data/responses.json", responses)
+
     return responses
 
 
@@ -171,6 +213,61 @@ def draw_quote_message() -> str | None:
         return None
 
     return random.choice(quotes)
+
+
+def get_end_of_service_message() -> str:
+    responses = load_responses()
+    message = responses.get("end_of_service_message")
+    if isinstance(message, str) and message:
+        return message
+    return END_OF_SERVICE_MESSAGE
+
+
+def get_schedule_channel() -> discord.abc.Messageable | None:
+    if SCHEDULE_CHANNEL_ID == 0:
+        print("[WARN] SCHEDULE_CHANNEL_ID is not set")
+        return None
+
+    channel = bot.get_channel(SCHEDULE_CHANNEL_ID)
+    if channel is None:
+        print("[WARN] SCHEDULE_CHANNEL_ID channel was not found")
+        return None
+
+    if not hasattr(channel, "send"):
+        print("[WARN] SCHEDULE_CHANNEL_ID channel cannot send messages")
+        return None
+
+    return channel
+
+
+async def send_annual_message(channel: discord.abc.Messageable) -> None:
+    await channel.send(get_end_of_service_message())
+
+
+async def maybe_send_annual_message() -> None:
+    now = get_local_now()
+    if now.month != 6 or now.day != 30:
+        return
+
+    state = load_state()
+    sent_years = state.get("annual_message_sent_years", [])
+    current_year = now.year
+    if current_year in sent_years:
+        return
+
+    channel = get_schedule_channel()
+    if channel is None:
+        return
+
+    try:
+        await send_annual_message(channel)
+    except discord.DiscordException as e:
+        print(f"[WARN] Failed to send annual message: {e}")
+        return
+
+    sent_years.append(current_year)
+    state["annual_message_sent_years"] = sent_years
+    save_state(state)
 
 
 async def send_optional_gif(channel: discord.abc.Messageable, path: str) -> None:
@@ -295,6 +392,18 @@ async def handle_hayusu_test_commands(message: discord.Message) -> bool:
     return False
 
 
+async def handle_annual_test_command(message: discord.Message) -> bool:
+    command_text = get_mention_command_text(message)
+    if command_text is None:
+        return False
+
+    if "年次テスト" not in command_text:
+        return False
+
+    await message.channel.send(get_end_of_service_message())
+    return True
+
+
 async def maybe_start_hayusu_mode(message: discord.Message) -> bool:
     if bot.user is not None and bot.user in message.mentions:
         return False
@@ -345,6 +454,9 @@ async def on_ready():
 
     print(f"Logged in as {bot.user}")
 
+    if not annual_message_task.is_running():
+        annual_message_task.start()
+
     if has_sent_startup_message:
         return
 
@@ -379,6 +491,19 @@ async def on_guild_join(guild: discord.Guild):
         await channel.send(startup_message)
 
 
+@tasks.loop(hours=1)
+async def annual_message_task():
+    try:
+        await maybe_send_annual_message()
+    except Exception as e:
+        print(f"[WARN] annual_message_task failed: {e}")
+
+
+@annual_message_task.before_loop
+async def before_annual_message_task():
+    await bot.wait_until_ready()
+
+
 @bot.event
 async def on_message(message: discord.Message):
     print(f"[DEBUG] on_message: author={message.author} content={message.content!r}")
@@ -391,6 +516,9 @@ async def on_message(message: discord.Message):
         return
 
     if await handle_hayusu_test_commands(message):
+        return
+
+    if await handle_annual_test_command(message):
         return
 
     if await maybe_start_hayusu_mode(message):
