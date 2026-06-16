@@ -27,21 +27,65 @@ WORD_RESPONSES = (
 )
 
 
+def load_json_file(path: str, default):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"Failed to load {path}: {e}")
+        return default
+
+
 def load_responses() -> dict:
-    with open("data/responses.json", "r", encoding="utf-8") as f:
-        return json.load(f)
+    responses = load_json_file("data/responses.json", {})
+    if not isinstance(responses, dict):
+        return {}
+    return responses
 
 
 def load_kuji() -> dict:
-    with open("data/kuji.json", "r", encoding="utf-8") as f:
-        return json.load(f)
+    kuji_data = load_json_file("data/kuji.json", {"results": []})
+    if not isinstance(kuji_data, dict):
+        return {"results": []}
+    return kuji_data
+
+
+def load_quotes() -> list[str]:
+    quotes = load_json_file("data/quotes.json", [])
+    if not isinstance(quotes, list):
+        return []
+    return [quote for quote in quotes if isinstance(quote, str)]
+
+
+def load_ng_words() -> list[str]:
+    ng_words = load_json_file("data/ng_words.json", [])
+    if not isinstance(ng_words, list):
+        return []
+    return [ng_word for ng_word in ng_words if isinstance(ng_word, str)]
 
 
 def draw_kuji_message() -> str:
     kuji_data = load_kuji()
-    result = random.choice(kuji_data["results"])
+    results = kuji_data.get("results", [])
+    if not results:
+        return "くじデータが読み込めませんでした"
 
-    return f"🎴 **{result['name']}**\n{result['message']}"
+    result = random.choice(results)
+    if not isinstance(result, dict):
+        return "くじデータが読み込めませんでした"
+
+    name = result.get("name", "結果不明")
+    result_message = result.get("message", "")
+
+    return f"🎴 **{name}**\n{result_message}"
+
+
+def draw_quote_message() -> str | None:
+    quotes = load_quotes()
+    if not quotes:
+        return None
+
+    return random.choice(quotes)
 
 
 async def handle_mode_message(message: discord.Message) -> bool:
@@ -52,10 +96,17 @@ async def handle_mention_message(message: discord.Message) -> bool:
     if bot.user is None or bot.user not in message.mentions:
         return False
 
-    if "くじ" not in message.content:
-        return False
+    ng_words = load_ng_words()
+    if any(ng_word in message.content for ng_word in ng_words):
+        return True
 
-    await message.channel.send(draw_kuji_message())
+    if "くじ" in message.content:
+        await message.channel.send(draw_kuji_message())
+        return True
+
+    quote = draw_quote_message()
+    if quote is not None:
+        await message.channel.send(quote)
     return True
 
 
@@ -86,7 +137,9 @@ async def on_ready():
         print("STARTUP_CHANNEL_ID のチャンネルが見つかりません")
         return
 
-    await channel.send(responses["startup_message"])
+    startup_message = responses.get("startup_message")
+    if startup_message is not None:
+        await channel.send(startup_message)
 
 
 @bot.event
@@ -101,8 +154,9 @@ async def on_guild_join(guild: discord.Guild):
                 channel = text_channel
                 break
 
-    if channel is not None:
-        await channel.send(responses["startup_message"])
+    startup_message = responses.get("startup_message")
+    if channel is not None and startup_message is not None:
+        await channel.send(startup_message)
 
 
 @bot.event
