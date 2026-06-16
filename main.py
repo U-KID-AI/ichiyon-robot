@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import random
@@ -28,11 +29,15 @@ SCHEDULE_CHANNEL_ID = get_env_int("SCHEDULE_CHANNEL_ID")
 STATE_FILE = "data/state.json"
 HAYUSU_ENTER_GIF = "assets/transitions/hayusu_enter.gif"
 HAYUSU_EXIT_GIF = "assets/transitions/hayusu_exit.gif"
+HAYUSU_AVATAR = "assets/avatar_hayusu.png"
+NORMAL_AVATAR = "assets/avatar_normal.png"
 HAYUSU_MODE_SECONDS = 180
 HAYUSU_TRIGGER_RATE = 122
 HAYUSU_RESPONSE = "チェルさんこれギャバいっすよ"
 HAYUSU_ENTER_MESSAGE = "# はゆすモード\n\n# 突入"
 HAYUSU_EXIT_MESSAGE = "# はゆすモード\n\n# 終了"
+HAYUSU_NICKNAME = "はゆすロボ"
+NORMAL_NICKNAME = "いちよんロボ"
 END_OF_SERVICE_MESSAGE = "サ終やめませんか？"
 
 intents = discord.Intents.default()
@@ -44,6 +49,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 has_sent_startup_message = False
 is_mode_transitioning = False
+hayusu_auto_exit_task = None
 
 WORD_RESPONSES = (
     ("紫", "B01010"),
@@ -275,6 +281,146 @@ async def send_optional_gif(channel: discord.abc.Messageable, path: str) -> None
         await channel.send(file=discord.File(path))
 
 
+def get_channel_guild(channel: discord.abc.Messageable) -> discord.Guild | None:
+    guild = getattr(channel, "guild", None)
+    if isinstance(guild, discord.Guild):
+        return guild
+    return None
+
+
+async def update_bot_nickname(
+    channel: discord.abc.Messageable,
+    nickname: str,
+) -> None:
+    guild = get_channel_guild(channel)
+    if guild is None:
+        print("[WARN] Cannot change bot nickname outside a guild")
+        return
+
+    member = guild.me
+    if member is None and bot.user is not None:
+        member = guild.get_member(bot.user.id)
+
+    if member is None:
+        print("[WARN] Bot member was not found for nickname change")
+        return
+
+    try:
+        await member.edit(nick=nickname)
+    except discord.DiscordException as e:
+        print(f"[WARN] Failed to change bot nickname: {e}")
+
+
+async def update_bot_avatar(path: str) -> None:
+    if not os.path.exists(path):
+        print(f"[WARN] Avatar image not found: {path}")
+        return
+
+    if bot.user is None:
+        print("[WARN] Cannot change bot avatar before bot user is ready")
+        return
+
+    try:
+        with open(path, "rb") as f:
+            avatar = f.read()
+        await bot.user.edit(avatar=avatar)
+    except OSError as e:
+        print(f"[WARN] Failed to read avatar image {path}: {e}")
+    except discord.DiscordException as e:
+        print(f"[WARN] Failed to change bot avatar: {e}")
+
+
+async def apply_hayusu_identity(channel: discord.abc.Messageable) -> None:
+    await update_bot_nickname(channel, HAYUSU_NICKNAME)
+    await update_bot_avatar(HAYUSU_AVATAR)
+
+
+async def apply_normal_identity(channel: discord.abc.Messageable) -> None:
+    await update_bot_nickname(channel, NORMAL_NICKNAME)
+    await update_bot_avatar(NORMAL_AVATAR)
+
+
+def cancel_hayusu_auto_exit_task() -> None:
+    global hayusu_auto_exit_task
+
+    if hayusu_auto_exit_task is not None and not hayusu_auto_exit_task.done():
+        hayusu_auto_exit_task.cancel()
+        print("[DEBUG] cancelled hayusu auto exit task")
+
+    hayusu_auto_exit_task = None
+
+
+async def hayusu_auto_exit_after(
+    channel: discord.abc.Messageable,
+    delay_seconds: float,
+) -> None:
+    try:
+        await asyncio.sleep(delay_seconds)
+    except asyncio.CancelledError:
+        return
+
+    print("[DEBUG] hayusu auto exit triggered")
+    state = load_state()
+    if state.get("current_mode") == "hayusu":
+        await exit_hayusu_mode(channel, cancel_auto_task=False)
+
+
+def schedule_hayusu_auto_exit(
+    channel: discord.abc.Messageable,
+    delay_seconds: float,
+) -> None:
+    global hayusu_auto_exit_task
+
+    if hayusu_auto_exit_task is not None and not hayusu_auto_exit_task.done():
+        return
+
+    delay_seconds = max(0, delay_seconds)
+    hayusu_auto_exit_task = bot.loop.create_task(
+        hayusu_auto_exit_after(channel, delay_seconds)
+    )
+    print(f"[DEBUG] scheduled hayusu auto exit in {delay_seconds:.0f} seconds")
+
+
+def get_channel_by_id(channel_id: int | None) -> discord.abc.Messageable | None:
+    if not channel_id:
+        return None
+
+    channel = bot.get_channel(channel_id)
+    if channel is None or not hasattr(channel, "send"):
+        return None
+
+    return channel
+
+
+async def restore_hayusu_auto_exit() -> None:
+    state = load_state()
+    if state.get("current_mode") != "hayusu":
+        return
+
+    mode_until = parse_iso_datetime(state.get("mode_until"))
+    if mode_until is None or get_now() >= mode_until:
+        state["current_mode"] = "normal"
+        state["mode_until"] = None
+        state.pop("hayusu_channel_id", None)
+        save_state(state)
+        return
+
+    channel_id = state.get("hayusu_channel_id")
+    if not isinstance(channel_id, int):
+        channel_id = STARTUP_CHANNEL_ID
+
+    channel = get_channel_by_id(channel_id)
+    if channel is None and channel_id != STARTUP_CHANNEL_ID:
+        channel = get_channel_by_id(STARTUP_CHANNEL_ID)
+
+    if channel is None:
+        print("[WARN] Hayusu auto exit channel was not found")
+        return
+
+    remaining_seconds = (mode_until - get_now()).total_seconds()
+    schedule_hayusu_auto_exit(channel, remaining_seconds)
+
+
 async def enter_hayusu_mode(
     channel: discord.abc.Messageable,
     ignore_monthly_limit: bool = False,
@@ -296,34 +442,47 @@ async def enter_hayusu_mode(
     try:
         await channel.send(HAYUSU_ENTER_MESSAGE)
         await send_optional_gif(channel, HAYUSU_ENTER_GIF)
+        await apply_hayusu_identity(channel)
 
         state["current_mode"] = "hayusu"
         state["mode_until"] = (
             get_now() + timedelta(seconds=HAYUSU_MODE_SECONDS)
         ).isoformat()
+        channel_id = getattr(channel, "id", None)
+        if channel_id is not None:
+            state["hayusu_channel_id"] = channel_id
         if not ignore_monthly_limit:
             state["last_hayusu_trigger_month"] = current_month
         save_state(state)
+        schedule_hayusu_auto_exit(channel, HAYUSU_MODE_SECONDS)
     finally:
         is_mode_transitioning = False
 
     return True
 
 
-async def exit_hayusu_mode(channel: discord.abc.Messageable) -> None:
+async def exit_hayusu_mode(
+    channel: discord.abc.Messageable,
+    cancel_auto_task: bool = True,
+) -> None:
     global is_mode_transitioning
 
     if is_mode_transitioning:
         return
 
+    if cancel_auto_task:
+        cancel_hayusu_auto_exit_task()
+
     is_mode_transitioning = True
     try:
         await channel.send(HAYUSU_EXIT_MESSAGE)
         await send_optional_gif(channel, HAYUSU_EXIT_GIF)
+        await apply_normal_identity(channel)
 
         state = load_state()
         state["current_mode"] = "normal"
         state["mode_until"] = None
+        state.pop("hayusu_channel_id", None)
         save_state(state)
     finally:
         is_mode_transitioning = False
@@ -355,12 +514,6 @@ async def handle_mode_message(message: discord.Message) -> bool:
         return False
 
     if current_mode == "hayusu":
-        command_text = get_mention_command_text(message)
-        if command_text is not None and "はゆす終了テスト" in command_text:
-            print("[DEBUG] hayusu test command detected")
-            await exit_hayusu_mode(message.channel)
-            return True
-
         mode_until = parse_iso_datetime(state.get("mode_until"))
         if mode_until is None or get_now() >= mode_until:
             await exit_hayusu_mode(message.channel)
@@ -369,6 +522,19 @@ async def handle_mode_message(message: discord.Message) -> bool:
         await message.channel.send(HAYUSU_RESPONSE)
         return True
 
+    return True
+
+
+async def handle_hayusu_exit_test_command(message: discord.Message) -> bool:
+    command_text = get_mention_command_text(message)
+    if command_text is None:
+        return False
+
+    if "はゆす終了テスト" not in command_text:
+        return False
+
+    print("[DEBUG] hayusu test command detected")
+    await exit_hayusu_mode(message.channel)
     return True
 
 
@@ -457,6 +623,8 @@ async def on_ready():
     if not annual_message_task.is_running():
         annual_message_task.start()
 
+    await restore_hayusu_auto_exit()
+
     if has_sent_startup_message:
         return
 
@@ -510,6 +678,9 @@ async def on_message(message: discord.Message):
 
     if message.author.bot:
         print("[DEBUG] ignored bot message")
+        return
+
+    if await handle_hayusu_exit_test_command(message):
         return
 
     if await handle_mode_message(message):
