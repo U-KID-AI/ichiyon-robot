@@ -1,0 +1,1 @@
+"""Ichiyon Robot bot package."""
