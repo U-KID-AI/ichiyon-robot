@@ -3,7 +3,7 @@ import json
 import os
 import random
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import discord
 from discord.ext import commands, tasks
@@ -24,7 +24,68 @@ def get_env_int(name: str, default: int = 0) -> int:
         return default
 
 
+def get_env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+
+    normalized = value.strip().lower()
+    if normalized in ("1", "true", "yes", "on"):
+        return True
+    if normalized in ("0", "false", "no", "off"):
+        return False
+
+    print(f"[WARN] {name} must be true or false")
+    return default
+
+
+def get_app_env() -> str:
+    value = os.getenv("APP_ENV", "production").strip().lower()
+    if value in ("production", "development"):
+        return value
+
+    print("[WARN] APP_ENV must be production or development")
+    return "production"
+
+
+def get_env_str(name: str, default: str) -> str:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return default
+    return value.strip()
+
+
+def get_default_normal_bot_nickname(app_env: str) -> str:
+    if app_env == "development":
+        return "いちよんロボ-dev"
+    return "いちよんロボ"
+
+
+def get_default_bot_role_name(app_env: str) -> str:
+    if app_env == "development":
+        return "いちよんロボ-dev-role"
+    return "いちよんロボ-role"
+
+
+def get_default_hayusu_bot_nickname(app_env: str) -> str:
+    if app_env == "development":
+        return "はゆすロボ-dev"
+    return "はゆすロボ"
+
+
 TOKEN = os.getenv("DISCORD_TOKEN")
+APP_ENV = get_app_env()
+ENABLE_DEV_COMMANDS = get_env_bool("ENABLE_DEV_COMMANDS", False)
+DEVELOPER_USER_ID = get_env_int("DEVELOPER_USER_ID")
+NORMAL_BOT_NICKNAME = get_env_str(
+    "NORMAL_BOT_NICKNAME",
+    get_default_normal_bot_nickname(APP_ENV),
+)
+BOT_ROLE_NAME = get_env_str("BOT_ROLE_NAME", get_default_bot_role_name(APP_ENV))
+HAYUSU_BOT_NICKNAME = get_env_str(
+    "HAYUSU_BOT_NICKNAME",
+    get_default_hayusu_bot_nickname(APP_ENV),
+)
 STARTUP_CHANNEL_ID = get_env_int("STARTUP_CHANNEL_ID")
 SCHEDULE_CHANNEL_ID = get_env_int("SCHEDULE_CHANNEL_ID")
 STATE_FILE = "data/state.json"
@@ -33,12 +94,10 @@ HAYUSU_EXIT_GIF = "assets/transitions/hayusu_exit.gif"
 HAYUSU_AVATAR = "assets/avatar_hayusu.png"
 NORMAL_AVATAR = "assets/avatar_normal.png"
 HAYUSU_MODE_SECONDS = 180
-HAYUSU_TRIGGER_RATE = 122
+HAYUSU_TRIGGER_RATE = 112
 HAYUSU_RESPONSE = "チェルさんこれギャバいっすよ"
 HAYUSU_ENTER_MESSAGE = "# はゆすモード\n\n# 突入"
 HAYUSU_EXIT_MESSAGE = "# はゆすモード\n\n# 終了"
-HAYUSU_NICKNAME = "はゆすロボ"
-NORMAL_NICKNAME = "いちよんロボ"
 END_OF_SERVICE_MESSAGE = "サ終やめませんか？"
 
 intents = discord.Intents.default()
@@ -61,6 +120,21 @@ DEFAULT_STATE = {
 DEFAULT_RESPONSES = {
     "end_of_service_message": END_OF_SERVICE_MESSAGE,
 }
+
+DEV_COMMAND_KEYWORDS = (
+    "はゆすテスト",
+    "はゆす終了テスト",
+    "年次テスト",
+    "6/30テスト",
+    "破壊テスト",
+    "状態リセット",
+    "強制モード変更",
+    "debug",
+    "test",
+    "テスト",
+    "デバッグ",
+    "強制実行",
+)
 
 
 def load_json_file(path: str, default):
@@ -551,6 +625,13 @@ async def update_bot_nickname(
         print("[WARN] Cannot change bot nickname outside a guild")
         return
 
+    await update_bot_nickname_in_guild(guild, nickname)
+
+
+async def update_bot_nickname_in_guild(
+    guild: discord.Guild,
+    nickname: str,
+) -> None:
     member = guild.me
     if member is None and bot.user is not None:
         member = guild.get_member(bot.user.id)
@@ -563,6 +644,66 @@ async def update_bot_nickname(
         await member.edit(nick=nickname)
     except discord.DiscordException as e:
         print(f"[WARN] Failed to change bot nickname: {e}")
+
+
+def can_manage_role(guild: discord.Guild, role: discord.Role) -> bool:
+    if role == guild.default_role or role.managed:
+        return False
+
+    member = guild.me
+    if member is None:
+        return False
+
+    if not member.guild_permissions.manage_roles:
+        return False
+
+    return role < member.top_role
+
+
+async def rename_bot_role_if_needed(
+    guild: discord.Guild,
+    role_name_candidates: Set[str],
+) -> None:
+    member = guild.me
+    if member is None and bot.user is not None:
+        member = guild.get_member(bot.user.id)
+
+    if member is None:
+        print("[WARN] Bot member was not found for role rename")
+        return
+
+    for role in member.roles:
+        if role.name == BOT_ROLE_NAME:
+            continue
+        if role.name not in role_name_candidates:
+            continue
+        if not can_manage_role(guild, role):
+            continue
+
+        try:
+            old_role_name = role.name
+            await role.edit(name=BOT_ROLE_NAME)
+            print(f"[INFO] Renamed bot role in {guild.name}: {old_role_name} -> {BOT_ROLE_NAME}")
+        except discord.DiscordException as e:
+            print(f"[WARN] Failed to rename bot role in {guild.name}: {e}")
+
+
+async def sync_bot_identity_for_guild(guild: discord.Guild) -> None:
+    member = guild.me
+    if member is None and bot.user is not None:
+        member = guild.get_member(bot.user.id)
+
+    role_name_candidates = {NORMAL_BOT_NICKNAME, HAYUSU_BOT_NICKNAME}
+    if member is not None:
+        role_name_candidates.add(member.display_name)
+
+    await update_bot_nickname_in_guild(guild, NORMAL_BOT_NICKNAME)
+    await rename_bot_role_if_needed(guild, role_name_candidates)
+
+
+async def sync_bot_identity_for_all_guilds() -> None:
+    for guild in bot.guilds:
+        await sync_bot_identity_for_guild(guild)
 
 
 async def update_bot_avatar(path: str) -> None:
@@ -585,12 +726,12 @@ async def update_bot_avatar(path: str) -> None:
 
 
 async def apply_hayusu_identity(channel: discord.abc.Messageable) -> None:
-    await update_bot_nickname(channel, HAYUSU_NICKNAME)
+    await update_bot_nickname(channel, HAYUSU_BOT_NICKNAME)
     await update_bot_avatar(HAYUSU_AVATAR)
 
 
 async def apply_normal_identity(channel: discord.abc.Messageable) -> None:
-    await update_bot_nickname(channel, NORMAL_NICKNAME)
+    await update_bot_nickname(channel, NORMAL_BOT_NICKNAME)
     await update_bot_avatar(NORMAL_AVATAR)
 
 
@@ -759,6 +900,52 @@ def get_mention_command_text(message: discord.Message) -> Optional[str]:
     return command_text
 
 
+def is_developer_command_text(command_text: str) -> bool:
+    normalized = command_text.lower()
+    return any(keyword.lower() in normalized for keyword in DEV_COMMAND_KEYWORDS)
+
+
+def is_dev_command_allowed(message: discord.Message) -> bool:
+    if APP_ENV == "production":
+        return False
+
+    if not ENABLE_DEV_COMMANDS:
+        return False
+
+    if DEVELOPER_USER_ID == 0:
+        return False
+
+    return message.author.id == DEVELOPER_USER_ID
+
+
+async def handle_developer_command(
+    message: discord.Message,
+    command_text: Optional[str],
+) -> bool:
+    if command_text is None or not is_developer_command_text(command_text):
+        return False
+
+    if not is_dev_command_allowed(message):
+        print("dev command blocked")
+        return True
+
+    if "はゆす終了テスト" in command_text:
+        print("[DEBUG] hayusu exit test command detected")
+        await exit_hayusu_mode(message.channel)
+        return True
+
+    if "はゆすテスト" in command_text:
+        print("[DEBUG] hayusu test command detected")
+        await enter_hayusu_mode(message.channel, ignore_monthly_limit=True)
+        return True
+
+    if "年次テスト" in command_text or "6/30テスト" in command_text:
+        await message.channel.send(get_end_of_service_message())
+        return True
+
+    return True
+
+
 async def handle_mode_message(message: discord.Message) -> bool:
     if is_mode_transitioning:
         return True
@@ -777,51 +964,6 @@ async def handle_mode_message(message: discord.Message) -> bool:
         await message.channel.send(HAYUSU_RESPONSE)
         return True
 
-    return True
-
-
-async def handle_hayusu_exit_test_command(message: discord.Message) -> bool:
-    command_text = get_mention_command_text(message)
-    if command_text is None:
-        return False
-
-    if "はゆす終了テスト" not in command_text:
-        return False
-
-    print("[DEBUG] hayusu test command detected")
-    await exit_hayusu_mode(message.channel)
-    return True
-
-
-async def handle_hayusu_test_commands(message: discord.Message) -> bool:
-    command_text = get_mention_command_text(message)
-    if command_text is None:
-        return False
-
-    if "はゆす終了テスト" in command_text:
-        print("[DEBUG] hayusu test command detected")
-        state = load_state()
-        if state.get("current_mode") != "normal":
-            await exit_hayusu_mode(message.channel)
-        return True
-
-    if "はゆすテスト" in command_text:
-        print("[DEBUG] hayusu test command detected")
-        await enter_hayusu_mode(message.channel, ignore_monthly_limit=True)
-        return True
-
-    return False
-
-
-async def handle_annual_test_command(message: discord.Message) -> bool:
-    command_text = get_mention_command_text(message)
-    if command_text is None:
-        return False
-
-    if "年次テスト" not in command_text:
-        return False
-
-    await message.channel.send(get_end_of_service_message())
     return True
 
 
@@ -872,6 +1014,14 @@ async def handle_word_response(message: discord.Message) -> bool:
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
+    print(f"APP_ENV={APP_ENV} ENABLE_DEV_COMMANDS={ENABLE_DEV_COMMANDS}")
+    print(
+        "NORMAL_BOT_NICKNAME="
+        f"{NORMAL_BOT_NICKNAME} BOT_ROLE_NAME={BOT_ROLE_NAME} "
+        f"HAYUSU_BOT_NICKNAME={HAYUSU_BOT_NICKNAME}"
+    )
+
+    await sync_bot_identity_for_all_guilds()
 
     if not annual_message_task.is_running():
         annual_message_task.start()
@@ -881,6 +1031,7 @@ async def on_ready():
 
 @bot.event
 async def on_guild_join(guild: discord.Guild):
+    await sync_bot_identity_for_guild(guild)
     channel = get_guild_startup_channel(guild)
     if channel is not None:
         await send_startup_message(channel)
@@ -907,16 +1058,11 @@ async def on_message(message: discord.Message):
         print("[DEBUG] ignored bot message")
         return
 
-    if await handle_hayusu_exit_test_command(message):
+    command_text = get_mention_command_text(message)
+    if await handle_developer_command(message, command_text):
         return
 
     if await handle_mode_message(message):
-        return
-
-    if await handle_hayusu_test_commands(message):
-        return
-
-    if await handle_annual_test_command(message):
         return
 
     if await maybe_start_hayusu_mode(message):
