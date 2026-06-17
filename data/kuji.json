@@ -4,6 +4,7 @@
       "id": "kuji_001",
       "name": "大吉",
       "message": "31.8/32月が――来る…！",
+      "image_path": "",
       "weight": 1,
       "enabled": true
     },
@@ -11,6 +12,7 @@
       "id": "kuji_002",
       "name": "中吉",
       "message": "脚がよく回る、正面の机ラッキーアイテムはにんじんだよ",
+      "image_path": "",
       "weight": 1,
       "enabled": true
     },
@@ -18,6 +20,7 @@
       "id": "kuji_003",
       "name": "小吉",
       "message": "人工衛星食",
+      "image_path": "",
       "weight": 1,
       "enabled": true
     },
@@ -25,6 +28,7 @@
       "id": "kuji_004",
       "name": "吉",
       "message": "思い立ったが吉日すぎる",
+      "image_path": "",
       "weight": 1,
       "enabled": true
     },
@@ -32,6 +36,7 @@
       "id": "kuji_005",
       "name": "末吉",
       "message": "三干し",
+      "image_path": "",
       "weight": 1,
       "enabled": true
     },
@@ -39,6 +44,7 @@
       "id": "kuji_006",
       "name": "凶",
       "message": "思い立ったが凶日",
+      "image_path": "",
       "weight": 1,
       "enabled": true
     },
@@ -46,6 +52,7 @@
       "id": "kuji_007",
       "name": "大凶",
       "message": "二度と来るな",
+      "image_path": "",
       "weight": 1,
       "enabled": true
     },
@@ -53,6 +60,23 @@
       "id": "kuji_008",
       "name": "はゆす吉",
       "message": "チェルさんこれギャバいっすよ",
+      "image_path": "",
+      "weight": 1,
+      "enabled": true
+    },
+    {
+      "id": "kuji_009",
+      "name": "大凶",
+      "message": "",
+      "image_path": "assets/images/kuji/kuji_009_20260617200911811578_2025-06-21_201743.png",
+      "weight": 1,
+      "enabled": true
+    },
+    {
+      "id": "kuji_010",
+      "name": "大吉",
+      "message": "画像文字くじ",
+      "image_path": "assets/images/kuji/kuji_010_20260617201607503275_2026-02-11_144347.png",
       "weight": 1,
       "enabled": true
     }

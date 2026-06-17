@@ -22,14 +22,22 @@ def normalize_kuji_data(data) -> Tuple[Dict, bool]:
         result_id = result.get("id")
         name = result.get("name")
         message = result.get("message")
+        image_path = result.get("image_path", "")
         weight = result.get("weight", 1)
         enabled = result.get("enabled", True)
+
         if not isinstance(result_id, str) or not result_id:
             result_id = f"kuji_{index:03d}"
             changed = True
-        if not isinstance(name, str) or not isinstance(message, str):
+        if not isinstance(name, str):
+            name = ""
             changed = True
-            continue
+        if not isinstance(message, str):
+            message = ""
+            changed = True
+        if not isinstance(image_path, str):
+            image_path = ""
+            changed = True
         if not isinstance(weight, int) or weight < 1:
             weight = 1
             changed = True
@@ -42,6 +50,7 @@ def normalize_kuji_data(data) -> Tuple[Dict, bool]:
                 "id": result_id,
                 "name": name,
                 "message": message,
+                "image_path": image_path,
                 "weight": weight,
                 "enabled": enabled,
             }
@@ -51,7 +60,7 @@ def normalize_kuji_data(data) -> Tuple[Dict, bool]:
     return normalized_data, changed or data != normalized_data
 
 
-def load_kuji() -> dict:
+def load_kuji() -> Dict:
     kuji_data = load_json_file("data/kuji.json", {"results": []})
     normalized_data, changed = normalize_kuji_data(kuji_data)
     if changed:
@@ -60,22 +69,38 @@ def load_kuji() -> dict:
     return normalized_data
 
 
-def draw_kuji_message() -> str:
+def build_kuji_text(result: Dict) -> str:
+    parts = []
+    name = result.get("name", "")
+    message = result.get("message", "")
+    if name:
+        parts.append(f"🎲 **{name}**")
+    if message:
+        parts.append(message)
+    return "\n".join(parts)
+
+
+def draw_kuji_message() -> Dict:
     kuji_data = load_kuji()
     results = [
         result
         for result in kuji_data.get("results", [])
         if result.get("enabled") is True
+        and (result.get("name") or result.get("message") or result.get("image_path"))
     ]
     if not results:
-        return "くじが入っていません"
+        return {"text": "くじが入っていません", "image_path": ""}
 
-    weights = [result.get("weight", 1) for result in results]
+    weights = []
+    for result in results:
+        weight = result.get("weight", 1)
+        weights.append(weight if isinstance(weight, int) and weight >= 1 else 1)
+
     result = random.choices(results, weights=weights, k=1)[0]
     if not isinstance(result, dict):
-        return "くじデータが読み込めませんでした"
+        return {"text": "くじデータが読み込めませんでした", "image_path": ""}
 
-    name = result.get("name", "結果不明")
-    result_message = result.get("message", "")
-
-    return f"🎲 **{name}**\n{result_message}"
+    return {
+        "text": build_kuji_text(result),
+        "image_path": result.get("image_path", ""),
+    }

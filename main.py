@@ -4,7 +4,7 @@ from discord.ext import commands, tasks
 from bot import config, hayusu, messages, scheduler
 from bot.dev_guard import handle_developer_command
 from bot.kuji import draw_kuji_message
-from bot.ng_words import load_ng_words
+from bot.ng_words import contains_ng_word
 from bot.quotes import draw_quote_message
 from bot.reactions import handle_word_response
 
@@ -24,17 +24,22 @@ async def handle_mention_message(message: discord.Message) -> bool:
     if bot.user is None or bot.user not in message.mentions:
         return False
 
-    ng_words = load_ng_words()
-    if any(ng_word in message.content for ng_word in ng_words):
-        return True
-
     if "くじ" in message.content:
-        await message.channel.send(draw_kuji_message())
+        kuji_result = draw_kuji_message()
+        await messages.send_text_or_image(
+            message.channel,
+            kuji_result.get("text", ""),
+            kuji_result.get("image_path", ""),
+        )
         return True
 
     quote = draw_quote_message()
     if quote is not None:
-        await message.channel.send(quote)
+        await messages.send_text_or_image(
+            message.channel,
+            quote.get("text", ""),
+            quote.get("image_path", ""),
+        )
     return True
 
 
@@ -87,6 +92,10 @@ async def on_message(message: discord.Message):
 
     command_text = messages.get_mention_command_text(message)
     if await handle_developer_command(message, command_text):
+        return
+
+    if contains_ng_word(message.content):
+        print("[DEBUG] ignored by ng word")
         return
 
     if await hayusu.handle_mode_message(message):

@@ -167,6 +167,33 @@ button:hover {
   color: #657286;
 }
 
+.error {
+  margin: 0 0 16px;
+  border: 1px solid #f2b8b5;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #fff0ee;
+  color: #a32018;
+  font-weight: 700;
+}
+
+.image-field {
+  display: grid;
+  gap: 8px;
+  color: #4b5563;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.image-preview {
+  width: min(240px, 100%);
+  max-height: 180px;
+  border: 1px solid #d9dee7;
+  border-radius: 6px;
+  object-fit: contain;
+  background: #ffffff;
+}
+
 @media (max-width: 640px) {
   .topbar,
   .quote-meta,

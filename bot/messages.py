@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import Optional, Set
 
 import discord
@@ -7,6 +8,9 @@ from bot import config
 from bot.data_store import get_startup_message
 
 _bot = None
+ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+IMAGE_ROOT = (PROJECT_ROOT / "assets" / "images").resolve()
 
 
 def configure(bot) -> None:
@@ -23,6 +27,56 @@ def get_bot():
 async def send_optional_gif(channel: discord.abc.Messageable, path: str) -> None:
     if os.path.exists(path):
         await channel.send(file=discord.File(path))
+
+
+def resolve_safe_image_path(image_path: str) -> Optional[Path]:
+    if not image_path:
+        return None
+
+    path = Path(image_path)
+    if path.is_absolute() or path.suffix.lower() not in ALLOWED_IMAGE_EXTENSIONS:
+        print(f"[WARN] Image path is not allowed: {image_path}")
+        return None
+
+    resolved_path = (PROJECT_ROOT / path).resolve()
+    try:
+        resolved_path.relative_to(IMAGE_ROOT)
+    except ValueError:
+        print(f"[WARN] Image path is outside assets/images: {image_path}")
+        return None
+
+    if not resolved_path.exists() or not resolved_path.is_file():
+        print(f"[WARN] Image file not found: {image_path}")
+        return None
+
+    return resolved_path
+
+
+async def send_text_or_image(
+    channel_or_message,
+    text: Optional[str],
+    image_path: Optional[str],
+) -> bool:
+    content = (text or "").strip()
+    normalized_image_path = (image_path or "").strip()
+    if not content and not normalized_image_path:
+        return False
+
+    target = getattr(channel_or_message, "channel", channel_or_message)
+    image_file_path = resolve_safe_image_path(normalized_image_path)
+
+    if image_file_path is not None:
+        await target.send(
+            content=content or None,
+            file=discord.File(str(image_file_path)),
+        )
+        return True
+
+    if content:
+        await target.send(content)
+        return True
+
+    return False
 
 
 async def send_startup_message(channel: discord.abc.Messageable) -> None:

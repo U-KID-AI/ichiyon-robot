@@ -4,12 +4,20 @@
 {% block heading %}名言管理{% endblock %}
 
 {% block content %}
+  {% if error %}
+    <p class="error">{{ error }}</p>
+  {% endif %}
+
   <section class="panel">
     <h2>名言を追加</h2>
-    <form class="quote-form" method="post" action="/quotes">
+    <form class="quote-form" method="post" action="/quotes" enctype="multipart/form-data">
       <label>
         本文
-        <textarea name="text" rows="4" required></textarea>
+        <textarea name="text" rows="4"></textarea>
+      </label>
+      <label>
+        画像
+        <input type="file" name="image" accept=".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp">
       </label>
       <label class="check-row">
         <input type="checkbox" name="enabled" checked>
@@ -24,7 +32,7 @@
     <div class="quote-list">
       {% for quote in quotes %}
         <article class="quote-item">
-          <form class="quote-form" method="post" action="/quotes/{{ quote.id }}/edit">
+          <form class="quote-form" method="post" action="/quotes/{{ quote.id }}/edit" enctype="multipart/form-data">
             <div class="quote-meta">
               <span>{{ quote.id }}</span>
               {% if quote.enabled %}
@@ -35,7 +43,23 @@
             </div>
             <label>
               本文
-              <textarea name="text" rows="4" required>{{ quote.text }}</textarea>
+              <textarea name="text" rows="4">{{ quote.text }}</textarea>
+            </label>
+            <div class="image-field">
+              <span>現在の画像</span>
+              {% if quote.image_path %}
+                <img class="image-preview" src="/{{ quote.image_path }}" alt="">
+                <label class="check-row">
+                  <input type="checkbox" name="delete_image">
+                  画像だけ削除
+                </label>
+              {% else %}
+                <p class="empty">画像なし</p>
+              {% endif %}
+            </div>
+            <label>
+              画像を差し替え
+              <input type="file" name="image" accept=".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp">
             </label>
             <div class="actions">
               <label class="check-row">

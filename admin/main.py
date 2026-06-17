@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -17,9 +17,16 @@ REACTIONS_FILE = BASE_DIR / "data" / "reactions.json"
 NG_WORDS_FILE = BASE_DIR / "data" / "ng_words.json"
 KUJI_FILE = BASE_DIR / "data" / "kuji.json"
 BACKUP_DIR = BASE_DIR / "data" / "backups"
+IMAGE_ROOT = BASE_DIR / "assets" / "images"
+ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+MAX_IMAGE_SIZE = 8 * 1024 * 1024
+
+for image_category in ("quotes", "kuji", "reactions"):
+    (IMAGE_ROOT / image_category).mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="いちよんロボ 管理画面")
 app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent / "static"), name="static")
+app.mount("/assets", StaticFiles(directory=BASE_DIR / "assets"), name="assets")
 templates = Jinja2Templates(directory=Path(__file__).resolve().parent / "templates")
 
 
@@ -76,12 +83,103 @@ def save_kuji_data(data: dict) -> None:
         f.write("\n")
 
 
+def normalize_image_path(value) -> Tuple[str, bool]:
+    if isinstance(value, str):
+        return value, False
+    return "", True
+
+
+def safe_filename_stem(filename: str) -> str:
+    stem = Path(filename).stem
+    stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", stem).strip("._")
+    return stem or "image"
+
+
+async def save_uploaded_image(
+    upload: Optional[UploadFile],
+    item_id: str,
+    category: str,
+) -> Tuple[Optional[str], Optional[str]]:
+    if upload is None or not upload.filename:
+        return None, None
+
+    suffix = Path(upload.filename).suffix.lower()
+    if suffix not in ALLOWED_IMAGE_EXTENSIONS:
+        return None, "対応していない画像形式です。"
+
+    content = await upload.read()
+    if len(content) > MAX_IMAGE_SIZE:
+        return None, "画像サイズは8MB以下にしてください。"
+    if not content:
+        return None, "画像ファイルが空です。"
+
+    target_dir = IMAGE_ROOT / category
+    target_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+    filename = f"{item_id}_{timestamp}_{safe_filename_stem(upload.filename)}{suffix}"
+    target_path = target_dir / filename
+    target_path.write_bytes(content)
+    return target_path.relative_to(BASE_DIR).as_posix(), None
+
+
+def resolve_managed_image_path(image_path: str) -> Optional[Path]:
+    if not image_path:
+        return None
+
+    path = Path(image_path)
+    if path.is_absolute() or path.suffix.lower() not in ALLOWED_IMAGE_EXTENSIONS:
+        return None
+
+    resolved_path = (BASE_DIR / path).resolve()
+    try:
+        resolved_path.relative_to(IMAGE_ROOT.resolve())
+    except ValueError:
+        return None
+
+    return resolved_path
+
+
+def image_path_is_referenced(image_path: str, exclude_id: Optional[str] = None) -> bool:
+    if not image_path:
+        return False
+
+    datasets = (
+        load_quotes_data().get("quotes", []),
+        load_reactions_data().get("reactions", []),
+        load_kuji_data().get("results", []),
+    )
+    for items in datasets:
+        for item in items:
+            if item.get("id") == exclude_id:
+                continue
+            if item.get("image_path") == image_path:
+                return True
+    return False
+
+
+def delete_image_if_unreferenced(
+    image_path: str,
+    exclude_id: Optional[str] = None,
+) -> None:
+    resolved_path = resolve_managed_image_path(image_path)
+    if resolved_path is None or not resolved_path.exists():
+        return
+    if image_path_is_referenced(image_path, exclude_id):
+        return
+
+    try:
+        resolved_path.unlink()
+    except OSError as e:
+        print(f"[WARN] Failed to delete image {image_path}: {e}")
+
+
 def normalize_quotes_data(data) -> Tuple[Dict, bool]:
     if isinstance(data, list):
         quotes = [
             {
                 "id": f"quote_{index:03d}",
                 "text": quote,
+                "image_path": "",
                 "enabled": True,
             }
             for index, quote in enumerate(data, start=1)
@@ -105,18 +203,28 @@ def normalize_quotes_data(data) -> Tuple[Dict, bool]:
 
         quote_id = quote.get("id")
         text = quote.get("text")
+        image_path, image_path_changed = normalize_image_path(quote.get("image_path", ""))
         enabled = quote.get("enabled", True)
         if not isinstance(quote_id, str) or not quote_id:
             quote_id = f"quote_{index:03d}"
             changed = True
         if not isinstance(text, str):
+            text = ""
             changed = True
-            continue
+        if image_path_changed:
+            changed = True
         if not isinstance(enabled, bool):
             enabled = True
             changed = True
 
-        normalized_quotes.append({"id": quote_id, "text": text, "enabled": enabled})
+        normalized_quotes.append(
+            {
+                "id": quote_id,
+                "text": text,
+                "image_path": image_path,
+                "enabled": enabled,
+            }
+        )
 
     normalized_data = {"quotes": normalized_quotes}
     return normalized_data, changed or data != normalized_data
@@ -148,14 +256,22 @@ def normalize_reactions_data(data) -> Tuple[Dict, bool]:
         reaction_id = reaction.get("id")
         trigger = reaction.get("trigger")
         response = reaction.get("response")
+        image_path, image_path_changed = normalize_image_path(
+            reaction.get("image_path", "")
+        )
         match_type = reaction.get("match_type", "contains")
         enabled = reaction.get("enabled", True)
         if not isinstance(reaction_id, str) or not reaction_id:
             reaction_id = f"reaction_{index:03d}"
             changed = True
-        if not isinstance(trigger, str) or not isinstance(response, str):
+        if not isinstance(trigger, str):
             changed = True
             continue
+        if not isinstance(response, str):
+            response = ""
+            changed = True
+        if image_path_changed:
+            changed = True
         if match_type != "contains":
             match_type = "contains"
             changed = True
@@ -168,6 +284,7 @@ def normalize_reactions_data(data) -> Tuple[Dict, bool]:
                 "id": reaction_id,
                 "trigger": trigger,
                 "response": response,
+                "image_path": image_path,
                 "match_type": match_type,
                 "enabled": enabled,
             }
@@ -281,14 +398,20 @@ def normalize_kuji_data(data) -> Tuple[Dict, bool]:
         result_id = result.get("id")
         name = result.get("name")
         message = result.get("message")
+        image_path, image_path_changed = normalize_image_path(result.get("image_path", ""))
         weight, weight_changed = normalize_weight(result.get("weight", 1))
         enabled = result.get("enabled", True)
         if not isinstance(result_id, str) or not result_id:
             result_id = f"kuji_{index:03d}"
             changed = True
-        if not isinstance(name, str) or not isinstance(message, str):
+        if not isinstance(name, str):
+            name = ""
             changed = True
-            continue
+        if not isinstance(message, str):
+            message = ""
+            changed = True
+        if image_path_changed:
+            changed = True
         if weight_changed:
             changed = True
         if not isinstance(enabled, bool):
@@ -300,6 +423,7 @@ def normalize_kuji_data(data) -> Tuple[Dict, bool]:
                 "id": result_id,
                 "name": name,
                 "message": message,
+                "image_path": image_path,
                 "weight": weight,
                 "enabled": enabled,
             }
@@ -342,14 +466,28 @@ async def quotes_page(request: Request):
 
 
 @app.post("/quotes")
-async def create_quote(text: str = Form(...), enabled: Optional[str] = Form(None)):
+async def create_quote(
+    request: Request,
+    text: str = Form(""),
+    enabled: Optional[str] = Form(None),
+    image: Optional[UploadFile] = File(None),
+):
     data = load_quotes_data()
     text = text.strip()
-    if text:
+    quote_id = build_next_id(data["quotes"], "quote")
+    image_path, error = await save_uploaded_image(image, quote_id, "quotes")
+    if error is not None:
+        return templates.TemplateResponse(
+            request,
+            "quotes.html",
+            {"quotes": data["quotes"], "error": error},
+        )
+    if text or image_path:
         data["quotes"].append(
             {
-                "id": build_next_id(data["quotes"], "quote"),
+                "id": quote_id,
                 "text": text,
+                "image_path": image_path or "",
                 "enabled": enabled == "on",
             }
         )
@@ -359,16 +497,34 @@ async def create_quote(text: str = Form(...), enabled: Optional[str] = Form(None
 
 @app.post("/quotes/{quote_id}/edit")
 async def update_quote(
+    request: Request,
     quote_id: str,
-    text: str = Form(...),
+    text: str = Form(""),
     enabled: Optional[str] = Form(None),
+    image: Optional[UploadFile] = File(None),
+    delete_image: Optional[str] = Form(None),
 ):
     data = load_quotes_data()
     for quote in data["quotes"]:
         if quote["id"] == quote_id:
+            old_image_path = quote.get("image_path", "")
+            new_image_path, error = await save_uploaded_image(image, quote_id, "quotes")
+            if error is not None:
+                return templates.TemplateResponse(
+                    request,
+                    "quotes.html",
+                    {"quotes": data["quotes"], "error": error},
+                )
+
             quote["text"] = text.strip()
+            if delete_image == "on":
+                quote["image_path"] = ""
+            if new_image_path is not None:
+                quote["image_path"] = new_image_path
             quote["enabled"] = enabled == "on"
             save_quotes_data(data)
+            if delete_image == "on" or new_image_path is not None:
+                delete_image_if_unreferenced(old_image_path, quote_id)
             break
     return RedirectResponse(url="/quotes", status_code=303)
 
@@ -376,10 +532,16 @@ async def update_quote(
 @app.post("/quotes/{quote_id}/delete")
 async def delete_quote(quote_id: str):
     data = load_quotes_data()
+    old_image_path = ""
+    for quote in data["quotes"]:
+        if quote["id"] == quote_id:
+            old_image_path = quote.get("image_path", "")
+            break
     next_quotes = [quote for quote in data["quotes"] if quote["id"] != quote_id]
     if len(next_quotes) != len(data["quotes"]):
         data["quotes"] = next_quotes
         save_quotes_data(data)
+        delete_image_if_unreferenced(old_image_path, quote_id)
     return RedirectResponse(url="/quotes", status_code=303)
 
 
@@ -395,20 +557,31 @@ async def reactions_page(request: Request):
 
 @app.post("/reactions")
 async def create_reaction(
+    request: Request,
     trigger: str = Form(...),
-    response: str = Form(...),
+    response: str = Form(""),
     match_type: str = Form("contains"),
     enabled: Optional[str] = Form(None),
+    image: Optional[UploadFile] = File(None),
 ):
     data = load_reactions_data()
     trigger = trigger.strip()
     response = response.strip()
-    if trigger and response:
+    reaction_id = build_next_id(data["reactions"], "reaction")
+    image_path, error = await save_uploaded_image(image, reaction_id, "reactions")
+    if error is not None:
+        return templates.TemplateResponse(
+            request,
+            "reactions.html",
+            {"reactions": data["reactions"], "error": error},
+        )
+    if trigger and (response or image_path):
         data["reactions"].append(
             {
-                "id": build_next_id(data["reactions"], "reaction"),
+                "id": reaction_id,
                 "trigger": trigger,
                 "response": response,
+                "image_path": image_path or "",
                 "match_type": "contains" if match_type != "contains" else match_type,
                 "enabled": enabled == "on",
             }
@@ -419,20 +592,42 @@ async def create_reaction(
 
 @app.post("/reactions/{reaction_id}/edit")
 async def update_reaction(
+    request: Request,
     reaction_id: str,
     trigger: str = Form(...),
-    response: str = Form(...),
+    response: str = Form(""),
     match_type: str = Form("contains"),
     enabled: Optional[str] = Form(None),
+    image: Optional[UploadFile] = File(None),
+    delete_image: Optional[str] = Form(None),
 ):
     data = load_reactions_data()
     for reaction in data["reactions"]:
         if reaction["id"] == reaction_id:
+            old_image_path = reaction.get("image_path", "")
+            new_image_path, error = await save_uploaded_image(
+                image,
+                reaction_id,
+                "reactions",
+            )
+            if error is not None:
+                return templates.TemplateResponse(
+                    request,
+                    "reactions.html",
+                    {"reactions": data["reactions"], "error": error},
+                )
+
             reaction["trigger"] = trigger.strip()
             reaction["response"] = response.strip()
+            if delete_image == "on":
+                reaction["image_path"] = ""
+            if new_image_path is not None:
+                reaction["image_path"] = new_image_path
             reaction["match_type"] = "contains" if match_type != "contains" else match_type
             reaction["enabled"] = enabled == "on"
             save_reactions_data(data)
+            if delete_image == "on" or new_image_path is not None:
+                delete_image_if_unreferenced(old_image_path, reaction_id)
             break
     return RedirectResponse(url="/reactions", status_code=303)
 
@@ -440,12 +635,18 @@ async def update_reaction(
 @app.post("/reactions/{reaction_id}/delete")
 async def delete_reaction(reaction_id: str):
     data = load_reactions_data()
+    old_image_path = ""
+    for reaction in data["reactions"]:
+        if reaction["id"] == reaction_id:
+            old_image_path = reaction.get("image_path", "")
+            break
     next_reactions = [
         reaction for reaction in data["reactions"] if reaction["id"] != reaction_id
     ]
     if len(next_reactions) != len(data["reactions"]):
         data["reactions"] = next_reactions
         save_reactions_data(data)
+        delete_image_if_unreferenced(old_image_path, reaction_id)
     return RedirectResponse(url="/reactions", status_code=303)
 
 
@@ -513,21 +714,32 @@ async def kuji_page(request: Request):
 
 @app.post("/kuji")
 async def create_kuji_result(
-    name: str = Form(...),
-    message: str = Form(...),
+    request: Request,
+    name: str = Form(""),
+    message: str = Form(""),
     weight: str = Form("1"),
     enabled: Optional[str] = Form(None),
+    image: Optional[UploadFile] = File(None),
 ):
     data = load_kuji_data()
     name = name.strip()
     message = message.strip()
     weight, _ = normalize_weight(weight)
-    if name and message:
+    result_id = build_next_id(data["results"], "kuji")
+    image_path, error = await save_uploaded_image(image, result_id, "kuji")
+    if error is not None:
+        return templates.TemplateResponse(
+            request,
+            "kuji.html",
+            {"results": data["results"], "error": error},
+        )
+    if name or message or image_path:
         data["results"].append(
             {
-                "id": build_next_id(data["results"], "kuji"),
+                "id": result_id,
                 "name": name,
                 "message": message,
+                "image_path": image_path or "",
                 "weight": weight,
                 "enabled": enabled == "on",
             }
@@ -538,21 +750,39 @@ async def create_kuji_result(
 
 @app.post("/kuji/{result_id}/edit")
 async def update_kuji_result(
+    request: Request,
     result_id: str,
-    name: str = Form(...),
-    message: str = Form(...),
+    name: str = Form(""),
+    message: str = Form(""),
     weight: str = Form("1"),
     enabled: Optional[str] = Form(None),
+    image: Optional[UploadFile] = File(None),
+    delete_image: Optional[str] = Form(None),
 ):
     data = load_kuji_data()
     weight, _ = normalize_weight(weight)
     for result in data["results"]:
         if result["id"] == result_id:
+            old_image_path = result.get("image_path", "")
+            new_image_path, error = await save_uploaded_image(image, result_id, "kuji")
+            if error is not None:
+                return templates.TemplateResponse(
+                    request,
+                    "kuji.html",
+                    {"results": data["results"], "error": error},
+                )
+
             result["name"] = name.strip()
             result["message"] = message.strip()
+            if delete_image == "on":
+                result["image_path"] = ""
+            if new_image_path is not None:
+                result["image_path"] = new_image_path
             result["weight"] = weight
             result["enabled"] = enabled == "on"
             save_kuji_data(data)
+            if delete_image == "on" or new_image_path is not None:
+                delete_image_if_unreferenced(old_image_path, result_id)
             break
     return RedirectResponse(url="/kuji", status_code=303)
 
@@ -560,8 +790,14 @@ async def update_kuji_result(
 @app.post("/kuji/{result_id}/delete")
 async def delete_kuji_result(result_id: str):
     data = load_kuji_data()
+    old_image_path = ""
+    for result in data["results"]:
+        if result["id"] == result_id:
+            old_image_path = result.get("image_path", "")
+            break
     next_results = [result for result in data["results"] if result["id"] != result_id]
     if len(next_results) != len(data["results"]):
         data["results"] = next_results
         save_kuji_data(data)
+        delete_image_if_unreferenced(old_image_path, result_id)
     return RedirectResponse(url="/kuji", status_code=303)

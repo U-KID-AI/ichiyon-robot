@@ -4,16 +4,24 @@
 {% block heading %}自動反応管理{% endblock %}
 
 {% block content %}
+  {% if error %}
+    <p class="error">{{ error }}</p>
+  {% endif %}
+
   <section class="panel">
     <h2>自動反応を追加</h2>
-    <form class="quote-form" method="post" action="/reactions">
+    <form class="quote-form" method="post" action="/reactions" enctype="multipart/form-data">
       <label>
         反応する言葉
         <input name="trigger" required>
       </label>
       <label>
         返答
-        <textarea name="response" rows="3" required></textarea>
+        <textarea name="response" rows="3"></textarea>
+      </label>
+      <label>
+        画像
+        <input type="file" name="image" accept=".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp">
       </label>
       <label>
         判定方法
@@ -34,7 +42,7 @@
     <div class="quote-list">
       {% for reaction in reactions %}
         <article class="quote-item">
-          <form class="quote-form" method="post" action="/reactions/{{ reaction.id }}/edit">
+          <form class="quote-form" method="post" action="/reactions/{{ reaction.id }}/edit" enctype="multipart/form-data">
             <div class="quote-meta">
               <span>{{ reaction.id }}</span>
               {% if reaction.enabled %}
@@ -49,7 +57,23 @@
             </label>
             <label>
               返答
-              <textarea name="response" rows="3" required>{{ reaction.response }}</textarea>
+              <textarea name="response" rows="3">{{ reaction.response }}</textarea>
+            </label>
+            <div class="image-field">
+              <span>現在の画像</span>
+              {% if reaction.image_path %}
+                <img class="image-preview" src="/{{ reaction.image_path }}" alt="">
+                <label class="check-row">
+                  <input type="checkbox" name="delete_image">
+                  画像だけ削除
+                </label>
+              {% else %}
+                <p class="empty">画像なし</p>
+              {% endif %}
+            </div>
+            <label>
+              画像を差し替え
+              <input type="file" name="image" accept=".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp">
             </label>
             <label>
               判定方法

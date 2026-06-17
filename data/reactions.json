@@ -4,6 +4,7 @@
       "id": "reaction_001",
       "trigger": "紫",
       "response": "B01010",
+      "image_path": "",
       "match_type": "contains",
       "enabled": true
     },
@@ -11,6 +12,7 @@
       "id": "reaction_002",
       "trigger": "ナツル",
       "response": "ナツルちゃんかわゆい",
+      "image_path": "",
       "match_type": "contains",
       "enabled": true
     },
@@ -18,6 +20,23 @@
       "id": "reaction_003",
       "trigger": "はいロボ",
       "response": "プ",
+      "image_path": "",
+      "match_type": "contains",
+      "enabled": true
+    },
+    {
+      "id": "reaction_004",
+      "trigger": "画像単体テスト",
+      "response": "",
+      "image_path": "assets/images/reactions/reaction_004_20260617200732576005_2026-03-06_190853.png",
+      "match_type": "contains",
+      "enabled": true
+    },
+    {
+      "id": "reaction_005",
+      "trigger": "画像文字テスト",
+      "response": "チェス",
+      "image_path": "assets/images/reactions/reaction_005_20260617200833820456_2026-05-16_173135.png",
       "match_type": "contains",
       "enabled": true
     }

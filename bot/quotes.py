@@ -10,6 +10,7 @@ def normalize_quotes_data(data) -> Tuple[Dict, bool]:
             {
                 "id": f"quote_{index:03d}",
                 "text": quote,
+                "image_path": "",
                 "enabled": True,
             }
             for index, quote in enumerate(data, start=1)
@@ -33,13 +34,17 @@ def normalize_quotes_data(data) -> Tuple[Dict, bool]:
 
         quote_id = quote.get("id")
         text = quote.get("text")
+        image_path = quote.get("image_path", "")
         enabled = quote.get("enabled", True)
         if not isinstance(quote_id, str) or not quote_id:
             quote_id = f"quote_{index:03d}"
             changed = True
         if not isinstance(text, str):
+            text = ""
             changed = True
-            continue
+        if not isinstance(image_path, str):
+            image_path = ""
+            changed = True
         if not isinstance(enabled, bool):
             enabled = True
             changed = True
@@ -48,6 +53,7 @@ def normalize_quotes_data(data) -> Tuple[Dict, bool]:
             {
                 "id": quote_id,
                 "text": text,
+                "image_path": image_path,
                 "enabled": enabled,
             }
         )
@@ -56,7 +62,7 @@ def normalize_quotes_data(data) -> Tuple[Dict, bool]:
     return normalized_data, changed or data != normalized_data
 
 
-def load_quotes() -> List[str]:
+def load_quotes() -> List[Dict]:
     quotes_data = load_json_file("data/quotes.json", {"quotes": []})
     normalized_data, changed = normalize_quotes_data(quotes_data)
     if changed:
@@ -64,13 +70,14 @@ def load_quotes() -> List[str]:
         save_json_file("data/quotes.json", normalized_data)
 
     return [
-        quote["text"]
+        quote
         for quote in normalized_data["quotes"]
         if quote.get("enabled") is True
+        and (quote.get("text") or quote.get("image_path"))
     ]
 
 
-def draw_quote_message() -> Optional[str]:
+def draw_quote_message() -> Optional[Dict]:
     quotes = load_quotes()
     if not quotes:
         return None

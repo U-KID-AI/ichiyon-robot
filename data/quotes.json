@@ -3,16 +3,31 @@
     {
       "id": "quote_001",
       "text": "任せておけい！\n我が太刀の前にひれ伏せ！\nでぇぇぇやぁぁぁ！",
+      "image_path": "",
       "enabled": true
     },
     {
       "id": "quote_002",
       "text": "みんなでへびだっぴするぞ！！！",
+      "image_path": "",
       "enabled": true
     },
     {
       "id": "quote_003",
       "text": "はいはい！\n私が殺人ガンスで～す！！",
+      "image_path": "",
+      "enabled": true
+    },
+    {
+      "id": "quote_004",
+      "text": "",
+      "image_path": "assets/images/quotes/quote_004_20260617200627554429_2026-05-25_005541.png",
+      "enabled": true
+    },
+    {
+      "id": "quote_005",
+      "text": "ゲイ",
+      "image_path": "assets/images/quotes/quote_005_20260617200650641700_2026-05-31_134650.png",
       "enabled": true
     }
   ]

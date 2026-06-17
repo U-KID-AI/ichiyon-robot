@@ -78,3 +78,16 @@ def load_ng_words() -> List[str]:
         for word_item in normalized_data["words"]
         if word_item.get("enabled") is True
     ]
+
+
+def normalize_ng_match_text(text: str) -> str:
+    return "".join(text.replace("　", " ").split()).lower()
+
+
+def contains_ng_word(content: str) -> bool:
+    normalized_content = normalize_ng_match_text(content)
+    for ng_word in load_ng_words():
+        normalized_ng_word = normalize_ng_match_text(ng_word)
+        if normalized_ng_word and normalized_ng_word in normalized_content:
+            return True
+    return False
