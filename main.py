@@ -47,7 +47,6 @@ intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-has_sent_startup_message = False
 is_mode_transitioning = False
 hayusu_auto_exit_task = None
 
@@ -229,6 +228,14 @@ def get_end_of_service_message() -> str:
     return END_OF_SERVICE_MESSAGE
 
 
+def get_startup_message() -> str | None:
+    responses = load_responses()
+    message = responses.get("startup_message")
+    if isinstance(message, str) and message:
+        return message
+    return None
+
+
 def get_schedule_channel() -> discord.abc.Messageable | None:
     if SCHEDULE_CHANNEL_ID == 0:
         print("[WARN] SCHEDULE_CHANNEL_ID is not set")
@@ -279,6 +286,29 @@ async def maybe_send_annual_message() -> None:
 async def send_optional_gif(channel: discord.abc.Messageable, path: str) -> None:
     if os.path.exists(path):
         await channel.send(file=discord.File(path))
+
+
+async def send_startup_message(channel: discord.abc.Messageable) -> None:
+    startup_message = get_startup_message()
+    if startup_message is not None:
+        await channel.send(startup_message)
+
+
+def can_send_to_channel(guild: discord.Guild, channel: discord.TextChannel | None) -> bool:
+    if channel is None or guild.me is None:
+        return False
+    return channel.permissions_for(guild.me).send_messages
+
+
+def get_guild_startup_channel(guild: discord.Guild) -> discord.TextChannel | None:
+    if can_send_to_channel(guild, guild.system_channel):
+        return guild.system_channel
+
+    for text_channel in guild.text_channels:
+        if can_send_to_channel(guild, text_channel):
+            return text_channel
+
+    return None
 
 
 def get_channel_guild(channel: discord.abc.Messageable) -> discord.Guild | None:
@@ -484,6 +514,7 @@ async def exit_hayusu_mode(
         state["mode_until"] = None
         state.pop("hayusu_channel_id", None)
         save_state(state)
+        await send_startup_message(channel)
     finally:
         is_mode_transitioning = False
 
@@ -616,8 +647,6 @@ async def handle_word_response(message: discord.Message) -> bool:
 
 @bot.event
 async def on_ready():
-    global has_sent_startup_message
-
     print(f"Logged in as {bot.user}")
 
     if not annual_message_task.is_running():
@@ -625,38 +654,12 @@ async def on_ready():
 
     await restore_hayusu_auto_exit()
 
-    if has_sent_startup_message:
-        return
-
-    has_sent_startup_message = True
-
-    responses = load_responses()
-
-    channel = bot.get_channel(STARTUP_CHANNEL_ID)
-    if channel is None:
-        print("STARTUP_CHANNEL_ID のチャンネルが見つかりません")
-        return
-
-    startup_message = responses.get("startup_message")
-    if startup_message is not None:
-        await channel.send(startup_message)
-
 
 @bot.event
 async def on_guild_join(guild: discord.Guild):
-    responses = load_responses()
-
-    channel = guild.system_channel
-
-    if channel is None:
-        for text_channel in guild.text_channels:
-            if text_channel.permissions_for(guild.me).send_messages:
-                channel = text_channel
-                break
-
-    startup_message = responses.get("startup_message")
-    if channel is not None and startup_message is not None:
-        await channel.send(startup_message)
+    channel = get_guild_startup_channel(guild)
+    if channel is not None:
+        await send_startup_message(channel)
 
 
 @tasks.loop(hours=1)
