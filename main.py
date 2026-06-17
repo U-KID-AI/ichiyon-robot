@@ -3,6 +3,7 @@ import json
 import os
 import random
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 import discord
 from discord.ext import commands, tasks
@@ -155,7 +156,7 @@ def get_local_now() -> datetime:
     return datetime.now().astimezone()
 
 
-def parse_iso_datetime(value: str | None) -> datetime | None:
+def parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
 
@@ -435,7 +436,7 @@ def draw_kuji_message() -> str:
     return f"🎴 **{name}**\n{result_message}"
 
 
-def draw_quote_message() -> str | None:
+def draw_quote_message() -> Optional[str]:
     quotes = load_quotes()
     if not quotes:
         return None
@@ -451,7 +452,7 @@ def get_end_of_service_message() -> str:
     return END_OF_SERVICE_MESSAGE
 
 
-def get_startup_message() -> str | None:
+def get_startup_message() -> Optional[str]:
     responses = load_responses()
     message = responses.get("startup_message")
     if isinstance(message, str) and message:
@@ -459,7 +460,7 @@ def get_startup_message() -> str | None:
     return None
 
 
-def get_schedule_channel() -> discord.abc.Messageable | None:
+def get_schedule_channel() -> Optional[discord.abc.Messageable]:
     if SCHEDULE_CHANNEL_ID == 0:
         print("[WARN] SCHEDULE_CHANNEL_ID is not set")
         return None
@@ -517,13 +518,13 @@ async def send_startup_message(channel: discord.abc.Messageable) -> None:
         await channel.send(startup_message)
 
 
-def can_send_to_channel(guild: discord.Guild, channel: discord.TextChannel | None) -> bool:
+def can_send_to_channel(guild: discord.Guild, channel: Optional[discord.TextChannel]) -> bool:
     if channel is None or guild.me is None:
         return False
     return channel.permissions_for(guild.me).send_messages
 
 
-def get_guild_startup_channel(guild: discord.Guild) -> discord.TextChannel | None:
+def get_guild_startup_channel(guild: discord.Guild) -> Optional[discord.TextChannel]:
     if can_send_to_channel(guild, guild.system_channel):
         return guild.system_channel
 
@@ -534,7 +535,7 @@ def get_guild_startup_channel(guild: discord.Guild) -> discord.TextChannel | Non
     return None
 
 
-def get_channel_guild(channel: discord.abc.Messageable) -> discord.Guild | None:
+def get_channel_guild(channel: discord.abc.Messageable) -> Optional[discord.Guild]:
     guild = getattr(channel, "guild", None)
     if isinstance(guild, discord.Guild):
         return guild
@@ -634,7 +635,7 @@ def schedule_hayusu_auto_exit(
     print(f"[DEBUG] scheduled hayusu auto exit in {delay_seconds:.0f} seconds")
 
 
-def get_channel_by_id(channel_id: int | None) -> discord.abc.Messageable | None:
+def get_channel_by_id(channel_id: Optional[int]) -> Optional[discord.abc.Messageable]:
     if not channel_id:
         return None
 
@@ -742,7 +743,7 @@ async def exit_hayusu_mode(
         is_mode_transitioning = False
 
 
-def get_mention_command_text(message: discord.Message) -> str | None:
+def get_mention_command_text(message: discord.Message) -> Optional[str]:
     print(f"[DEBUG] mentions={message.mentions}")
     if bot.user is None or bot.user not in message.mentions:
         return None

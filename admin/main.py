@@ -3,6 +3,7 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import RedirectResponse
@@ -341,7 +342,7 @@ async def quotes_page(request: Request):
 
 
 @app.post("/quotes")
-async def create_quote(text: str = Form(...), enabled: str | None = Form(None)):
+async def create_quote(text: str = Form(...), enabled: Optional[str] = Form(None)):
     data = load_quotes_data()
     text = text.strip()
     if text:
@@ -360,7 +361,7 @@ async def create_quote(text: str = Form(...), enabled: str | None = Form(None)):
 async def update_quote(
     quote_id: str,
     text: str = Form(...),
-    enabled: str | None = Form(None),
+    enabled: Optional[str] = Form(None),
 ):
     data = load_quotes_data()
     for quote in data["quotes"]:
@@ -397,7 +398,7 @@ async def create_reaction(
     trigger: str = Form(...),
     response: str = Form(...),
     match_type: str = Form("contains"),
-    enabled: str | None = Form(None),
+    enabled: Optional[str] = Form(None),
 ):
     data = load_reactions_data()
     trigger = trigger.strip()
@@ -422,7 +423,7 @@ async def update_reaction(
     trigger: str = Form(...),
     response: str = Form(...),
     match_type: str = Form("contains"),
-    enabled: str | None = Form(None),
+    enabled: Optional[str] = Form(None),
 ):
     data = load_reactions_data()
     for reaction in data["reactions"]:
@@ -459,7 +460,7 @@ async def ng_words_page(request: Request):
 
 
 @app.post("/ng-words")
-async def create_ng_word(word: str = Form(...), enabled: str | None = Form(None)):
+async def create_ng_word(word: str = Form(...), enabled: Optional[str] = Form(None)):
     data = load_ng_words_data()
     word = word.strip()
     if word:
@@ -478,7 +479,7 @@ async def create_ng_word(word: str = Form(...), enabled: str | None = Form(None)
 async def update_ng_word(
     word_id: str,
     word: str = Form(...),
-    enabled: str | None = Form(None),
+    enabled: Optional[str] = Form(None),
 ):
     data = load_ng_words_data()
     for word_item in data["words"]:
@@ -515,7 +516,7 @@ async def create_kuji_result(
     name: str = Form(...),
     message: str = Form(...),
     weight: str = Form("1"),
-    enabled: str | None = Form(None),
+    enabled: Optional[str] = Form(None),
 ):
     data = load_kuji_data()
     name = name.strip()
@@ -541,7 +542,7 @@ async def update_kuji_result(
     name: str = Form(...),
     message: str = Form(...),
     weight: str = Form("1"),
-    enabled: str | None = Form(None),
+    enabled: Optional[str] = Form(None),
 ):
     data = load_kuji_data()
     weight, _ = normalize_weight(weight)
