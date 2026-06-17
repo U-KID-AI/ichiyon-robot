@@ -3,7 +3,7 @@ import json
 import os
 import random
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Dict, List, Optional, Tuple
 
 import discord
 from discord.ext import commands, tasks
@@ -187,7 +187,7 @@ def load_responses() -> dict:
     return responses
 
 
-def normalize_kuji_data(data) -> tuple[dict, bool]:
+def normalize_kuji_data(data) -> Tuple[Dict, bool]:
     if not isinstance(data, dict):
         return {"results": []}, True
 
@@ -243,7 +243,7 @@ def load_kuji() -> dict:
     return normalized_data
 
 
-def normalize_quotes_data(data) -> tuple[dict, bool]:
+def normalize_quotes_data(data) -> Tuple[Dict, bool]:
     if isinstance(data, list):
         quotes = [
             {
@@ -295,7 +295,7 @@ def normalize_quotes_data(data) -> tuple[dict, bool]:
     return normalized_data, changed or data != normalized_data
 
 
-def load_quotes() -> list[str]:
+def load_quotes() -> List[str]:
     quotes_data = load_json_file("data/quotes.json", {"quotes": []})
     normalized_data, changed = normalize_quotes_data(quotes_data)
     if changed:
@@ -309,7 +309,7 @@ def load_quotes() -> list[str]:
     ]
 
 
-def normalize_ng_words_data(data) -> tuple[dict, bool]:
+def normalize_ng_words_data(data) -> Tuple[Dict, bool]:
     if isinstance(data, list):
         words = [
             {
@@ -372,7 +372,7 @@ def normalize_ng_words_data(data) -> tuple[dict, bool]:
     return normalized_data, changed or data != normalized_data
 
 
-def load_ng_words() -> list[str]:
+def load_ng_words() -> List[str]:
     ng_words_data = load_json_file("data/ng_words.json", {"words": []})
     normalized_data, changed = normalize_ng_words_data(ng_words_data)
     if changed:
@@ -386,7 +386,7 @@ def load_ng_words() -> list[str]:
     ]
 
 
-def load_reactions() -> list[dict]:
+def load_reactions() -> List[Dict]:
     data = load_json_file("data/reactions.json", {"reactions": []})
     if not isinstance(data, dict):
         return []

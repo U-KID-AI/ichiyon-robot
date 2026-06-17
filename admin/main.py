@@ -3,7 +3,7 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional, Tuple
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import RedirectResponse
@@ -76,7 +76,7 @@ def save_kuji_data(data: dict) -> None:
         f.write("\n")
 
 
-def normalize_quotes_data(data) -> tuple[dict, bool]:
+def normalize_quotes_data(data) -> Tuple[Dict, bool]:
     if isinstance(data, list):
         quotes = [
             {
@@ -130,7 +130,7 @@ def load_quotes_data() -> dict:
     return normalized_data
 
 
-def normalize_reactions_data(data) -> tuple[dict, bool]:
+def normalize_reactions_data(data) -> Tuple[Dict, bool]:
     if not isinstance(data, dict):
         return {"reactions": []}, True
 
@@ -185,7 +185,7 @@ def load_reactions_data() -> dict:
     return normalized_data
 
 
-def normalize_ng_words_data(data) -> tuple[dict, bool]:
+def normalize_ng_words_data(data) -> Tuple[Dict, bool]:
     if isinstance(data, list):
         words = [
             {
@@ -250,7 +250,7 @@ def load_ng_words_data() -> dict:
     return normalized_data
 
 
-def normalize_weight(value) -> tuple[int, bool]:
+def normalize_weight(value) -> Tuple[int, bool]:
     if isinstance(value, int) and value >= 1:
         return value, False
     if isinstance(value, str):
@@ -263,7 +263,7 @@ def normalize_weight(value) -> tuple[int, bool]:
     return 1, True
 
 
-def normalize_kuji_data(data) -> tuple[dict, bool]:
+def normalize_kuji_data(data) -> Tuple[Dict, bool]:
     if not isinstance(data, dict):
         return {"results": []}, True
 
@@ -317,7 +317,7 @@ def load_kuji_data() -> dict:
     return normalized_data
 
 
-def build_next_id(items: list[dict], prefix: str) -> str:
+def build_next_id(items: List[Dict], prefix: str) -> str:
     max_number = 0
     for item in items:
         match = re.fullmatch(rf"{prefix}_(\d+)", item.get("id", ""))
