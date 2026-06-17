@@ -1,0 +1,57 @@
+{% extends "layout.html" %}
+
+{% block title %}NGワード管理 - いちよんロボ{% endblock %}
+{% block heading %}NGワード管理{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <h2>NGワードを追加</h2>
+    <form class="quote-form" method="post" action="/ng-words">
+      <label>
+        NGワード
+        <input name="word" required>
+      </label>
+      <label class="check-row">
+        <input type="checkbox" name="enabled" checked>
+        有効
+      </label>
+      <button type="submit">追加</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>NGワード一覧</h2>
+    <div class="quote-list">
+      {% for word in words %}
+        <article class="quote-item">
+          <form class="quote-form" method="post" action="/ng-words/{{ word.id }}/edit">
+            <div class="quote-meta">
+              <span>{{ word.id }}</span>
+              {% if word.enabled %}
+                <strong class="status enabled">有効</strong>
+              {% else %}
+                <strong class="status disabled">無効</strong>
+              {% endif %}
+            </div>
+            <label>
+              NGワード
+              <input name="word" value="{{ word.word }}" required>
+            </label>
+            <div class="actions">
+              <label class="check-row">
+                <input type="checkbox" name="enabled" {% if word.enabled %}checked{% endif %}>
+                有効
+              </label>
+              <button type="submit">保存</button>
+            </div>
+          </form>
+          <form method="post" action="/ng-words/{{ word.id }}/delete">
+            <button class="danger" type="submit">削除</button>
+          </form>
+        </article>
+      {% else %}
+        <p class="empty">NGワードはまだありません。</p>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

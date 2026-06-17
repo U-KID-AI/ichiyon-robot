@@ -1,0 +1,73 @@
+{% extends "layout.html" %}
+
+{% block title %}おみくじ管理 - いちよんロボ{% endblock %}
+{% block heading %}おみくじ管理{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <h2>おみくじ結果を追加</h2>
+    <form class="quote-form" method="post" action="/kuji">
+      <label>
+        結果名
+        <input name="name" required>
+      </label>
+      <label>
+        本文
+        <textarea name="message" rows="3" required></textarea>
+      </label>
+      <label>
+        重み
+        <input type="number" min="1" name="weight" value="1" required>
+      </label>
+      <label class="check-row">
+        <input type="checkbox" name="enabled" checked>
+        有効
+      </label>
+      <button type="submit">追加</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>おみくじ一覧</h2>
+    <div class="quote-list">
+      {% for result in results %}
+        <article class="quote-item">
+          <form class="quote-form" method="post" action="/kuji/{{ result.id }}/edit">
+            <div class="quote-meta">
+              <span>{{ result.id }}</span>
+              {% if result.enabled %}
+                <strong class="status enabled">有効</strong>
+              {% else %}
+                <strong class="status disabled">無効</strong>
+              {% endif %}
+            </div>
+            <label>
+              結果名
+              <input name="name" value="{{ result.name }}" required>
+            </label>
+            <label>
+              本文
+              <textarea name="message" rows="3" required>{{ result.message }}</textarea>
+            </label>
+            <label>
+              重み
+              <input type="number" min="1" name="weight" value="{{ result.weight }}" required>
+            </label>
+            <div class="actions">
+              <label class="check-row">
+                <input type="checkbox" name="enabled" {% if result.enabled %}checked{% endif %}>
+                有効
+              </label>
+              <button type="submit">保存</button>
+            </div>
+          </form>
+          <form method="post" action="/kuji/{{ result.id }}/delete">
+            <button class="danger" type="submit">削除</button>
+          </form>
+        </article>
+      {% else %}
+        <p class="empty">おみくじ結果はまだありません。</p>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

@@ -1,35 +1,60 @@
 {
   "results": [
     {
+      "id": "kuji_001",
       "name": "大吉",
-      "message": "31.8/32月が――来る…！"
+      "message": "31.8/32月が――来る…！",
+      "weight": 1,
+      "enabled": true
     },
     {
+      "id": "kuji_002",
       "name": "中吉",
-      "message": "脚がよく回る、正面の机ラッキーアイテムはにんじんだよ"
+      "message": "脚がよく回る、正面の机ラッキーアイテムはにんじんだよ",
+      "weight": 1,
+      "enabled": true
     },
     {
+      "id": "kuji_003",
       "name": "小吉",
-      "message": "人工衛星食"
+      "message": "人工衛星食",
+      "weight": 1,
+      "enabled": true
     },
     {
+      "id": "kuji_004",
       "name": "吉",
-      "message": "思い立ったが吉日すぎる"
+      "message": "思い立ったが吉日すぎる",
+      "weight": 1,
+      "enabled": true
     },
     {
+      "id": "kuji_005",
       "name": "末吉",
-      "message": "三干し"
+      "message": "三干し",
+      "weight": 1,
+      "enabled": true
     },
     {
+      "id": "kuji_006",
       "name": "凶",
-      "message": "思い立ったが凶日"
+      "message": "思い立ったが凶日",
+      "weight": 1,
+      "enabled": true
     },
     {
+      "id": "kuji_007",
       "name": "大凶",
-      "message": "二度と来るな"
+      "message": "二度と来るな",
+      "weight": 1,
+      "enabled": true
     },
-    { "name": "はゆす吉",
-      "message": "チェルさんこれギャバいっすよ"
+    {
+      "id": "kuji_008",
+      "name": "はゆす吉",
+      "message": "チェルさんこれギャバいっすよ",
+      "weight": 1,
+      "enabled": true
     }
   ]
 }

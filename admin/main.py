@@ -13,6 +13,8 @@ from fastapi.templating import Jinja2Templates
 BASE_DIR = Path(__file__).resolve().parent.parent
 QUOTES_FILE = BASE_DIR / "data" / "quotes.json"
 REACTIONS_FILE = BASE_DIR / "data" / "reactions.json"
+NG_WORDS_FILE = BASE_DIR / "data" / "ng_words.json"
+KUJI_FILE = BASE_DIR / "data" / "kuji.json"
 BACKUP_DIR = BASE_DIR / "data" / "backups"
 
 app = FastAPI(title="いちよんロボ 管理画面")
@@ -53,6 +55,22 @@ def save_reactions_data(data: dict) -> None:
     backup_json_file(REACTIONS_FILE)
     REACTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
     with REACTIONS_FILE.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+
+
+def save_ng_words_data(data: dict) -> None:
+    backup_json_file(NG_WORDS_FILE)
+    NG_WORDS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with NG_WORDS_FILE.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+
+
+def save_kuji_data(data: dict) -> None:
+    backup_json_file(KUJI_FILE)
+    KUJI_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with KUJI_FILE.open("w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
         f.write("\n")
 
@@ -163,6 +181,138 @@ def load_reactions_data() -> dict:
     normalized_data, changed = normalize_reactions_data(data)
     if changed:
         save_reactions_data(normalized_data)
+    return normalized_data
+
+
+def normalize_ng_words_data(data) -> tuple[dict, bool]:
+    if isinstance(data, list):
+        words = [
+            {
+                "id": f"ng_{index:03d}",
+                "word": word,
+                "enabled": True,
+            }
+            for index, word in enumerate(data, start=1)
+            if isinstance(word, str)
+        ]
+        return {"words": words}, True
+
+    if not isinstance(data, dict):
+        return {"words": []}, True
+
+    raw_words = data.get("words", [])
+    if not isinstance(raw_words, list):
+        return {"words": []}, True
+
+    normalized_words = []
+    changed = False
+    for index, word_item in enumerate(raw_words, start=1):
+        if isinstance(word_item, str):
+            normalized_words.append(
+                {
+                    "id": f"ng_{index:03d}",
+                    "word": word_item,
+                    "enabled": True,
+                }
+            )
+            changed = True
+            continue
+
+        if not isinstance(word_item, dict):
+            changed = True
+            continue
+
+        word_id = word_item.get("id")
+        word = word_item.get("word")
+        enabled = word_item.get("enabled", True)
+        if not isinstance(word_id, str) or not word_id:
+            word_id = f"ng_{index:03d}"
+            changed = True
+        if not isinstance(word, str):
+            changed = True
+            continue
+        if not isinstance(enabled, bool):
+            enabled = True
+            changed = True
+
+        normalized_words.append({"id": word_id, "word": word, "enabled": enabled})
+
+    normalized_data = {"words": normalized_words}
+    return normalized_data, changed or data != normalized_data
+
+
+def load_ng_words_data() -> dict:
+    data = load_json_file(NG_WORDS_FILE, {"words": []})
+    normalized_data, changed = normalize_ng_words_data(data)
+    if changed:
+        save_ng_words_data(normalized_data)
+    return normalized_data
+
+
+def normalize_weight(value) -> tuple[int, bool]:
+    if isinstance(value, int) and value >= 1:
+        return value, False
+    if isinstance(value, str):
+        try:
+            parsed = int(value)
+        except ValueError:
+            return 1, True
+        if parsed >= 1:
+            return parsed, False
+    return 1, True
+
+
+def normalize_kuji_data(data) -> tuple[dict, bool]:
+    if not isinstance(data, dict):
+        return {"results": []}, True
+
+    raw_results = data.get("results", [])
+    if not isinstance(raw_results, list):
+        return {"results": []}, True
+
+    normalized_results = []
+    changed = False
+    for index, result in enumerate(raw_results, start=1):
+        if not isinstance(result, dict):
+            changed = True
+            continue
+
+        result_id = result.get("id")
+        name = result.get("name")
+        message = result.get("message")
+        weight, weight_changed = normalize_weight(result.get("weight", 1))
+        enabled = result.get("enabled", True)
+        if not isinstance(result_id, str) or not result_id:
+            result_id = f"kuji_{index:03d}"
+            changed = True
+        if not isinstance(name, str) or not isinstance(message, str):
+            changed = True
+            continue
+        if weight_changed:
+            changed = True
+        if not isinstance(enabled, bool):
+            enabled = True
+            changed = True
+
+        normalized_results.append(
+            {
+                "id": result_id,
+                "name": name,
+                "message": message,
+                "weight": weight,
+                "enabled": enabled,
+            }
+        )
+
+    normalized_data = {"results": normalized_results}
+    return normalized_data, changed or data != normalized_data
+
+
+def load_kuji_data() -> dict:
+    data = load_json_file(KUJI_FILE, {"results": []})
+    normalized_data, changed = normalize_kuji_data(data)
+    if changed:
+        save_kuji_data(normalized_data)
     return normalized_data
 
 
@@ -296,3 +446,121 @@ async def delete_reaction(reaction_id: str):
         data["reactions"] = next_reactions
         save_reactions_data(data)
     return RedirectResponse(url="/reactions", status_code=303)
+
+
+@app.get("/ng-words")
+async def ng_words_page(request: Request):
+    data = load_ng_words_data()
+    return templates.TemplateResponse(
+        request,
+        "ng_words.html",
+        {"words": data["words"]},
+    )
+
+
+@app.post("/ng-words")
+async def create_ng_word(word: str = Form(...), enabled: str | None = Form(None)):
+    data = load_ng_words_data()
+    word = word.strip()
+    if word:
+        data["words"].append(
+            {
+                "id": build_next_id(data["words"], "ng"),
+                "word": word,
+                "enabled": enabled == "on",
+            }
+        )
+        save_ng_words_data(data)
+    return RedirectResponse(url="/ng-words", status_code=303)
+
+
+@app.post("/ng-words/{word_id}/edit")
+async def update_ng_word(
+    word_id: str,
+    word: str = Form(...),
+    enabled: str | None = Form(None),
+):
+    data = load_ng_words_data()
+    for word_item in data["words"]:
+        if word_item["id"] == word_id:
+            word_item["word"] = word.strip()
+            word_item["enabled"] = enabled == "on"
+            save_ng_words_data(data)
+            break
+    return RedirectResponse(url="/ng-words", status_code=303)
+
+
+@app.post("/ng-words/{word_id}/delete")
+async def delete_ng_word(word_id: str):
+    data = load_ng_words_data()
+    next_words = [word_item for word_item in data["words"] if word_item["id"] != word_id]
+    if len(next_words) != len(data["words"]):
+        data["words"] = next_words
+        save_ng_words_data(data)
+    return RedirectResponse(url="/ng-words", status_code=303)
+
+
+@app.get("/kuji")
+async def kuji_page(request: Request):
+    data = load_kuji_data()
+    return templates.TemplateResponse(
+        request,
+        "kuji.html",
+        {"results": data["results"]},
+    )
+
+
+@app.post("/kuji")
+async def create_kuji_result(
+    name: str = Form(...),
+    message: str = Form(...),
+    weight: str = Form("1"),
+    enabled: str | None = Form(None),
+):
+    data = load_kuji_data()
+    name = name.strip()
+    message = message.strip()
+    weight, _ = normalize_weight(weight)
+    if name and message:
+        data["results"].append(
+            {
+                "id": build_next_id(data["results"], "kuji"),
+                "name": name,
+                "message": message,
+                "weight": weight,
+                "enabled": enabled == "on",
+            }
+        )
+        save_kuji_data(data)
+    return RedirectResponse(url="/kuji", status_code=303)
+
+
+@app.post("/kuji/{result_id}/edit")
+async def update_kuji_result(
+    result_id: str,
+    name: str = Form(...),
+    message: str = Form(...),
+    weight: str = Form("1"),
+    enabled: str | None = Form(None),
+):
+    data = load_kuji_data()
+    weight, _ = normalize_weight(weight)
+    for result in data["results"]:
+        if result["id"] == result_id:
+            result["name"] = name.strip()
+            result["message"] = message.strip()
+            result["weight"] = weight
+            result["enabled"] = enabled == "on"
+            save_kuji_data(data)
+            break
+    return RedirectResponse(url="/kuji", status_code=303)
+
+
+@app.post("/kuji/{result_id}/delete")
+async def delete_kuji_result(result_id: str):
+    data = load_kuji_data()
+    next_results = [result for result in data["results"] if result["id"] != result_id]
+    if len(next_results) != len(data["results"]):
+        data["results"] = next_results
+        save_kuji_data(data)
+    return RedirectResponse(url="/kuji", status_code=303)

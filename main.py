@@ -186,11 +186,60 @@ def load_responses() -> dict:
     return responses
 
 
+def normalize_kuji_data(data) -> tuple[dict, bool]:
+    if not isinstance(data, dict):
+        return {"results": []}, True
+
+    raw_results = data.get("results", [])
+    if not isinstance(raw_results, list):
+        return {"results": []}, True
+
+    normalized_results = []
+    changed = False
+    for index, result in enumerate(raw_results, start=1):
+        if not isinstance(result, dict):
+            changed = True
+            continue
+
+        result_id = result.get("id")
+        name = result.get("name")
+        message = result.get("message")
+        weight = result.get("weight", 1)
+        enabled = result.get("enabled", True)
+        if not isinstance(result_id, str) or not result_id:
+            result_id = f"kuji_{index:03d}"
+            changed = True
+        if not isinstance(name, str) or not isinstance(message, str):
+            changed = True
+            continue
+        if not isinstance(weight, int) or weight < 1:
+            weight = 1
+            changed = True
+        if not isinstance(enabled, bool):
+            enabled = True
+            changed = True
+
+        normalized_results.append(
+            {
+                "id": result_id,
+                "name": name,
+                "message": message,
+                "weight": weight,
+                "enabled": enabled,
+            }
+        )
+
+    normalized_data = {"results": normalized_results}
+    return normalized_data, changed or data != normalized_data
+
+
 def load_kuji() -> dict:
     kuji_data = load_json_file("data/kuji.json", {"results": []})
-    if not isinstance(kuji_data, dict):
-        return {"results": []}
-    return kuji_data
+    normalized_data, changed = normalize_kuji_data(kuji_data)
+    if changed:
+        backup_json_file("data/kuji.json")
+        save_json_file("data/kuji.json", normalized_data)
+    return normalized_data
 
 
 def normalize_quotes_data(data) -> tuple[dict, bool]:
@@ -259,11 +308,81 @@ def load_quotes() -> list[str]:
     ]
 
 
+def normalize_ng_words_data(data) -> tuple[dict, bool]:
+    if isinstance(data, list):
+        words = [
+            {
+                "id": f"ng_{index:03d}",
+                "word": word,
+                "enabled": True,
+            }
+            for index, word in enumerate(data, start=1)
+            if isinstance(word, str)
+        ]
+        return {"words": words}, True
+
+    if not isinstance(data, dict):
+        return {"words": []}, True
+
+    raw_words = data.get("words", [])
+    if not isinstance(raw_words, list):
+        return {"words": []}, True
+
+    normalized_words = []
+    changed = False
+    for index, word_item in enumerate(raw_words, start=1):
+        if isinstance(word_item, str):
+            normalized_words.append(
+                {
+                    "id": f"ng_{index:03d}",
+                    "word": word_item,
+                    "enabled": True,
+                }
+            )
+            changed = True
+            continue
+
+        if not isinstance(word_item, dict):
+            changed = True
+            continue
+
+        word_id = word_item.get("id")
+        word = word_item.get("word")
+        enabled = word_item.get("enabled", True)
+        if not isinstance(word_id, str) or not word_id:
+            word_id = f"ng_{index:03d}"
+            changed = True
+        if not isinstance(word, str):
+            changed = True
+            continue
+        if not isinstance(enabled, bool):
+            enabled = True
+            changed = True
+
+        normalized_words.append(
+            {
+                "id": word_id,
+                "word": word,
+                "enabled": enabled,
+            }
+        )
+
+    normalized_data = {"words": normalized_words}
+    return normalized_data, changed or data != normalized_data
+
+
 def load_ng_words() -> list[str]:
-    ng_words = load_json_file("data/ng_words.json", [])
-    if not isinstance(ng_words, list):
-        return []
-    return [ng_word for ng_word in ng_words if isinstance(ng_word, str)]
+    ng_words_data = load_json_file("data/ng_words.json", {"words": []})
+    normalized_data, changed = normalize_ng_words_data(ng_words_data)
+    if changed:
+        backup_json_file("data/ng_words.json")
+        save_json_file("data/ng_words.json", normalized_data)
+
+    return [
+        word_item["word"]
+        for word_item in normalized_data["words"]
+        if word_item.get("enabled") is True
+    ]
 
 
 def load_reactions() -> list[dict]:
@@ -297,11 +416,16 @@ def load_reactions() -> list[dict]:
 
 def draw_kuji_message() -> str:
     kuji_data = load_kuji()
-    results = kuji_data.get("results", [])
+    results = [
+        result
+        for result in kuji_data.get("results", [])
+        if result.get("enabled") is True
+    ]
     if not results:
-        return "くじデータが読み込めませんでした"
+        return "くじが入っていません"
 
-    result = random.choice(results)
+    weights = [result.get("weight", 1) for result in results]
+    result = random.choices(results, weights=weights, k=1)[0]
     if not isinstance(result, dict):
         return "くじデータが読み込めませんでした"
 
