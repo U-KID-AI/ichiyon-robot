@@ -50,12 +50,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 is_mode_transitioning = False
 hayusu_auto_exit_task = None
 
-WORD_RESPONSES = (
-    ("紫", "B01010"),
-    ("ナツル", "ナツルちゃんかわゆい"),
-    ("はいロボ", "プ"),
-)
-
 DEFAULT_STATE = {
     "current_mode": "normal",
     "mode_until": None,
@@ -99,6 +93,23 @@ def save_json_file(path: str, data) -> None:
             f.write("\n")
     except OSError as e:
         print(f"Failed to save {path}: {e}")
+
+
+def backup_json_file(path: str) -> None:
+    if not os.path.exists(path):
+        return
+
+    os.makedirs("data/backups", exist_ok=True)
+    timestamp = get_local_now().strftime("%Y%m%d_%H%M%S")
+    filename = os.path.basename(path)
+    backup_path = os.path.join("data/backups", f"{timestamp}_{filename}")
+    try:
+        with open(path, "r", encoding="utf-8") as src:
+            content = src.read()
+        with open(backup_path, "w", encoding="utf-8") as dst:
+            dst.write(content)
+    except OSError as e:
+        print(f"Failed to backup {path}: {e}")
 
 
 def load_state() -> dict:
@@ -182,11 +193,70 @@ def load_kuji() -> dict:
     return kuji_data
 
 
+def normalize_quotes_data(data) -> tuple[dict, bool]:
+    if isinstance(data, list):
+        quotes = [
+            {
+                "id": f"quote_{index:03d}",
+                "text": quote,
+                "enabled": True,
+            }
+            for index, quote in enumerate(data, start=1)
+            if isinstance(quote, str)
+        ]
+        return {"quotes": quotes}, True
+
+    if not isinstance(data, dict):
+        return {"quotes": []}, True
+
+    raw_quotes = data.get("quotes", [])
+    if not isinstance(raw_quotes, list):
+        return {"quotes": []}, True
+
+    normalized_quotes = []
+    changed = False
+    for index, quote in enumerate(raw_quotes, start=1):
+        if not isinstance(quote, dict):
+            changed = True
+            continue
+
+        quote_id = quote.get("id")
+        text = quote.get("text")
+        enabled = quote.get("enabled", True)
+        if not isinstance(quote_id, str) or not quote_id:
+            quote_id = f"quote_{index:03d}"
+            changed = True
+        if not isinstance(text, str):
+            changed = True
+            continue
+        if not isinstance(enabled, bool):
+            enabled = True
+            changed = True
+
+        normalized_quotes.append(
+            {
+                "id": quote_id,
+                "text": text,
+                "enabled": enabled,
+            }
+        )
+
+    normalized_data = {"quotes": normalized_quotes}
+    return normalized_data, changed or data != normalized_data
+
+
 def load_quotes() -> list[str]:
-    quotes = load_json_file("data/quotes.json", [])
-    if not isinstance(quotes, list):
-        return []
-    return [quote for quote in quotes if isinstance(quote, str)]
+    quotes_data = load_json_file("data/quotes.json", {"quotes": []})
+    normalized_data, changed = normalize_quotes_data(quotes_data)
+    if changed:
+        backup_json_file("data/quotes.json")
+        save_json_file("data/quotes.json", normalized_data)
+
+    return [
+        quote["text"]
+        for quote in normalized_data["quotes"]
+        if quote.get("enabled") is True
+    ]
 
 
 def load_ng_words() -> list[str]:
@@ -194,6 +264,35 @@ def load_ng_words() -> list[str]:
     if not isinstance(ng_words, list):
         return []
     return [ng_word for ng_word in ng_words if isinstance(ng_word, str)]
+
+
+def load_reactions() -> list[dict]:
+    data = load_json_file("data/reactions.json", {"reactions": []})
+    if not isinstance(data, dict):
+        return []
+
+    reactions = data.get("reactions", [])
+    if not isinstance(reactions, list):
+        return []
+
+    normalized_reactions = []
+    for reaction in reactions:
+        if not isinstance(reaction, dict):
+            continue
+
+        trigger = reaction.get("trigger")
+        response = reaction.get("response")
+        match_type = reaction.get("match_type")
+        enabled = reaction.get("enabled")
+        if (
+            isinstance(trigger, str)
+            and isinstance(response, str)
+            and match_type == "contains"
+            and enabled is True
+        ):
+            normalized_reactions.append(reaction)
+
+    return normalized_reactions
 
 
 def draw_kuji_message() -> str:
@@ -637,9 +736,9 @@ async def handle_mention_message(message: discord.Message) -> bool:
 
 
 async def handle_word_response(message: discord.Message) -> bool:
-    for keyword, response in WORD_RESPONSES:
-        if keyword in message.content:
-            await message.channel.send(response)
+    for reaction in load_reactions():
+        if reaction["trigger"] in message.content:
+            await message.channel.send(reaction["response"])
             return True
 
     return False

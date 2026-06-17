@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}いちよんロボ 管理画面{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">いちよんロボ 管理画面</p>
+        <h1>{% block heading %}管理画面{% endblock %}</h1>
+      </div>
+      <nav>
+        <a href="/quotes">名言管理</a>
+        <a href="/reactions">自動反応管理</a>
+      </nav>
+    </header>
+    <main>
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

@@ -1,0 +1,77 @@
+{% extends "layout.html" %}
+
+{% block title %}自動反応管理 - いちよんロボ{% endblock %}
+{% block heading %}自動反応管理{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <h2>自動反応を追加</h2>
+    <form class="quote-form" method="post" action="/reactions">
+      <label>
+        反応する言葉
+        <input name="trigger" required>
+      </label>
+      <label>
+        返答
+        <textarea name="response" rows="3" required></textarea>
+      </label>
+      <label>
+        判定方法
+        <select name="match_type">
+          <option value="contains">含む</option>
+        </select>
+      </label>
+      <label class="check-row">
+        <input type="checkbox" name="enabled" checked>
+        有効
+      </label>
+      <button type="submit">追加</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>自動反応一覧</h2>
+    <div class="quote-list">
+      {% for reaction in reactions %}
+        <article class="quote-item">
+          <form class="quote-form" method="post" action="/reactions/{{ reaction.id }}/edit">
+            <div class="quote-meta">
+              <span>{{ reaction.id }}</span>
+              {% if reaction.enabled %}
+                <strong class="status enabled">有効</strong>
+              {% else %}
+                <strong class="status disabled">無効</strong>
+              {% endif %}
+            </div>
+            <label>
+              反応する言葉
+              <input name="trigger" value="{{ reaction.trigger }}" required>
+            </label>
+            <label>
+              返答
+              <textarea name="response" rows="3" required>{{ reaction.response }}</textarea>
+            </label>
+            <label>
+              判定方法
+              <select name="match_type">
+                <option value="contains" {% if reaction.match_type == "contains" %}selected{% endif %}>含む</option>
+              </select>
+            </label>
+            <div class="actions">
+              <label class="check-row">
+                <input type="checkbox" name="enabled" {% if reaction.enabled %}checked{% endif %}>
+                有効
+              </label>
+              <button type="submit">保存</button>
+            </div>
+          </form>
+          <form method="post" action="/reactions/{{ reaction.id }}/delete">
+            <button class="danger" type="submit">削除</button>
+          </form>
+        </article>
+      {% else %}
+        <p class="empty">自動反応はまだありません。</p>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

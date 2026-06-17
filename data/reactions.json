@@ -1,0 +1,25 @@
+{
+  "reactions": [
+    {
+      "id": "reaction_001",
+      "trigger": "紫",
+      "response": "B01010",
+      "match_type": "contains",
+      "enabled": true
+    },
+    {
+      "id": "reaction_002",
+      "trigger": "ナツル",
+      "response": "ナツルちゃんかわゆい",
+      "match_type": "contains",
+      "enabled": true
+    },
+    {
+      "id": "reaction_003",
+      "trigger": "はいロボ",
+      "response": "プ",
+      "match_type": "contains",
+      "enabled": true
+    }
+  ]
+}
