@@ -39,6 +39,29 @@ docker compose up -d postgres
 PostgreSQLは `localhost:5432` に公開されます。
 データは名前付きボリューム `postgres_data` に保存します。
 
+## マイグレーション
+
+初期スキーマは `migrations/001_initial_schema.sql` に定義します。
+マイグレーションの適用状況はDB内の `schema_migrations` テーブルで管理します。
+
+PostgreSQL起動後、以下を実行します。
+
+```bash
+python scripts/migrate.py
+```
+
+別の接続先を明示する場合は `--database-url` を使います。
+
+```bash
+python scripts/migrate.py --database-url postgresql://ichiyon_robot:ichiyon_robot_password@localhost:5432/ichiyon_robot
+```
+
+テーブル一覧は以下で確認できます。
+
+```bash
+docker compose exec postgres psql -U ichiyon_robot -d ichiyon_robot -c "\dt"
+```
+
 ## DB接続モジュール
 
 `bot/db.py` は `DATABASE_URL` を読み込み、必要なときだけ接続します。
