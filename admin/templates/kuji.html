@@ -10,6 +10,7 @@
 
   <section class="panel">
     <h2>おみくじ結果を追加</h2>
+    <p class="hint">出やすさは、数値が大きいほど出やすくなります。</p>
     <form class="quote-form" method="post" action="/kuji" enctype="multipart/form-data">
       <label>
         結果名
@@ -24,8 +25,8 @@
         <input type="file" name="image" accept=".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp">
       </label>
       <label>
-        重み
-        <input type="number" min="1" name="weight" value="1" required>
+        出やすさ
+        <input type="number" min="1" name="weight" value="1">
       </label>
       <label class="check-row">
         <input type="checkbox" name="enabled" checked>
@@ -74,8 +75,8 @@
               <input type="file" name="image" accept=".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp">
             </label>
             <label>
-              重み
-              <input type="number" min="1" name="weight" value="{{ result.weight }}" required>
+              出やすさ
+              <input type="number" min="1" name="weight" value="{{ result.weight }}">
             </label>
             <div class="actions">
               <label class="check-row">

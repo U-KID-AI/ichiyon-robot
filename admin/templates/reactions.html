@@ -10,6 +10,7 @@
 
   <section class="panel">
     <h2>自動反応を追加</h2>
+    <p class="hint">優先度は、複数のワードが一致した時に数値が大きいものを優先します。同じ優先度ならランダムです。</p>
     <form class="quote-form" method="post" action="/reactions" enctype="multipart/form-data">
       <label>
         反応する言葉
@@ -22,6 +23,10 @@
       <label>
         画像
         <input type="file" name="image" accept=".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp">
+      </label>
+      <label>
+        優先度
+        <input type="number" min="1" name="priority" value="1">
       </label>
       <label>
         判定方法
@@ -74,6 +79,10 @@
             <label>
               画像を差し替え
               <input type="file" name="image" accept=".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp">
+            </label>
+            <label>
+              優先度
+              <input type="number" min="1" name="priority" value="{{ reaction.priority }}">
             </label>
             <label>
               判定方法

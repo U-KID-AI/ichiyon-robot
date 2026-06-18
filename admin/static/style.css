@@ -167,6 +167,13 @@ button:hover {
   color: #657286;
 }
 
+.hint {
+  margin: -6px 0 16px;
+  color: #657286;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .error {
   margin: 0 0 16px;
   border: 1px solid #f2b8b5;

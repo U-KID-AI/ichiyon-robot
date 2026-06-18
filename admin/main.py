@@ -238,6 +238,19 @@ def load_quotes_data() -> dict:
     return normalized_data
 
 
+def normalize_priority(value) -> Tuple[int, bool]:
+    if isinstance(value, int) and value >= 1:
+        return value, False
+    if isinstance(value, str):
+        try:
+            parsed = int(value)
+        except ValueError:
+            return 1, True
+        if parsed >= 1:
+            return parsed, False
+    return 1, True
+
+
 def normalize_reactions_data(data) -> Tuple[Dict, bool]:
     if not isinstance(data, dict):
         return {"reactions": []}, True
@@ -259,6 +272,7 @@ def normalize_reactions_data(data) -> Tuple[Dict, bool]:
         image_path, image_path_changed = normalize_image_path(
             reaction.get("image_path", "")
         )
+        priority, priority_changed = normalize_priority(reaction.get("priority", 1))
         match_type = reaction.get("match_type", "contains")
         enabled = reaction.get("enabled", True)
         if not isinstance(reaction_id, str) or not reaction_id:
@@ -271,6 +285,8 @@ def normalize_reactions_data(data) -> Tuple[Dict, bool]:
             response = ""
             changed = True
         if image_path_changed:
+            changed = True
+        if priority_changed:
             changed = True
         if match_type != "contains":
             match_type = "contains"
@@ -285,6 +301,7 @@ def normalize_reactions_data(data) -> Tuple[Dict, bool]:
                 "trigger": trigger,
                 "response": response,
                 "image_path": image_path,
+                "priority": priority,
                 "match_type": match_type,
                 "enabled": enabled,
             }
@@ -560,6 +577,7 @@ async def create_reaction(
     request: Request,
     trigger: str = Form(...),
     response: str = Form(""),
+    priority: str = Form("1"),
     match_type: str = Form("contains"),
     enabled: Optional[str] = Form(None),
     image: Optional[UploadFile] = File(None),
@@ -567,6 +585,7 @@ async def create_reaction(
     data = load_reactions_data()
     trigger = trigger.strip()
     response = response.strip()
+    priority_value, _ = normalize_priority(priority)
     reaction_id = build_next_id(data["reactions"], "reaction")
     image_path, error = await save_uploaded_image(image, reaction_id, "reactions")
     if error is not None:
@@ -582,6 +601,7 @@ async def create_reaction(
                 "trigger": trigger,
                 "response": response,
                 "image_path": image_path or "",
+                "priority": priority_value,
                 "match_type": "contains" if match_type != "contains" else match_type,
                 "enabled": enabled == "on",
             }
@@ -596,12 +616,14 @@ async def update_reaction(
     reaction_id: str,
     trigger: str = Form(...),
     response: str = Form(""),
+    priority: str = Form("1"),
     match_type: str = Form("contains"),
     enabled: Optional[str] = Form(None),
     image: Optional[UploadFile] = File(None),
     delete_image: Optional[str] = Form(None),
 ):
     data = load_reactions_data()
+    priority_value, _ = normalize_priority(priority)
     for reaction in data["reactions"]:
         if reaction["id"] == reaction_id:
             old_image_path = reaction.get("image_path", "")
@@ -623,6 +645,7 @@ async def update_reaction(
                 reaction["image_path"] = ""
             if new_image_path is not None:
                 reaction["image_path"] = new_image_path
+            reaction["priority"] = priority_value
             reaction["match_type"] = "contains" if match_type != "contains" else match_type
             reaction["enabled"] = enabled == "on"
             save_reactions_data(data)
