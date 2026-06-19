@@ -1,0 +1,25 @@
+{% extends "layout.html" %}
+
+{% block title %}サーバー管理トップ - いちよんロボ{% endblock %}
+{% block heading %}サーバー管理トップ{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="server-summary">
+      {% if server.icon_url %}
+        <img class="server-icon" src="{{ server.icon_url }}" alt="">
+      {% else %}
+        <div class="server-icon placeholder"></div>
+      {% endif %}
+      <div>
+        <h2>{{ server.name }}</h2>
+        <p class="empty">Guild ID: {{ guild_id }}</p>
+        {% if server.role %}
+          <strong class="status enabled">{{ server.role }}</strong>
+        {% endif %}
+      </div>
+    </div>
+    <p class="hint">このサーバーの管理トップは次Phaseで実装予定です。</p>
+    <a class="button-link secondary" href="/servers">サーバー選択へ戻る</a>
+  </section>
+{% endblock %}

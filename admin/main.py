@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from admin.auth import get_session_secret, register_auth_routes, router as auth_router
+from admin.servers import register_server_routes, router as server_router
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -38,7 +39,9 @@ app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent / "st
 app.mount("/assets", StaticFiles(directory=BASE_DIR / "assets"), name="assets")
 templates = Jinja2Templates(directory=Path(__file__).resolve().parent / "templates")
 register_auth_routes(templates)
+register_server_routes(templates)
 app.include_router(auth_router)
+app.include_router(server_router)
 
 
 def load_json_file(path: Path, default):

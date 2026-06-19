@@ -249,11 +249,48 @@ button:hover {
   background: #ffffff;
 }
 
+.server-list {
+  display: grid;
+  gap: 16px;
+}
+
+.server-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid #d9dee7;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.server-summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.server-icon {
+  width: 56px;
+  height: 56px;
+  border: 1px solid #d9dee7;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #ffffff;
+}
+
+.server-icon.placeholder {
+  background: #eceff3;
+}
+
 @media (max-width: 640px) {
   .topbar,
   .quote-meta,
   .actions,
-  .profile-row {
+  .profile-row,
+  .server-item,
+  .server-summary {
     align-items: flex-start;
     flex-direction: column;
   }
