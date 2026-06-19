@@ -15,6 +15,7 @@ from admin.auto_reactions import (
     register_auto_reaction_routes,
     router as auto_reaction_router,
 )
+from admin.auto_posts import register_auto_post_routes, router as auto_post_router
 from admin.auth import get_session_secret, register_auth_routes, router as auth_router
 from admin.mention_reactions import (
     register_mention_reaction_routes,
@@ -59,6 +60,7 @@ register_special_effect_routes(templates)
 register_auto_reaction_routes(templates)
 register_ng_word_routes(templates)
 register_mode_routes(templates)
+register_auto_post_routes(templates)
 app.include_router(auth_router)
 app.include_router(server_router)
 app.include_router(mention_reaction_router)
@@ -66,6 +68,7 @@ app.include_router(special_effect_router)
 app.include_router(auto_reaction_router)
 app.include_router(ng_word_router)
 app.include_router(mode_router)
+app.include_router(auto_post_router)
 
 
 def load_json_file(path: Path, default):

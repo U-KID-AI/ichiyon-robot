@@ -1,0 +1,85 @@
+{% extends "layout.html" %}
+
+{% block title %}{% if mode == "new" %}Add auto post{% else %}{{ post.name }}{% endif %} - ichiyon robot admin{% endblock %}
+{% block heading %}{% if mode == "new" %}Add auto post{% else %}{{ post.name }}{% endif %}{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="server-summary page-summary">
+      {% if server.icon_url %}<img class="server-icon" src="{{ server.icon_url }}" alt="">{% else %}<div class="server-icon placeholder"></div>{% endif %}
+      <div>
+        <h2>{{ server.name }}</h2>
+        <p class="empty">Guild ID: {{ guild_id }}</p>
+        {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
+      </div>
+    </div>
+    <div class="page-actions">
+      <a class="button-link secondary" href="/servers">Back to servers</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">Back to features</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}/auto-posts">Back to auto posts</a>
+    </div>
+  </section>
+
+  {% if errors %}
+    <section class="panel">
+      {% for error in errors %}
+        <p class="error">{{ error }}</p>
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  <section class="panel">
+    <h2>Post settings</h2>
+    <form class="quote-form" method="post">
+      <div class="form-grid">
+        <label>Post name<input type="text" name="name" value="{{ post.name }}" placeholder="6/30 サ終やめませんか？" {% if not can_edit %}disabled{% endif %}></label>
+        <label>Channel ID<input type="text" name="channel_id" value="{{ post.channel_id }}" {% if not can_edit %}disabled{% endif %}></label>
+      </div>
+      <label>Body<textarea name="body" placeholder="サ終やめませんか？" {% if not can_edit %}disabled{% endif %}>{{ post.body }}</textarea></label>
+      <label>Image path<input type="text" name="image_path" value="{{ post.image_path }}" placeholder="assets/images/..." {% if not can_edit %}disabled{% endif %}></label>
+      <label class="check-row">
+        <input type="checkbox" name="enabled" {% if post.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+        Enabled
+      </label>
+
+      <h3>Schedule</h3>
+      <div class="form-grid">
+        <label>
+          Schedule type
+          <select name="schedule_type" {% if not can_edit %}disabled{% endif %}>
+            {% for item in schedule_types %}
+              <option value="{{ item }}" {% if post.schedule_type == item %}selected{% endif %}>{{ item }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Month<input type="number" name="month" value="{{ post.month }}" min="1" max="12" {% if not can_edit %}disabled{% endif %}></label>
+        <label>Day<input type="number" name="day" value="{{ post.day }}" min="1" max="31" {% if not can_edit %}disabled{% endif %}></label>
+        <label>
+          Weekday
+          <select name="weekday" {% if not can_edit %}disabled{% endif %}>
+            {% for item in weekdays %}
+              <option value="{{ item }}" {% if post.weekday == item %}selected{% endif %}>{% if item %}{{ item }}{% else %}-{% endif %}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Time<input type="time" name="time" value="{{ post.time }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>Timezone<input type="text" name="timezone" value="{{ post.timezone }}" placeholder="Asia/Tokyo" {% if not can_edit %}disabled{% endif %}></label>
+      </div>
+      <p class="empty">Current schedule: {{ schedule_summary }}</p>
+      <p class="empty">Example for 6/30: yearly, month 6, day 30, body "サ終やめませんか？". Next-run calculation is handled in a later runtime phase.</p>
+
+      {% if mode == "edit" %}
+        <dl class="info-list">
+          <dt>Last posted</dt><dd>{{ post.last_posted_at or "-" }}</dd>
+          <dt>Stored schedule value</dt><dd><code>{{ post.schedule_value or "-" }}</code></dd>
+        </dl>
+      {% endif %}
+
+      {% if can_edit %}
+        <button type="submit">{% if mode == "new" %}Create{% else %}Save{% endif %}</button>
+      {% else %}
+        <button type="button" disabled>Read only</button>
+      {% endif %}
+    </form>
+  </section>
+{% endblock %}

@@ -1,4 +1,5 @@
 from bot.repositories.auto_reactions import AutoReactionRepository
+from bot.repositories.auto_posts import AutoPostRepository
 from bot.repositories.counters import CounterRepository
 from bot.repositories.feature_flags import FeatureFlagRepository
 from bot.repositories.guilds import GuildRepository
@@ -11,6 +12,7 @@ from bot.repositories.special_effects import SpecialEffectRepository
 
 __all__ = [
     "AutoReactionRepository",
+    "AutoPostRepository",
     "CounterRepository",
     "FeatureFlagRepository",
     "GuildRepository",

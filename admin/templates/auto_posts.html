@@ -1,0 +1,140 @@
+{% extends "layout.html" %}
+
+{% block title %}Auto posts - ichiyon robot admin{% endblock %}
+{% block heading %}Auto posts{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="server-summary page-summary">
+      {% if server.icon_url %}<img class="server-icon" src="{{ server.icon_url }}" alt="">{% else %}<div class="server-icon placeholder"></div>{% endif %}
+      <div>
+        <h2>{{ server.name }}</h2>
+        <p class="empty">Guild ID: {{ guild_id }}</p>
+        {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
+      </div>
+    </div>
+    <div class="page-actions">
+      <a class="button-link secondary" href="/servers">Back to servers</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">Back to features</a>
+      {% if can_create %}
+        <a class="button-link" href="/guilds/{{ guild_id }}/auto-posts/new">+ Add auto post</a>
+      {% else %}
+        <button type="button" disabled>+ Add auto post</button>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Search and filters</h2>
+    <form class="filter-form" method="get" action="/guilds/{{ guild_id }}/auto-posts">
+      <label>Keyword<input type="search" name="q" value="{{ filters.q }}" placeholder="name or body"></label>
+      <label>
+        Enabled
+        <select name="enabled">
+          <option value="all" {% if filters.enabled == "all" %}selected{% endif %}>All</option>
+          <option value="true" {% if filters.enabled == "true" %}selected{% endif %}>Enabled</option>
+          <option value="false" {% if filters.enabled == "false" %}selected{% endif %}>Disabled</option>
+        </select>
+      </label>
+      <label>
+        Image
+        <select name="has_image">
+          <option value="all" {% if filters.has_image == "all" %}selected{% endif %}>All</option>
+          <option value="true" {% if filters.has_image == "true" %}selected{% endif %}>Has image</option>
+          <option value="false" {% if filters.has_image == "false" %}selected{% endif %}>No image</option>
+        </select>
+      </label>
+      <label>Channel ID<input type="search" name="channel_id" value="{{ filters.channel_id }}" placeholder="Discord channel id"></label>
+      <div class="filter-actions">
+        <button type="submit">Apply</button>
+        <a class="button-link secondary" href="/guilds/{{ guild_id }}/auto-posts">Clear</a>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Auto post list</h2>
+    {% if posts %}
+      <div class="table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Name</th>
+              <th>Channel</th>
+              <th>Body</th>
+              <th>Image</th>
+              <th>Schedule</th>
+              <th>Last posted</th>
+              <th>Next</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for post in posts %}
+              <tr>
+                <td data-label="Status">{% if post.enabled %}<strong class="status enabled">ON</strong>{% else %}<strong class="status disabled">OFF</strong>{% endif %}</td>
+                <td data-label="Name">{{ post.name }}</td>
+                <td data-label="Channel"><code>{{ post.channel_id }}</code></td>
+                <td data-label="Body">{{ post.body_summary }}</td>
+                <td data-label="Image">{% if post.has_image %}yes{% else %}no{% endif %}</td>
+                <td data-label="Schedule">{{ post.schedule_summary }}</td>
+                <td data-label="Last posted">{{ post.last_posted_at or "-" }}</td>
+                <td data-label="Next">{{ post.next_run_at or "-" }}</td>
+                <td data-label="Actions">
+                  <div class="row-actions">
+                    <a class="button-link secondary" href="{{ post.edit_url }}">Edit</a>
+                    <button class="info-button" type="button" data-modal-target="auto-post-info-{{ post.id }}" aria-label="Info for {{ post.name }}">i</button>
+                    <form method="post" action="{{ post.toggle_url }}">
+                      <button type="submit" {% if not can_create %}disabled title="You do not have permission"{% endif %}>{% if post.enabled %}OFF{% else %}ON{% endif %}</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% for post in posts %}
+        <div class="modal-backdrop" id="auto-post-info-{{ post.id }}" hidden>
+          <div class="modal" role="dialog" aria-modal="true" aria-labelledby="auto-post-info-title-{{ post.id }}">
+            <div class="modal-header">
+              <h2 id="auto-post-info-title-{{ post.id }}">{{ post.name }}</h2>
+              <button class="modal-close" type="button" data-modal-close aria-label="Close">x</button>
+            </div>
+            <dl class="info-list">
+              <dt>Channel ID</dt><dd>{{ post.channel_id }}</dd>
+              <dt>Body</dt><dd>{{ post.body or "-" }}</dd>
+              <dt>Image path</dt><dd>{{ post.image_path or "-" }}</dd>
+              <dt>Schedule</dt><dd>{{ post.schedule_summary }}</dd>
+              <dt>Schedule value</dt><dd><code>{{ post.schedule_value }}</code></dd>
+              <dt>Last posted</dt><dd>{{ post.last_posted_at or "-" }}</dd>
+              <dt>Next run</dt><dd>{{ post.next_run_at or "calculated in later runtime phase" }}</dd>
+              <dt>Runtime note</dt><dd>This admin page stores DB settings only. Bot runtime switching is a later phase.</dd>
+            </dl>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="empty">No auto posts match the current filters.</p>
+    {% endif %}
+  </section>
+
+  <script>
+    document.querySelectorAll("[data-modal-target]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var modal = document.getElementById(button.dataset.modalTarget);
+        if (modal) { modal.hidden = false; }
+      });
+    });
+    document.querySelectorAll("[data-modal-close]").forEach(function (button) {
+      button.addEventListener("click", function () { button.closest(".modal-backdrop").hidden = true; });
+    });
+    document.querySelectorAll(".modal-backdrop").forEach(function (backdrop) {
+      backdrop.addEventListener("click", function (event) {
+        if (event.target === backdrop) { backdrop.hidden = true; }
+      });
+    });
+  </script>
+{% endblock %}
