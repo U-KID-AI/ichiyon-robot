@@ -1,6 +1,7 @@
 from bot.repositories.auto_reactions import AutoReactionRepository
 from bot.repositories.counters import CounterRepository
 from bot.repositories.feature_flags import FeatureFlagRepository
+from bot.repositories.guilds import GuildRepository
 from bot.repositories.mention_reactions import MentionReactionRepository
 from bot.repositories.modes import ModeRepository
 from bot.repositories.ng_words import NgWordRepository
@@ -11,6 +12,7 @@ __all__ = [
     "AutoReactionRepository",
     "CounterRepository",
     "FeatureFlagRepository",
+    "GuildRepository",
     "MentionReactionRepository",
     "ModeRepository",
     "NgWordRepository",

@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS guilds (
     guild_id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
+    icon_url TEXT,
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
