@@ -288,6 +288,28 @@ button:hover {
   margin-bottom: 16px;
 }
 
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.filter-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(150px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .feature-list {
   display: grid;
   gap: 14px;
@@ -393,6 +415,42 @@ button:disabled {
   line-height: 1.7;
 }
 
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 920px;
+}
+
+.admin-table th,
+.admin-table td {
+  border-bottom: 1px solid #d9dee7;
+  padding: 12px 10px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.admin-table th {
+  color: #4b5563;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.admin-table td {
+  color: #1f2933;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 @media (max-width: 640px) {
   .topbar,
   .quote-meta,
@@ -409,5 +467,45 @@ button:disabled {
 
   main {
     padding: 16px;
+  }
+
+  .filter-form {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-table,
+  .admin-table thead,
+  .admin-table tbody,
+  .admin-table th,
+  .admin-table td,
+  .admin-table tr {
+    display: block;
+    min-width: 0;
+  }
+
+  .admin-table thead {
+    display: none;
+  }
+
+  .admin-table tr {
+    border: 1px solid #d9dee7;
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 12px;
+    background: #fbfcfe;
+  }
+
+  .admin-table td {
+    display: grid;
+    grid-template-columns: minmax(112px, 38%) 1fr;
+    gap: 10px;
+    border-bottom: 0;
+    padding: 8px 0;
+  }
+
+  .admin-table td::before {
+    content: attr(data-label);
+    color: #657286;
+    font-weight: 700;
   }
 }

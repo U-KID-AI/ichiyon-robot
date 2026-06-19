@@ -40,6 +40,54 @@ class MentionReactionRepository:
             cursor.execute(sql, params)
             return fetch_all(cursor)
 
+    def list_reactions_for_admin(
+        self,
+        guild_id: str,
+        query: Optional[str] = None,
+        enabled: Optional[bool] = None,
+        reaction_kind: Optional[str] = None,
+        is_system: Optional[bool] = None,
+    ) -> List[Dict[str, Any]]:
+        params = [guild_id]
+        where = ["r.guild_id = %s"]
+
+        if query:
+            like_query = "%{0}%".format(query)
+            where.append(
+                "(r.name ILIKE %s OR r.keyword ILIKE %s OR COALESCE(r.description, '') ILIKE %s)"
+            )
+            params.extend([like_query, like_query, like_query])
+
+        if enabled is not None:
+            where.append("r.enabled = %s")
+            params.append(enabled)
+
+        normalized_kind = normalize_reaction_kind(reaction_kind)
+        if normalized_kind is not None:
+            where.append("r.reaction_kind = %s")
+            params.append(normalized_kind)
+
+        if is_system is not None:
+            where.append("r.is_system = %s")
+            params.append(is_system)
+
+        sql = """
+            SELECT
+                r.*,
+                COUNT(c.id) AS choice_count
+            FROM mention_reactions r
+            LEFT JOIN mention_reaction_choices c
+                ON c.guild_id = r.guild_id
+                AND c.mention_reaction_id = r.id
+            WHERE {where}
+            GROUP BY r.id
+            ORDER BY r.sort_order ASC, LENGTH(r.keyword) DESC, r.created_at ASC
+        """.format(where=" AND ".join(where))
+
+        with self.connection.cursor() as cursor:
+            cursor.execute(sql, params)
+            return fetch_all(cursor)
+
     def get_by_id(self, guild_id: str, reaction_id: int) -> Optional[Dict[str, Any]]:
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -51,6 +99,35 @@ class MentionReactionRepository:
                 (guild_id, reaction_id),
             )
             return fetch_one(cursor)
+
+    def set_enabled(
+        self,
+        guild_id: str,
+        reaction_id: int,
+        enabled: bool,
+    ) -> Optional[Dict[str, Any]]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE mention_reactions
+                SET enabled = %s,
+                    updated_at = NOW()
+                WHERE guild_id = %s AND id = %s
+                RETURNING *
+                """,
+                (enabled, guild_id, reaction_id),
+            )
+            return fetch_one(cursor)
+
+    def toggle_enabled(
+        self,
+        guild_id: str,
+        reaction_id: int,
+    ) -> Optional[Dict[str, Any]]:
+        reaction = self.get_by_id(guild_id, reaction_id)
+        if reaction is None:
+            return None
+        return self.set_enabled(guild_id, reaction_id, not bool(reaction["enabled"]))
 
     def get_by_key(self, guild_id: str, reaction_key: str) -> Optional[Dict[str, Any]]:
         with self.connection.cursor() as cursor:
