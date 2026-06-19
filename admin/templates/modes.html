@@ -1,0 +1,148 @@
+{% extends "layout.html" %}
+
+{% block title %}Modes - ichiyon robot admin{% endblock %}
+{% block heading %}Modes{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="server-summary page-summary">
+      {% if server.icon_url %}<img class="server-icon" src="{{ server.icon_url }}" alt="">{% else %}<div class="server-icon placeholder"></div>{% endif %}
+      <div>
+        <h2>{{ server.name }}</h2>
+        <p class="empty">Guild ID: {{ guild_id }}</p>
+        {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
+      </div>
+    </div>
+    <div class="page-actions">
+      <a class="button-link secondary" href="/servers">Back to servers</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">Back to features</a>
+      {% if can_create %}
+        <a class="button-link" href="/guilds/{{ guild_id }}/modes/new">+ Add mode</a>
+      {% else %}
+        <button type="button" disabled>+ Add mode</button>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Search and filters</h2>
+    <form class="filter-form" method="get" action="/guilds/{{ guild_id }}/modes">
+      <label>Keyword<input type="search" name="q" value="{{ filters.q }}" placeholder="name, key, description"></label>
+      <label>
+        Enabled
+        <select name="enabled">
+          <option value="all" {% if filters.enabled == "all" %}selected{% endif %}>All</option>
+          <option value="true" {% if filters.enabled == "true" %}selected{% endif %}>Enabled</option>
+          <option value="false" {% if filters.enabled == "false" %}selected{% endif %}>Disabled</option>
+        </select>
+      </label>
+      <label>
+        Behavior
+        <select name="behavior_type">
+          <option value="all" {% if filters.behavior_type == "all" %}selected{% endif %}>All</option>
+          <option value="reply" {% if filters.behavior_type == "reply" %}selected{% endif %}>reply</option>
+          <option value="offline" {% if filters.behavior_type == "offline" %}selected{% endif %}>offline</option>
+        </select>
+      </label>
+      <label>
+        Admin only
+        <select name="admin_only">
+          <option value="all" {% if filters.admin_only == "all" %}selected{% endif %}>All</option>
+          <option value="true" {% if filters.admin_only == "true" %}selected{% endif %}>Admin only</option>
+          <option value="false" {% if filters.admin_only == "false" %}selected{% endif %}>Normal</option>
+        </select>
+      </label>
+      <div class="filter-actions">
+        <button type="submit">Apply</button>
+        <a class="button-link secondary" href="/guilds/{{ guild_id }}/modes">Clear</a>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Mode list</h2>
+    {% if modes %}
+      <div class="table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Name</th>
+              <th>Key</th>
+              <th>Behavior</th>
+              <th>Admin</th>
+              <th>Cooldown</th>
+              <th>Triggers</th>
+              <th>Replies</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in modes %}
+              <tr>
+                <td data-label="Status">{% if item.enabled %}<strong class="status enabled">ON</strong>{% else %}<strong class="status disabled">OFF</strong>{% endif %}</td>
+                <td data-label="Name">{{ item.name }}</td>
+                <td data-label="Key"><code>{{ item.mode_key }}</code></td>
+                <td data-label="Behavior">{{ item.behavior_type }}</td>
+                <td data-label="Admin">{% if item.admin_only %}admin_only{% else %}-{% endif %}</td>
+                <td data-label="Cooldown">{{ item.cooldown_summary }}</td>
+                <td data-label="Triggers">{{ item.trigger_count }}</td>
+                <td data-label="Replies">{{ item.reply_count }}</td>
+                <td data-label="Actions">
+                  <div class="row-actions">
+                    <a class="button-link secondary" href="{{ item.edit_url }}">Edit</a>
+                    <button class="info-button" type="button" data-modal-target="mode-info-{{ item.id }}" aria-label="Info for {{ item.name }}">i</button>
+                    <form method="post" action="{{ item.toggle_url }}">
+                      <button type="submit" {% if not item.can_toggle %}disabled title="You do not have permission"{% endif %}>{% if item.enabled %}OFF{% else %}ON{% endif %}</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% for item in modes %}
+        <div class="modal-backdrop" id="mode-info-{{ item.id }}" hidden>
+          <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mode-info-title-{{ item.id }}">
+            <div class="modal-header">
+              <h2 id="mode-info-title-{{ item.id }}">{{ item.name }}</h2>
+              <button class="modal-close" type="button" data-modal-close aria-label="Close">x</button>
+            </div>
+            <dl class="info-list">
+              <dt>Mode key</dt><dd>{{ item.mode_key }}</dd>
+              <dt>Description</dt><dd>{{ item.description or "-" }}</dd>
+              <dt>Behavior</dt><dd>{{ item.behavior_type }}</dd>
+              <dt>Cooldown</dt><dd>{{ item.cooldown_summary }}</dd>
+              <dt>Trigger conditions</dt><dd>{{ item.trigger_count }}</dd>
+              <dt>Reply choices</dt><dd>{{ item.reply_count }}</dd>
+              <dt>Exit conditions</dt><dd>{{ item.exit_count }}</dd>
+              <dt>Admin only</dt><dd>{% if item.admin_only %}yes{% else %}no{% endif %}</dd>
+              <dt>Fixed preset</dt><dd>The shikocchi recovery message is fixed and not editable here.</dd>
+            </dl>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="empty">No modes match the current filters.</p>
+    {% endif %}
+  </section>
+
+  <script>
+    document.querySelectorAll("[data-modal-target]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var modal = document.getElementById(button.dataset.modalTarget);
+        if (modal) { modal.hidden = false; }
+      });
+    });
+    document.querySelectorAll("[data-modal-close]").forEach(function (button) {
+      button.addEventListener("click", function () { button.closest(".modal-backdrop").hidden = true; });
+    });
+    document.querySelectorAll(".modal-backdrop").forEach(function (backdrop) {
+      backdrop.addEventListener("click", function (event) {
+        if (event.target === backdrop) { backdrop.hidden = true; }
+      });
+    });
+  </script>
+{% endblock %}

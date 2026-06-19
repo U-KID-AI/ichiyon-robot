@@ -1,6 +1,11 @@
+import json
 from typing import Any, Dict, List, Optional
 
 from bot.repositories.base import fetch_all, fetch_one, json_dumps
+
+
+def json_dumps_list(value: List[str]) -> str:
+    return json.dumps(value, ensure_ascii=False)
 
 
 class ModeRepository:
@@ -10,11 +15,18 @@ class ModeRepository:
     def list_modes(
         self,
         guild_id: str,
+        query: Optional[str] = None,
         enabled: Optional[bool] = None,
         behavior_type: Optional[str] = None,
+        admin_only: Optional[bool] = None,
     ) -> List[Dict[str, Any]]:
         params = [guild_id]
         where = ["guild_id = %s"]
+
+        if query:
+            like_query = "%{0}%".format(query)
+            where.append("(name ILIKE %s OR mode_key ILIKE %s OR COALESCE(description, '') ILIKE %s)")
+            params.extend([like_query, like_query, like_query])
 
         if enabled is not None:
             where.append("enabled = %s")
@@ -23,6 +35,10 @@ class ModeRepository:
         if behavior_type is not None:
             where.append("behavior_type = %s")
             params.append(behavior_type)
+
+        if admin_only is not None:
+            where.append("admin_only = %s")
+            params.append(admin_only)
 
         sql = """
             SELECT *
@@ -34,6 +50,186 @@ class ModeRepository:
         with self.connection.cursor() as cursor:
             cursor.execute(sql, params)
             return fetch_all(cursor)
+
+    def get_by_id(self, guild_id: str, mode_id: int) -> Optional[Dict[str, Any]]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM modes
+                WHERE guild_id = %s AND id = %s
+                """,
+                (guild_id, mode_id),
+            )
+            return fetch_one(cursor)
+
+    def mode_key_exists(
+        self,
+        guild_id: str,
+        mode_key: str,
+        exclude_mode_id: Optional[int] = None,
+    ) -> bool:
+        params = [guild_id, mode_key]
+        where = ["guild_id = %s", "mode_key = %s"]
+        if exclude_mode_id is not None:
+            where.append("id <> %s")
+            params.append(exclude_mode_id)
+        sql = """
+            SELECT 1
+            FROM modes
+            WHERE {where}
+            LIMIT 1
+        """.format(where=" AND ".join(where))
+        with self.connection.cursor() as cursor:
+            cursor.execute(sql, params)
+            return cursor.fetchone() is not None
+
+    def create_mode(
+        self,
+        guild_id: str,
+        mode_key: str,
+        name: str,
+        description: str,
+        behavior_type: str,
+        mode_icon_path: str,
+        enter_message: str,
+        exit_message: str,
+        enter_gif_path: str,
+        exit_gif_path: str,
+        enter_notify_channel_id: str,
+        exit_notify_channel_id: str,
+        reaction_channel_ids: List[str],
+        ignore_channel_ids: List[str],
+        cooldown_config: Dict[str, Any],
+        enabled: bool,
+        admin_only: bool,
+        is_deletable: bool,
+    ) -> Dict[str, Any]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO modes (
+                    guild_id, mode_key, name, description, behavior_type,
+                    mode_icon_path, enter_message, exit_message, enter_gif_path, exit_gif_path,
+                    enter_notify_channel_id, exit_notify_channel_id, reaction_channel_ids,
+                    ignore_channel_ids, cooldown_config_json, enabled, admin_only, is_deletable
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::JSONB, %s::JSONB, %s::JSONB, %s, %s, %s)
+                RETURNING *
+                """,
+                (
+                    guild_id,
+                    mode_key,
+                    name,
+                    description,
+                    behavior_type,
+                    mode_icon_path,
+                    enter_message,
+                    exit_message,
+                    enter_gif_path,
+                    exit_gif_path,
+                    enter_notify_channel_id,
+                    exit_notify_channel_id,
+                    json_dumps_list(reaction_channel_ids),
+                    json_dumps_list(ignore_channel_ids),
+                    json_dumps(cooldown_config),
+                    enabled,
+                    admin_only,
+                    is_deletable,
+                ),
+            )
+            return fetch_one(cursor)
+
+    def update_mode(
+        self,
+        guild_id: str,
+        mode_id: int,
+        mode_key: str,
+        name: str,
+        description: str,
+        behavior_type: str,
+        mode_icon_path: str,
+        enter_message: str,
+        exit_message: str,
+        enter_gif_path: str,
+        exit_gif_path: str,
+        enter_notify_channel_id: str,
+        exit_notify_channel_id: str,
+        reaction_channel_ids: List[str],
+        ignore_channel_ids: List[str],
+        cooldown_config: Dict[str, Any],
+        enabled: bool,
+        admin_only: bool,
+        is_deletable: bool,
+    ) -> Optional[Dict[str, Any]]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE modes
+                SET mode_key = %s,
+                    name = %s,
+                    description = %s,
+                    behavior_type = %s,
+                    mode_icon_path = %s,
+                    enter_message = %s,
+                    exit_message = %s,
+                    enter_gif_path = %s,
+                    exit_gif_path = %s,
+                    enter_notify_channel_id = %s,
+                    exit_notify_channel_id = %s,
+                    reaction_channel_ids = %s::JSONB,
+                    ignore_channel_ids = %s::JSONB,
+                    cooldown_config_json = %s::JSONB,
+                    enabled = %s,
+                    admin_only = %s,
+                    is_deletable = %s,
+                    updated_at = NOW()
+                WHERE guild_id = %s AND id = %s
+                RETURNING *
+                """,
+                (
+                    mode_key,
+                    name,
+                    description,
+                    behavior_type,
+                    mode_icon_path,
+                    enter_message,
+                    exit_message,
+                    enter_gif_path,
+                    exit_gif_path,
+                    enter_notify_channel_id,
+                    exit_notify_channel_id,
+                    json_dumps_list(reaction_channel_ids),
+                    json_dumps_list(ignore_channel_ids),
+                    json_dumps(cooldown_config),
+                    enabled,
+                    admin_only,
+                    is_deletable,
+                    guild_id,
+                    mode_id,
+                ),
+            )
+            return fetch_one(cursor)
+
+    def set_enabled(self, guild_id: str, mode_id: int, enabled: bool) -> Optional[Dict[str, Any]]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE modes
+                SET enabled = %s,
+                    updated_at = NOW()
+                WHERE guild_id = %s AND id = %s
+                RETURNING *
+                """,
+                (enabled, guild_id, mode_id),
+            )
+            return fetch_one(cursor)
+
+    def toggle_enabled(self, guild_id: str, mode_id: int) -> Optional[Dict[str, Any]]:
+        mode = self.get_by_id(guild_id, mode_id)
+        if mode is None:
+            return None
+        return self.set_enabled(guild_id, mode_id, not bool(mode["enabled"]))
 
     def list_enabled_modes(self, guild_id: str) -> List[Dict[str, Any]]:
         return self.list_modes(guild_id, enabled=True)
@@ -166,3 +362,168 @@ class ModeRepository:
         with self.connection.cursor() as cursor:
             cursor.execute(sql, params)
             return fetch_all(cursor)
+
+    def create_reply_choice(
+        self,
+        guild_id: str,
+        mode_id: int,
+        name: str,
+        body: Optional[str],
+        image_path: Optional[str],
+        appearance_rate: int,
+        enabled: bool,
+    ) -> Dict[str, Any]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO mode_reply_choices (
+                    guild_id, mode_id, name, body, image_path, appearance_rate, enabled
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING *
+                """,
+                (guild_id, mode_id, name, body, image_path, appearance_rate, enabled),
+            )
+            return fetch_one(cursor)
+
+    def update_reply_choice(
+        self,
+        guild_id: str,
+        choice_id: int,
+        name: str,
+        body: Optional[str],
+        image_path: Optional[str],
+        appearance_rate: int,
+        enabled: bool,
+    ) -> Optional[Dict[str, Any]]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE mode_reply_choices
+                SET name = %s,
+                    body = %s,
+                    image_path = %s,
+                    appearance_rate = %s,
+                    enabled = %s,
+                    updated_at = NOW()
+                WHERE guild_id = %s AND id = %s
+                RETURNING *
+                """,
+                (name, body, image_path, appearance_rate, enabled, guild_id, choice_id),
+            )
+            return fetch_one(cursor)
+
+    def get_reply_choice(self, guild_id: str, choice_id: int) -> Optional[Dict[str, Any]]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM mode_reply_choices WHERE guild_id = %s AND id = %s",
+                (guild_id, choice_id),
+            )
+            return fetch_one(cursor)
+
+    def create_trigger_condition(
+        self,
+        guild_id: str,
+        mode_id: int,
+        condition_type: str,
+        condition_config: Dict[str, Any],
+        group_operator: str,
+        enabled: bool,
+    ) -> Dict[str, Any]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO mode_trigger_conditions (
+                    guild_id, mode_id, condition_type, condition_config_json, group_operator, enabled
+                )
+                VALUES (%s, %s, %s, %s::JSONB, %s, %s)
+                RETURNING *
+                """,
+                (guild_id, mode_id, condition_type, json_dumps(condition_config), group_operator, enabled),
+            )
+            return fetch_one(cursor)
+
+    def update_trigger_condition(
+        self,
+        guild_id: str,
+        condition_id: int,
+        condition_type: str,
+        condition_config: Dict[str, Any],
+        group_operator: str,
+        enabled: bool,
+    ) -> Optional[Dict[str, Any]]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE mode_trigger_conditions
+                SET condition_type = %s,
+                    condition_config_json = %s::JSONB,
+                    group_operator = %s,
+                    enabled = %s,
+                    updated_at = NOW()
+                WHERE guild_id = %s AND id = %s
+                RETURNING *
+                """,
+                (condition_type, json_dumps(condition_config), group_operator, enabled, guild_id, condition_id),
+            )
+            return fetch_one(cursor)
+
+    def get_trigger_condition(self, guild_id: str, condition_id: int) -> Optional[Dict[str, Any]]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM mode_trigger_conditions WHERE guild_id = %s AND id = %s",
+                (guild_id, condition_id),
+            )
+            return fetch_one(cursor)
+
+    def create_exit_condition(
+        self,
+        guild_id: str,
+        mode_id: int,
+        condition_type: str,
+        condition_config: Dict[str, Any],
+        enabled: bool,
+    ) -> Dict[str, Any]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO mode_exit_conditions (
+                    guild_id, mode_id, condition_type, condition_config_json, enabled
+                )
+                VALUES (%s, %s, %s, %s::JSONB, %s)
+                RETURNING *
+                """,
+                (guild_id, mode_id, condition_type, json_dumps(condition_config), enabled),
+            )
+            return fetch_one(cursor)
+
+    def update_exit_condition(
+        self,
+        guild_id: str,
+        condition_id: int,
+        condition_type: str,
+        condition_config: Dict[str, Any],
+        enabled: bool,
+    ) -> Optional[Dict[str, Any]]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE mode_exit_conditions
+                SET condition_type = %s,
+                    condition_config_json = %s::JSONB,
+                    enabled = %s,
+                    updated_at = NOW()
+                WHERE guild_id = %s AND id = %s
+                RETURNING *
+                """,
+                (condition_type, json_dumps(condition_config), enabled, guild_id, condition_id),
+            )
+            return fetch_one(cursor)
+
+    def get_exit_condition(self, guild_id: str, condition_id: int) -> Optional[Dict[str, Any]]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM mode_exit_conditions WHERE guild_id = %s AND id = %s",
+                (guild_id, condition_id),
+            )
+            return fetch_one(cursor)

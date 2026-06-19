@@ -1,6 +1,6 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-from bot.repositories.base import fetch_one
+from bot.repositories.base import fetch_all, fetch_one
 
 
 class CounterRepository:
@@ -18,6 +18,22 @@ class CounterRepository:
                 (guild_id, count_key),
             )
             return fetch_one(cursor)
+
+    def get_by_key(self, guild_id: str, count_key: str) -> Optional[Dict[str, Any]]:
+        return self.get_counter(guild_id, count_key)
+
+    def list_counters(self, guild_id: str) -> List[Dict[str, Any]]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM counters
+                WHERE guild_id = %s
+                ORDER BY name ASC, count_key ASC
+                """,
+                (guild_id,),
+            )
+            return fetch_all(cursor)
 
     def create_counter(
         self,

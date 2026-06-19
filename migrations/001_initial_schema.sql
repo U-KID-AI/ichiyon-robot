@@ -219,6 +219,8 @@ CREATE TABLE IF NOT EXISTS modes (
     cooldown_config_json JSONB NOT NULL DEFAULT '{}'::JSONB,
     appearance_config_json JSONB NOT NULL DEFAULT '{}'::JSONB,
     enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    admin_only BOOLEAN NOT NULL DEFAULT FALSE,
+    is_deletable BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (guild_id, mode_key)
