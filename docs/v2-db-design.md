@@ -347,7 +347,7 @@ NGワードを含む投稿には通常反応しません。
 * `count_add`
 * `mode_lottery`
 * `pseudo_offline_lottery`
-* `mini_ichiyon`
+* `hankaku`
 * `shikocchi_lottery`
 
 ミニいちよんは特殊効果タグとして扱います。

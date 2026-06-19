@@ -153,7 +153,7 @@ class PresetSeeder:
 
     def seed_special_effect_tags(self) -> Dict[str, int]:
         tags = {
-            "mini_ichiyon": self.ensure_effect_tag(
+            "hankaku": self.ensure_effect_tag(
                 name="ミニいちよん",
                 description="抽選候補が選ばれた時、1/32で追加テキストを投稿する。",
                 color="#33AAFF",
@@ -162,7 +162,7 @@ class PresetSeeder:
                 trigger_timing="choice_selected",
                 effect_type="probability_message",
                 effect_config={"probability": {"numerator": 1, "denominator": 32}},
-                additional_text=":yukkuri_itiyon: ｲﾔ〜{match_1:mini_ichiyon}ﾈ〜",
+                additional_text=":yukkuri_itiyon: ｲﾔ〜{match_1:hankaku}ﾈ〜",
                 additional_post_timing="effect_success",
                 expires_type="immediate",
                 cooldown_seconds=0,
@@ -664,7 +664,7 @@ class PresetSeeder:
             "",
             1,
         )
-        self.ensure_assignment(tags["mini_ichiyon"], "mention_reaction_choice", omae_choice_id)
+        self.ensure_assignment(tags["hankaku"], "mention_reaction_choice", omae_choice_id)
 
         deck_id = self.ensure_mention_reaction(
             reaction_key="deck_search",
@@ -951,7 +951,7 @@ class PresetSeeder:
         reactions: Dict[str, int],
     ) -> None:
         print("preset material ids:")
-        print("  mini tag id: {0}".format(tags["mini_ichiyon"]))
+        print("  mini tag id: {0}".format(tags["hankaku"]))
         print("  shikocchi roll tag id: {0}".format(tags["shikocchi_roll"]))
         print("  narita ng tag id: {0}".format(tags["narita_ng"]))
         print("  hayusu mode id: {0}".format(modes["hayusu"]))

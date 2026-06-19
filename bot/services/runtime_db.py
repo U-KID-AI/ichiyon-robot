@@ -79,8 +79,8 @@ def render_template(text: Optional[str], values: Dict[str, str]) -> str:
         value = values.get(key)
         if value is None:
             return match.group(0)
-        if transform == "mini_ichiyon":
-            return to_mini_ichiyon_text(value)
+        if transform == "hankaku":
+            return to_hankaku_text(value)
         return match.group(0)
 
     rendered = pattern.sub(replace_transformed, rendered)
@@ -89,7 +89,7 @@ def render_template(text: Optional[str], values: Dict[str, str]) -> str:
     return rendered
 
 
-def to_mini_ichiyon_text(value: str) -> str:
+def to_hankaku_text(value: str) -> str:
     katakana = []
     for char in value:
         code = ord(char)
