@@ -79,6 +79,27 @@ class CounterRepository:
             )
             return fetch_one(cursor)
 
+    def ensure_counter(
+        self,
+        guild_id: str,
+        count_key: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        initial_value: int = 0,
+        reset_type: str = "none",
+    ) -> Dict[str, Any]:
+        counter = self.get_counter(guild_id, count_key)
+        if counter is not None:
+            return counter
+        return self.create_counter(
+            guild_id,
+            count_key,
+            name or count_key,
+            description,
+            initial_value,
+            reset_type,
+        )
+
     def get_state(self, guild_id: str, count_key: str) -> Optional[Dict[str, Any]]:
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -91,6 +112,15 @@ class CounterRepository:
                 (guild_id, count_key),
             )
             return fetch_one(cursor)
+
+    def get_value(self, guild_id: str, count_key: str, default: int = 0) -> int:
+        state = self.get_state(guild_id, count_key)
+        if state is None:
+            counter = self.get_counter(guild_id, count_key)
+            if counter is None:
+                return default
+            return int(counter.get("initial_value") or default)
+        return int(state.get("current_value") or 0)
 
     def set_value(
         self,

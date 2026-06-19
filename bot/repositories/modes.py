@@ -291,6 +291,52 @@ class ModeRepository:
                 ),
             )
 
+    def enter_mode(
+        self,
+        guild_id: str,
+        mode_id: int,
+        active_until: Optional[str],
+        state_json: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        self.upsert_mode_state(
+            guild_id,
+            mode_id,
+            active_until,
+            None,
+            0,
+            {},
+            state_json or {},
+        )
+
+    def clear_mode_state(
+        self,
+        guild_id: str,
+        state_json: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO mode_states (
+                    guild_id,
+                    current_mode_id,
+                    active_until,
+                    pseudo_offline_until,
+                    shikocchi_count,
+                    period_states_json,
+                    state_json
+                )
+                VALUES (%s, NULL, NULL, NULL, 0, '{}'::jsonb, %s::jsonb)
+                ON CONFLICT (guild_id) DO UPDATE
+                SET current_mode_id = NULL,
+                    active_until = NULL,
+                    pseudo_offline_until = NULL,
+                    shikocchi_count = 0,
+                    state_json = EXCLUDED.state_json,
+                    updated_at = NOW()
+                """,
+                (guild_id, json_dumps(state_json or {})),
+            )
+
     def list_trigger_conditions(
         self,
         guild_id: str,
