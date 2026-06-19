@@ -1,0 +1,182 @@
+{% extends "layout.html" %}
+
+{% block title %}{% if mode == "new" %}ランダム抽選を追加{% else %}{{ reaction.name }}{% endif %} - いちよんロボ管理画面{% endblock %}
+{% block heading %}{% if mode == "new" %}ランダム抽選を追加{% else %}{{ reaction.name }}{% endif %}{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="server-summary page-summary">
+      {% if server.icon_url %}
+        <img class="server-icon" src="{{ server.icon_url }}" alt="">
+      {% else %}
+        <div class="server-icon placeholder"></div>
+      {% endif %}
+      <div>
+        <h2>{{ server.name }}</h2>
+        <p class="empty">Guild ID: {{ guild_id }}</p>
+        {% if server.role %}
+          <strong class="status enabled">{{ server.role }}</strong>
+        {% endif %}
+      </div>
+    </div>
+    <div class="page-actions">
+      <a class="button-link secondary" href="/servers">サーバー選択へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}/mention-reactions">メンション反応一覧へ戻る</a>
+    </div>
+    <p class="hint">検索型はシステム固定機能のため、管理画面から新規作成しません。この画面で作成できるのはランダム抽選のみです。</p>
+  </section>
+
+  {% if errors %}
+    <section class="panel">
+      {% for error in errors %}
+        <p class="error">{{ error }}</p>
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  <section class="panel">
+    <h2>基本情報</h2>
+    {% if search_readonly %}
+      <p class="hint">この反応は検索型です。検索ロジックと検索設定の編集は後続Phaseで扱います。</p>
+    {% endif %}
+    {% if reaction.is_system %}
+      <p class="hint">固定機能です。削除不可で、重要項目の編集は guild_admin 以上に限定します。</p>
+    {% endif %}
+
+    <form class="quote-form" method="post">
+      <label>
+        反応名
+        <input type="text" name="name" value="{{ reaction.name }}" {% if not can_edit_reaction %}disabled{% endif %}>
+      </label>
+      <label>
+        説明
+        <textarea name="description" {% if not can_edit_reaction %}disabled{% endif %}>{{ reaction.description or "" }}</textarea>
+      </label>
+      <label>
+        キーワード/パターン
+        <input type="text" name="keyword" value="{{ reaction.keyword }}" {% if not can_edit_reaction %}disabled{% endif %}>
+      </label>
+      <label>
+        一致方式
+        <select name="match_type" {% if not can_edit_reaction %}disabled{% endif %}>
+          {% for match_type in match_types %}
+            <option value="{{ match_type.value }}" {% if reaction.match_type == match_type.value %}selected{% endif %}>{{ match_type.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="check-row">
+        <input type="checkbox" name="enabled" {% if reaction.enabled %}checked{% endif %} {% if not can_edit_reaction %}disabled{% endif %}>
+        有効
+      </label>
+      <label class="check-row">
+        <input type="checkbox" name="admin_only" {% if reaction.admin_only %}checked{% endif %} {% if not can_edit_reaction or not can_set_admin_only %}disabled{% endif %}>
+        管理者限定
+      </label>
+
+      <dl class="info-list">
+        <dt>種類</dt>
+        <dd>{% if reaction.reaction_kind == "search" %}search{% else %}random_draw{% endif %}</dd>
+        <dt>固定機能</dt>
+        <dd>{% if reaction.is_system %}固定{% else %}追加分{% endif %}</dd>
+        <dt>削除</dt>
+        <dd>{% if reaction.is_system %}削除不可{% else %}削除は後続Phaseで実装予定{% endif %}</dd>
+      </dl>
+
+      {% if can_edit_reaction %}
+        <button type="submit">{% if mode == "new" %}作成{% else %}保存{% endif %}</button>
+      {% else %}
+        <button type="button" disabled>保存できません</button>
+      {% endif %}
+    </form>
+  </section>
+
+  {% if mode == "edit" %}
+    <section class="panel">
+      <h2>抽選候補</h2>
+      {% if reaction.reaction_kind == "search" %}
+        <p class="empty">検索型には抽選候補を追加しません。</p>
+      {% else %}
+        {% if choice_errors %}
+          {% for error in choice_errors %}
+            <p class="error">{{ error }}</p>
+          {% endfor %}
+        {% endif %}
+
+        {% if choices %}
+          <div class="choice-list">
+            {% for choice in choices %}
+              <form class="choice-item" method="post" action="/guilds/{{ guild_id }}/mention-reactions/{{ reaction.id }}/choices/{{ choice.id }}">
+                <div class="choice-grid">
+                  <label>
+                    候補名
+                    <input type="text" name="choice_name" value="{{ choice.name }}" {% if not can_edit_choices %}disabled{% endif %}>
+                  </label>
+                  <label>
+                    出やすさ
+                    <input type="number" min="1" name="appearance_rate" value="{{ choice.appearance_rate }}" {% if not can_edit_choices %}disabled{% endif %}>
+                  </label>
+                  <label class="choice-wide">
+                    本文
+                    <textarea name="body" {% if not can_edit_choices %}disabled{% endif %}>{{ choice.body or "" }}</textarea>
+                  </label>
+                  <label class="choice-wide">
+                    画像パス
+                    <input type="text" name="image_path" value="{{ choice.image_path or "" }}" placeholder="assets/images/..." {% if not can_edit_choices %}disabled{% endif %}>
+                  </label>
+                  <label class="check-row">
+                    <input type="checkbox" name="choice_enabled" {% if choice.enabled %}checked{% endif %} {% if not can_edit_choices %}disabled{% endif %}>
+                    有効
+                  </label>
+                </div>
+                <div class="row-actions">
+                  {% if can_edit_choices %}
+                    <button type="submit">候補を保存</button>
+                  {% else %}
+                    <button type="button" disabled>候補を保存できません</button>
+                  {% endif %}
+                  <button type="button" disabled title="削除は後続Phaseで実装予定です">削除は後続Phase</button>
+                </div>
+              </form>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="empty">抽選候補はまだありません。</p>
+        {% endif %}
+
+        <section class="subpanel">
+          <h3>候補を追加</h3>
+          <form class="choice-item" method="post" action="/guilds/{{ guild_id }}/mention-reactions/{{ reaction.id }}/choices">
+            <div class="choice-grid">
+              <label>
+                候補名
+                <input type="text" name="choice_name" {% if not can_edit_choices %}disabled{% endif %}>
+              </label>
+              <label>
+                出やすさ
+                <input type="number" min="1" name="appearance_rate" value="1" {% if not can_edit_choices %}disabled{% endif %}>
+              </label>
+              <label class="choice-wide">
+                本文
+                <textarea name="body" {% if not can_edit_choices %}disabled{% endif %}></textarea>
+              </label>
+              <label class="choice-wide">
+                画像パス
+                <input type="text" name="image_path" placeholder="assets/images/..." {% if not can_edit_choices %}disabled{% endif %}>
+              </label>
+              <label class="check-row">
+                <input type="checkbox" name="choice_enabled" checked {% if not can_edit_choices %}disabled{% endif %}>
+                有効
+              </label>
+            </div>
+            {% if can_edit_choices %}
+              <button type="submit">候補を追加</button>
+            {% else %}
+              <button type="button" disabled>候補を追加できません</button>
+            {% endif %}
+          </form>
+        </section>
+      {% endif %}
+    </section>
+  {% endif %}
+{% endblock %}

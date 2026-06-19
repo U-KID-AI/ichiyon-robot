@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS mention_reactions (
     guild_id TEXT NOT NULL REFERENCES guilds(guild_id) ON DELETE CASCADE,
     reaction_key TEXT NOT NULL,
     keyword TEXT NOT NULL,
-    match_type TEXT NOT NULL DEFAULT 'contains' CHECK (match_type IN ('contains', 'exact', 'regex')),
+    match_type TEXT NOT NULL DEFAULT 'contains' CHECK (match_type IN ('contains', 'exact', 'prefix', 'regex')),
     reaction_kind TEXT NOT NULL CHECK (reaction_kind IN ('random', 'search')),
     name TEXT NOT NULL,
     description TEXT,

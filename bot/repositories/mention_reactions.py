@@ -100,6 +100,116 @@ class MentionReactionRepository:
             )
             return fetch_one(cursor)
 
+    def keyword_exists(
+        self,
+        guild_id: str,
+        keyword: str,
+        exclude_reaction_id: Optional[int] = None,
+    ) -> bool:
+        params = [guild_id, keyword]
+        where = ["guild_id = %s", "keyword = %s"]
+        if exclude_reaction_id is not None:
+            where.append("id <> %s")
+            params.append(exclude_reaction_id)
+
+        sql = """
+            SELECT 1
+            FROM mention_reactions
+            WHERE {where}
+            LIMIT 1
+        """.format(where=" AND ".join(where))
+
+        with self.connection.cursor() as cursor:
+            cursor.execute(sql, params)
+            return cursor.fetchone() is not None
+
+    def create_reaction(
+        self,
+        guild_id: str,
+        reaction_key: str,
+        keyword: str,
+        match_type: str,
+        reaction_kind: str,
+        name: str,
+        description: str,
+        admin_only: bool,
+        is_system: bool,
+        is_deletable: bool,
+        enabled: bool,
+    ) -> Dict[str, Any]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO mention_reactions (
+                    guild_id,
+                    reaction_key,
+                    keyword,
+                    match_type,
+                    reaction_kind,
+                    name,
+                    description,
+                    admin_only,
+                    is_system,
+                    is_deletable,
+                    enabled
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING *
+                """,
+                (
+                    guild_id,
+                    reaction_key,
+                    keyword,
+                    match_type,
+                    normalize_reaction_kind(reaction_kind),
+                    name,
+                    description,
+                    admin_only,
+                    is_system,
+                    is_deletable,
+                    enabled,
+                ),
+            )
+            return fetch_one(cursor)
+
+    def update_reaction(
+        self,
+        guild_id: str,
+        reaction_id: int,
+        keyword: str,
+        match_type: str,
+        name: str,
+        description: str,
+        admin_only: bool,
+        enabled: bool,
+    ) -> Optional[Dict[str, Any]]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE mention_reactions
+                SET keyword = %s,
+                    match_type = %s,
+                    name = %s,
+                    description = %s,
+                    admin_only = %s,
+                    enabled = %s,
+                    updated_at = NOW()
+                WHERE guild_id = %s AND id = %s
+                RETURNING *
+                """,
+                (
+                    keyword,
+                    match_type,
+                    name,
+                    description,
+                    admin_only,
+                    enabled,
+                    guild_id,
+                    reaction_id,
+                ),
+            )
+            return fetch_one(cursor)
+
     def set_enabled(
         self,
         guild_id: str,
@@ -147,10 +257,11 @@ class MentionReactionRepository:
         content: str,
         enabled: Optional[bool] = True,
     ) -> List[Dict[str, Any]]:
-        params = [guild_id, content, content, content]
+        params = [guild_id, content, content, content, content]
         where = [
             "guild_id = %s",
             "((match_type = 'exact' AND %s = keyword) "
+            "OR (match_type = 'prefix' AND POSITION(keyword IN %s) = 1) "
             "OR (match_type = 'contains' AND POSITION(keyword IN %s) > 0) "
             "OR (match_type = 'regex' AND %s ~ keyword))",
         ]
@@ -227,6 +338,78 @@ class MentionReactionRepository:
                 WHERE guild_id = %s AND id = %s
                 """,
                 (guild_id, choice_id),
+            )
+            return fetch_one(cursor)
+
+    def create_choice(
+        self,
+        guild_id: str,
+        mention_reaction_id: int,
+        name: str,
+        body: Optional[str],
+        image_path: Optional[str],
+        appearance_rate: int,
+        enabled: bool,
+    ) -> Dict[str, Any]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO mention_reaction_choices (
+                    guild_id,
+                    mention_reaction_id,
+                    name,
+                    body,
+                    image_path,
+                    appearance_rate,
+                    enabled
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING *
+                """,
+                (
+                    guild_id,
+                    mention_reaction_id,
+                    name,
+                    body,
+                    image_path,
+                    appearance_rate,
+                    enabled,
+                ),
+            )
+            return fetch_one(cursor)
+
+    def update_choice(
+        self,
+        guild_id: str,
+        choice_id: int,
+        name: str,
+        body: Optional[str],
+        image_path: Optional[str],
+        appearance_rate: int,
+        enabled: bool,
+    ) -> Optional[Dict[str, Any]]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE mention_reaction_choices
+                SET name = %s,
+                    body = %s,
+                    image_path = %s,
+                    appearance_rate = %s,
+                    enabled = %s,
+                    updated_at = NOW()
+                WHERE guild_id = %s AND id = %s
+                RETURNING *
+                """,
+                (
+                    name,
+                    body,
+                    image_path,
+                    appearance_rate,
+                    enabled,
+                    guild_id,
+                    choice_id,
+                ),
             )
             return fetch_one(cursor)
 
