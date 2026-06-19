@@ -64,3 +64,18 @@ class FeatureFlagRepository:
                 (guild_id, feature_key, enabled, updated_by_discord_user_id),
             )
             return fetch_one(cursor)
+
+    def toggle_flag(
+        self,
+        guild_id: str,
+        feature_key: str,
+        default: bool = True,
+        updated_by_discord_user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        next_enabled = not self.is_enabled(guild_id, feature_key, default)
+        return self.set_flag(
+            guild_id,
+            feature_key,
+            next_enabled,
+            updated_by_discord_user_id,
+        )
