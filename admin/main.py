@@ -20,6 +20,7 @@ from admin.mention_reactions import (
     register_mention_reaction_routes,
     router as mention_reaction_router,
 )
+from admin.ng_words_db import register_ng_word_routes, router as ng_word_router
 from admin.servers import register_server_routes, router as server_router
 from admin.special_effects import (
     register_special_effect_routes,
@@ -55,11 +56,13 @@ register_server_routes(templates)
 register_mention_reaction_routes(templates)
 register_special_effect_routes(templates)
 register_auto_reaction_routes(templates)
+register_ng_word_routes(templates)
 app.include_router(auth_router)
 app.include_router(server_router)
 app.include_router(mention_reaction_router)
 app.include_router(special_effect_router)
 app.include_router(auto_reaction_router)
+app.include_router(ng_word_router)
 
 
 def load_json_file(path: Path, default):
