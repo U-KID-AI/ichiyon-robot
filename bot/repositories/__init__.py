@@ -5,6 +5,7 @@ from bot.repositories.guilds import GuildRepository
 from bot.repositories.mention_reactions import MentionReactionRepository
 from bot.repositories.modes import ModeRepository
 from bot.repositories.ng_words import NgWordRepository
+from bot.repositories.permissions import PermissionRepository
 from bot.repositories.special_effects import SpecialEffectRepository
 
 
@@ -16,5 +17,6 @@ __all__ = [
     "MentionReactionRepository",
     "ModeRepository",
     "NgWordRepository",
+    "PermissionRepository",
     "SpecialEffectRepository",
 ]

@@ -9,6 +9,9 @@ from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
+
+from admin.auth import get_session_secret, register_auth_routes, router as auth_router
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,9 +28,17 @@ for image_category in ("quotes", "kuji", "reactions"):
     (IMAGE_ROOT / image_category).mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="いちよんロボ 管理画面")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=get_session_secret(),
+    same_site="lax",
+    https_only=False,
+)
 app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent / "static"), name="static")
 app.mount("/assets", StaticFiles(directory=BASE_DIR / "assets"), name="assets")
 templates = Jinja2Templates(directory=Path(__file__).resolve().parent / "templates")
+register_auth_routes(templates)
+app.include_router(auth_router)
 
 
 def load_json_file(path: Path, default):
