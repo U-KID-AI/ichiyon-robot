@@ -9,7 +9,7 @@
       {% if server.icon_url %}<img class="server-icon" src="{{ server.icon_url }}" alt="">{% else %}<div class="server-icon placeholder"></div>{% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">Guild ID: {{ guild_id }}</p>
+        <p class="empty">NGワードを編集します。</p>
         {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
       </div>
     </div>
@@ -37,6 +37,11 @@
       </label>
       {% if can_edit %}<button type="submit">{% if mode == "new" %}作成{% else %}保存{% endif %}</button>{% else %}<button type="button" disabled>保存できません</button>{% endif %}
     </form>
+    {% if mode == "edit" %}
+      <form method="post" action="/guilds/{{ guild_id }}/ng-words/{{ word.id }}/delete" data-confirm="このNGワードを削除しますか？">
+        <button class="danger" type="submit" {% if not can_edit %}disabled{% endif %}>削除</button>
+      </form>
+    {% endif %}
   </section>
 
   {% if mode == "edit" %}
@@ -45,7 +50,7 @@
       {% if word.effects %}
         <div class="effect-chip-list">
           {% for effect in word.effects %}
-            <span class="effect-chip"><span class="color-swatch" style="background: {{ effect.color or '#6B7280' }}"></span>{{ effect.name }} / {{ effect.effect_type }}</span>
+            <span class="effect-chip"><span class="color-swatch" style="background: {{ effect.color or '#6B7280' }}"></span>{{ effect.name }}</span>
           {% endfor %}
         </div>
       {% else %}
@@ -53,4 +58,12 @@
       {% endif %}
     </section>
   {% endif %}
+
+  <script>
+    document.querySelectorAll("[data-confirm]").forEach(function (form) {
+      form.addEventListener("submit", function (event) {
+        if (!confirm(form.dataset.confirm)) { event.preventDefault(); }
+      });
+    });
+  </script>
 {% endblock %}

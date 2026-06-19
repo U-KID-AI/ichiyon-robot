@@ -190,6 +190,26 @@ class AutoReactionRepository:
             return None
         return self.set_enabled(guild_id, reaction_id, not bool(reaction["enabled"]))
 
+    def delete_reaction(self, guild_id: str, reaction_id: int) -> bool:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM special_effect_assignments
+                WHERE guild_id = %s
+                  AND target_type = 'auto_reaction'
+                  AND target_id = %s
+                """,
+                (guild_id, reaction_id),
+            )
+            cursor.execute(
+                """
+                DELETE FROM reactions
+                WHERE guild_id = %s AND id = %s
+                """,
+                (guild_id, reaction_id),
+            )
+            return cursor.rowcount > 0
+
     def find_trigger_matches(
         self,
         guild_id: str,

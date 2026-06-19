@@ -8,6 +8,7 @@ from fastapi.templating import Jinja2Templates
 
 from admin.auth import get_current_user
 from admin.servers import can_access_guild, find_server, role_allows
+from admin.ux import EFFECT_TYPE_LABELS, is_test_data, parse_show_test_data
 from bot.db import get_connection
 from bot.repositories import SpecialEffectRepository
 
@@ -45,6 +46,7 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         effect_type: str = Query("all"),
         enabled: str = Query("all"),
         admin_only: str = Query("all"),
+        show_test_data: str = Query("false"),
     ):
         user = get_current_user(request)
         if user is None:
@@ -53,7 +55,7 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
         server = find_server(guild_id, user["user_id"])
-        filters = normalize_filters(q, effect_type, enabled, admin_only)
+        filters = normalize_filters(q, effect_type, enabled, admin_only, show_test_data)
         tags = list_tag_rows(guild_id, server["role"], filters)
         return templates.TemplateResponse(
             request,
@@ -65,6 +67,7 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
                 "filters": filters,
                 "tags": tags,
                 "effect_types": EFFECT_TYPES,
+                "effect_type_labels": EFFECT_TYPE_LABELS,
                 "can_create": role_allows(server["role"], "editor"),
             },
         )
@@ -88,6 +91,27 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
             repository.toggle_enabled(guild_id, tag_id)
             connection.commit()
 
+        return RedirectResponse(url="/guilds/{0}/special-effects".format(guild_id), status_code=303)
+
+    @router.post("/guilds/{guild_id}/special-effects/{tag_id}/delete")
+    async def delete_special_effect(request: Request, guild_id: str, tag_id: int):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="サーバーを見る権限がありません。")
+        server = find_server(guild_id, user["user_id"])
+        with get_connection() as connection:
+            repository = SpecialEffectRepository(connection)
+            tag = repository.get_by_id(guild_id, tag_id)
+            if tag is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="特殊効果タグが見つかりません。")
+            if not can_edit_tag(server["role"], tag):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="削除する権限がありません。")
+            if not tag.get("is_deletable", True):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="固定タグのため削除できません。")
+            repository.delete_tag(guild_id, tag_id)
+            connection.commit()
         return RedirectResponse(url="/guilds/{0}/special-effects".format(guild_id), status_code=303)
 
     @router.get("/guilds/{guild_id}/special-effects/new")
@@ -295,16 +319,23 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         return RedirectResponse(url="/guilds/{0}/special-effects/{1}".format(guild_id, tag_id), status_code=303)
 
 
-def normalize_filters(q: Optional[str], effect_type: str, enabled: str, admin_only: str) -> Dict[str, str]:
+def normalize_filters(
+    q: Optional[str],
+    effect_type: str,
+    enabled: str,
+    admin_only: str,
+    show_test_data: str = "false",
+) -> Dict[str, Any]:
     return {
         "q": (q or "").strip(),
         "effect_type": effect_type if effect_type in EFFECT_TYPES or effect_type == "all" else "all",
         "enabled": enabled if enabled in ("all", "true", "false") else "all",
         "admin_only": admin_only if admin_only in ("all", "true", "false") else "all",
+        "show_test_data": parse_show_test_data(show_test_data),
     }
 
 
-def list_tag_rows(guild_id: str, role: str, filters: Dict[str, str]) -> List[Dict[str, Any]]:
+def list_tag_rows(guild_id: str, role: str, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
     with get_connection() as connection:
         repository = SpecialEffectRepository(connection)
         tags = repository.list_tags(
@@ -317,14 +348,23 @@ def list_tag_rows(guild_id: str, role: str, filters: Dict[str, str]) -> List[Dic
 
     rows = []
     for tag in tags:
+        if not filters["show_test_data"] and row_is_hidden_test_data(tag):
+            continue
         row = build_form_from_tag(tag)
         row["id"] = tag["id"]
         row["can_toggle"] = can_edit_tag(role, tag)
+        row["can_delete"] = can_edit_tag(role, tag) and bool(tag.get("is_deletable", True))
         row["has_additional_text"] = bool(row["additional_text"].strip())
+        row["effect_type_label"] = EFFECT_TYPE_LABELS.get(row["effect_type"], row["effect_type"])
         row["edit_url"] = "/guilds/{0}/special-effects/{1}".format(guild_id, tag["id"])
         row["toggle_url"] = "/guilds/{0}/special-effects/{1}/toggle".format(guild_id, tag["id"])
+        row["delete_url"] = "/guilds/{0}/special-effects/{1}/delete".format(guild_id, tag["id"])
         rows.append(row)
     return rows
+
+
+def row_is_hidden_test_data(row: Dict[str, Any]) -> bool:
+    return is_test_data(row.get("name")) or is_test_data(row.get("description"))
 
 
 def parse_bool(value: str) -> Optional[bool]:
@@ -564,6 +604,7 @@ def render_form(
             "target_types": TARGET_TYPES,
             "trigger_timings": TRIGGER_TIMINGS,
             "effect_types": EFFECT_TYPES,
+            "effect_type_labels": EFFECT_TYPE_LABELS,
             "additional_post_timings": ADDITIONAL_POST_TIMINGS,
             "expires_types": EXPIRES_TYPES,
             "cooldown_scopes": COOLDOWN_SCOPES,

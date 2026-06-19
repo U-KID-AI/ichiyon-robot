@@ -71,9 +71,53 @@ def build_template_values(message: discord.Message, message_text: str, groups: D
 
 def render_template(text: Optional[str], values: Dict[str, str]) -> str:
     rendered = text or ""
+    pattern = re.compile(r"\{([A-Za-z0-9_]+):([A-Za-z0-9_]+)\}")
+
+    def replace_transformed(match: re.Match) -> str:
+        key = match.group(1)
+        transform = match.group(2)
+        value = values.get(key)
+        if value is None:
+            return match.group(0)
+        if transform == "mini_ichiyon":
+            return to_mini_ichiyon_text(value)
+        return match.group(0)
+
+    rendered = pattern.sub(replace_transformed, rendered)
     for key, value in values.items():
         rendered = rendered.replace("{" + key + "}", value)
     return rendered
+
+
+def to_mini_ichiyon_text(value: str) -> str:
+    katakana = []
+    for char in value:
+        code = ord(char)
+        if 0x3041 <= code <= 0x3096:
+            katakana.append(chr(code + 0x60))
+        else:
+            katakana.append(char)
+    table = {
+        "ア": "ｱ", "イ": "ｲ", "ウ": "ｳ", "エ": "ｴ", "オ": "ｵ",
+        "カ": "ｶ", "キ": "ｷ", "ク": "ｸ", "ケ": "ｹ", "コ": "ｺ",
+        "サ": "ｻ", "シ": "ｼ", "ス": "ｽ", "セ": "ｾ", "ソ": "ｿ",
+        "タ": "ﾀ", "チ": "ﾁ", "ツ": "ﾂ", "テ": "ﾃ", "ト": "ﾄ",
+        "ナ": "ﾅ", "ニ": "ﾆ", "ヌ": "ﾇ", "ネ": "ﾈ", "ノ": "ﾉ",
+        "ハ": "ﾊ", "ヒ": "ﾋ", "フ": "ﾌ", "ヘ": "ﾍ", "ホ": "ﾎ",
+        "マ": "ﾏ", "ミ": "ﾐ", "ム": "ﾑ", "メ": "ﾒ", "モ": "ﾓ",
+        "ヤ": "ﾔ", "ユ": "ﾕ", "ヨ": "ﾖ",
+        "ラ": "ﾗ", "リ": "ﾘ", "ル": "ﾙ", "レ": "ﾚ", "ロ": "ﾛ",
+        "ワ": "ﾜ", "ヲ": "ｦ", "ン": "ﾝ",
+        "ァ": "ｧ", "ィ": "ｨ", "ゥ": "ｩ", "ェ": "ｪ", "ォ": "ｫ",
+        "ッ": "ｯ", "ャ": "ｬ", "ュ": "ｭ", "ョ": "ｮ", "ー": "ｰ",
+        "ガ": "ｶﾞ", "ギ": "ｷﾞ", "グ": "ｸﾞ", "ゲ": "ｹﾞ", "ゴ": "ｺﾞ",
+        "ザ": "ｻﾞ", "ジ": "ｼﾞ", "ズ": "ｽﾞ", "ゼ": "ｾﾞ", "ゾ": "ｿﾞ",
+        "ダ": "ﾀﾞ", "ヂ": "ﾁﾞ", "ヅ": "ﾂﾞ", "デ": "ﾃﾞ", "ド": "ﾄﾞ",
+        "バ": "ﾊﾞ", "ビ": "ﾋﾞ", "ブ": "ﾌﾞ", "ベ": "ﾍﾞ", "ボ": "ﾎﾞ",
+        "パ": "ﾊﾟ", "ピ": "ﾋﾟ", "プ": "ﾌﾟ", "ペ": "ﾍﾟ", "ポ": "ﾎﾟ",
+        "ヴ": "ｳﾞ",
+    }
+    return "".join(table.get(char, char) for char in "".join(katakana))
 
 
 def regex_groups(match: re.Match) -> Dict[str, str]:

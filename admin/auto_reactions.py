@@ -1,12 +1,13 @@
 import json
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Form, HTTPException, Query, Request, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from admin.auth import get_current_user
 from admin.servers import can_access_guild, find_server, role_allows
+from admin.ux import MATCH_TYPE_LABELS, is_test_data, parse_show_test_data, save_uploaded_image
 from bot.db import get_connection
 from bot.repositories import AutoReactionRepository, SpecialEffectRepository
 
@@ -41,6 +42,7 @@ def register_auto_reaction_routes(templates: Jinja2Templates) -> None:
         enabled: str = Query("all"),
         has_image: str = Query("all"),
         has_effects: str = Query("all"),
+        show_test_data: str = Query("false"),
     ):
         user = get_current_user(request)
         if user is None:
@@ -49,7 +51,7 @@ def register_auto_reaction_routes(templates: Jinja2Templates) -> None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
         server = find_server(guild_id, user["user_id"])
-        filters = normalize_filters(q, enabled, has_image, has_effects)
+        filters = normalize_filters(q, enabled, has_image, has_effects, show_test_data)
         reactions = list_reaction_rows(guild_id, server["role"], filters)
         return templates.TemplateResponse(
             request,
@@ -85,6 +87,24 @@ def register_auto_reaction_routes(templates: Jinja2Templates) -> None:
 
         return RedirectResponse(url="/guilds/{0}/auto-reactions".format(guild_id), status_code=303)
 
+    @router.post("/guilds/{guild_id}/auto-reactions/{reaction_id}/delete")
+    async def delete_auto_reaction(request: Request, guild_id: str, reaction_id: int):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="サーバーを見る権限がありません。")
+        server = find_server(guild_id, user["user_id"])
+        if not role_allows(server["role"], "editor"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="削除する権限がありません。")
+        with get_connection() as connection:
+            repository = AutoReactionRepository(connection)
+            if repository.get_by_id(guild_id, reaction_id) is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="自動反応が見つかりません。")
+            repository.delete_reaction(guild_id, reaction_id)
+            connection.commit()
+        return RedirectResponse(url="/guilds/{0}/auto-reactions".format(guild_id), status_code=303)
+
     @router.get("/guilds/{guild_id}/auto-reactions/new")
     async def new_auto_reaction_page(request: Request, guild_id: str):
         user = get_current_user(request)
@@ -105,6 +125,7 @@ def register_auto_reaction_routes(templates: Jinja2Templates) -> None:
         trigger_text: str = Form(""),
         response_text: str = Form(""),
         image_path: str = Form(""),
+        image_upload: Optional[UploadFile] = File(None),
         emoji_internal: str = Form(""),
         match_type: str = Form("contains"),
         priority: str = Form("0"),
@@ -119,7 +140,12 @@ def register_auto_reaction_routes(templates: Jinja2Templates) -> None:
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="auto reaction creation denied")
 
+        uploaded_path, upload_error = await save_uploaded_image(image_upload, "auto_reactions")
+        if uploaded_path:
+            image_path = uploaded_path
         form, errors = build_form(trigger_text, response_text, image_path, emoji_internal, match_type, priority, enabled)
+        if upload_error:
+            errors.append(upload_error)
         with get_connection() as connection:
             repository = AutoReactionRepository(connection)
             if not errors and repository.trigger_exists(guild_id, form["trigger_text"], form["match_type"]):
@@ -178,6 +204,8 @@ def register_auto_reaction_routes(templates: Jinja2Templates) -> None:
         trigger_text: str = Form(""),
         response_text: str = Form(""),
         image_path: str = Form(""),
+        image_upload: Optional[UploadFile] = File(None),
+        delete_image: Optional[str] = Form(None),
         emoji_internal: str = Form(""),
         match_type: str = Form("contains"),
         priority: str = Form("0"),
@@ -192,7 +220,14 @@ def register_auto_reaction_routes(templates: Jinja2Templates) -> None:
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="auto reaction editing denied")
 
+        if delete_image:
+            image_path = ""
+        uploaded_path, upload_error = await save_uploaded_image(image_upload, "auto_reactions")
+        if uploaded_path:
+            image_path = uploaded_path
         form, errors = build_form(trigger_text, response_text, image_path, emoji_internal, match_type, priority, enabled)
+        if upload_error:
+            errors.append(upload_error)
         with get_connection() as connection:
             repository = AutoReactionRepository(connection)
             reaction = repository.get_by_id(guild_id, reaction_id)
@@ -307,12 +342,19 @@ def register_auto_reaction_routes(templates: Jinja2Templates) -> None:
         return RedirectResponse(url="/guilds/{0}/auto-reactions/{1}".format(guild_id, reaction_id), status_code=303)
 
 
-def normalize_filters(q: Optional[str], enabled: str, has_image: str, has_effects: str) -> Dict[str, str]:
+def normalize_filters(
+    q: Optional[str],
+    enabled: str,
+    has_image: str,
+    has_effects: str,
+    show_test_data: str = "false",
+) -> Dict[str, Any]:
     return {
         "q": (q or "").strip(),
         "enabled": enabled if enabled in ("all", "true", "false") else "all",
         "has_image": has_image if has_image in ("all", "true", "false") else "all",
         "has_effects": has_effects if has_effects in ("all", "true", "false") else "all",
+        "show_test_data": parse_show_test_data(show_test_data),
     }
 
 
@@ -324,7 +366,7 @@ def parse_bool(value: str) -> Optional[bool]:
     return None
 
 
-def list_reaction_rows(guild_id: str, role: str, filters: Dict[str, str]) -> List[Dict[str, Any]]:
+def list_reaction_rows(guild_id: str, role: str, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
     with get_connection() as connection:
         repository = AutoReactionRepository(connection)
         reactions = repository.list_reactions(
@@ -333,7 +375,11 @@ def list_reaction_rows(guild_id: str, role: str, filters: Dict[str, str]) -> Lis
             enabled=parse_bool(filters["enabled"]),
             has_image=parse_bool(filters["has_image"]),
         )
-        rows = [build_reaction_view(connection, guild_id, reaction, role) for reaction in reactions]
+        rows = [
+            build_reaction_view(connection, guild_id, reaction, role)
+            for reaction in reactions
+            if filters["show_test_data"] or not row_is_hidden_test_data(reaction)
+        ]
 
     if filters["has_effects"] == "true":
         rows = [row for row in rows if row["effects"]]
@@ -349,8 +395,19 @@ def build_reaction_view(connection, guild_id: str, reaction: Dict[str, Any], rol
     row["effects"] = list_effects_for_target(connection, guild_id, int(row["id"]), role)
     row["edit_url"] = "/guilds/{0}/auto-reactions/{1}".format(guild_id, row["id"])
     row["toggle_url"] = "/guilds/{0}/auto-reactions/{1}/toggle".format(guild_id, row["id"])
+    row["delete_url"] = "/guilds/{0}/auto-reactions/{1}/delete".format(guild_id, row["id"])
     row["effects_url"] = "/guilds/{0}/auto-reactions/{1}/effects".format(guild_id, row["id"])
+    row["match_type_label"] = MATCH_TYPE_LABELS.get(row["match_type"], row["match_type"])
+    row["can_delete"] = role_allows(role, "editor")
     return row
+
+
+def row_is_hidden_test_data(row: Dict[str, Any]) -> bool:
+    return (
+        is_test_data(row.get("trigger_text"))
+        or is_test_data(row.get("response_text"))
+        or is_test_data(row.get("emoji_internal"))
+    )
 
 
 def summarize(value: str) -> str:
@@ -459,6 +516,7 @@ def render_form(
             "errors": errors,
             "can_edit": can_edit,
             "match_types": MATCH_TYPES,
+            "match_type_labels": MATCH_TYPE_LABELS,
         },
         status_code=status_code,
     )

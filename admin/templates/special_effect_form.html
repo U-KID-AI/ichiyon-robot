@@ -13,10 +13,8 @@
       {% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">Guild ID: {{ guild_id }}</p>
-        {% if server.role %}
-          <strong class="status enabled">{{ server.role }}</strong>
-        {% endif %}
+        <p class="empty">抽選候補・自動反応・NGワードに追加効果を付けるタグです。</p>
+        {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
       </div>
     </div>
     <div class="page-actions">
@@ -24,112 +22,94 @@
       <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
       <a class="button-link secondary" href="/guilds/{{ guild_id }}/special-effects">特殊効果タグ一覧へ戻る</a>
     </div>
-    <p class="hint">危険度は持たず、管理者限定で操作範囲を制御します。追加投稿テキストは空白のまま保存できます。</p>
+    <p class="hint">危険度は使わず、管理者限定で操作できる範囲を分けます。追加投稿テキストは空でも保存できます。</p>
   </section>
 
   {% if errors %}
     <section class="panel">
-      {% for error in errors %}
-        <p class="error">{{ error }}</p>
-      {% endfor %}
+      {% for error in errors %}<p class="error">{{ error }}</p>{% endfor %}
     </section>
   {% endif %}
 
   <section class="panel">
     <h2>基本情報</h2>
     <form class="quote-form" method="post">
-      <label>
-        タグ名
-        <input type="text" name="name" value="{{ tag.name }}" {% if not can_edit %}disabled{% endif %}>
-      </label>
-      <label>
-        説明
-        <textarea name="description" {% if not can_edit %}disabled{% endif %}>{{ tag.description }}</textarea>
-      </label>
-      <label>
-        タグ色
-        <input type="text" name="color" value="{{ tag.color }}" placeholder="#6B7280" {% if not can_edit %}disabled{% endif %}>
-      </label>
-      <label class="check-row">
-        <input type="checkbox" name="enabled" {% if tag.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
-        有効
-      </label>
-      <label class="check-row">
-        <input type="checkbox" name="admin_only" {% if tag.admin_only %}checked{% endif %} {% if not can_edit or not can_set_admin_only %}disabled{% endif %}>
-        管理者限定
-      </label>
-      <label>
-        優先度
-        <input type="number" name="priority" value="{{ tag.priority }}" {% if not can_edit %}disabled{% endif %}>
-      </label>
-
-      <div class="form-grid">
-        <label>
-          付与可能対象
-          <select name="target_type" {% if not can_edit %}disabled{% endif %}>
-            {% for item in target_types %}
-              <option value="{{ item }}" {% if tag.target_type == item %}selected{% endif %}>{{ item }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>
-          発動タイミング
-          <select name="trigger_timing" {% if not can_edit %}disabled{% endif %}>
-            {% for item in trigger_timings %}
-              <option value="{{ item }}" {% if tag.trigger_timing == item %}selected{% endif %}>{{ item }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>
-          効果タイプ
-          <select name="effect_type" {% if not can_edit %}disabled{% endif %}>
-            {% for item in effect_types %}
-              <option value="{{ item }}" {% if tag.effect_type == item %}selected{% endif %}>{{ item }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>
-          追加投稿タイミング
-          <select name="additional_post_timing" {% if not can_edit %}disabled{% endif %}>
-            {% for item in additional_post_timings %}
-              <option value="{{ item }}" {% if tag.additional_post_timing == item %}selected{% endif %}>{{ item }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>
-          有効期限タイプ
-          <select name="expires_type" {% if not can_edit %}disabled{% endif %}>
-            {% for item in expires_types %}
-              <option value="{{ item }}" {% if tag.expires_type == item %}selected{% endif %}>{{ item }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>
-          有効期限値
-          <input type="number" min="0" name="expires_value" value="{{ tag.expires_value }}" {% if not can_edit %}disabled{% endif %}>
-        </label>
-        <label>
-          クールタイム秒数
-          <input type="number" min="0" name="cooldown_seconds" value="{{ tag.cooldown_seconds }}" {% if not can_edit %}disabled{% endif %}>
-        </label>
-        <label>
-          クールタイム適用単位
-          <select name="cooldown_scope" {% if not can_edit %}disabled{% endif %}>
-            {% for item in cooldown_scopes %}
-              <option value="{{ item }}" {% if tag.cooldown_scope == item %}selected{% endif %}>{{ item }}</option>
-            {% endfor %}
-          </select>
-        </label>
-      </div>
+      <label>タグ名<input type="text" name="name" value="{{ tag.name }}" {% if not can_edit %}disabled{% endif %}></label>
+      <label>説明<textarea name="description" {% if not can_edit %}disabled{% endif %}>{{ tag.description }}</textarea></label>
+      <label>タグ色<input type="text" name="color" value="{{ tag.color }}" placeholder="#6B7280" {% if not can_edit %}disabled{% endif %}></label>
+      <label class="check-row"><input type="checkbox" name="enabled" {% if tag.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>有効</label>
+      <label class="check-row"><input type="checkbox" name="admin_only" {% if tag.admin_only %}checked{% endif %} {% if not can_edit or not can_set_admin_only %}disabled{% endif %}>管理者限定</label>
 
       <label>
-        効果設定JSON
-        <textarea name="effect_config_json" {% if not can_edit %}disabled{% endif %}>{{ tag.effect_config_json }}</textarea>
+        効果の種類
+        <select name="effect_type" {% if not can_edit %}disabled{% endif %}>
+          {% for item in effect_types %}
+            <option value="{{ item }}" {% if tag.effect_type == item %}selected{% endif %}>{{ effect_type_labels.get(item, item) }}</option>
+          {% endfor %}
+        </select>
       </label>
-      <label>
-        追加投稿テキスト
-        <textarea name="additional_text" {% if not can_edit %}disabled{% endif %}>{{ tag.additional_text }}</textarea>
-      </label>
+      <label>追加投稿テキスト<textarea name="additional_text" {% if not can_edit %}disabled{% endif %}>{{ tag.additional_text }}</textarea></label>
+
+      <section class="subpanel">
+        <h3>使えるテンプレート</h3>
+        <ul class="config-list">
+          <li><code>{match_1}</code> 正規表現で一致した1つ目</li>
+          <li><code>{match_2}</code> 正規表現で一致した2つ目</li>
+          <li><code>{user_name}</code> ユーザー名</li>
+          <li><code>{user_mention}</code> ユーザーへのメンション</li>
+          <li><code>{match_1:mini_ichiyon}</code> ひらがなをカタカナ化し、全角カタカナを半角カタカナにします。</li>
+        </ul>
+      </section>
+
+      <details>
+        <summary>詳細設定</summary>
+        <div class="form-grid">
+          <label>優先度<input type="number" name="priority" value="{{ tag.priority }}" {% if not can_edit %}disabled{% endif %}></label>
+          <label>
+            付与できる対象
+            <select name="target_type" {% if not can_edit %}disabled{% endif %}>
+              <option value="mention_reaction_choice" {% if tag.target_type == "mention_reaction_choice" %}selected{% endif %}>メンション反応の抽選候補</option>
+              <option value="auto_reaction" {% if tag.target_type == "auto_reaction" %}selected{% endif %}>自動反応</option>
+              <option value="ng_word" {% if tag.target_type == "ng_word" %}selected{% endif %}>NGワード</option>
+            </select>
+          </label>
+          <label>
+            発動タイミング
+            <select name="trigger_timing" {% if not can_edit %}disabled{% endif %}>
+              <option value="choice_selected" {% if tag.trigger_timing == "choice_selected" %}selected{% endif %}>抽選候補が選ばれた時</option>
+              <option value="auto_reaction_triggered" {% if tag.trigger_timing == "auto_reaction_triggered" %}selected{% endif %}>自動反応が動いた時</option>
+              <option value="ng_word_detected" {% if tag.trigger_timing == "ng_word_detected" %}selected{% endif %}>NGワードを検知した時</option>
+            </select>
+          </label>
+          <label>
+            追加投稿タイミング
+            <select name="additional_post_timing" {% if not can_edit %}disabled{% endif %}>
+              {% for item in additional_post_timings %}
+                <option value="{{ item }}" {% if tag.additional_post_timing == item %}selected{% endif %}>{{ item }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            有効期限タイプ
+            <select name="expires_type" {% if not can_edit %}disabled{% endif %}>
+              {% for item in expires_types %}
+                <option value="{{ item }}" {% if tag.expires_type == item %}selected{% endif %}>{{ item }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>有効期限値<input type="number" min="0" name="expires_value" value="{{ tag.expires_value }}" {% if not can_edit %}disabled{% endif %}></label>
+          <label>クールタイム秒数<input type="number" min="0" name="cooldown_seconds" value="{{ tag.cooldown_seconds }}" {% if not can_edit %}disabled{% endif %}></label>
+          <label>
+            クールタイム単位
+            <select name="cooldown_scope" {% if not can_edit %}disabled{% endif %}>
+              {% for item in cooldown_scopes %}
+                <option value="{{ item }}" {% if tag.cooldown_scope == item %}selected{% endif %}>{{ item }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <label>詳細設定<textarea name="effect_config_json" {% if not can_edit %}disabled{% endif %}>{{ tag.effect_config_json }}</textarea></label>
+      </details>
 
       {% if can_edit %}
         <button type="submit">{% if mode == "new" %}作成{% else %}保存{% endif %}</button>
@@ -137,14 +117,27 @@
         <button type="button" disabled>保存できません</button>
       {% endif %}
     </form>
+    {% if mode == "edit" %}
+      <form method="post" action="/guilds/{{ guild_id }}/special-effects/{{ tag_id }}/delete" data-confirm="この特殊効果タグを削除しますか？">
+        <button class="danger" type="submit" {% if not can_edit %}disabled{% endif %}>削除</button>
+      </form>
+    {% endif %}
   </section>
 
   <section class="panel">
     <h2>プリセット例</h2>
     <ul class="config-list">
-      <li>ミニいちよん: effect_type=probability_message, effect_config={"rate":{"numerator":1,"denominator":32}}</li>
-      <li>しこっち抽選: effect_type=counter_set, effect_config={"rate":{"numerator":1,"denominator":444},"counter_key":"shikocchi_count","value":1}</li>
-      <li>成田カウント加算: effect_type=counter_delta, effect_config={"counter_key":"narita_count","delta":1}</li>
+      <li>ミニいちよん: 効果の種類=確率で追加投稿、確率 1/32、追加投稿 <code>:yukkuri_itiyon: ｲﾔ〜{match_1:mini_ichiyon}ﾈ〜</code></li>
+      <li>しこっち抽選: カウンター設定、確率 1/444、<code>shikocchi_count=1</code></li>
+      <li>成田カウント加算: カウンター加算、<code>narita_count +1</code></li>
     </ul>
   </section>
+
+  <script>
+    document.querySelectorAll("[data-confirm]").forEach(function (form) {
+      form.addEventListener("submit", function (event) {
+        if (!confirm(form.dataset.confirm)) { event.preventDefault(); }
+      });
+    });
+  </script>
 {% endblock %}

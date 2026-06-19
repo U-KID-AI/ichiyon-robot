@@ -13,7 +13,7 @@
       {% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">Guild ID: {{ guild_id }}</p>
+        <p class="empty">通常メッセージへの自動反応を編集します。</p>
         {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
       </div>
     </div>
@@ -37,17 +37,24 @@
 
   <section class="panel">
     <h2>基本情報</h2>
-    <form class="quote-form" method="post">
-      <label>トリガー<input type="text" name="trigger_text" value="{{ reaction.trigger_text }}" {% if not can_edit %}disabled{% endif %}></label>
+    <form class="quote-form" method="post" enctype="multipart/form-data">
+      <label>呼び出しワード<input type="text" name="trigger_text" value="{{ reaction.trigger_text }}" {% if not can_edit %}disabled{% endif %}></label>
       <label>返答テキスト<textarea name="response_text" {% if not can_edit %}disabled{% endif %}>{{ reaction.response_text }}</textarea></label>
-      <label>画像パス<input type="text" name="image_path" value="{{ reaction.image_path }}" placeholder="assets/images/..." {% if not can_edit %}disabled{% endif %}></label>
-      <label>絵文字内部表記<input type="text" name="emoji_internal" value="{{ reaction.emoji_internal }}" {% if not can_edit %}disabled{% endif %}></label>
+      <input type="hidden" name="emoji_internal" value="{{ reaction.emoji_internal }}">
+      <div class="image-field">
+        <input type="hidden" name="image_path" value="{{ reaction.image_path }}">
+        {% if reaction.image_path %}
+          <img class="image-preview" src="/{{ reaction.image_path }}" alt="">
+          <label class="check-row"><input type="checkbox" name="delete_image" {% if not can_edit %}disabled{% endif %}>画像を削除</label>
+        {% endif %}
+        <label>画像を選ぶ<input type="file" name="image_upload" accept="image/*" {% if not can_edit %}disabled{% endif %}></label>
+      </div>
       <div class="form-grid">
         <label>
           一致方式
           <select name="match_type" {% if not can_edit %}disabled{% endif %}>
             {% for item in match_types %}
-              <option value="{{ item }}" {% if reaction.match_type == item %}selected{% endif %}>{{ item }}</option>
+              <option value="{{ item }}" {% if reaction.match_type == item %}selected{% endif %}>{{ match_type_labels.get(item, item) }}{% if item == "regex" %}（上級者向け）{% endif %}</option>
             {% endfor %}
           </select>
         </label>
@@ -57,12 +64,23 @@
         <input type="checkbox" name="enabled" {% if reaction.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
         有効
       </label>
-      {% if can_edit %}
-        <button type="submit">{% if mode == "new" %}作成{% else %}保存{% endif %}</button>
-      {% else %}
-        <button type="button" disabled>保存できません</button>
-      {% endif %}
+      <details>
+        <summary>詳細設定</summary>
+        <p class="hint">正規表現は上級者向けです。絵文字内部表記は通常画面では編集しません。</p>
+      </details>
+      <div class="row-actions">
+        {% if can_edit %}
+          <button type="submit">{% if mode == "new" %}作成{% else %}保存{% endif %}</button>
+        {% else %}
+          <button type="button" disabled>保存できません</button>
+        {% endif %}
+      </div>
     </form>
+    {% if mode == "edit" %}
+      <form method="post" action="/guilds/{{ guild_id }}/auto-reactions/{{ reaction.id }}/delete" data-confirm="この自動反応を削除しますか？">
+        <button class="danger" type="submit" {% if not can_edit %}disabled{% endif %}>削除</button>
+      </form>
+    {% endif %}
   </section>
 
   {% if mode == "edit" %}
@@ -71,7 +89,7 @@
       {% if reaction.effects %}
         <div class="effect-chip-list">
           {% for effect in reaction.effects %}
-            <span class="effect-chip"><span class="color-swatch" style="background: {{ effect.color or '#6B7280' }}"></span>{{ effect.name }} / {{ effect.effect_type }}</span>
+            <span class="effect-chip"><span class="color-swatch" style="background: {{ effect.color or '#6B7280' }}"></span>{{ effect.name }}</span>
           {% endfor %}
         </div>
       {% else %}
@@ -79,4 +97,12 @@
       {% endif %}
     </section>
   {% endif %}
+
+  <script>
+    document.querySelectorAll("[data-confirm]").forEach(function (form) {
+      form.addEventListener("submit", function (event) {
+        if (!confirm(form.dataset.confirm)) { event.preventDefault(); }
+      });
+    });
+  </script>
 {% endblock %}

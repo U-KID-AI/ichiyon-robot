@@ -500,6 +500,49 @@ button:disabled {
   background: var(--shell-bg);
 }
 
+.image-field {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(30, 31, 34, 0.45);
+}
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin: 16px 0;
+}
+
+.feature-card {
+  display: grid;
+  gap: 8px;
+  min-height: 140px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 18px;
+  background: var(--card-bg);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.feature-card:hover {
+  border-color: var(--accent);
+  background: #3f4148;
+}
+
+.feature-card-title {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.feature-card-body {
+  color: var(--muted);
+  line-height: 1.7;
+}
+
 .color-swatch {
   display: inline-block;
   width: 18px;

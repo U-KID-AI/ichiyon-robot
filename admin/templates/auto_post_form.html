@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 
-{% block title %}{% if mode == "new" %}Add auto post{% else %}{{ post.name }}{% endif %} - ichiyon robot admin{% endblock %}
-{% block heading %}{% if mode == "new" %}Add auto post{% else %}{{ post.name }}{% endif %}{% endblock %}
+{% block title %}{% if mode == "new" %}自動投稿を追加{% else %}{{ post.name }}{% endif %} - いちよんロボ管理画面{% endblock %}
+{% block heading %}{% if mode == "new" %}自動投稿を追加{% else %}{{ post.name }}{% endif %}{% endblock %}
 
 {% block content %}
   <section class="panel">
@@ -9,77 +9,100 @@
       {% if server.icon_url %}<img class="server-icon" src="{{ server.icon_url }}" alt="">{% else %}<div class="server-icon placeholder"></div>{% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">Guild ID: {{ guild_id }}</p>
+        <p class="empty">指定したタイミングで投稿する内容を管理します。</p>
         {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
       </div>
     </div>
     <div class="page-actions">
-      <a class="button-link secondary" href="/servers">Back to servers</a>
-      <a class="button-link secondary" href="/guilds/{{ guild_id }}">Back to features</a>
-      <a class="button-link secondary" href="/guilds/{{ guild_id }}/auto-posts">Back to auto posts</a>
+      <a class="button-link secondary" href="/servers">サーバー選択へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}/auto-posts">自動投稿一覧へ戻る</a>
     </div>
   </section>
 
   {% if errors %}
     <section class="panel">
-      {% for error in errors %}
-        <p class="error">{{ error }}</p>
-      {% endfor %}
+      {% for error in errors %}<p class="error">{{ error }}</p>{% endfor %}
     </section>
   {% endif %}
 
   <section class="panel">
-    <h2>Post settings</h2>
-    <form class="quote-form" method="post">
+    <h2>投稿内容</h2>
+    <form class="quote-form" method="post" enctype="multipart/form-data">
       <div class="form-grid">
-        <label>Post name<input type="text" name="name" value="{{ post.name }}" placeholder="6/30 サ終やめませんか？" {% if not can_edit %}disabled{% endif %}></label>
-        <label>Channel ID<input type="text" name="channel_id" value="{{ post.channel_id }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>投稿名<input type="text" name="name" value="{{ post.name }}" placeholder="6/30 サ終やめませんか？" {% if not can_edit %}disabled{% endif %}></label>
+        <label>投稿チャンネルID<input type="text" name="channel_id" value="{{ post.channel_id }}" {% if not can_edit %}disabled{% endif %}></label>
       </div>
-      <label>Body<textarea name="body" placeholder="サ終やめませんか？" {% if not can_edit %}disabled{% endif %}>{{ post.body }}</textarea></label>
-      <label>Image path<input type="text" name="image_path" value="{{ post.image_path }}" placeholder="assets/images/..." {% if not can_edit %}disabled{% endif %}></label>
+      <label>本文<textarea name="body" placeholder="サ終やめませんか？" {% if not can_edit %}disabled{% endif %}>{{ post.body }}</textarea></label>
+      <div class="image-field">
+        <input type="hidden" name="image_path" value="{{ post.image_path }}">
+        {% if post.image_path %}
+          <img class="image-preview" src="/{{ post.image_path }}" alt="">
+          <label class="check-row"><input type="checkbox" name="delete_image" {% if not can_edit %}disabled{% endif %}>画像を削除</label>
+        {% endif %}
+        <label>画像を選ぶ<input type="file" name="image_upload" accept="image/*" {% if not can_edit %}disabled{% endif %}></label>
+      </div>
       <label class="check-row">
         <input type="checkbox" name="enabled" {% if post.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
-        Enabled
+        有効
       </label>
 
-      <h3>Schedule</h3>
+      <h3>スケジュール</h3>
       <div class="form-grid">
         <label>
-          Schedule type
+          種類
           <select name="schedule_type" {% if not can_edit %}disabled{% endif %}>
-            {% for item in schedule_types %}
-              <option value="{{ item }}" {% if post.schedule_type == item %}selected{% endif %}>{{ item }}</option>
-            {% endfor %}
+            <option value="once" {% if post.schedule_type == "once" %}selected{% endif %}>一回だけ</option>
+            <option value="yearly" {% if post.schedule_type == "yearly" %}selected{% endif %}>毎年</option>
+            <option value="monthly" {% if post.schedule_type == "monthly" %}selected{% endif %}>毎月</option>
+            <option value="weekly" {% if post.schedule_type == "weekly" %}selected{% endif %}>毎週</option>
+            <option value="daily" {% if post.schedule_type == "daily" %}selected{% endif %}>毎日</option>
           </select>
         </label>
-        <label>Month<input type="number" name="month" value="{{ post.month }}" min="1" max="12" {% if not can_edit %}disabled{% endif %}></label>
-        <label>Day<input type="number" name="day" value="{{ post.day }}" min="1" max="31" {% if not can_edit %}disabled{% endif %}></label>
+        <label>月<input type="number" name="month" value="{{ post.month }}" min="1" max="12" {% if not can_edit %}disabled{% endif %}></label>
+        <label>日<input type="number" name="day" value="{{ post.day }}" min="1" max="31" {% if not can_edit %}disabled{% endif %}></label>
         <label>
-          Weekday
+          曜日
           <select name="weekday" {% if not can_edit %}disabled{% endif %}>
             {% for item in weekdays %}
               <option value="{{ item }}" {% if post.weekday == item %}selected{% endif %}>{% if item %}{{ item }}{% else %}-{% endif %}</option>
             {% endfor %}
           </select>
         </label>
-        <label>Time<input type="time" name="time" value="{{ post.time }}" {% if not can_edit %}disabled{% endif %}></label>
-        <label>Timezone<input type="text" name="timezone" value="{{ post.timezone }}" placeholder="Asia/Tokyo" {% if not can_edit %}disabled{% endif %}></label>
+        <label>時刻<input type="time" name="time" value="{{ post.time }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>タイムゾーン<input type="text" name="timezone" value="{{ post.timezone }}" placeholder="Asia/Tokyo" {% if not can_edit %}disabled{% endif %}></label>
       </div>
-      <p class="empty">Current schedule: {{ schedule_summary }}</p>
-      <p class="empty">Example for 6/30: yearly, month 6, day 30, body "サ終やめませんか？". Next-run calculation is handled in a later runtime phase.</p>
+      <p class="empty">現在の設定: {{ schedule_summary }}</p>
+      <p class="hint">6/30投稿の例: 種類は「毎年」、月は6、日は30、本文は「サ終やめませんか？」です。</p>
 
       {% if mode == "edit" %}
-        <dl class="info-list">
-          <dt>Last posted</dt><dd>{{ post.last_posted_at or "-" }}</dd>
-          <dt>Stored schedule value</dt><dd><code>{{ post.schedule_value or "-" }}</code></dd>
-        </dl>
+        <details>
+          <summary>詳細設定</summary>
+          <dl class="info-list">
+            <dt>最終投稿日時</dt><dd>{{ post.last_posted_at or "-" }}</dd>
+            <dt>保存済みスケジュール</dt><dd><code>{{ post.schedule_value or "-" }}</code></dd>
+          </dl>
+        </details>
       {% endif %}
 
       {% if can_edit %}
-        <button type="submit">{% if mode == "new" %}Create{% else %}Save{% endif %}</button>
+        <button type="submit">{% if mode == "new" %}作成{% else %}保存{% endif %}</button>
       {% else %}
-        <button type="button" disabled>Read only</button>
+        <button type="button" disabled>閲覧のみ</button>
       {% endif %}
     </form>
+    {% if mode == "edit" %}
+      <form method="post" action="/guilds/{{ guild_id }}/auto-posts/{{ post.id }}/delete" data-confirm="この自動投稿を削除しますか？">
+        <button class="danger" type="submit" {% if not can_edit %}disabled{% endif %}>削除</button>
+      </form>
+    {% endif %}
   </section>
+
+  <script>
+    document.querySelectorAll("[data-confirm]").forEach(function (form) {
+      form.addEventListener("submit", function (event) {
+        if (!confirm(form.dataset.confirm)) { event.preventDefault(); }
+      });
+    });
+  </script>
 {% endblock %}

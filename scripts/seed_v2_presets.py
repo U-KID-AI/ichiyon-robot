@@ -162,7 +162,7 @@ class PresetSeeder:
                 trigger_timing="choice_selected",
                 effect_type="probability_message",
                 effect_config={"probability": {"numerator": 1, "denominator": 32}},
-                additional_text=":yukkuri_itiyon: ｲﾔ〜{match_1}ﾈ〜",
+                additional_text=":yukkuri_itiyon: ｲﾔ〜{match_1:mini_ichiyon}ﾈ〜",
                 additional_post_timing="effect_success",
                 expires_type="immediate",
                 cooldown_seconds=0,

@@ -227,6 +227,24 @@ class SpecialEffectRepository:
             return None
         return self.set_enabled(guild_id, tag_id, not bool(tag["enabled"]))
 
+    def delete_tag(self, guild_id: str, tag_id: int) -> bool:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM special_effect_assignments
+                WHERE guild_id = %s AND tag_id = %s
+                """,
+                (guild_id, tag_id),
+            )
+            cursor.execute(
+                """
+                DELETE FROM special_effect_tags
+                WHERE guild_id = %s AND id = %s
+                """,
+                (guild_id, tag_id),
+            )
+            return cursor.rowcount > 0
+
     def list_assignments(
         self,
         guild_id: str,

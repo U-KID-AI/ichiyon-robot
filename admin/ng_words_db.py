@@ -7,6 +7,7 @@ from fastapi.templating import Jinja2Templates
 
 from admin.auth import get_current_user
 from admin.servers import can_access_guild, find_server, role_allows
+from admin.ux import is_test_data, parse_show_test_data
 from bot.db import get_connection
 from bot.repositories import NgWordRepository, SpecialEffectRepository
 
@@ -39,6 +40,7 @@ def register_ng_word_routes(templates: Jinja2Templates) -> None:
         q: Optional[str] = Query(None),
         enabled: str = Query("all"),
         has_effects: str = Query("all"),
+        show_test_data: str = Query("false"),
     ):
         user = get_current_user(request)
         if user is None:
@@ -47,7 +49,7 @@ def register_ng_word_routes(templates: Jinja2Templates) -> None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
         server = find_server(guild_id, user["user_id"])
-        filters = normalize_filters(q, enabled, has_effects)
+        filters = normalize_filters(q, enabled, has_effects, show_test_data)
         words = list_word_rows(guild_id, server["role"], filters)
         return templates.TemplateResponse(
             request,
@@ -80,6 +82,24 @@ def register_ng_word_routes(templates: Jinja2Templates) -> None:
             repository.toggle_enabled(guild_id, word_id)
             connection.commit()
 
+        return RedirectResponse(url="/guilds/{0}/ng-words".format(guild_id), status_code=303)
+
+    @router.post("/guilds/{guild_id}/ng-words/{word_id}/delete")
+    async def delete_ng_word(request: Request, guild_id: str, word_id: int):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="サーバーを見る権限がありません。")
+        server = find_server(guild_id, user["user_id"])
+        if not role_allows(server["role"], "editor"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="削除する権限がありません。")
+        with get_connection() as connection:
+            repository = NgWordRepository(connection)
+            if repository.get_by_id(guild_id, word_id) is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NGワードが見つかりません。")
+            repository.delete_word(guild_id, word_id)
+            connection.commit()
         return RedirectResponse(url="/guilds/{0}/ng-words".format(guild_id), status_code=303)
 
     @router.get("/guilds/{guild_id}/ng-words/new")
@@ -260,11 +280,17 @@ def register_ng_word_routes(templates: Jinja2Templates) -> None:
         return RedirectResponse(url="/guilds/{0}/ng-words/{1}".format(guild_id, word_id), status_code=303)
 
 
-def normalize_filters(q: Optional[str], enabled: str, has_effects: str) -> Dict[str, str]:
+def normalize_filters(
+    q: Optional[str],
+    enabled: str,
+    has_effects: str,
+    show_test_data: str = "false",
+) -> Dict[str, Any]:
     return {
         "q": (q or "").strip(),
         "enabled": enabled if enabled in ("all", "true", "false") else "all",
         "has_effects": has_effects if has_effects in ("all", "true", "false") else "all",
+        "show_test_data": parse_show_test_data(show_test_data),
     }
 
 
@@ -276,11 +302,15 @@ def parse_bool(value: str) -> Optional[bool]:
     return None
 
 
-def list_word_rows(guild_id: str, role: str, filters: Dict[str, str]) -> List[Dict[str, Any]]:
+def list_word_rows(guild_id: str, role: str, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
     with get_connection() as connection:
         repository = NgWordRepository(connection)
         words = repository.list_words(guild_id, query=filters["q"] or None, enabled=parse_bool(filters["enabled"]))
-        rows = [build_word_view(connection, guild_id, word, role) for word in words]
+        rows = [
+            build_word_view(connection, guild_id, word, role)
+            for word in words
+            if filters["show_test_data"] or not is_test_data(word.get("word"))
+        ]
 
     if filters["has_effects"] == "true":
         rows = [row for row in rows if row["effects"]]
@@ -294,7 +324,9 @@ def build_word_view(connection, guild_id: str, word: Dict[str, Any], role: str) 
     row["effects"] = list_effects_for_target(connection, guild_id, int(row["id"]), role)
     row["edit_url"] = "/guilds/{0}/ng-words/{1}".format(guild_id, row["id"])
     row["toggle_url"] = "/guilds/{0}/ng-words/{1}/toggle".format(guild_id, row["id"])
+    row["delete_url"] = "/guilds/{0}/ng-words/{1}/delete".format(guild_id, row["id"])
     row["effects_url"] = "/guilds/{0}/ng-words/{1}/effects".format(guild_id, row["id"])
+    row["can_delete"] = role_allows(role, "editor")
     return row
 
 

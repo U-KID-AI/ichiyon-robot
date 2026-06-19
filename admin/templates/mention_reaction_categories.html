@@ -1,0 +1,54 @@
+{% extends "layout.html" %}
+
+{% block title %}メンション反応 - いちよんロボ管理画面{% endblock %}
+{% block heading %}メンション反応{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="server-summary page-summary">
+      {% if server.icon_url %}
+        <img class="server-icon" src="{{ server.icon_url }}" alt="">
+      {% else %}
+        <div class="server-icon placeholder"></div>
+      {% endif %}
+      <div>
+        <h2>{{ server.name }}</h2>
+        <p class="empty">メンションされた時の返答を種類ごとに管理します。</p>
+        {% if server.role %}
+          <strong class="status enabled">{{ server.role }}</strong>
+        {% endif %}
+      </div>
+    </div>
+    <div class="page-actions">
+      <a class="button-link secondary" href="/servers">サーバー選択へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>種類を選んでください</h2>
+    <div class="feature-grid">
+      <a class="feature-card" href="/guilds/{{ guild_id }}/mention-reactions?kind=random_draw">
+        <span class="feature-card-title">ランダム抽選</span>
+        <span class="feature-card-body">名言・おみくじ・お前も〇〇よな？など、登録した候補からランダムに返します。</span>
+      </a>
+      <a class="feature-card" href="/guilds/{{ guild_id }}/mention-reactions?kind=search">
+        <span class="feature-card-title">検索</span>
+        <span class="feature-card-body">デッキ検索など、入力内容をもとに検索して返す固定機能です。</span>
+      </a>
+    </div>
+    <p class="hint">検索型の新規追加は通常画面では行いません。必要な固定機能だけを設定します。</p>
+    <div class="page-actions">
+      {% if can_create_random %}
+        <a class="button-link" href="/guilds/{{ guild_id }}/mention-reactions/new">+ ランダム抽選を追加</a>
+      {% else %}
+        <button type="button" disabled>+ ランダム抽選を追加</button>
+      {% endif %}
+      {% if not has_deck_search %}
+        <form method="post" action="/guilds/{{ guild_id }}/mention-reactions/deck-search/create">
+          <button type="submit" {% if not can_create_deck_search %}disabled title="サーバー管理者以上が作成できます"{% endif %}>デッキ検索の固定枠を作成</button>
+        </form>
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}

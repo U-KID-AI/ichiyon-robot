@@ -13,7 +13,7 @@
       {% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">Guild ID: {{ guild_id }}</p>
+        <p class="empty">メンションに反応して返す内容を管理します。</p>
         {% if server.role %}
           <strong class="status enabled">{{ server.role }}</strong>
         {% endif %}
@@ -22,6 +22,7 @@
     <div class="page-actions">
       <a class="button-link secondary" href="/servers">サーバー選択へ戻る</a>
       <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}/mention-reactions">種類選択へ戻る</a>
       {% if can_create_random %}
         <a class="button-link" href="/guilds/{{ guild_id }}/mention-reactions/new">+ ランダム抽選を追加</a>
       {% else %}
@@ -29,11 +30,11 @@
       {% endif %}
       {% if not has_deck_search %}
         <form method="post" action="/guilds/{{ guild_id }}/mention-reactions/deck-search/create">
-          <button type="submit" {% if not can_create_deck_search %}disabled title="guild_admin以上が作成できます"{% endif %}>+ Deck search fixed item</button>
+          <button type="submit" {% if not can_create_deck_search %}disabled title="サーバー管理者以上が作成できます"{% endif %}>デッキ検索の固定枠を作成</button>
         </form>
       {% endif %}
     </div>
-    <p class="hint">検索型はシステム固定機能として扱います。管理画面から検索型の新規追加は行わず、デッキ検索は「メンション反応 &gt; 検索 &gt; デッキ検索」に配置します。</p>
+    <p class="hint">検索型は固定機能です。デッキ検索は「検索」の中に置き、最初の機能一覧には表示しません。</p>
   </section>
 
   <section class="panel">
@@ -41,7 +42,7 @@
     <form class="filter-form" method="get" action="/guilds/{{ guild_id }}/mention-reactions">
       <label>
         キーワード
-        <input type="search" name="q" value="{{ filters.q }}" placeholder="反応名、キーワード、説明で検索">
+        <input type="search" name="q" value="{{ filters.q }}" placeholder="反応名、呼び出しワード、説明で検索">
       </label>
       <label>
         種類
@@ -55,17 +56,21 @@
         固定機能
         <select name="system">
           <option value="all" {% if filters.system == "all" %}selected{% endif %}>すべて</option>
-          <option value="system" {% if filters.system == "system" %}selected{% endif %}>固定</option>
-          <option value="custom" {% if filters.system == "custom" %}selected{% endif %}>追加分</option>
+          <option value="system" {% if filters.system == "system" %}selected{% endif %}>固定機能</option>
+          <option value="custom" {% if filters.system == "custom" %}selected{% endif %}>追加した反応</option>
         </select>
       </label>
       <label>
-        有効状態
+        状態
         <select name="enabled">
           <option value="all" {% if filters.enabled == "all" %}selected{% endif %}>すべて</option>
           <option value="true" {% if filters.enabled == "true" %}selected{% endif %}>有効</option>
           <option value="false" {% if filters.enabled == "false" %}selected{% endif %}>無効</option>
         </select>
+      </label>
+      <label class="check-row">
+        <input type="checkbox" name="show_test_data" value="true" {% if filters.show_test_data %}checked{% endif %}>
+        検証用データも表示
       </label>
       <div class="filter-actions">
         <button type="submit">絞り込む</button>
@@ -84,11 +89,11 @@
               <th>状態</th>
               <th>反応名</th>
               <th>種類</th>
-              <th>キーワード/パターン</th>
+              <th>呼び出しワード</th>
               <th>一致方式</th>
               <th>固定</th>
               <th>管理者限定</th>
-              <th>候補数</th>
+              <th>候補</th>
               <th>操作</th>
             </tr>
           </thead>
@@ -103,34 +108,32 @@
                   {% endif %}
                 </td>
                 <td data-label="反応名">{{ reaction.name }}</td>
-                <td data-label="種類">{{ reaction.display_reaction_kind }}</td>
-                <td data-label="キーワード/パターン">{{ reaction.keyword }}</td>
+                <td data-label="種類">{{ reaction.reaction_kind_label }}</td>
+                <td data-label="呼び出しワード">{{ reaction.keyword or "なし" }}</td>
                 <td data-label="一致方式">{{ reaction.match_type_label }}</td>
-                <td data-label="固定">{% if reaction.is_system %}固定{% else %}追加分{% endif %}</td>
+                <td data-label="固定">{% if reaction.is_system %}固定機能{% else %}追加分{% endif %}</td>
                 <td data-label="管理者限定">{% if reaction.admin_only %}あり{% else %}なし{% endif %}</td>
-                <td data-label="候補数">{{ reaction.choice_count }}</td>
+                <td data-label="候補">{{ reaction.choice_count }}</td>
                 <td data-label="操作">
                   <div class="row-actions">
                     <a class="button-link secondary" href="{{ reaction.edit_url }}">編集</a>
-                    <button
-                      class="info-button"
-                      type="button"
-                      data-modal-target="mention-reaction-info-{{ reaction.id }}"
-                      aria-label="{{ reaction.name }}のInfo"
-                    >i</button>
+                    <button class="info-button" type="button" data-modal-target="mention-reaction-info-{{ reaction.id }}" aria-label="{{ reaction.name }}のInfo">i</button>
                     <form method="post" action="{{ reaction.toggle_url }}">
                       <button type="submit" {% if not reaction.can_toggle %}disabled title="この権限では切り替えできません"{% endif %}>
-                        {% if reaction.enabled %}OFF{% else %}ON{% endif %}
+                        {% if reaction.enabled %}無効にする{% else %}有効にする{% endif %}
                       </button>
+                    </form>
+                    <form method="post" action="{{ reaction.delete_url }}" data-confirm="このメンション反応を削除しますか？">
+                      <button class="danger" type="submit" {% if not reaction.can_delete %}disabled title="{% if reaction.is_system %}固定機能のため削除できません{% else %}削除する権限がありません{% endif %}"{% endif %}>削除</button>
                     </form>
                   </div>
                 </td>
               </tr>
-
             {% endfor %}
           </tbody>
         </table>
       </div>
+
       {% for reaction in reactions %}
         <div class="modal-backdrop" id="mention-reaction-info-{{ reaction.id }}" hidden>
           <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mention-reaction-info-title-{{ reaction.id }}">
@@ -139,24 +142,14 @@
               <button class="modal-close" type="button" data-modal-close aria-label="閉じる">x</button>
             </div>
             <dl class="info-list">
-              <dt>反応名</dt>
-              <dd>{{ reaction.name }}</dd>
-              <dt>説明</dt>
-              <dd>{{ reaction.description or "未設定" }}</dd>
-              <dt>種類</dt>
-              <dd>{{ reaction.display_reaction_kind }} / {{ reaction.reaction_kind_label }}</dd>
-              <dt>キーワード/パターン</dt>
-              <dd>{{ reaction.keyword }}</dd>
-              <dt>一致方式</dt>
-              <dd>{{ reaction.match_type_label }}</dd>
-              <dt>OFF時の挙動</dt>
-              <dd>このメンション反応はBot実行時に使わない設定になります。現Phaseでは管理画面上の状態管理のみで、既存Bot挙動にはまだ反映しません。</dd>
-              <dt>固定機能かどうか</dt>
-              <dd>{% if reaction.is_system %}固定機能です{% else %}追加された反応です{% endif %}</dd>
-              <dt>管理者限定かどうか</dt>
-              <dd>{% if reaction.admin_only %}管理者限定です{% else %}管理者限定ではありません{% endif %}</dd>
-              <dt>抽選候補数</dt>
-              <dd>{{ reaction.choice_count }}</dd>
+              <dt>概要</dt><dd>{{ reaction.description or "説明は未設定です。" }}</dd>
+              <dt>種類</dt><dd>{{ reaction.reaction_kind_label }}</dd>
+              <dt>呼び出しワード</dt><dd>{{ reaction.keyword or "なし" }}</dd>
+              <dt>一致方式</dt><dd>{{ reaction.match_type_label }}</dd>
+              <dt>OFF時</dt><dd>このメンション反応は使われません。</dd>
+              <dt>固定機能</dt><dd>{% if reaction.is_system %}固定機能です。削除できません。{% else %}追加した反応です。{% endif %}</dd>
+              <dt>管理者限定</dt><dd>{% if reaction.admin_only %}管理者限定です。{% else %}通常利用できます。{% endif %}</dd>
+              <dt>候補数</dt><dd>{{ reaction.choice_count }}</dd>
             </dl>
           </div>
         </div>
@@ -175,17 +168,22 @@
         }
       });
     });
-
     document.querySelectorAll("[data-modal-close]").forEach(function (button) {
       button.addEventListener("click", function () {
         button.closest(".modal-backdrop").hidden = true;
       });
     });
-
     document.querySelectorAll(".modal-backdrop").forEach(function (backdrop) {
       backdrop.addEventListener("click", function (event) {
         if (event.target === backdrop) {
           backdrop.hidden = true;
+        }
+      });
+    });
+    document.querySelectorAll("[data-confirm]").forEach(function (form) {
+      form.addEventListener("submit", function (event) {
+        if (!confirm(form.dataset.confirm)) {
+          event.preventDefault();
         }
       });
     });

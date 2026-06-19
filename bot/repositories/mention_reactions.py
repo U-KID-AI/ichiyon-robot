@@ -496,6 +496,50 @@ class MentionReactionRepository:
             )
             return fetch_one(cursor)
 
+    def delete_reaction(self, guild_id: str, reaction_id: int) -> bool:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM special_effect_assignments
+                WHERE guild_id = %s
+                  AND target_type = 'mention_reaction_choice'
+                  AND target_id IN (
+                      SELECT id
+                      FROM mention_reaction_choices
+                      WHERE guild_id = %s AND mention_reaction_id = %s
+                  )
+                """,
+                (guild_id, guild_id, reaction_id),
+            )
+            cursor.execute(
+                """
+                DELETE FROM mention_reactions
+                WHERE guild_id = %s AND id = %s
+                """,
+                (guild_id, reaction_id),
+            )
+            return cursor.rowcount > 0
+
+    def delete_choice(self, guild_id: str, choice_id: int) -> bool:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM special_effect_assignments
+                WHERE guild_id = %s
+                  AND target_type = 'mention_reaction_choice'
+                  AND target_id = %s
+                """,
+                (guild_id, choice_id),
+            )
+            cursor.execute(
+                """
+                DELETE FROM mention_reaction_choices
+                WHERE guild_id = %s AND id = %s
+                """,
+                (guild_id, choice_id),
+            )
+            return cursor.rowcount > 0
+
     def list_search_handlers(
         self,
         guild_id: str,

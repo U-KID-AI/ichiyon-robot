@@ -137,6 +137,26 @@ class NgWordRepository:
             return None
         return self.set_enabled(guild_id, word_id, not bool(word["enabled"]))
 
+    def delete_word(self, guild_id: str, word_id: int) -> bool:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM special_effect_assignments
+                WHERE guild_id = %s
+                  AND target_type = 'ng_word'
+                  AND target_id = %s
+                """,
+                (guild_id, word_id),
+            )
+            cursor.execute(
+                """
+                DELETE FROM ng_words
+                WHERE guild_id = %s AND id = %s
+                """,
+                (guild_id, word_id),
+            )
+            return cursor.rowcount > 0
+
     def find_matches(
         self,
         guild_id: str,

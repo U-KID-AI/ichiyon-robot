@@ -231,6 +231,28 @@ class ModeRepository:
             return None
         return self.set_enabled(guild_id, mode_id, not bool(mode["enabled"]))
 
+    def delete_mode(self, guild_id: str, mode_id: int) -> bool:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE mode_states
+                SET current_mode_id = NULL,
+                    active_until = NULL,
+                    pseudo_offline_until = NULL,
+                    updated_at = NOW()
+                WHERE guild_id = %s AND current_mode_id = %s
+                """,
+                (guild_id, mode_id),
+            )
+            cursor.execute(
+                """
+                DELETE FROM modes
+                WHERE guild_id = %s AND id = %s
+                """,
+                (guild_id, mode_id),
+            )
+            return cursor.rowcount > 0
+
     def list_enabled_modes(self, guild_id: str) -> List[Dict[str, Any]]:
         return self.list_modes(guild_id, enabled=True)
 
@@ -458,6 +480,17 @@ class ModeRepository:
                 (name, body, image_path, appearance_rate, enabled, guild_id, choice_id),
             )
             return fetch_one(cursor)
+
+    def delete_reply_choice(self, guild_id: str, choice_id: int) -> bool:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM mode_reply_choices
+                WHERE guild_id = %s AND id = %s
+                """,
+                (guild_id, choice_id),
+            )
+            return cursor.rowcount > 0
 
     def get_reply_choice(self, guild_id: str, choice_id: int) -> Optional[Dict[str, Any]]:
         with self.connection.cursor() as cursor:

@@ -1,12 +1,13 @@
 import json
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Form, HTTPException, Query, Request, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from admin.auth import get_current_user
 from admin.servers import can_access_guild, find_server, role_allows
+from admin.ux import BEHAVIOR_LABELS, is_test_data, parse_show_test_data, save_uploaded_image
 from bot.db import get_connection
 from bot.repositories import CounterRepository, ModeRepository
 
@@ -31,6 +32,7 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
         enabled: str = Query("all"),
         behavior_type: str = Query("all"),
         admin_only: str = Query("all"),
+        show_test_data: str = Query("false"),
     ):
         user = get_current_user(request)
         if user is None:
@@ -39,7 +41,7 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
         server = find_server(guild_id, user["user_id"])
-        filters = normalize_filters(q, enabled, behavior_type, admin_only)
+        filters = normalize_filters(q, enabled, behavior_type, admin_only, show_test_data)
         modes = list_mode_rows(guild_id, server["role"], filters)
         return templates.TemplateResponse(
             request,
@@ -71,6 +73,27 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
             if not can_edit_mode(server["role"], mode):
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="mode toggle denied")
             repository.toggle_enabled(guild_id, mode_id)
+            connection.commit()
+        return RedirectResponse(url="/guilds/{0}/modes".format(guild_id), status_code=303)
+
+    @router.post("/guilds/{guild_id}/modes/{mode_id}/delete")
+    async def delete_mode(request: Request, guild_id: str, mode_id: int):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="サーバーを見る権限がありません。")
+        server = find_server(guild_id, user["user_id"])
+        with get_connection() as connection:
+            repository = ModeRepository(connection)
+            mode = repository.get_by_id(guild_id, mode_id)
+            if mode is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="モードが見つかりません。")
+            if not can_edit_mode(server["role"], mode):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="削除する権限がありません。")
+            if not mode.get("is_deletable", True):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="固定モードのため削除できません。")
+            repository.delete_mode(guild_id, mode_id)
             connection.commit()
         return RedirectResponse(url="/guilds/{0}/modes".format(guild_id), status_code=303)
 
@@ -109,10 +132,16 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
         admin_only: Optional[str] = Form(None),
         is_deletable: Optional[str] = Form(None),
         mode_icon_path: str = Form(""),
+        mode_icon_upload: Optional[UploadFile] = File(None),
+        delete_mode_icon: Optional[str] = Form(None),
         enter_message: str = Form(""),
         exit_message: str = Form(""),
         enter_gif_path: str = Form(""),
+        enter_gif_upload: Optional[UploadFile] = File(None),
+        delete_enter_gif: Optional[str] = Form(None),
         exit_gif_path: str = Form(""),
+        exit_gif_upload: Optional[UploadFile] = File(None),
+        delete_exit_gif: Optional[str] = Form(None),
         enter_notify_channel_id: str = Form(""),
         exit_notify_channel_id: str = Form(""),
         reaction_channel_ids: str = Form(""),
@@ -171,10 +200,16 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
         admin_only: Optional[str] = Form(None),
         is_deletable: Optional[str] = Form(None),
         mode_icon_path: str = Form(""),
+        mode_icon_upload: Optional[UploadFile] = File(None),
+        delete_mode_icon: Optional[str] = Form(None),
         enter_message: str = Form(""),
         exit_message: str = Form(""),
         enter_gif_path: str = Form(""),
+        enter_gif_upload: Optional[UploadFile] = File(None),
+        delete_enter_gif: Optional[str] = Form(None),
         exit_gif_path: str = Form(""),
+        exit_gif_upload: Optional[UploadFile] = File(None),
+        delete_exit_gif: Optional[str] = Form(None),
         enter_notify_channel_id: str = Form(""),
         exit_notify_channel_id: str = Form(""),
         reaction_channel_ids: str = Form(""),
@@ -199,6 +234,8 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
         choice_name: str = Form(""),
         body: str = Form(""),
         image_path: str = Form(""),
+        image_upload: Optional[UploadFile] = File(None),
+        delete_image: Optional[str] = Form(None),
         appearance_rate: str = Form("1"),
         choice_enabled: Optional[str] = Form(None),
     ):
@@ -210,6 +247,8 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
             choice_name,
             body,
             image_path,
+            image_upload,
+            delete_image,
             appearance_rate,
             choice_enabled,
         )
@@ -223,6 +262,8 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
         choice_name: str = Form(""),
         body: str = Form(""),
         image_path: str = Form(""),
+        image_upload: Optional[UploadFile] = File(None),
+        delete_image: Optional[str] = Form(None),
         appearance_rate: str = Form("1"),
         choice_enabled: Optional[str] = Form(None),
     ):
@@ -234,9 +275,33 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
             choice_name,
             body,
             image_path,
+            image_upload,
+            delete_image,
             appearance_rate,
             choice_enabled,
         )
+
+    @router.post("/guilds/{guild_id}/modes/{mode_id}/reply-choices/{choice_id}/delete")
+    async def delete_reply_choice(request: Request, guild_id: str, mode_id: int, choice_id: int):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="サーバーを見る権限がありません。")
+        server = find_server(guild_id, user["user_id"])
+        with get_connection() as connection:
+            repository = ModeRepository(connection)
+            mode = repository.get_by_id(guild_id, mode_id)
+            if mode is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="モードが見つかりません。")
+            if not can_edit_mode(server["role"], mode):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="削除する権限がありません。")
+            choice = repository.get_reply_choice(guild_id, choice_id)
+            if choice is None or int(choice["mode_id"]) != mode_id:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="返答候補が見つかりません。")
+            repository.delete_reply_choice(guild_id, choice_id)
+            connection.commit()
+        return RedirectResponse(url="/guilds/{0}/modes/{1}".format(guild_id, mode_id), status_code=303)
 
     @router.post("/guilds/{guild_id}/modes/{mode_id}/trigger-conditions")
     async def create_trigger_condition(
@@ -341,12 +406,19 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
         )
 
 
-def normalize_filters(q: Optional[str], enabled: str, behavior_type: str, admin_only: str) -> Dict[str, str]:
+def normalize_filters(
+    q: Optional[str],
+    enabled: str,
+    behavior_type: str,
+    admin_only: str,
+    show_test_data: str = "false",
+) -> Dict[str, Any]:
     return {
         "q": (q or "").strip(),
         "enabled": enabled if enabled in ("all", "true", "false") else "all",
         "behavior_type": behavior_type if behavior_type in ("all", "reply", "offline") else "all",
         "admin_only": admin_only if admin_only in ("all", "true", "false") else "all",
+        "show_test_data": parse_show_test_data(show_test_data),
     }
 
 
@@ -364,7 +436,7 @@ def can_edit_mode(role: str, mode: Dict[str, Any]) -> bool:
     return role_allows(role, "editor")
 
 
-def list_mode_rows(guild_id: str, role: str, filters: Dict[str, str]) -> List[Dict[str, Any]]:
+def list_mode_rows(guild_id: str, role: str, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
     with get_connection() as connection:
         repository = ModeRepository(connection)
         modes = repository.list_modes(
@@ -377,7 +449,12 @@ def list_mode_rows(guild_id: str, role: str, filters: Dict[str, str]) -> List[Di
         return [
             build_mode_view(connection, guild_id, mode, include_children=False, role=role)
             for mode in modes
+            if filters["show_test_data"] or not row_is_hidden_test_data(mode)
         ]
+
+
+def row_is_hidden_test_data(row: Dict[str, Any]) -> bool:
+    return is_test_data(row.get("mode_key")) or is_test_data(row.get("name")) or is_test_data(row.get("description"))
 
 
 def build_mode_view(
@@ -426,8 +503,11 @@ def build_mode_view(
             "cooldown_day": "" if cooldown.get("day") is None else cooldown.get("day"),
             "cooldown_summary": summarize_cooldown(cooldown),
             "can_toggle": can_edit_mode(role, mode),
+            "can_delete": can_edit_mode(role, mode) and bool(mode.get("is_deletable", True)),
+            "behavior_type_label": BEHAVIOR_LABELS.get(mode.get("behavior_type") or "reply", mode.get("behavior_type") or "reply"),
             "edit_url": "/guilds/{0}/modes/{1}".format(guild_id, mode.get("id")),
             "toggle_url": "/guilds/{0}/modes/{1}/toggle".format(guild_id, mode.get("id")),
+            "delete_url": "/guilds/{0}/modes/{1}/delete".format(guild_id, mode.get("id")),
         }
     )
 
@@ -609,7 +689,25 @@ async def save_mode(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
     server = find_server(guild_id, user["user_id"])
+    upload_errors = []
+    if values.get("delete_mode_icon"):
+        values["mode_icon_path"] = ""
+    if values.get("delete_enter_gif"):
+        values["enter_gif_path"] = ""
+    if values.get("delete_exit_gif"):
+        values["exit_gif_path"] = ""
+    for upload_key, path_key, category in (
+        ("mode_icon_upload", "mode_icon_path", "mode_icons"),
+        ("enter_gif_upload", "enter_gif_path", "mode_gifs"),
+        ("exit_gif_upload", "exit_gif_path", "mode_gifs"),
+    ):
+        uploaded_path, upload_error = await save_uploaded_image(values.get(upload_key), category)
+        if uploaded_path:
+            values[path_key] = uploaded_path
+        if upload_error:
+            upload_errors.append(upload_error)
     form, errors, cooldown = build_mode_form(values)
+    errors.extend(upload_errors)
     with get_connection() as connection:
         repository = ModeRepository(connection)
         existing = repository.get_by_id(guild_id, mode_id) if mode_id is not None else None
@@ -719,6 +817,8 @@ async def save_reply_choice(
     name: str,
     body: str,
     image_path: str,
+    image_upload: Optional[UploadFile],
+    delete_image: Optional[str],
     appearance_rate: str,
     enabled: Optional[str],
 ):
@@ -726,6 +826,13 @@ async def save_reply_choice(
     if connection is None:
         return RedirectResponse(url="/login", status_code=303)
     try:
+        if delete_image:
+            image_path = ""
+        uploaded_path, upload_error = await save_uploaded_image(image_upload, "mode_reply_choices")
+        if upload_error:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=upload_error)
+        if uploaded_path:
+            image_path = uploaded_path
         if not name.strip() or (not body.strip() and not image_path.strip()):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid reply choice")
         repository = ModeRepository(connection)

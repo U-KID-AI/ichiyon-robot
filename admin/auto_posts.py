@@ -2,12 +2,13 @@ import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Form, HTTPException, Query, Request, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from admin.auth import get_current_user
 from admin.servers import can_access_guild, find_server, role_allows
+from admin.ux import is_test_data, parse_show_test_data, save_uploaded_image
 from bot.db import get_connection
 from bot.repositories import AutoPostRepository
 
@@ -29,6 +30,7 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
         enabled: str = Query("all"),
         has_image: str = Query("all"),
         channel_id: str = Query(""),
+        show_test_data: str = Query("false"),
     ):
         user = get_current_user(request)
         if user is None:
@@ -37,7 +39,7 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
         server = find_server(guild_id, user["user_id"])
-        filters = normalize_filters(q, enabled, has_image, channel_id)
+        filters = normalize_filters(q, enabled, has_image, channel_id, show_test_data)
         posts = list_post_rows(guild_id, filters)
         return templates.TemplateResponse(
             request,
@@ -72,6 +74,24 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
 
         return RedirectResponse(url="/guilds/{0}/auto-posts".format(guild_id), status_code=303)
 
+    @router.post("/guilds/{guild_id}/auto-posts/{post_id}/delete")
+    async def delete_auto_post(request: Request, guild_id: str, post_id: int):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="サーバーを見る権限がありません。")
+        server = find_server(guild_id, user["user_id"])
+        if not role_allows(server["role"], "editor"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="削除する権限がありません。")
+        with get_connection() as connection:
+            repository = AutoPostRepository(connection)
+            if repository.get_by_id(guild_id, post_id) is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="自動投稿が見つかりません。")
+            repository.delete_post(guild_id, post_id)
+            connection.commit()
+        return RedirectResponse(url="/guilds/{0}/auto-posts".format(guild_id), status_code=303)
+
     @router.get("/guilds/{guild_id}/auto-posts/new")
     async def new_auto_post_page(request: Request, guild_id: str):
         user = get_current_user(request)
@@ -92,6 +112,8 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
         name: str = Form(""),
         body: str = Form(""),
         image_path: str = Form(""),
+        image_upload: Optional[UploadFile] = File(None),
+        delete_image: Optional[str] = Form(None),
         channel_id: str = Form(""),
         schedule_type: str = Form("yearly"),
         month: str = Form(""),
@@ -145,6 +167,8 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
         name: str = Form(""),
         body: str = Form(""),
         image_path: str = Form(""),
+        image_upload: Optional[UploadFile] = File(None),
+        delete_image: Optional[str] = Form(None),
         channel_id: str = Form(""),
         schedule_type: str = Form("yearly"),
         month: str = Form(""),
@@ -158,12 +182,19 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
         return await save_auto_post(request, templates, guild_id, post_id, values)
 
 
-def normalize_filters(q: Optional[str], enabled: str, has_image: str, channel_id: str) -> Dict[str, str]:
+def normalize_filters(
+    q: Optional[str],
+    enabled: str,
+    has_image: str,
+    channel_id: str,
+    show_test_data: str = "false",
+) -> Dict[str, Any]:
     return {
         "q": (q or "").strip(),
         "enabled": enabled if enabled in ("all", "true", "false") else "all",
         "has_image": has_image if has_image in ("all", "true", "false") else "all",
         "channel_id": channel_id.strip(),
+        "show_test_data": parse_show_test_data(show_test_data),
     }
 
 
@@ -175,7 +206,7 @@ def parse_bool(value: str) -> Optional[bool]:
     return None
 
 
-def list_post_rows(guild_id: str, filters: Dict[str, str]) -> List[Dict[str, Any]]:
+def list_post_rows(guild_id: str, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
     with get_connection() as connection:
         repository = AutoPostRepository(connection)
         posts = repository.list_posts(
@@ -185,7 +216,11 @@ def list_post_rows(guild_id: str, filters: Dict[str, str]) -> List[Dict[str, Any
             has_image=parse_bool(filters["has_image"]),
             channel_id=filters["channel_id"] or None,
         )
-    return [build_post_view(post, guild_id) for post in posts]
+    return [
+        build_post_view(post, guild_id)
+        for post in posts
+        if filters["show_test_data"] or not row_is_hidden_test_data(post)
+    ]
 
 
 def build_post_view(post: Dict[str, Any], guild_id: str) -> Dict[str, Any]:
@@ -196,7 +231,12 @@ def build_post_view(post: Dict[str, Any], guild_id: str) -> Dict[str, Any]:
     row["next_run_at"] = ""
     row["edit_url"] = "/guilds/{0}/auto-posts/{1}".format(guild_id, row["id"])
     row["toggle_url"] = "/guilds/{0}/auto-posts/{1}/toggle".format(guild_id, row["id"])
+    row["delete_url"] = "/guilds/{0}/auto-posts/{1}/delete".format(guild_id, row["id"])
     return row
+
+
+def row_is_hidden_test_data(row: Dict[str, Any]) -> bool:
+    return is_test_data(row.get("name")) or is_test_data(row.get("body"))
 
 
 def default_form() -> Dict[str, Any]:
@@ -350,7 +390,14 @@ async def save_auto_post(
     if not role_allows(server["role"], "editor"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="auto post editing denied")
 
+    if values.get("delete_image"):
+        values["image_path"] = ""
+    uploaded_path, upload_error = await save_uploaded_image(values.get("image_upload"), "auto_posts")
+    if uploaded_path:
+        values["image_path"] = uploaded_path
     form, errors, schedule_value = build_form(values)
+    if upload_error:
+        errors.append(upload_error)
     with get_connection() as connection:
         repository = AutoPostRepository(connection)
         if post_id is not None and repository.get_by_id(guild_id, post_id) is None:

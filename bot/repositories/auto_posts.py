@@ -165,3 +165,14 @@ class AutoPostRepository:
         if post is None:
             return None
         return self.set_enabled(guild_id, post_id, not bool(post["enabled"]))
+
+    def delete_post(self, guild_id: str, post_id: int) -> bool:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM auto_posts
+                WHERE guild_id = %s AND id = %s
+                """,
+                (guild_id, post_id),
+            )
+            return cursor.rowcount > 0

@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 
-{% block title %}Auto posts - ichiyon robot admin{% endblock %}
-{% block heading %}Auto posts{% endblock %}
+{% block title %}自動投稿 - いちよんロボ管理画面{% endblock %}
+{% block heading %}自動投稿{% endblock %}
 
 {% block content %}
   <section class="panel">
@@ -9,84 +9,74 @@
       {% if server.icon_url %}<img class="server-icon" src="{{ server.icon_url }}" alt="">{% else %}<div class="server-icon placeholder"></div>{% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">Guild ID: {{ guild_id }}</p>
+        <p class="empty">指定日時や繰り返しで投稿する内容を管理します。</p>
         {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
       </div>
     </div>
     <div class="page-actions">
-      <a class="button-link secondary" href="/servers">Back to servers</a>
-      <a class="button-link secondary" href="/guilds/{{ guild_id }}">Back to features</a>
-      {% if can_create %}
-        <a class="button-link" href="/guilds/{{ guild_id }}/auto-posts/new">+ Add auto post</a>
-      {% else %}
-        <button type="button" disabled>+ Add auto post</button>
-      {% endif %}
+      <a class="button-link secondary" href="/servers">サーバー選択へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+      {% if can_create %}<a class="button-link" href="/guilds/{{ guild_id }}/auto-posts/new">+ 自動投稿を追加</a>{% else %}<button type="button" disabled>+ 自動投稿を追加</button>{% endif %}
     </div>
   </section>
 
   <section class="panel">
-    <h2>Search and filters</h2>
+    <h2>検索・絞り込み</h2>
     <form class="filter-form" method="get" action="/guilds/{{ guild_id }}/auto-posts">
-      <label>Keyword<input type="search" name="q" value="{{ filters.q }}" placeholder="name or body"></label>
+      <label>キーワード<input type="search" name="q" value="{{ filters.q }}" placeholder="投稿名、本文で検索"></label>
       <label>
-        Enabled
+        状態
         <select name="enabled">
-          <option value="all" {% if filters.enabled == "all" %}selected{% endif %}>All</option>
-          <option value="true" {% if filters.enabled == "true" %}selected{% endif %}>Enabled</option>
-          <option value="false" {% if filters.enabled == "false" %}selected{% endif %}>Disabled</option>
+          <option value="all" {% if filters.enabled == "all" %}selected{% endif %}>すべて</option>
+          <option value="true" {% if filters.enabled == "true" %}selected{% endif %}>有効</option>
+          <option value="false" {% if filters.enabled == "false" %}selected{% endif %}>無効</option>
         </select>
       </label>
       <label>
-        Image
+        画像
         <select name="has_image">
-          <option value="all" {% if filters.has_image == "all" %}selected{% endif %}>All</option>
-          <option value="true" {% if filters.has_image == "true" %}selected{% endif %}>Has image</option>
-          <option value="false" {% if filters.has_image == "false" %}selected{% endif %}>No image</option>
+          <option value="all" {% if filters.has_image == "all" %}selected{% endif %}>すべて</option>
+          <option value="true" {% if filters.has_image == "true" %}selected{% endif %}>あり</option>
+          <option value="false" {% if filters.has_image == "false" %}selected{% endif %}>なし</option>
         </select>
       </label>
-      <label>Channel ID<input type="search" name="channel_id" value="{{ filters.channel_id }}" placeholder="Discord channel id"></label>
+      <label>チャンネルID<input type="search" name="channel_id" value="{{ filters.channel_id }}" placeholder="DiscordのチャンネルID"></label>
+      <label class="check-row"><input type="checkbox" name="show_test_data" value="true" {% if filters.show_test_data %}checked{% endif %}>検証用データも表示</label>
       <div class="filter-actions">
-        <button type="submit">Apply</button>
-        <a class="button-link secondary" href="/guilds/{{ guild_id }}/auto-posts">Clear</a>
+        <button type="submit">絞り込む</button>
+        <a class="button-link secondary" href="/guilds/{{ guild_id }}/auto-posts">解除</a>
       </div>
     </form>
   </section>
 
   <section class="panel">
-    <h2>Auto post list</h2>
+    <h2>一覧</h2>
     {% if posts %}
       <div class="table-wrap">
         <table class="admin-table">
           <thead>
-            <tr>
-              <th>Status</th>
-              <th>Name</th>
-              <th>Channel</th>
-              <th>Body</th>
-              <th>Image</th>
-              <th>Schedule</th>
-              <th>Last posted</th>
-              <th>Next</th>
-              <th>Actions</th>
-            </tr>
+            <tr><th>状態</th><th>投稿名</th><th>チャンネル</th><th>本文</th><th>画像</th><th>スケジュール</th><th>最終投稿</th><th>次回予定</th><th>操作</th></tr>
           </thead>
           <tbody>
             {% for post in posts %}
               <tr>
-                <td data-label="Status">{% if post.enabled %}<strong class="status enabled">ON</strong>{% else %}<strong class="status disabled">OFF</strong>{% endif %}</td>
-                <td data-label="Name">{{ post.name }}</td>
-                <td data-label="Channel"><code>{{ post.channel_id }}</code></td>
-                <td data-label="Body">{{ post.body_summary }}</td>
-                <td data-label="Image">{% if post.has_image %}yes{% else %}no{% endif %}</td>
-                <td data-label="Schedule">{{ post.schedule_summary }}</td>
-                <td data-label="Last posted">{{ post.last_posted_at or "-" }}</td>
-                <td data-label="Next">{{ post.next_run_at or "-" }}</td>
-                <td data-label="Actions">
+                <td data-label="状態">{% if post.enabled %}<strong class="status enabled">有効</strong>{% else %}<strong class="status disabled">無効</strong>{% endif %}</td>
+                <td data-label="投稿名">{{ post.name }}</td>
+                <td data-label="チャンネル"><code>{{ post.channel_id }}</code></td>
+                <td data-label="本文">{{ post.body_summary }}</td>
+                <td data-label="画像">{% if post.has_image %}あり{% else %}なし{% endif %}</td>
+                <td data-label="スケジュール">{{ post.schedule_summary }}</td>
+                <td data-label="最終投稿">{{ post.last_posted_at or "-" }}</td>
+                <td data-label="次回予定">{{ post.next_run_at or "-" }}</td>
+                <td data-label="操作">
                   <div class="row-actions">
-                    <a class="button-link secondary" href="{{ post.edit_url }}">Edit</a>
-                    <button class="info-button" type="button" data-modal-target="auto-post-info-{{ post.id }}" aria-label="Info for {{ post.name }}">i</button>
+                    <a class="button-link secondary" href="{{ post.edit_url }}">編集</a>
+                    <button class="info-button" type="button" data-modal-target="auto-post-info-{{ post.id }}" aria-label="{{ post.name }}のInfo">i</button>
                     <form method="post" action="{{ post.toggle_url }}">
-                      <button type="submit" {% if not can_create %}disabled title="You do not have permission"{% endif %}>{% if post.enabled %}OFF{% else %}ON{% endif %}</button>
+                      <button type="submit" {% if not can_create %}disabled title="この権限では切り替えできません"{% endif %}>{% if post.enabled %}無効にする{% else %}有効にする{% endif %}</button>
+                    </form>
+                    <form method="post" action="{{ post.delete_url }}" data-confirm="この自動投稿を削除しますか？">
+                      <button class="danger" type="submit" {% if not can_create %}disabled{% endif %}>削除</button>
                     </form>
                   </div>
                 </td>
@@ -101,23 +91,21 @@
           <div class="modal" role="dialog" aria-modal="true" aria-labelledby="auto-post-info-title-{{ post.id }}">
             <div class="modal-header">
               <h2 id="auto-post-info-title-{{ post.id }}">{{ post.name }}</h2>
-              <button class="modal-close" type="button" data-modal-close aria-label="Close">x</button>
+              <button class="modal-close" type="button" data-modal-close aria-label="閉じる">x</button>
             </div>
             <dl class="info-list">
-              <dt>Channel ID</dt><dd>{{ post.channel_id }}</dd>
-              <dt>Body</dt><dd>{{ post.body or "-" }}</dd>
-              <dt>Image path</dt><dd>{{ post.image_path or "-" }}</dd>
-              <dt>Schedule</dt><dd>{{ post.schedule_summary }}</dd>
-              <dt>Schedule value</dt><dd><code>{{ post.schedule_value }}</code></dd>
-              <dt>Last posted</dt><dd>{{ post.last_posted_at or "-" }}</dd>
-              <dt>Next run</dt><dd>{{ post.next_run_at or "calculated in later runtime phase" }}</dd>
-              <dt>Runtime note</dt><dd>This admin page stores DB settings only. Bot runtime switching is a later phase.</dd>
+              <dt>チャンネルID</dt><dd>{{ post.channel_id }}</dd>
+              <dt>本文</dt><dd>{{ post.body or "-" }}</dd>
+              <dt>画像</dt><dd>{% if post.image_path %}<img class="image-preview" src="/{{ post.image_path }}" alt="">{% else %}なし{% endif %}</dd>
+              <dt>スケジュール</dt><dd>{{ post.schedule_summary }}</dd>
+              <dt>最終投稿</dt><dd>{{ post.last_posted_at or "-" }}</dd>
+              <dt>次回予定</dt><dd>{{ post.next_run_at or "後続Phaseで計算します" }}</dd>
             </dl>
           </div>
         </div>
       {% endfor %}
     {% else %}
-      <p class="empty">No auto posts match the current filters.</p>
+      <p class="empty">条件に一致する自動投稿はありません。</p>
     {% endif %}
   </section>
 
@@ -134,6 +122,11 @@
     document.querySelectorAll(".modal-backdrop").forEach(function (backdrop) {
       backdrop.addEventListener("click", function (event) {
         if (event.target === backdrop) { backdrop.hidden = true; }
+      });
+    });
+    document.querySelectorAll("[data-confirm]").forEach(function (form) {
+      form.addEventListener("submit", function (event) {
+        if (!confirm(form.dataset.confirm)) { event.preventDefault(); }
       });
     });
   </script>

@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 
-{% block title %}{% if mode == "new" %}Add mode{% else %}{{ mode_data.name }}{% endif %} - ichiyon robot admin{% endblock %}
-{% block heading %}{% if mode == "new" %}Add mode{% else %}{{ mode_data.name }}{% endif %}{% endblock %}
+{% block title %}{% if mode == "new" %}モードを追加{% else %}{{ mode_data.name }}{% endif %} - いちよんロボ管理画面{% endblock %}
+{% block heading %}{% if mode == "new" %}モードを追加{% else %}{{ mode_data.name }}{% endif %}{% endblock %}
 
 {% block content %}
   <section class="panel">
@@ -14,9 +14,9 @@
       </div>
     </div>
     <div class="page-actions">
-      <a class="button-link secondary" href="/servers">Back to servers</a>
-      <a class="button-link secondary" href="/guilds/{{ guild_id }}">Back to features</a>
-      <a class="button-link secondary" href="/guilds/{{ guild_id }}/modes">Back to modes</a>
+      <a class="button-link secondary" href="/servers">サーバー選択へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}/modes">モード一覧へ戻る</a>
     </div>
   </section>
 
@@ -29,59 +29,74 @@
   {% endif %}
 
   <section class="panel">
-    <h2>Basic settings</h2>
-    <form class="quote-form" method="post">
+    <h2>基本情報</h2>
+    <form class="quote-form" method="post" enctype="multipart/form-data">
       <div class="form-grid">
-        <label>Mode name<input type="text" name="name" value="{{ mode_data.name }}" {% if not can_edit %}disabled{% endif %}></label>
-        <label>Mode key<input type="text" name="mode_key" value="{{ mode_data.mode_key }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>モード名<input type="text" name="name" value="{{ mode_data.name }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>モードキー<input type="text" name="mode_key" value="{{ mode_data.mode_key }}" {% if not can_edit %}disabled{% endif %}></label>
       </div>
-      <label>Description<textarea name="description" {% if not can_edit %}disabled{% endif %}>{{ mode_data.description }}</textarea></label>
+      <label>説明<textarea name="description" {% if not can_edit %}disabled{% endif %}>{{ mode_data.description }}</textarea></label>
       <div class="form-grid">
         <label>
-          Behavior
+          モード中の動き
           <select name="behavior_type" {% if not can_edit %}disabled{% endif %}>
             {% for item in behavior_types %}
-              <option value="{{ item }}" {% if mode_data.behavior_type == item %}selected{% endif %}>{{ item }}</option>
+              <option value="{{ item }}" {% if mode_data.behavior_type == item %}selected{% endif %}>{% if item == "reply" %}返信する{% elif item == "offline" %}反応しない{% else %}{{ item }}{% endif %}</option>
             {% endfor %}
           </select>
         </label>
-        <label>Mode icon path<input type="text" name="mode_icon_path" value="{{ mode_data.mode_icon_path }}" placeholder="assets/images/..." {% if not can_edit %}disabled{% endif %}></label>
+        <div class="image-field">
+          <input type="hidden" name="mode_icon_path" value="{{ mode_data.mode_icon_path }}">
+          {% if mode_data.mode_icon_path %}
+            <img class="image-preview" src="/{{ mode_data.mode_icon_path }}" alt="">
+            <label class="check-row"><input type="checkbox" name="delete_mode_icon" {% if not can_edit %}disabled{% endif %}>モード時アイコンを削除</label>
+          {% endif %}
+          <label>モード時アイコンを選ぶ<input type="file" name="mode_icon_upload" accept="image/*" {% if not can_edit %}disabled{% endif %}></label>
+        </div>
       </div>
       <div class="form-grid">
-        <label class="check-row"><input type="checkbox" name="enabled" {% if mode_data.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>Enabled</label>
-        <label class="check-row"><input type="checkbox" name="admin_only" {% if mode_data.admin_only %}checked{% endif %} {% if not can_edit or not can_set_admin_only %}disabled{% endif %}>Admin only</label>
-        <label class="check-row"><input type="checkbox" name="is_deletable" {% if mode_data.is_deletable %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>Deletable later</label>
+        <label class="check-row"><input type="checkbox" name="enabled" {% if mode_data.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>有効</label>
+        <label class="check-row"><input type="checkbox" name="admin_only" {% if mode_data.admin_only %}checked{% endif %} {% if not can_edit or not can_set_admin_only %}disabled{% endif %}>管理者限定</label>
+        <label class="check-row"><input type="checkbox" name="is_deletable" {% if mode_data.is_deletable %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>削除可能</label>
       </div>
 
-      <h3>Notifications</h3>
+      <h3>通知</h3>
       <div class="form-grid">
-        <label>Enter message<textarea name="enter_message" {% if not can_edit %}disabled{% endif %}>{{ mode_data.enter_message }}</textarea></label>
-        <label>Exit message<textarea name="exit_message" {% if not can_edit %}disabled{% endif %}>{{ mode_data.exit_message }}</textarea></label>
-        <label>Enter GIF path<input type="text" name="enter_gif_path" value="{{ mode_data.enter_gif_path }}" {% if not can_edit %}disabled{% endif %}></label>
-        <label>Exit GIF path<input type="text" name="exit_gif_path" value="{{ mode_data.exit_gif_path }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>突入時メッセージ<textarea name="enter_message" {% if not can_edit %}disabled{% endif %}>{{ mode_data.enter_message }}</textarea></label>
+        <label>終了時メッセージ<textarea name="exit_message" {% if not can_edit %}disabled{% endif %}>{{ mode_data.exit_message }}</textarea></label>
+        <div class="image-field">
+          <input type="hidden" name="enter_gif_path" value="{{ mode_data.enter_gif_path }}">
+          {% if mode_data.enter_gif_path %}<img class="image-preview" src="/{{ mode_data.enter_gif_path }}" alt=""><label class="check-row"><input type="checkbox" name="delete_enter_gif" {% if not can_edit %}disabled{% endif %}>突入時GIFを削除</label>{% endif %}
+          <label>突入時GIFを選ぶ<input type="file" name="enter_gif_upload" accept="image/*" {% if not can_edit %}disabled{% endif %}></label>
+        </div>
+        <div class="image-field">
+          <input type="hidden" name="exit_gif_path" value="{{ mode_data.exit_gif_path }}">
+          {% if mode_data.exit_gif_path %}<img class="image-preview" src="/{{ mode_data.exit_gif_path }}" alt=""><label class="check-row"><input type="checkbox" name="delete_exit_gif" {% if not can_edit %}disabled{% endif %}>終了時GIFを削除</label>{% endif %}
+          <label>終了時GIFを選ぶ<input type="file" name="exit_gif_upload" accept="image/*" {% if not can_edit %}disabled{% endif %}></label>
+        </div>
       </div>
 
-      <h3>Channels</h3>
+      <h3>チャンネル</h3>
       <div class="form-grid">
-        <label>Enter notify channel<input type="text" name="enter_notify_channel_id" value="{{ mode_data.enter_notify_channel_id }}" {% if not can_edit %}disabled{% endif %}></label>
-        <label>Exit notify channel<input type="text" name="exit_notify_channel_id" value="{{ mode_data.exit_notify_channel_id }}" {% if not can_edit %}disabled{% endif %}></label>
-        <label>Reaction channels CSV<input type="text" name="reaction_channel_ids" value="{{ mode_data.reaction_channel_ids }}" {% if not can_edit %}disabled{% endif %}></label>
-        <label>Ignore channels CSV<input type="text" name="ignore_channel_ids" value="{{ mode_data.ignore_channel_ids }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>突入通知チャンネル<input type="text" name="enter_notify_channel_id" value="{{ mode_data.enter_notify_channel_id }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>終了通知チャンネル<input type="text" name="exit_notify_channel_id" value="{{ mode_data.exit_notify_channel_id }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>反応チャンネル（カンマ区切り）<input type="text" name="reaction_channel_ids" value="{{ mode_data.reaction_channel_ids }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>非反応チャンネル（カンマ区切り）<input type="text" name="ignore_channel_ids" value="{{ mode_data.ignore_channel_ids }}" {% if not can_edit %}disabled{% endif %}></label>
       </div>
 
-      <h3>Cooldown</h3>
+      <h3>クールタイム</h3>
       <div class="form-grid">
         <label>
-          Type
+          方式
           <select name="cooldown_type" {% if not can_edit %}disabled{% endif %}>
             {% for item in cooldown_types %}
               <option value="{{ item }}" {% if mode_data.cooldown_type == item %}selected{% endif %}>{{ item }}</option>
             {% endfor %}
           </select>
         </label>
-        <label>Duration seconds<input type="number" name="cooldown_seconds" value="{{ mode_data.cooldown_seconds }}" min="0" {% if not can_edit %}disabled{% endif %}></label>
+        <label>秒数<input type="number" name="cooldown_seconds" value="{{ mode_data.cooldown_seconds }}" min="0" {% if not can_edit %}disabled{% endif %}></label>
         <label>
-          Period
+          期間
           <select name="cooldown_period" {% if not can_edit %}disabled{% endif %}>
             {% for item in cooldown_periods %}
               <option value="{{ item }}" {% if mode_data.cooldown_period == item %}selected{% endif %}>{{ item }}</option>
@@ -89,88 +104,101 @@
           </select>
         </label>
         <label>
-          Reset
+          リセット
           <select name="cooldown_reset" {% if not can_edit %}disabled{% endif %}>
             {% for item in cooldown_resets %}
               <option value="{{ item }}" {% if mode_data.cooldown_reset == item %}selected{% endif %}>{{ item }}</option>
             {% endfor %}
           </select>
         </label>
-        <label>Reset day<input type="number" name="cooldown_day" value="{{ mode_data.cooldown_day }}" min="1" max="31" {% if not can_edit %}disabled{% endif %}></label>
+        <label>リセット日<input type="number" name="cooldown_day" value="{{ mode_data.cooldown_day }}" min="1" max="31" {% if not can_edit %}disabled{% endif %}></label>
       </div>
       <p class="empty">Examples: hayusu = once_per_period/monthly/month_start, narita = once_per_period/monthly/day 22.</p>
       <p class="empty">Shikocchi recovery message "まずは女子供から殺す" is a fixed preset and is not editable here.</p>
 
       {% if can_edit %}
-        <button type="submit">{% if mode == "new" %}Create{% else %}Save{% endif %}</button>
+        <button type="submit">{% if mode == "new" %}作成{% else %}保存{% endif %}</button>
       {% else %}
-        <button type="button" disabled>Read only</button>
+        <button type="button" disabled>保存できません</button>
       {% endif %}
     </form>
+    {% if mode == "edit" %}
+      <form method="post" action="/guilds/{{ guild_id }}/modes/{{ mode_id }}/delete" data-confirm="このモードを削除しますか？">
+        <button class="danger" type="submit" {% if not can_edit or not mode_data.is_deletable %}disabled title="固定モード、または権限不足のため削除できません"{% endif %}>削除</button>
+      </form>
+    {% endif %}
   </section>
 
   {% if mode == "edit" %}
     <section class="panel">
-      <h2>Current state</h2>
+      <h2>現在の状態</h2>
       {% if mode_data.state %}
         <dl class="info-list">
-          <dt>Current mode id</dt><dd>{{ mode_data.state.current_mode_id or "-" }}</dd>
-          <dt>Active until</dt><dd>{{ mode_data.state.active_until or "-" }}</dd>
-          <dt>Pseudo offline until</dt><dd>{{ mode_data.state.pseudo_offline_until or "-" }}</dd>
-          <dt>Shikocchi count</dt><dd>{{ mode_data.state.shikocchi_count }}</dd>
+          <dt>現在のモードID</dt><dd>{{ mode_data.state.current_mode_id or "-" }}</dd>
+          <dt>終了予定</dt><dd>{{ mode_data.state.active_until or "-" }}</dd>
+          <dt>疑似オフライン終了予定</dt><dd>{{ mode_data.state.pseudo_offline_until or "-" }}</dd>
+          <dt>しこっちカウント</dt><dd>{{ mode_data.state.shikocchi_count }}</dd>
         </dl>
       {% else %}
-        <p class="empty">No mode state row exists yet.</p>
+        <p class="empty">状態データはまだありません。</p>
       {% endif %}
       <div class="page-actions">
-        <button type="button" disabled>Manual enter: later phase</button>
-        <button type="button" disabled>Manual exit: later phase</button>
+        <button type="button" disabled>手動突入は後続Phase</button>
+        <button type="button" disabled>手動終了は後続Phase</button>
       </div>
     </section>
 
     <section class="panel">
-      <h2>Reply choices</h2>
+      <h2>返答候補</h2>
       {% if mode_data.behavior_type == "offline" %}
-        <p class="empty">offline modes do not use reply choices.</p>
+        <p class="empty">「反応しない」モードでは返答候補を使いません。</p>
       {% else %}
         {% if mode_data.reply_choices %}
           <div class="choice-list">
             {% for choice in mode_data.reply_choices %}
-              <form class="choice-item quote-form" method="post" action="/guilds/{{ guild_id }}/modes/{{ mode_id }}/reply-choices/{{ choice.id }}">
+              <form class="choice-item quote-form" method="post" action="/guilds/{{ guild_id }}/modes/{{ mode_id }}/reply-choices/{{ choice.id }}" enctype="multipart/form-data">
                 <div class="form-grid">
-                  <label>Name<input type="text" name="choice_name" value="{{ choice.name }}" {% if not can_edit %}disabled{% endif %}></label>
-                  <label>Weight<input type="number" name="appearance_rate" value="{{ choice.appearance_rate }}" min="1" {% if not can_edit %}disabled{% endif %}></label>
-                  <label>Image path<input type="text" name="image_path" value="{{ choice.image_path or '' }}" {% if not can_edit %}disabled{% endif %}></label>
+                  <label>候補名<input type="text" name="choice_name" value="{{ choice.name }}" {% if not can_edit %}disabled{% endif %}></label>
+                  <label>出やすさ<input type="number" name="appearance_rate" value="{{ choice.appearance_rate }}" min="1" {% if not can_edit %}disabled{% endif %}></label>
+                  <div class="image-field">
+                    <input type="hidden" name="image_path" value="{{ choice.image_path or '' }}">
+                    {% if choice.image_path %}<img class="image-preview" src="/{{ choice.image_path }}" alt=""><label class="check-row"><input type="checkbox" name="delete_image" {% if not can_edit %}disabled{% endif %}>画像を削除</label>{% endif %}
+                    <label>画像を選ぶ<input type="file" name="image_upload" accept="image/*" {% if not can_edit %}disabled{% endif %}></label>
+                  </div>
                 </div>
-                <label>Body<textarea name="body" {% if not can_edit %}disabled{% endif %}>{{ choice.body or '' }}</textarea></label>
-                <label class="check-row"><input type="checkbox" name="choice_enabled" {% if choice.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>Enabled</label>
-                {% if can_edit %}<button type="submit">Save choice</button>{% endif %}
+                <label>本文<textarea name="body" {% if not can_edit %}disabled{% endif %}>{{ choice.body or '' }}</textarea></label>
+                <label class="check-row"><input type="checkbox" name="choice_enabled" {% if choice.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>有効</label>
+                {% if can_edit %}<button type="submit">候補を保存</button>{% endif %}
+              </form>
+              <form method="post" action="/guilds/{{ guild_id }}/modes/{{ mode_id }}/reply-choices/{{ choice.id }}/delete" data-confirm="この返答候補を削除しますか？">
+                <button class="danger" type="submit" {% if not can_edit %}disabled{% endif %}>候補を削除</button>
               </form>
             {% endfor %}
           </div>
         {% else %}
-          <p class="empty">No reply choices yet.</p>
+          <p class="empty">返答候補はまだありません。</p>
         {% endif %}
-        <form class="quote-form" method="post" action="/guilds/{{ guild_id }}/modes/{{ mode_id }}/reply-choices">
-          <h3>Add reply choice</h3>
+        <form class="quote-form" method="post" action="/guilds/{{ guild_id }}/modes/{{ mode_id }}/reply-choices" enctype="multipart/form-data">
+          <h3>返答候補を追加</h3>
           <div class="form-grid">
-            <label>Name<input type="text" name="choice_name" {% if not can_edit %}disabled{% endif %}></label>
-            <label>Weight<input type="number" name="appearance_rate" value="1" min="1" {% if not can_edit %}disabled{% endif %}></label>
-            <label>Image path<input type="text" name="image_path" {% if not can_edit %}disabled{% endif %}></label>
+            <label>候補名<input type="text" name="choice_name" {% if not can_edit %}disabled{% endif %}></label>
+            <label>出やすさ<input type="number" name="appearance_rate" value="1" min="1" {% if not can_edit %}disabled{% endif %}></label>
+            <label>画像を選ぶ<input type="file" name="image_upload" accept="image/*" {% if not can_edit %}disabled{% endif %}></label>
+            <input type="hidden" name="image_path" value="">
           </div>
-          <label>Body<textarea name="body" {% if not can_edit %}disabled{% endif %}></textarea></label>
-          <label class="check-row"><input type="checkbox" name="choice_enabled" checked {% if not can_edit %}disabled{% endif %}>Enabled</label>
-          {% if can_edit %}<button type="submit">Add choice</button>{% endif %}
+          <label>本文<textarea name="body" {% if not can_edit %}disabled{% endif %}></textarea></label>
+          <label class="check-row"><input type="checkbox" name="choice_enabled" checked {% if not can_edit %}disabled{% endif %}>有効</label>
+          {% if can_edit %}<button type="submit">候補を追加</button>{% endif %}
         </form>
       {% endif %}
     </section>
 
     <section class="panel">
-      <h2>Trigger conditions</h2>
+      <h2>発動条件</h2>
       {% if counters %}
-        <p class="empty">Existing counters: {% for counter in counters %}<code>{{ counter.count_key }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+        <p class="empty">既存カウント: {% for counter in counters %}<code>{{ counter.count_key }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
       {% else %}
-        <p class="empty">No counters yet. A counter_threshold condition can create one.</p>
+        <p class="empty">カウントはまだありません。カウント到達条件を追加する時に作成できます。</p>
       {% endif %}
 
       {% if mode_data.trigger_conditions %}
@@ -179,7 +207,7 @@
             <form class="choice-item quote-form" method="post" action="/guilds/{{ guild_id }}/modes/{{ mode_id }}/trigger-conditions/{{ condition.id }}">
               <div class="form-grid">
                 <label>
-                  Type
+                  条件の種類
                   <select name="condition_type" {% if not can_edit %}disabled{% endif %}>
                     {% for item in trigger_types %}
                       <option value="{{ item }}" {% if condition.ui_condition_type == item %}selected{% endif %}>{{ item }}</option>
@@ -187,28 +215,31 @@
                   </select>
                 </label>
                 <label>
-                  Operator
+                  条件のつなぎ方
                   <select name="group_operator" {% if not can_edit %}disabled{% endif %}>
                     <option value="AND" {% if condition.group_operator == "AND" %}selected{% endif %}>AND</option>
                     <option value="OR" {% if condition.group_operator == "OR" %}selected{% endif %}>OR</option>
                   </select>
                 </label>
               </div>
-              <label>Config JSON<textarea name="condition_config_json" {% if not can_edit %}disabled{% endif %}>{{ condition.condition_config_text }}</textarea></label>
-              <label class="check-row"><input type="checkbox" name="condition_enabled" {% if condition.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>Enabled</label>
-              {% if can_edit %}<button type="submit">Save condition</button>{% endif %}
+              <details open>
+                <summary>詳細設定</summary>
+                <label>条件設定<textarea name="condition_config_json" {% if not can_edit %}disabled{% endif %}>{{ condition.condition_config_text }}</textarea></label>
+              </details>
+              <label class="check-row"><input type="checkbox" name="condition_enabled" {% if condition.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>有効</label>
+              {% if can_edit %}<button type="submit">条件を保存</button>{% endif %}
             </form>
           {% endfor %}
         </div>
       {% else %}
-        <p class="empty">No trigger conditions yet.</p>
+        <p class="empty">発動条件はまだありません。</p>
       {% endif %}
 
       <form class="quote-form" method="post" action="/guilds/{{ guild_id }}/modes/{{ mode_id }}/trigger-conditions">
-        <h3>Add trigger condition</h3>
+        <h3>発動条件を追加</h3>
         <div class="form-grid">
           <label>
-            Type
+            条件の種類
             <select name="condition_type" {% if not can_edit %}disabled{% endif %}>
               {% for item in trigger_types %}
                 <option value="{{ item }}">{{ item }}</option>
@@ -216,23 +247,26 @@
             </select>
           </label>
           <label>
-            Operator
+            条件のつなぎ方
             <select name="group_operator" {% if not can_edit %}disabled{% endif %}>
               <option value="AND">AND</option>
               <option value="OR">OR</option>
             </select>
           </label>
         </div>
-        <label>Config JSON<textarea name="condition_config_json" {% if not can_edit %}disabled{% endif %}>{"example":"probability 1/112, counter_threshold narita_count >= 22, or period monthly reset"}</textarea></label>
-        <label class="check-row"><input type="checkbox" name="condition_enabled" checked {% if not can_edit %}disabled{% endif %}>Enabled</label>
-        <h3>Optional new counter for counter_threshold</h3>
+        <details open>
+          <summary>詳細設定</summary>
+          <label>条件設定<textarea name="condition_config_json" {% if not can_edit %}disabled{% endif %}>{"example":"確率 1/112、narita_count >= 22 など"}</textarea></label>
+        </details>
+        <label class="check-row"><input type="checkbox" name="condition_enabled" checked {% if not can_edit %}disabled{% endif %}>有効</label>
+        <h3>カウント到達条件で新しく作るカウント</h3>
         <div class="form-grid">
-          <label>Counter key<input type="text" name="new_count_key" placeholder="narita_count" {% if not can_edit %}disabled{% endif %}></label>
-          <label>Counter name<input type="text" name="new_count_name" placeholder="Narita count" {% if not can_edit %}disabled{% endif %}></label>
-          <label>Description<input type="text" name="new_count_description" {% if not can_edit %}disabled{% endif %}></label>
-          <label>Initial value<input type="number" name="new_count_initial_value" value="0" {% if not can_edit %}disabled{% endif %}></label>
+          <label>カウントキー<input type="text" name="new_count_key" placeholder="narita_count" {% if not can_edit %}disabled{% endif %}></label>
+          <label>カウント名<input type="text" name="new_count_name" placeholder="成田カウント" {% if not can_edit %}disabled{% endif %}></label>
+          <label>説明<input type="text" name="new_count_description" {% if not can_edit %}disabled{% endif %}></label>
+          <label>初期値<input type="number" name="new_count_initial_value" value="0" {% if not can_edit %}disabled{% endif %}></label>
           <label>
-            Reset type
+            リセット方式
             <select name="new_count_reset_type" {% if not can_edit %}disabled{% endif %}>
               {% for item in reset_types %}
                 <option value="{{ item }}">{{ item }}</option>
@@ -240,48 +274,61 @@
             </select>
           </label>
         </div>
-        {% if can_edit %}<button type="submit">Add trigger condition</button>{% endif %}
+        {% if can_edit %}<button type="submit">発動条件を追加</button>{% endif %}
       </form>
     </section>
 
     <section class="panel">
-      <h2>Exit conditions</h2>
+      <h2>終了条件</h2>
       {% if mode_data.exit_conditions %}
         <div class="choice-list">
           {% for condition in mode_data.exit_conditions %}
             <form class="choice-item quote-form" method="post" action="/guilds/{{ guild_id }}/modes/{{ mode_id }}/exit-conditions/{{ condition.id }}">
               <label>
-                Type
+                条件の種類
                 <select name="condition_type" {% if not can_edit %}disabled{% endif %}>
                   {% for item in exit_types %}
                     <option value="{{ item }}" {% if condition.ui_condition_type == item %}selected{% endif %}>{{ item }}</option>
                   {% endfor %}
                 </select>
               </label>
-              <label>Config JSON<textarea name="condition_config_json" {% if not can_edit %}disabled{% endif %}>{{ condition.condition_config_text }}</textarea></label>
-              <label class="check-row"><input type="checkbox" name="condition_enabled" {% if condition.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>Enabled</label>
-              {% if can_edit %}<button type="submit">Save exit condition</button>{% endif %}
+              <details open>
+                <summary>詳細設定</summary>
+                <label>条件設定<textarea name="condition_config_json" {% if not can_edit %}disabled{% endif %}>{{ condition.condition_config_text }}</textarea></label>
+              </details>
+              <label class="check-row"><input type="checkbox" name="condition_enabled" {% if condition.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>有効</label>
+              {% if can_edit %}<button type="submit">終了条件を保存</button>{% endif %}
             </form>
           {% endfor %}
         </div>
       {% else %}
-        <p class="empty">No exit conditions yet.</p>
+        <p class="empty">終了条件はまだありません。</p>
       {% endif %}
 
       <form class="quote-form" method="post" action="/guilds/{{ guild_id }}/modes/{{ mode_id }}/exit-conditions">
-        <h3>Add exit condition</h3>
+        <h3>終了条件を追加</h3>
         <label>
-          Type
+          条件の種類
           <select name="condition_type" {% if not can_edit %}disabled{% endif %}>
             {% for item in exit_types %}
               <option value="{{ item }}">{{ item }}</option>
             {% endfor %}
           </select>
         </label>
-        <label>Config JSON<textarea name="condition_config_json" {% if not can_edit %}disabled{% endif %}>{"seconds":180}</textarea></label>
-        <label class="check-row"><input type="checkbox" name="condition_enabled" checked {% if not can_edit %}disabled{% endif %}>Enabled</label>
-        {% if can_edit %}<button type="submit">Add exit condition</button>{% endif %}
+        <details open>
+          <summary>詳細設定</summary>
+          <label>条件設定<textarea name="condition_config_json" {% if not can_edit %}disabled{% endif %}>{"seconds":180}</textarea></label>
+        </details>
+        <label class="check-row"><input type="checkbox" name="condition_enabled" checked {% if not can_edit %}disabled{% endif %}>有効</label>
+        {% if can_edit %}<button type="submit">終了条件を追加</button>{% endif %}
       </form>
     </section>
   {% endif %}
+  <script>
+    document.querySelectorAll("[data-confirm]").forEach(function (form) {
+      form.addEventListener("submit", function (event) {
+        if (!confirm(form.dataset.confirm)) { event.preventDefault(); }
+      });
+    });
+  </script>
 {% endblock %}

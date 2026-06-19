@@ -2,12 +2,14 @@ import json
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
-from fastapi import APIRouter, Form, HTTPException, Query, Request, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from admin.auth import get_current_user
 from admin.servers import can_access_guild, find_server, role_allows
+from admin.ux import MATCH_TYPE_LABELS as UX_MATCH_TYPE_LABELS
+from admin.ux import REACTION_KIND_LABELS, is_test_data, parse_show_test_data, save_uploaded_image
 from bot.db import connect, get_connection
 from bot.repositories import MentionReactionRepository, SpecialEffectRepository
 
@@ -19,6 +21,7 @@ KIND_LABELS = {
     "random_draw": "ランダム抽選",
     "search": "検索",
 }
+KIND_LABELS.update(REACTION_KIND_LABELS)
 
 MATCH_TYPE_LABELS = {
     "contains": "部分一致",
@@ -26,6 +29,7 @@ MATCH_TYPE_LABELS = {
     "prefix": "前方一致",
     "regex": "正規表現",
 }
+MATCH_TYPE_LABELS.update(UX_MATCH_TYPE_LABELS)
 
 REACTION_MATCH_TYPES = ("exact", "prefix", "regex")
 SEARCH_MATCH_TYPES = ("exact", "prefix", "regex")
@@ -58,6 +62,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         kind: str = Query("all"),
         system: str = Query("all"),
         enabled: str = Query("all"),
+        show_test_data: str = Query("false"),
     ):
         user = get_current_user(request)
         if user is None:
@@ -67,7 +72,21 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
         server = find_server(guild_id, user["user_id"])
-        filters = normalize_filters(q, kind, system, enabled)
+        filters = normalize_filters(q, kind, system, enabled, show_test_data)
+        if is_category_landing(filters):
+            return templates.TemplateResponse(
+                request,
+                "mention_reaction_categories.html",
+                {
+                    "user": user,
+                    "server": server,
+                    "guild_id": guild_id,
+                    "can_create_random": role_allows(server["role"], "editor"),
+                    "can_create_deck_search": role_allows(server["role"], "guild_admin"),
+                    "has_deck_search": has_deck_search_reaction(guild_id),
+                },
+            )
+
         reactions = list_reaction_rows(guild_id, server["role"], filters)
 
         return templates.TemplateResponse(
@@ -133,6 +152,37 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="mention reaction toggle denied")
 
             repository.toggle_enabled(guild_id, reaction_id)
+            connection.commit()
+
+        return RedirectResponse(url="/guilds/{0}/mention-reactions".format(guild_id), status_code=303)
+
+    @router.post("/guilds/{guild_id}/mention-reactions/{reaction_id}/delete")
+    async def delete_mention_reaction(
+        request: Request,
+        guild_id: str,
+        reaction_id: int,
+    ):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="サーバーを見る権限がありません。")
+
+        server = find_server(guild_id, user["user_id"])
+        with get_connection() as connection:
+            repository = MentionReactionRepository(connection)
+            reaction = repository.get_by_id(guild_id, reaction_id)
+            if reaction is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="メンション反応が見つかりません。")
+            if not role_allows(server["role"], "editor"):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="削除する権限がありません。")
+            if reaction.get("admin_only") and not role_allows(server["role"], "guild_admin"):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="管理者限定の反応はサーバー管理者だけが削除できます。")
+            if reaction.get("is_system") or not reaction.get("is_deletable", True):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="固定機能のため削除できません。")
+
+            repository.delete_reaction(guild_id, reaction_id)
             connection.commit()
 
         return RedirectResponse(url="/guilds/{0}/mention-reactions".format(guild_id), status_code=303)
@@ -480,6 +530,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         choice_name: str = Form(""),
         body: str = Form(""),
         image_path: str = Form(""),
+        image_upload: Optional[UploadFile] = File(None),
         appearance_rate: str = Form("1"),
         choice_enabled: Optional[str] = Form(None),
     ):
@@ -489,8 +540,13 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
 
         server, repository, reaction, connection = prepare_choice_mutation(guild_id, reaction_id, user["user_id"])
         try:
+            uploaded_path, upload_error = await save_uploaded_image(image_upload, "mention_reaction_choices")
+            if uploaded_path:
+                image_path = uploaded_path
             choice_form = build_choice_form(choice_name, body, image_path, appearance_rate, choice_enabled)
             errors = validate_choice_form(choice_form)
+            if upload_error:
+                errors.append(upload_error)
             if errors:
                 choices = repository.list_choices(guild_id, reaction_id)
                 choices = attach_choice_effects(connection, guild_id, choices, server["role"])
@@ -532,6 +588,8 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         choice_name: str = Form(""),
         body: str = Form(""),
         image_path: str = Form(""),
+        image_upload: Optional[UploadFile] = File(None),
+        delete_image: Optional[str] = Form(None),
         appearance_rate: str = Form("1"),
         choice_enabled: Optional[str] = Form(None),
     ):
@@ -545,8 +603,15 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
             if choice is None or int(choice["mention_reaction_id"]) != reaction_id:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mention reaction choice not found")
 
+            if delete_image:
+                image_path = ""
+            uploaded_path, upload_error = await save_uploaded_image(image_upload, "mention_reaction_choices")
+            if uploaded_path:
+                image_path = uploaded_path
             choice_form = build_choice_form(choice_name, body, image_path, appearance_rate, choice_enabled)
             errors = validate_choice_form(choice_form)
+            if upload_error:
+                errors.append(upload_error)
             if errors:
                 choices = repository.list_choices(guild_id, reaction_id)
                 choices = attach_choice_effects(connection, guild_id, choices, server["role"])
@@ -570,6 +635,32 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 choice_form["appearance_rate"],
                 choice_form["enabled"],
             )
+            connection.commit()
+        finally:
+            connection.close()
+
+        return RedirectResponse(
+            url="/guilds/{0}/mention-reactions/{1}".format(guild_id, reaction_id),
+            status_code=303,
+        )
+
+    @router.post("/guilds/{guild_id}/mention-reactions/{reaction_id}/choices/{choice_id}/delete")
+    async def delete_mention_reaction_choice(
+        request: Request,
+        guild_id: str,
+        reaction_id: int,
+        choice_id: int,
+    ):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+
+        server, repository, reaction, connection = prepare_choice_mutation(guild_id, reaction_id, user["user_id"])
+        try:
+            choice = repository.get_choice(guild_id, choice_id)
+            if choice is None or int(choice["mention_reaction_id"]) != reaction_id:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="候補が見つかりません。")
+            repository.delete_choice(guild_id, choice_id)
             connection.commit()
         finally:
             connection.close()
@@ -680,6 +771,7 @@ def normalize_filters(
     kind: str,
     system: str,
     enabled: str,
+    show_test_data: str = "false",
 ) -> Dict[str, Any]:
     normalized_query = (query or "").strip()
     normalized_kind = kind if kind in ("all", "random_draw", "search") else "all"
@@ -691,7 +783,18 @@ def normalize_filters(
         "kind": normalized_kind,
         "system": normalized_system,
         "enabled": normalized_enabled,
+        "show_test_data": parse_show_test_data(show_test_data),
     }
+
+
+def is_category_landing(filters: Dict[str, Any]) -> bool:
+    return (
+        filters["q"] == ""
+        and filters["kind"] == "all"
+        and filters["system"] == "all"
+        and filters["enabled"] == "all"
+        and not filters["show_test_data"]
+    )
 
 
 def list_reaction_rows(
@@ -712,6 +815,8 @@ def list_reaction_rows(
     rows = []
     for reaction in reactions:
         row = dict(reaction)
+        if not filters["show_test_data"] and row_is_hidden_test_data(row):
+            continue
         display_kind = display_reaction_kind(row["reaction_kind"])
         row["display_reaction_kind"] = display_kind
         row["reaction_kind_label"] = KIND_LABELS.get(display_kind, display_kind)
@@ -720,9 +825,25 @@ def list_reaction_rows(
         row["can_toggle"] = role_allows(role, required_toggle_role(row))
         row["edit_url"] = "/guilds/{0}/mention-reactions/{1}".format(guild_id, row["id"])
         row["toggle_url"] = "/guilds/{0}/mention-reactions/{1}/toggle".format(guild_id, row["id"])
+        row["delete_url"] = "/guilds/{0}/mention-reactions/{1}/delete".format(guild_id, row["id"])
+        row["can_delete"] = (
+            role_allows(role, "editor")
+            and not bool(row.get("is_system"))
+            and bool(row.get("is_deletable", True))
+            and (not row.get("admin_only") or role_allows(role, "guild_admin"))
+        )
         rows.append(row)
 
     return rows
+
+
+def row_is_hidden_test_data(row: Dict[str, Any]) -> bool:
+    return (
+        is_test_data(row.get("reaction_key"))
+        or is_test_data(row.get("name"))
+        or is_test_data(row.get("keyword"))
+        or is_test_data(row.get("description"))
+    )
 
 
 def parse_bool_filter(value: str) -> Optional[bool]:
