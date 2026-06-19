@@ -9,16 +9,24 @@
   <body>
     <header class="topbar">
       <div>
-        <p class="eyebrow">いちよんロボ 管理画面</p>
+        <p class="eyebrow">ver2.0 DB管理画面</p>
         <h1>{% block heading %}管理画面{% endblock %}</h1>
+        {% if server is defined and server %}
+          <p class="topbar-server">{{ server.name }}</p>
+        {% endif %}
       </div>
       <nav>
-        <a href="/quotes">名言管理</a>
-        <a href="/reactions">自動反応管理</a>
-        <a href="/ng-words">NGワード管理</a>
-        <a href="/kuji">おみくじ管理</a>
         <a href="/servers">サーバー選択</a>
-        <a href="/login">ログイン</a>
+        {% if server is defined and server %}
+          <a href="/guilds/{{ server.guild_id }}">機能一覧</a>
+        {% endif %}
+        {% set layout_user = request.session.get("discord_user") %}
+        {% if layout_user %}
+          <span class="nav-user">{{ layout_user.get("username") or layout_user.get("global_name") or layout_user.get("user_id") }}</span>
+          <a href="/logout">ログアウト</a>
+        {% else %}
+          <a href="/login">ログイン</a>
+        {% endif %}
       </nav>
     </header>
     <main>

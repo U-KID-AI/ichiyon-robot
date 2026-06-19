@@ -71,6 +71,27 @@ app.include_router(mode_router)
 app.include_router(auto_post_router)
 
 
+LEGACY_JSON_PATHS = ("/quotes", "/reactions", "/ng-words", "/kuji")
+
+
+def legacy_json_pages_enabled() -> bool:
+    return os.getenv("ADMIN_ENABLE_LEGACY_JSON_PAGES", "").strip().lower() == "true"
+
+
+def is_legacy_json_path(path: str) -> bool:
+    for legacy_path in LEGACY_JSON_PATHS:
+        if path == legacy_path or path.startswith(legacy_path + "/"):
+            return True
+    return False
+
+
+@app.middleware("http")
+async def redirect_legacy_json_pages(request: Request, call_next):
+    if is_legacy_json_path(request.url.path) and not legacy_json_pages_enabled():
+        return RedirectResponse(url="/servers", status_code=303)
+    return await call_next(request)
+
+
 def load_json_file(path: Path, default):
     try:
         with path.open("r", encoding="utf-8") as f:
@@ -509,8 +530,10 @@ def build_next_id(items: List[Dict], prefix: str) -> str:
 
 
 @app.get("/")
-async def index():
-    return RedirectResponse(url="/quotes", status_code=303)
+async def index(request: Request):
+    if request.session.get("discord_user"):
+        return RedirectResponse(url="/servers", status_code=303)
+    return RedirectResponse(url="/login", status_code=303)
 
 
 @app.get("/quotes")
