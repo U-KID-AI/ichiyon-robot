@@ -11,6 +11,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
+from admin.auto_reactions import (
+    register_auto_reaction_routes,
+    router as auto_reaction_router,
+)
 from admin.auth import get_session_secret, register_auth_routes, router as auth_router
 from admin.mention_reactions import (
     register_mention_reaction_routes,
@@ -50,10 +54,12 @@ register_auth_routes(templates)
 register_server_routes(templates)
 register_mention_reaction_routes(templates)
 register_special_effect_routes(templates)
+register_auto_reaction_routes(templates)
 app.include_router(auth_router)
 app.include_router(server_router)
 app.include_router(mention_reaction_router)
 app.include_router(special_effect_router)
+app.include_router(auto_reaction_router)
 
 
 def load_json_file(path: Path, default):

@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS reactions (
     response_text TEXT,
     image_path TEXT,
     emoji_internal TEXT,
-    match_type TEXT NOT NULL DEFAULT 'contains' CHECK (match_type IN ('contains', 'exact', 'regex')),
+    match_type TEXT NOT NULL DEFAULT 'contains' CHECK (match_type IN ('contains', 'exact', 'prefix', 'regex')),
     priority INTEGER NOT NULL DEFAULT 0,
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

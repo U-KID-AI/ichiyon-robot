@@ -30,8 +30,6 @@ def normalize_reaction_kind(reaction_kind: Optional[str]) -> Optional[str]:
 
 
 def normalize_effect_target_type(target_type: str) -> str:
-    if target_type == "auto_reaction":
-        return "reaction"
     return target_type
 
 
