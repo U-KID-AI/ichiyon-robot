@@ -503,6 +503,31 @@ button:disabled {
   grid-column: 1 / -1;
 }
 
+.assigned-effects {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid #d9dee7;
+  padding-top: 12px;
+}
+
+.effect-chip-list {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.effect-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #d9dee7;
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: #ffffff;
+  color: #1f2933;
+  font-size: 13px;
+}
+
 @media (max-width: 640px) {
   .topbar,
   .quote-meta,

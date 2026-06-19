@@ -12,6 +12,7 @@ class SpecialEffectRepository:
         guild_id: str,
         query: Optional[str] = None,
         effect_type: Optional[str] = None,
+        target_type: Optional[str] = None,
         enabled: Optional[bool] = None,
         admin_only: Optional[bool] = None,
     ) -> List[Dict[str, Any]]:
@@ -26,6 +27,10 @@ class SpecialEffectRepository:
         if effect_type is not None:
             where.append("effect_type = %s")
             params.append(effect_type)
+
+        if target_type is not None:
+            where.append("target_type = %s")
+            params.append(target_type)
 
         if enabled is not None:
             where.append("enabled = %s")
@@ -270,3 +275,53 @@ class SpecialEffectRepository:
         enabled: Optional[bool] = True,
     ) -> List[Dict[str, Any]]:
         return self.list_assignments(guild_id, target_type, target_id, enabled)
+
+    def assign_tag(
+        self,
+        guild_id: str,
+        special_effect_tag_id: int,
+        target_type: str,
+        target_id: int,
+    ) -> Dict[str, Any]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO special_effect_assignments (
+                    guild_id,
+                    special_effect_tag_id,
+                    target_type,
+                    target_id,
+                    enabled
+                )
+                VALUES (%s, %s, %s, %s, TRUE)
+                ON CONFLICT (special_effect_tag_id, target_type, target_id) DO UPDATE
+                SET enabled = TRUE,
+                    updated_at = NOW()
+                RETURNING *
+                """,
+                (guild_id, special_effect_tag_id, target_type, target_id),
+            )
+            return fetch_one(cursor)
+
+    def unassign_tag(
+        self,
+        guild_id: str,
+        special_effect_tag_id: int,
+        target_type: str,
+        target_id: int,
+    ) -> Optional[Dict[str, Any]]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE special_effect_assignments
+                SET enabled = FALSE,
+                    updated_at = NOW()
+                WHERE guild_id = %s
+                    AND special_effect_tag_id = %s
+                    AND target_type = %s
+                    AND target_id = %s
+                RETURNING *
+                """,
+                (guild_id, special_effect_tag_id, target_type, target_id),
+            )
+            return fetch_one(cursor)

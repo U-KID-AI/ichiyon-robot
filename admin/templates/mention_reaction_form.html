@@ -135,7 +135,23 @@
                   {% else %}
                     <button type="button" disabled>候補を保存できません</button>
                   {% endif %}
+                  <a class="button-link secondary" href="{{ choice.effects_url }}">特殊効果を編集</a>
                   <button type="button" disabled title="削除は後続Phaseで実装予定です">削除は後続Phase</button>
+                </div>
+                <div class="assigned-effects">
+                  <strong>付与済み特殊効果</strong>
+                  {% if choice.effects %}
+                    <div class="effect-chip-list">
+                      {% for effect in choice.effects %}
+                        <span class="effect-chip">
+                          <span class="color-swatch" style="background: {{ effect.color or '#6B7280' }}"></span>
+                          {{ effect.name }} / {{ effect.effect_type }}
+                        </span>
+                      {% endfor %}
+                    </div>
+                  {% else %}
+                    <p class="empty">付与済みタグはありません。</p>
+                  {% endif %}
                 </div>
               </form>
             {% endfor %}

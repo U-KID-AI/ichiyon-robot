@@ -8,7 +8,7 @@ from fastapi.templating import Jinja2Templates
 from admin.auth import get_current_user
 from admin.servers import can_access_guild, find_server, role_allows
 from bot.db import connect, get_connection
-from bot.repositories import MentionReactionRepository
+from bot.repositories import MentionReactionRepository, SpecialEffectRepository
 
 
 router = APIRouter()
@@ -28,6 +28,21 @@ MATCH_TYPE_LABELS = {
 
 REACTION_MATCH_TYPES = ("exact", "prefix", "regex")
 KEYWORD_DUPLICATE_ERROR = "このキーワードは既存のメンション反応で使用されています。"
+ASSIGNMENT_TARGET_TYPE = "mention_reaction_choice"
+ASSIGNMENT_EFFECT_TYPES = (
+    "probability_message",
+    "message",
+    "reaction",
+    "counter_delta",
+    "counter_set",
+    "probability_multiplier",
+    "next_action_count",
+    "mode_roll",
+    "mode_enter",
+    "temporary_state",
+    "ng_behavior",
+    "extra_choice",
+)
 
 
 def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
@@ -216,6 +231,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
             if reaction is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mention reaction not found")
             choices = repository.list_choices(guild_id, reaction_id)
+            choices = attach_choice_effects(connection, guild_id, choices, server["role"])
 
         return templates.TemplateResponse(
             request,
@@ -292,6 +308,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 )
 
             choices = repository.list_choices(guild_id, reaction_id)
+            choices = attach_choice_effects(connection, guild_id, choices, server["role"])
 
         form.update(
             {
@@ -343,6 +360,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
             errors = validate_choice_form(choice_form)
             if errors:
                 choices = repository.list_choices(guild_id, reaction_id)
+                choices = attach_choice_effects(connection, guild_id, choices, server["role"])
                 return render_reaction_form_with_choice_errors(
                     templates,
                     request,
@@ -398,6 +416,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
             errors = validate_choice_form(choice_form)
             if errors:
                 choices = repository.list_choices(guild_id, reaction_id)
+                choices = attach_choice_effects(connection, guild_id, choices, server["role"])
                 return render_reaction_form_with_choice_errors(
                     templates,
                     request,
@@ -424,6 +443,101 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
 
         return RedirectResponse(
             url="/guilds/{0}/mention-reactions/{1}".format(guild_id, reaction_id),
+            status_code=303,
+        )
+
+    @router.get("/guilds/{guild_id}/mention-reactions/{reaction_id}/choices/{choice_id}/effects")
+    async def choice_effects_page(
+        request: Request,
+        guild_id: str,
+        reaction_id: int,
+        choice_id: int,
+        q: Optional[str] = Query(None),
+        effect_type: str = Query("all"),
+        admin_only: str = Query("all"),
+        include_disabled: str = Query("false"),
+    ):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
+
+        server = find_server(guild_id, user["user_id"])
+        with get_connection() as connection:
+            mention_repository = MentionReactionRepository(connection)
+            reaction = mention_repository.get_by_id(guild_id, reaction_id)
+            if reaction is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mention reaction not found")
+            choice = mention_repository.get_choice(guild_id, choice_id)
+            if choice is None or int(choice["mention_reaction_id"]) != reaction_id:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mention reaction choice not found")
+
+            filters = normalize_assignment_filters(q, effect_type, admin_only, include_disabled)
+            tags = list_assignable_effect_rows(connection, guild_id, choice_id, server["role"], filters)
+
+        return templates.TemplateResponse(
+            request,
+            "choice_effects.html",
+            {
+                "user": user,
+                "server": server,
+                "guild_id": guild_id,
+                "reaction": build_reaction_view(reaction),
+                "choice": choice,
+                "filters": filters,
+                "tags": tags,
+                "effect_types": ASSIGNMENT_EFFECT_TYPES,
+                "can_manage_any": role_allows(server["role"], "editor"),
+            },
+        )
+
+    @router.post("/guilds/{guild_id}/mention-reactions/{reaction_id}/choices/{choice_id}/effects")
+    async def update_choice_effects(
+        request: Request,
+        guild_id: str,
+        reaction_id: int,
+        choice_id: int,
+        tag_id: int = Form(...),
+        action: str = Form(...),
+    ):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
+
+        server = find_server(guild_id, user["user_id"])
+        with get_connection() as connection:
+            mention_repository = MentionReactionRepository(connection)
+            reaction = mention_repository.get_by_id(guild_id, reaction_id)
+            if reaction is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mention reaction not found")
+            choice = mention_repository.get_choice(guild_id, choice_id)
+            if choice is None or int(choice["mention_reaction_id"]) != reaction_id:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mention reaction choice not found")
+
+            effect_repository = SpecialEffectRepository(connection)
+            tag = effect_repository.get_by_id(guild_id, tag_id)
+            if tag is None or tag.get("target_type") != ASSIGNMENT_TARGET_TYPE:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="special effect tag not found")
+            if not can_manage_effect_assignment(server["role"], tag):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="special effect assignment denied")
+
+            if action == "assign":
+                effect_repository.assign_tag(guild_id, tag_id, ASSIGNMENT_TARGET_TYPE, choice_id)
+            elif action == "unassign":
+                effect_repository.unassign_tag(guild_id, tag_id, ASSIGNMENT_TARGET_TYPE, choice_id)
+            else:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="unknown assignment action")
+
+            connection.commit()
+
+        return RedirectResponse(
+            url="/guilds/{0}/mention-reactions/{1}".format(
+                guild_id,
+                reaction_id,
+            ),
             status_code=303,
         )
 
@@ -504,6 +618,126 @@ def required_toggle_role(reaction: Dict[str, Any]) -> str:
     if reaction.get("admin_only"):
         return "guild_admin"
     return "editor"
+
+
+def can_see_effect_tag(role: str, tag: Dict[str, Any]) -> bool:
+    if tag.get("admin_only"):
+        return role_allows(role, "guild_admin")
+    return True
+
+
+def can_manage_effect_assignment(role: str, tag: Dict[str, Any]) -> bool:
+    if tag.get("admin_only"):
+        return role_allows(role, "guild_admin")
+    return role_allows(role, "editor")
+
+
+def attach_choice_effects(
+    connection,
+    guild_id: str,
+    choices: List[Dict[str, Any]],
+    role: str,
+) -> List[Dict[str, Any]]:
+    repository = SpecialEffectRepository(connection)
+    next_choices = []
+    for choice in choices:
+        row = dict(choice)
+        effects = repository.list_for_target(
+            guild_id,
+            ASSIGNMENT_TARGET_TYPE,
+            int(choice["id"]),
+            enabled=None,
+        )
+        row["effects"] = [
+            build_effect_assignment_view(effect, role)
+            for effect in effects
+            if effect.get("assignment_enabled") and can_see_effect_tag(role, effect)
+        ]
+        row["effects_url"] = "/guilds/{0}/mention-reactions/{1}/choices/{2}/effects".format(
+            guild_id,
+            choice["mention_reaction_id"],
+            choice["id"],
+        )
+        next_choices.append(row)
+    return next_choices
+
+
+def build_effect_assignment_view(effect: Dict[str, Any], role: str) -> Dict[str, Any]:
+    row = dict(effect)
+    row["can_manage"] = can_manage_effect_assignment(role, effect)
+    row["effect_config_summary"] = compact_effect_json(effect.get("effect_config_json"))
+    return row
+
+
+def compact_effect_json(value) -> str:
+    if value is None:
+        return "{}"
+    if isinstance(value, str):
+        return value
+    try:
+        import json
+
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    except TypeError:
+        return "{}"
+
+
+def normalize_assignment_filters(
+    query: Optional[str],
+    effect_type: str,
+    admin_only: str,
+    include_disabled: str,
+) -> Dict[str, Any]:
+    return {
+        "q": (query or "").strip(),
+        "effect_type": effect_type if effect_type in ASSIGNMENT_EFFECT_TYPES or effect_type == "all" else "all",
+        "admin_only": admin_only if admin_only in ("all", "true", "false") else "all",
+        "include_disabled": include_disabled == "true",
+    }
+
+
+def parse_assignment_bool(value: str) -> Optional[bool]:
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    return None
+
+
+def list_assignable_effect_rows(
+    connection,
+    guild_id: str,
+    choice_id: int,
+    role: str,
+    filters: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    repository = SpecialEffectRepository(connection)
+    tags = repository.list_tags(
+        guild_id,
+        query=filters["q"] or None,
+        effect_type=None if filters["effect_type"] == "all" else filters["effect_type"],
+        target_type=ASSIGNMENT_TARGET_TYPE,
+        enabled=None if filters["include_disabled"] else True,
+        admin_only=parse_assignment_bool(filters["admin_only"]),
+    )
+    assigned = {
+        int(effect["id"]): bool(effect["assignment_enabled"])
+        for effect in repository.list_for_target(
+            guild_id,
+            ASSIGNMENT_TARGET_TYPE,
+            choice_id,
+            enabled=None,
+        )
+    }
+
+    rows = []
+    for tag in tags:
+        if not can_see_effect_tag(role, tag):
+            continue
+        row = build_effect_assignment_view(tag, role)
+        row["assigned"] = assigned.get(int(tag["id"]), False)
+        rows.append(row)
+    return rows
 
 
 def can_edit_reaction(role: str, reaction: Dict[str, Any]) -> bool:
