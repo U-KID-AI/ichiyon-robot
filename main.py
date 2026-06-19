@@ -7,6 +7,7 @@ from bot.kuji import draw_kuji_message
 from bot.ng_words import contains_ng_word
 from bot.quotes import draw_quote_message
 from bot.reactions import handle_word_response
+from bot.services.runtime_db import get_message_guild_id, handle_db_ng_word, handle_db_reactions
 
 
 intents = discord.Intents.default()
@@ -92,6 +93,17 @@ async def on_message(message: discord.Message):
 
     command_text = messages.get_mention_command_text(message)
     if await handle_developer_command(message, command_text):
+        return
+
+    if config.DATA_BACKEND == "db" and get_message_guild_id(message) is not None:
+        if await handle_db_ng_word(message):
+            return
+        if await hayusu.handle_mode_message(message):
+            return
+        if await hayusu.maybe_start_hayusu_mode(message):
+            return
+        if await handle_db_reactions(message):
+            return
         return
 
     if contains_ng_word(message.content):

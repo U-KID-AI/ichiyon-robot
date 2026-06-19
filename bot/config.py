@@ -41,6 +41,15 @@ def get_app_env() -> str:
     return "production"
 
 
+def get_data_backend() -> str:
+    value = os.getenv("ICHIYON_DATA_BACKEND", "json").strip().lower()
+    if value in ("json", "db"):
+        return value
+
+    print("[WARN] ICHIYON_DATA_BACKEND must be json or db")
+    return "json"
+
+
 def get_env_str(name: str, default: str) -> str:
     value = os.getenv(name)
     if value is None or not value.strip():
@@ -68,6 +77,7 @@ def get_default_hayusu_bot_nickname(app_env: str) -> str:
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 APP_ENV = get_app_env()
+DATA_BACKEND = get_data_backend()
 ENABLE_DEV_COMMANDS = get_env_bool("ENABLE_DEV_COMMANDS", False)
 DEVELOPER_USER_ID = get_env_int("DEVELOPER_USER_ID")
 NORMAL_BOT_NICKNAME = get_env_str(
