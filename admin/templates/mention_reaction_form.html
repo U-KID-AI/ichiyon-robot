@@ -91,6 +91,69 @@
     </form>
   </section>
 
+  {% if mode == "edit" and deck_settings %}
+    <section class="panel">
+      <h2>Deck search settings</h2>
+      <p class="hint">Deck search is a fixed search mention reaction. Search logic and image/card detection are edited in later phases; this form only stores DB settings.</p>
+      {% if deck_errors %}
+        {% for error in deck_errors %}
+          <p class="error">{{ error }}</p>
+        {% endfor %}
+      {% endif %}
+      <form class="quote-form" method="post" action="/guilds/{{ guild_id }}/mention-reactions/{{ reaction.id }}/search-settings">
+        <label>
+          Enabled
+          <input type="checkbox" name="enabled" {% if deck_settings.enabled %}checked{% endif %} {% if not can_edit_deck_settings %}disabled{% endif %}>
+        </label>
+        <label>
+          Keyword / pattern
+          <input type="text" name="keyword" value="{{ deck_settings.keyword }}" {% if not can_edit_deck_settings %}disabled{% endif %}>
+        </label>
+        <label>
+          Match type
+          <select name="match_type" {% if not can_edit_deck_settings %}disabled{% endif %}>
+            {% for match_type in match_types %}
+              <option value="{{ match_type.value }}" {% if deck_settings.match_type == match_type.value %}selected{% endif %}>{{ match_type.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          Allowed channel IDs
+          <textarea name="allowed_channel_ids" placeholder="123&#10;456" {% if not can_edit_deck_settings %}disabled{% endif %}>{{ deck_settings.allowed_channel_ids }}</textarea>
+        </label>
+        <label>
+          Max results
+          <input type="number" min="1" name="max_results" value="{{ deck_settings.max_results }}" {% if not can_edit_deck_settings %}disabled{% endif %}>
+        </label>
+        <label>
+          Deny message
+          <textarea name="deny_message" {% if not can_edit_deck_settings %}disabled{% endif %}>{{ deck_settings.deny_message }}</textarea>
+        </label>
+        <label>
+          Missing format behavior
+          <select name="missing_format_behavior" {% if not can_edit_deck_settings %}disabled{% endif %}>
+            {% for item in missing_format_behaviors %}
+              <option value="{{ item }}" {% if deck_settings.missing_format_behavior == item %}selected{% endif %}>{{ item }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          Description
+          <textarea name="description" {% if not can_edit_deck_settings %}disabled{% endif %}>{{ deck_settings.description }}</textarea>
+        </label>
+        <dl class="info-list">
+          <dt>search_type</dt><dd>deck_search</dd>
+          <dt>Fixed item</dt><dd>Search-type features cannot be newly added from the normal create form.</dd>
+        </dl>
+        {% if can_edit_deck_settings %}
+          <button type="submit">Save deck search settings</button>
+        {% else %}
+          <button type="button" disabled>Read only</button>
+        {% endif %}
+      </form>
+    </section>
+  {% endif %}
+
   {% if mode == "edit" %}
     <section class="panel">
       <h2>抽選候補</h2>

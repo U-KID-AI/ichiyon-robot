@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional
 
-from bot.repositories.base import fetch_all, fetch_one, normalize_reaction_kind
+from bot.repositories.base import fetch_all, fetch_one, json_dumps, normalize_reaction_kind
 
 
 class MentionReactionRepository:
@@ -151,9 +151,10 @@ class MentionReactionRepository:
                     admin_only,
                     is_system,
                     is_deletable,
+                    config_json,
                     enabled
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, '{}'::JSONB, %s)
                 RETURNING *
                 """,
                 (
@@ -206,6 +207,88 @@ class MentionReactionRepository:
                     enabled,
                     guild_id,
                     reaction_id,
+                ),
+            )
+            return fetch_one(cursor)
+
+    def update_search_settings(
+        self,
+        guild_id: str,
+        reaction_id: int,
+        keyword: str,
+        match_type: str,
+        description: str,
+        enabled: bool,
+        config_json: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE mention_reactions
+                SET keyword = %s,
+                    match_type = %s,
+                    description = %s,
+                    enabled = %s,
+                    config_json = %s::JSONB,
+                    updated_at = NOW()
+                WHERE guild_id = %s
+                  AND id = %s
+                  AND reaction_kind = 'search'
+                RETURNING *
+                """,
+                (
+                    keyword,
+                    match_type,
+                    description,
+                    enabled,
+                    json_dumps(config_json),
+                    guild_id,
+                    reaction_id,
+                ),
+            )
+            return fetch_one(cursor)
+
+    def ensure_deck_search_reaction(
+        self,
+        guild_id: str,
+        enabled: bool = False,
+    ) -> Dict[str, Any]:
+        existing = self.get_by_key(guild_id, "deck_search")
+        if existing is not None:
+            return existing
+
+        config = {
+            "search_type": "deck_search",
+            "allowed_channel_ids": [],
+            "max_results": 3,
+            "deny_message": "このチャンネルではデッキ検索は使えません。",
+            "missing_format_behavior": "ask_format",
+        }
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO mention_reactions (
+                    guild_id,
+                    reaction_key,
+                    keyword,
+                    match_type,
+                    reaction_kind,
+                    name,
+                    description,
+                    admin_only,
+                    is_system,
+                    is_deletable,
+                    config_json,
+                    enabled
+                )
+                VALUES (%s, 'deck_search', 'デッキ検索', 'prefix', 'search', 'デッキ検索', %s, FALSE, TRUE, FALSE, %s::JSONB, %s)
+                RETURNING *
+                """,
+                (
+                    guild_id,
+                    "デッキ検索の固定検索型メンション反応です。",
+                    json_dumps(config),
+                    enabled,
                 ),
             )
             return fetch_one(cursor)

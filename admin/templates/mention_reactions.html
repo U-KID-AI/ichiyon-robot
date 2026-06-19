@@ -27,6 +27,11 @@
       {% else %}
         <button type="button" disabled>+ ランダム抽選を追加</button>
       {% endif %}
+      {% if not has_deck_search %}
+        <form method="post" action="/guilds/{{ guild_id }}/mention-reactions/deck-search/create">
+          <button type="submit" {% if not can_create_deck_search %}disabled title="guild_admin以上が作成できます"{% endif %}>+ Deck search fixed item</button>
+        </form>
+      {% endif %}
     </div>
     <p class="hint">検索型はシステム固定機能として扱います。管理画面から検索型の新規追加は行わず、デッキ検索は「メンション反応 &gt; 検索 &gt; デッキ検索」に配置します。</p>
   </section>

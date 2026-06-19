@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, Optional
+import json
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request, status
@@ -27,6 +28,9 @@ MATCH_TYPE_LABELS = {
 }
 
 REACTION_MATCH_TYPES = ("exact", "prefix", "regex")
+SEARCH_MATCH_TYPES = ("exact", "prefix", "regex")
+MISSING_FORMAT_BEHAVIORS = ("ask_format", "latest", "reject")
+DECK_SEARCH_KEY = "deck_search"
 KEYWORD_DUPLICATE_ERROR = "このキーワードは既存のメンション反応で使用されています。"
 ASSIGNMENT_TARGET_TYPE = "mention_reaction_choice"
 ASSIGNMENT_EFFECT_TYPES = (
@@ -76,7 +80,32 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 "filters": filters,
                 "reactions": reactions,
                 "can_create_random": role_allows(server["role"], "editor"),
+                "can_create_deck_search": role_allows(server["role"], "guild_admin"),
+                "has_deck_search": has_deck_search_reaction(guild_id),
             },
+        )
+
+    @router.post("/guilds/{guild_id}/mention-reactions/deck-search/create")
+    async def create_deck_search_reaction(request: Request, guild_id: str):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
+
+        server = find_server(guild_id, user["user_id"])
+        if not role_allows(server["role"], "guild_admin"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="deck search creation denied")
+
+        with get_connection() as connection:
+            repository = MentionReactionRepository(connection)
+            reaction = repository.ensure_deck_search_reaction(guild_id, enabled=False)
+            connection.commit()
+
+        return RedirectResponse(
+            url="/guilds/{0}/mention-reactions/{1}".format(guild_id, reaction["id"]),
+            status_code=303,
         )
 
     @router.post("/guilds/{guild_id}/mention-reactions/{reaction_id}/toggle")
@@ -232,6 +261,8 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mention reaction not found")
             choices = repository.list_choices(guild_id, reaction_id)
             choices = attach_choice_effects(connection, guild_id, choices, server["role"])
+            reaction_view = build_reaction_view(reaction)
+            deck_settings = build_deck_settings(reaction_view) if is_deck_search_reaction(reaction_view) else None
 
         return templates.TemplateResponse(
             request,
@@ -241,16 +272,118 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 "server": server,
                 "guild_id": guild_id,
                 "mode": "edit",
-                "reaction": build_reaction_view(reaction),
+                "reaction": reaction_view,
                 "choices": choices,
                 "errors": [],
                 "choice_errors": [],
+                "deck_errors": [],
                 "can_edit_reaction": can_edit_reaction(server["role"], reaction),
                 "can_set_admin_only": role_allows(server["role"], "guild_admin"),
                 "can_edit_choices": can_edit_reaction(server["role"], reaction) and reaction["reaction_kind"] == "random",
                 "search_readonly": reaction["reaction_kind"] == "search",
+                "deck_settings": deck_settings,
+                "can_edit_deck_settings": can_edit_deck_settings(server["role"], reaction),
+                "missing_format_behaviors": MISSING_FORMAT_BEHAVIORS,
                 "match_types": build_match_type_options(),
             },
+        )
+
+    @router.post("/guilds/{guild_id}/mention-reactions/{reaction_id}/search-settings")
+    async def update_search_settings(
+        request: Request,
+        guild_id: str,
+        reaction_id: int,
+        keyword: str = Form(""),
+        match_type: str = Form("prefix"),
+        enabled: Optional[str] = Form(None),
+        allowed_channel_ids: str = Form(""),
+        max_results: str = Form("3"),
+        deny_message: str = Form(""),
+        missing_format_behavior: str = Form("ask_format"),
+        description: str = Form(""),
+    ):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
+
+        server = find_server(guild_id, user["user_id"])
+        with get_connection() as connection:
+            repository = MentionReactionRepository(connection)
+            reaction = repository.get_by_id(guild_id, reaction_id)
+            if reaction is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mention reaction not found")
+            if not is_deck_search_reaction(reaction):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="deck search settings denied")
+            if not can_edit_deck_settings(server["role"], reaction):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="deck search settings editing denied")
+
+            deck_settings, errors = build_deck_settings_form(
+                keyword,
+                match_type,
+                enabled,
+                allowed_channel_ids,
+                max_results,
+                deny_message,
+                missing_format_behavior,
+                description,
+            )
+            if not errors and repository.keyword_exists(guild_id, deck_settings["keyword"], reaction_id):
+                errors.append(KEYWORD_DUPLICATE_ERROR)
+
+            if errors:
+                choices = repository.list_choices(guild_id, reaction_id)
+                choices = attach_choice_effects(connection, guild_id, choices, server["role"])
+                reaction_view = build_reaction_view(reaction)
+                reaction_view.update(
+                    {
+                        "keyword": deck_settings["keyword"],
+                        "match_type": deck_settings["match_type"],
+                        "enabled": deck_settings["enabled"],
+                        "description": deck_settings["description"],
+                    }
+                )
+                return templates.TemplateResponse(
+                    request,
+                    "mention_reaction_form.html",
+                    {
+                        "user": user,
+                        "server": server,
+                        "guild_id": guild_id,
+                        "mode": "edit",
+                        "reaction": reaction_view,
+                        "choices": choices,
+                        "errors": [],
+                        "choice_errors": [],
+                        "deck_errors": errors,
+                        "can_edit_reaction": False,
+                        "can_set_admin_only": role_allows(server["role"], "guild_admin"),
+                        "can_edit_choices": False,
+                        "search_readonly": True,
+                        "deck_settings": deck_settings,
+                        "can_edit_deck_settings": True,
+                        "missing_format_behaviors": MISSING_FORMAT_BEHAVIORS,
+                        "match_types": build_match_type_options(),
+                    },
+                    status_code=400,
+                )
+
+            repository.update_search_settings(
+                guild_id,
+                reaction_id,
+                deck_settings["keyword"],
+                deck_settings["match_type"],
+                deck_settings["description"],
+                deck_settings["enabled"],
+                deck_settings["config_json"],
+            )
+            connection.commit()
+
+        return RedirectResponse(
+            url="/guilds/{0}/mention-reactions/{1}".format(guild_id, reaction_id),
+            status_code=303,
         )
 
     @router.post("/guilds/{guild_id}/mention-reactions/{reaction_id}")
@@ -746,6 +879,117 @@ def can_edit_reaction(role: str, reaction: Dict[str, Any]) -> bool:
     if reaction.get("admin_only") or reaction.get("is_system"):
         return role_allows(role, "guild_admin")
     return role_allows(role, "editor")
+
+
+def can_edit_deck_settings(role: str, reaction: Dict[str, Any]) -> bool:
+    if not is_deck_search_reaction(reaction):
+        return False
+    if reaction.get("admin_only"):
+        return role_allows(role, "guild_admin")
+    return role_allows(role, "editor")
+
+
+def has_deck_search_reaction(guild_id: str) -> bool:
+    with get_connection() as connection:
+        repository = MentionReactionRepository(connection)
+        return repository.get_by_key(guild_id, DECK_SEARCH_KEY) is not None
+
+
+def is_deck_search_reaction(reaction: Dict[str, Any]) -> bool:
+    if reaction.get("reaction_kind") != "search":
+        return False
+    config = normalize_config_json(reaction.get("config_json"))
+    return (
+        config.get("search_type") == "deck_search"
+        or reaction.get("reaction_key") == DECK_SEARCH_KEY
+        or reaction.get("name") == "デッキ検索"
+    )
+
+
+def normalize_config_json(value) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(str(value))
+    except (TypeError, ValueError):
+        return {}
+    if isinstance(parsed, dict):
+        return parsed
+    return {}
+
+
+def build_deck_settings(reaction: Dict[str, Any]) -> Dict[str, Any]:
+    config = normalize_config_json(reaction.get("config_json"))
+    return {
+        "keyword": reaction.get("keyword") or "",
+        "match_type": reaction.get("match_type") or "prefix",
+        "enabled": bool(reaction.get("enabled")),
+        "description": reaction.get("description") or "",
+        "allowed_channel_ids": "\n".join(config.get("allowed_channel_ids") or []),
+        "max_results": int(config.get("max_results") or 3),
+        "deny_message": config.get("deny_message") or "このチャンネルではデッキ検索は使えません。",
+        "missing_format_behavior": config.get("missing_format_behavior") or "ask_format",
+        "config_json": {
+            "search_type": "deck_search",
+            "allowed_channel_ids": config.get("allowed_channel_ids") or [],
+            "max_results": int(config.get("max_results") or 3),
+            "deny_message": config.get("deny_message") or "このチャンネルではデッキ検索は使えません。",
+            "missing_format_behavior": config.get("missing_format_behavior") or "ask_format",
+        },
+    }
+
+
+def build_deck_settings_form(
+    keyword: str,
+    match_type: str,
+    enabled: Optional[str],
+    allowed_channel_ids: str,
+    max_results: str,
+    deny_message: str,
+    missing_format_behavior: str,
+    description: str,
+) -> Tuple[Dict[str, Any], List[str]]:
+    channel_ids = split_channel_ids(allowed_channel_ids)
+    try:
+        result_count = int(max_results)
+    except ValueError:
+        result_count = 0
+
+    settings = {
+        "keyword": keyword.strip(),
+        "match_type": match_type if match_type in SEARCH_MATCH_TYPES else "prefix",
+        "enabled": enabled == "on",
+        "description": description.strip(),
+        "allowed_channel_ids": "\n".join(channel_ids),
+        "max_results": result_count,
+        "deny_message": deny_message.strip(),
+        "missing_format_behavior": missing_format_behavior if missing_format_behavior in MISSING_FORMAT_BEHAVIORS else "ask_format",
+    }
+    settings["config_json"] = {
+        "search_type": "deck_search",
+        "allowed_channel_ids": channel_ids,
+        "max_results": result_count,
+        "deny_message": settings["deny_message"],
+        "missing_format_behavior": settings["missing_format_behavior"],
+    }
+
+    errors = []
+    if not settings["keyword"]:
+        errors.append("Deck search keyword is required.")
+    if match_type not in SEARCH_MATCH_TYPES:
+        errors.append("Match type is invalid.")
+    if result_count < 1:
+        errors.append("Max results must be 1 or greater.")
+    if missing_format_behavior not in MISSING_FORMAT_BEHAVIORS:
+        errors.append("Missing format behavior is invalid.")
+    return settings, errors
+
+
+def split_channel_ids(value: str) -> List[str]:
+    normalized = value.replace(",", "\n")
+    return [item.strip() for item in normalized.splitlines() if item.strip()]
 
 
 def build_match_type_options() -> List[Dict[str, str]]:
