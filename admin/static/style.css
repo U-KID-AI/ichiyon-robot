@@ -310,6 +310,22 @@ button:hover {
   flex-wrap: wrap;
 }
 
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.color-swatch {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 1px solid #c7cfdb;
+  border-radius: 4px;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+
 .feature-list {
   display: grid;
   gap: 14px;
@@ -510,6 +526,10 @@ button:disabled {
   }
 
   .choice-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-grid {
     grid-template-columns: 1fr;
   }
 

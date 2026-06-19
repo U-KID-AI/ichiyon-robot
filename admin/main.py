@@ -17,6 +17,10 @@ from admin.mention_reactions import (
     router as mention_reaction_router,
 )
 from admin.servers import register_server_routes, router as server_router
+from admin.special_effects import (
+    register_special_effect_routes,
+    router as special_effect_router,
+)
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -45,9 +49,11 @@ templates = Jinja2Templates(directory=Path(__file__).resolve().parent / "templat
 register_auth_routes(templates)
 register_server_routes(templates)
 register_mention_reaction_routes(templates)
+register_special_effect_routes(templates)
 app.include_router(auth_router)
 app.include_router(server_router)
 app.include_router(mention_reaction_router)
+app.include_router(special_effect_router)
 
 
 def load_json_file(path: Path, default):
