@@ -47,6 +47,12 @@ class RuntimeAction:
     count_changed: bool = False
 
 
+@dataclass
+class EffectExecutionResult:
+    count_changed: bool = False
+    repeat_count: int = 0
+
+
 def get_message_guild_id(message: discord.Message) -> Optional[str]:
     guild = getattr(message, "guild", None)
     if guild is None:
@@ -327,14 +333,174 @@ def get_config_int(config: Dict[str, Any], keys: List[str], default: int) -> int
     return default
 
 
+def get_config_float(config: Dict[str, Any], keys: List[str], default: float) -> float:
+    for key in keys:
+        if key not in config:
+            continue
+        try:
+            return float(config[key])
+        except (TypeError, ValueError):
+            return default
+    return default
+
+
+def get_config_text(config: Dict[str, Any], keys: List[str]) -> Optional[str]:
+    for key in keys:
+        value = config.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return None
+
+
+def get_effect_target_id(config: Dict[str, Any]) -> Optional[int]:
+    target = config.get("target")
+    if isinstance(target, dict):
+        value = target.get("id") or target.get("target_id")
+    else:
+        value = config.get("target_id") or config.get("id")
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def get_effect_target_type(config: Dict[str, Any]) -> Optional[str]:
+    target = config.get("target")
+    if isinstance(target, dict):
+        value = target.get("type") or target.get("target_type")
+    else:
+        value = config.get("target_type")
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def effect_targets_candidate(
+    effect: Dict[str, Any],
+    config: Dict[str, Any],
+    target_type: str,
+    target_id: int,
+) -> bool:
+    configured_type = get_effect_target_type(config)
+    configured_id = get_effect_target_id(config)
+    if configured_type is not None and configured_type != target_type:
+        return False
+    if configured_id is not None and configured_id != target_id:
+        return False
+    if configured_type is None and configured_id is None:
+        return (effect.get("target_type") or "") == target_type
+    return True
+
+
+def get_probability_multiplier_for_target(
+    effects: List[Dict[str, Any]],
+    target_type: str,
+    target_id: int,
+) -> float:
+    multiplier = 1.0
+    for effect in effects:
+        if effect.get("effect_type") != "probability_multiplier":
+            continue
+        config = normalize_json(effect.get("effect_config_json"))
+        if not effect_targets_candidate(effect, config, target_type, target_id):
+            print("[WARN] probability_multiplier target mismatch: id={0}".format(effect.get("id")))
+            continue
+        value = get_config_float(config, ["multiplier", "rate", "factor"], 1.0)
+        if value <= 0:
+            print("[WARN] probability_multiplier skipped invalid multiplier: id={0}".format(effect.get("id")))
+            continue
+        multiplier *= value
+    return multiplier
+
+
+def choose_weighted_choice_with_effects(connection, guild_id: str, choices: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not choices:
+        return None
+    weighted = []
+    total = 0
+    for choice in choices:
+        choice_id = int(choice["id"])
+        effects = list_effects(connection, guild_id, "mention_reaction_choice", choice_id)
+        multiplier = get_probability_multiplier_for_target(effects, "mention_reaction_choice", choice_id)
+        base_weight = max(1, int(choice.get("appearance_rate") or choice.get("weight") or 1))
+        weight = max(1, int(round(base_weight * multiplier)))
+        weighted.append((choice, weight))
+        total += weight
+    if total <= 0:
+        return choices[0]
+    roll = random.randint(1, total)
+    cursor = 0
+    for choice, weight in weighted:
+        cursor += weight
+        if roll <= cursor:
+            return choice
+    return weighted[-1][0]
+
+
+def choose_auto_match_with_effects(connection, guild_id: str, matches: List[MatchResult]) -> Optional[MatchResult]:
+    if not matches:
+        return None
+    sorted_matches = sort_auto_matches(matches)
+    top_priority = int(sorted_matches[0].row.get("priority") or 0)
+    candidates = [match for match in sorted_matches if int(match.row.get("priority") or 0) == top_priority]
+    weighted = []
+    total = 0
+    has_multiplier = False
+    for match in candidates:
+        reaction_id = int(match.row["id"])
+        effects = list_effects(connection, guild_id, "auto_reaction", reaction_id)
+        multiplier = get_probability_multiplier_for_target(effects, "auto_reaction", reaction_id)
+        if multiplier != 1.0:
+            has_multiplier = True
+        base_weight = max(1, len(match.row.get("trigger_text") or ""))
+        weight = max(1, int(round(base_weight * multiplier)))
+        weighted.append((match, weight))
+        total += weight
+    if not has_multiplier or total <= 0:
+        return sorted_matches[0]
+    roll = random.randint(1, total)
+    cursor = 0
+    for match, weight in weighted:
+        cursor += weight
+        if roll <= cursor:
+            return match
+    return weighted[-1][0]
+
+
+async def repeat_text_image_action(
+    message: discord.Message,
+    text: str,
+    image_path: str,
+    emoji: str,
+    repeat_count: int,
+) -> bool:
+    handled = False
+    for _ in range(repeat_count):
+        if await send_text_or_image(message.channel, text, image_path):
+            handled = True
+        if emoji:
+            try:
+                await message.add_reaction(emoji)
+                handled = True
+            except discord.DiscordException as exc:
+                print("[WARN] Failed to add repeated DB reaction emoji {0!r}: {1}".format(emoji, exc))
+    return handled
+
+
 async def execute_effects(
     connection,
     guild_id: str,
     effects: List[Dict[str, Any]],
     message: discord.Message,
     template_values: Dict[str, str],
-) -> bool:
-    count_changed = False
+) -> EffectExecutionResult:
+    result = EffectExecutionResult()
     for effect in effects:
         try:
             config = normalize_json(effect.get("effect_config_json"))
@@ -346,6 +512,23 @@ async def execute_effects(
                 timing = effect.get("additional_message_timing") or effect.get("additional_post_timing")
                 if additional and timing in (None, "", "effect_success", "tag_triggered"):
                     await message.channel.send(render_template(additional, template_values))
+            elif effect_type == "message":
+                additional = get_additional_message(effect) or get_config_text(
+                    config,
+                    ["message", "text", "additional_message", "additional_text"],
+                )
+                timing = effect.get("additional_message_timing") or effect.get("additional_post_timing")
+                if additional and timing in (None, "", "effect_success", "tag_triggered"):
+                    await message.channel.send(render_template(additional, template_values))
+            elif effect_type == "reaction":
+                emoji = get_config_text(config, ["emoji", "reaction", "emoji_internal"])
+                if not emoji:
+                    print("[WARN] reaction effect skipped without emoji")
+                    continue
+                try:
+                    await message.add_reaction(emoji)
+                except discord.DiscordException as exc:
+                    print("[WARN] Failed to add special effect reaction {0!r}: {1}".format(emoji, exc))
             elif effect_type == "counter_delta":
                 counter_key = get_counter_key(config)
                 if counter_key is None:
@@ -355,7 +538,7 @@ async def execute_effects(
                 repository = CounterRepository(connection)
                 repository.ensure_counter(guild_id, counter_key, counter_key)
                 repository.increment(guild_id, counter_key, delta)
-                count_changed = True
+                result.count_changed = True
             elif effect_type == "counter_set":
                 if not probability_hit(config):
                     continue
@@ -367,14 +550,31 @@ async def execute_effects(
                 repository = CounterRepository(connection)
                 repository.ensure_counter(guild_id, counter_key, counter_key)
                 repository.set_value(guild_id, counter_key, value)
-                count_changed = True
+                result.count_changed = True
+            elif effect_type == "probability_multiplier":
+                multiplier = get_config_float(config, ["multiplier", "rate", "factor"], 1.0)
+                if multiplier <= 0:
+                    print("[WARN] probability_multiplier skipped invalid multiplier: id={0}".format(effect.get("id")))
+                else:
+                    print("[INFO] probability_multiplier applied during selection when target is selectable: id={0}".format(effect.get("id")))
+            elif effect_type == "next_action_count":
+                target_action = get_config_text(config, ["target_action", "action"]) or "same"
+                if target_action not in ("same", "mention_reaction_choice", "auto_reaction"):
+                    print("[WARN] next_action_count skipped invalid target_action: {0}".format(target_action))
+                    continue
+                count = get_config_int(config, ["count", "repeat", "times"], 1)
+                if count <= 0:
+                    print("[WARN] next_action_count skipped invalid count: {0}".format(count))
+                    continue
+                result.repeat_count += min(count, 5)
         except Exception as exc:
             print("[WARN] Failed to execute special effect {0}: {1}".format(effect.get("id"), exc))
             try:
                 connection.rollback()
             except Exception:
                 pass
-    return count_changed
+    result.repeat_count = min(result.repeat_count, 5)
+    return result
 
 
 def find_ng_word_match(connection, guild_id: str, content: str) -> Optional[Dict[str, Any]]:
@@ -426,12 +626,12 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
             return RuntimeAction(False)
         selected_search = sort_mention_matches(search_matches)[0]
         values = build_template_values(message, command_text, selected_search.groups)
-        count_changed = await execute_effects(connection, guild_id, limited_effects, message, values)
-        return RuntimeAction(bool(limited_effects), count_changed)
+        effect_result = await execute_effects(connection, guild_id, limited_effects, message, values)
+        return RuntimeAction(bool(limited_effects), effect_result.count_changed)
 
     selected = sort_mention_matches(matches)[0]
     choices = repository.list_choices(guild_id, int(selected.row["id"]), enabled=True)
-    choice = choose_weighted_choice(choices)
+    choice = choose_weighted_choice_with_effects(connection, guild_id, choices)
     if choice is None:
         return RuntimeAction(False)
 
@@ -441,8 +641,11 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
     handled = await send_text_or_image(message.channel, text, image_path)
     choice_effects = list_effects(connection, guild_id, "mention_reaction_choice", int(choice["id"]))
     effects = merge_effects(choice_effects, limited_effects)
-    count_changed = await execute_effects(connection, guild_id, effects, message, values)
-    return RuntimeAction(handled or bool(effects), count_changed)
+    effect_result = await execute_effects(connection, guild_id, effects, message, values)
+    if effect_result.repeat_count:
+        repeated = await repeat_text_image_action(message, text, image_path, "", effect_result.repeat_count)
+        handled = handled or repeated
+    return RuntimeAction(handled or bool(effects), effect_result.count_changed)
 
 
 async def handle_db_mention(message: discord.Message, guild_id: str, connection) -> bool:
@@ -467,7 +670,9 @@ async def process_db_auto_reaction(message: discord.Message, guild_id: str, conn
     if not matches:
         return RuntimeAction(False)
 
-    selected = sort_auto_matches(matches)[0]
+    selected = choose_auto_match_with_effects(connection, guild_id, matches)
+    if selected is None:
+        return RuntimeAction(False)
     values = build_template_values(message, message.content, selected.groups)
     text = render_template(selected.row.get("response_text"), values)
     image_path = selected.row.get("image_path") or ""
@@ -482,8 +687,11 @@ async def process_db_auto_reaction(message: discord.Message, guild_id: str, conn
             print("[WARN] Failed to add DB auto reaction emoji {0!r}: {1}".format(emoji, exc))
 
     effects = list_effects(connection, guild_id, "auto_reaction", int(selected.row["id"]))
-    count_changed = await execute_effects(connection, guild_id, effects, message, values)
-    return RuntimeAction(sent or bool(effects), count_changed)
+    effect_result = await execute_effects(connection, guild_id, effects, message, values)
+    if effect_result.repeat_count:
+        repeated = await repeat_text_image_action(message, text, image_path, emoji, effect_result.repeat_count)
+        sent = sent or repeated
+    return RuntimeAction(sent or bool(effects), effect_result.count_changed)
 
 
 async def handle_db_auto_reaction(message: discord.Message, guild_id: str, connection) -> bool:
