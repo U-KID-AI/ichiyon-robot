@@ -92,6 +92,8 @@ class IntegrationChecker:
                 connection.commit()
                 self.check_feature_flags(connection)
                 connection.commit()
+                self.check_period_conditions(connection)
+                connection.commit()
                 self.check_runtime(connection)
                 connection.commit()
             finally:
@@ -231,6 +233,30 @@ class IntegrationChecker:
             (
                 "narita mode",
                 "SELECT 1 FROM modes WHERE guild_id = %s AND mode_key = 'narita'",
+                (self.guild_id,),
+            ),
+            (
+                "hayusu period condition",
+                """
+                SELECT 1
+                FROM mode_trigger_conditions c
+                JOIN modes m ON m.id = c.mode_id
+                WHERE c.guild_id = %s
+                  AND m.mode_key = 'hayusu'
+                  AND c.condition_type = 'period_not_triggered'
+                """,
+                (self.guild_id,),
+            ),
+            (
+                "narita period condition",
+                """
+                SELECT 1
+                FROM mode_trigger_conditions c
+                JOIN modes m ON m.id = c.mode_id
+                WHERE c.guild_id = %s
+                  AND m.mode_key = 'narita'
+                  AND c.condition_type = 'period_not_triggered'
+                """,
                 (self.guild_id,),
             ),
             (
@@ -753,6 +779,77 @@ class IntegrationChecker:
         from bot.services.runtime_db import feature_enabled
 
         return feature_enabled(connection, self.guild_id, feature_key)
+
+    def check_period_conditions(self, connection) -> None:
+        from bot.services.runtime_db import build_mode_period_info
+        from bot.services.runtime_db import period_not_triggered_met
+        from bot.services.runtime_db import record_mode_period_trigger
+
+        mode_id = self.ensure_mode(connection, CHECK_PREFIX + "_period_mode", "000 integration period mode", "reply")
+        self.ensure_mode_trigger(
+            connection,
+            mode_id,
+            "period_not_triggered",
+            {"period": "monthly", "reset": "month_start"},
+        )
+        mode = self.fetch_one(
+            connection,
+            "SELECT * FROM modes WHERE guild_id = %s AND id = %s",
+            (self.guild_id, mode_id),
+        )
+        condition = self.fetch_one(
+            connection,
+            """
+            SELECT *
+            FROM mode_trigger_conditions
+            WHERE guild_id = %s AND mode_id = %s AND condition_type = 'period_not_triggered'
+            LIMIT 1
+            """,
+            (self.guild_id, mode_id),
+        )
+        if mode is None or condition is None:
+            self.add_result("period_not_triggered: check data", False, "mode or condition missing")
+            return
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM mode_trigger_history WHERE guild_id = %s AND mode_id = %s",
+                (self.guild_id, mode_id),
+            )
+
+        before = period_not_triggered_met(connection, self.guild_id, mode, condition)
+        record_mode_period_trigger(connection, self.guild_id, mode)
+        after = period_not_triggered_met(connection, self.guild_id, mode, condition)
+        self.add_result("period_not_triggered: 未発動期間はtrue", before is True)
+        self.add_result("period_not_triggered: 発動後は同じ期間でfalse", after is False)
+
+        month_info = build_mode_period_info(
+            {"period": "monthly", "reset": "month_start"},
+            now=datetime(2026, 6, 20, 12, 0, tzinfo=timezone.utc),
+        )
+        day_before_info = build_mode_period_info(
+            {"period": "monthly", "reset": {"type": "day", "day": 22}},
+            now=datetime(2026, 6, 20, 12, 0, tzinfo=timezone.utc),
+        )
+        day_after_info = build_mode_period_info(
+            {"period": "monthly", "day": 22},
+            now=datetime(2026, 6, 22, 0, 0, tzinfo=timezone(timedelta(hours=9))),
+        )
+        self.add_result(
+            "period: 月初基準",
+            month_info["period_key"] == "monthly:2026-06-01",
+            str(month_info["period_key"]),
+        )
+        self.add_result(
+            "period: 22日前は前月22日基準",
+            day_before_info["period_key"] == "monthly-day-22:2026-05-22",
+            str(day_before_info["period_key"]),
+        )
+        self.add_result(
+            "period: 22日以降は当月22日基準",
+            day_after_info["period_key"] == "monthly-day-22:2026-06-22",
+            str(day_after_info["period_key"]),
+        )
 
     def check_runtime(self, connection) -> None:
         self.disable_all_modes(connection)

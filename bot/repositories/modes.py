@@ -359,6 +359,52 @@ class ModeRepository:
                 (guild_id, json_dumps(state_json or {})),
             )
 
+    def get_trigger_history(
+        self,
+        guild_id: str,
+        mode_id: int,
+        period_key: str,
+    ) -> Optional[Dict[str, Any]]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM mode_trigger_history
+                WHERE guild_id = %s AND mode_id = %s AND period_key = %s
+                """,
+                (guild_id, mode_id, period_key),
+            )
+            return fetch_one(cursor)
+
+    def record_trigger_history(
+        self,
+        guild_id: str,
+        mode_id: int,
+        period_key: str,
+        metadata_json: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        metadata = metadata_json or {}
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO mode_trigger_history (
+                    guild_id,
+                    mode_id,
+                    period_key,
+                    triggered_at,
+                    metadata_json
+                )
+                VALUES (%s, %s, %s, NOW(), %s::jsonb)
+                ON CONFLICT (guild_id, mode_id, period_key) DO UPDATE
+                SET triggered_at = EXCLUDED.triggered_at,
+                    metadata_json = EXCLUDED.metadata_json,
+                    updated_at = NOW()
+                RETURNING *
+                """,
+                (guild_id, mode_id, period_key, json_dumps(metadata)),
+            )
+            return fetch_one(cursor)
+
     def list_trigger_conditions(
         self,
         guild_id: str,

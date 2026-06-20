@@ -95,7 +95,7 @@ Supported trigger condition types:
 
 - `counter_threshold`
 - `probability`
-- `period_not_triggered` is treated as pass-through in this MVP and logged as a limitation
+- `period_not_triggered` is enforced by `mode_trigger_history`; see `docs/v2-mode-period-conditions.md`
 
 Unsupported trigger types in this phase:
 

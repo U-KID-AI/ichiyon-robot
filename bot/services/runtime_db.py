@@ -1,8 +1,9 @@
+import calendar
 import random
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import discord
 
@@ -24,6 +25,7 @@ from bot.repositories import (
 FEATURE_MENTION_REACTIONS = "mention_reactions"
 FEATURE_AUTO_REACTIONS = "reactions"
 FEATURE_NG_WORDS = "ng_words"
+JST = timezone(timedelta(hours=9))
 
 MATCH_TYPE_RANK = {
     "exact": 3,
@@ -528,7 +530,118 @@ def compare_counter(value: int, operator: str, threshold: int) -> bool:
     return value >= threshold
 
 
-def trigger_condition_met(connection, guild_id: str, condition: Dict[str, Any]) -> bool:
+def normalize_period_config(config: Dict[str, Any], mode: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    fallback = normalize_json(mode.get("cooldown_config_json")) if mode is not None else {}
+    period = config.get("period") or fallback.get("period") or "monthly"
+    reset = config.get("reset") if "reset" in config else fallback.get("reset")
+    day = config.get("day") if "day" in config else fallback.get("day")
+
+    reset_type = "month_start"
+    if isinstance(reset, dict):
+        day = reset.get("day", day)
+        reset_type = reset.get("type") or ("day" if day is not None else "month_start")
+    elif isinstance(reset, str):
+        reset_type = reset
+    elif day is not None:
+        reset_type = "day"
+
+    if reset_type == "monthly":
+        reset_type = "month_start"
+    if reset_type not in ("month_start", "day"):
+        reset_type = "month_start"
+
+    try:
+        day_value = int(day) if day is not None else None
+    except (TypeError, ValueError):
+        day_value = None
+    if day_value is not None:
+        day_value = max(1, min(31, day_value))
+
+    return {
+        "period": period,
+        "reset_type": reset_type,
+        "day": day_value,
+    }
+
+
+def previous_month(year: int, month: int) -> Tuple[int, int]:
+    if month == 1:
+        return year - 1, 12
+    return year, month - 1
+
+
+def bounded_month_day(year: int, month: int, day: int) -> int:
+    return min(day, calendar.monthrange(year, month)[1])
+
+
+def build_mode_period_info(
+    config: Dict[str, Any],
+    mode: Optional[Dict[str, Any]] = None,
+    now: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    normalized = normalize_period_config(config, mode)
+    current = now or utc_now()
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    local_now = current.astimezone(JST)
+
+    if normalized["period"] != "monthly":
+        period_start = datetime(local_now.year, local_now.month, 1, tzinfo=JST)
+        period_key = "monthly:{0}".format(period_start.date().isoformat())
+        return {"period_start": period_start, "period_key": period_key}
+
+    if normalized["reset_type"] == "day" and normalized["day"] is not None:
+        day = int(normalized["day"])
+        current_day = bounded_month_day(local_now.year, local_now.month, day)
+        current_start = datetime(local_now.year, local_now.month, current_day, tzinfo=JST)
+        if local_now < current_start:
+            prev_year, prev_month_value = previous_month(local_now.year, local_now.month)
+            prev_day = bounded_month_day(prev_year, prev_month_value, day)
+            period_start = datetime(prev_year, prev_month_value, prev_day, tzinfo=JST)
+        else:
+            period_start = current_start
+        period_key = "monthly-day-{0}:{1}".format(day, period_start.date().isoformat())
+        return {"period_start": period_start, "period_key": period_key}
+
+    period_start = datetime(local_now.year, local_now.month, 1, tzinfo=JST)
+    period_key = "monthly:{0}".format(period_start.date().isoformat())
+    return {"period_start": period_start, "period_key": period_key}
+
+
+def period_not_triggered_met(
+    connection,
+    guild_id: str,
+    mode: Dict[str, Any],
+    condition: Dict[str, Any],
+) -> bool:
+    period_info = build_mode_period_info(get_condition_config(condition), mode)
+    history = ModeRepository(connection).get_trigger_history(
+        guild_id,
+        int(mode["id"]),
+        str(period_info["period_key"]),
+    )
+    return history is None
+
+
+def record_mode_period_trigger(connection, guild_id: str, mode: Dict[str, Any]) -> None:
+    repository = ModeRepository(connection)
+    mode_id = int(mode["id"])
+    for condition in repository.list_trigger_conditions(guild_id, mode_id, enabled=True):
+        if condition.get("condition_type") != "period_not_triggered":
+            continue
+        period_info = build_mode_period_info(get_condition_config(condition), mode)
+        repository.record_trigger_history(
+            guild_id,
+            mode_id,
+            str(period_info["period_key"]),
+            {
+                "mode_key": mode.get("mode_key"),
+                "period_start": period_info["period_start"].isoformat(),
+            },
+        )
+
+
+def trigger_condition_met(connection, guild_id: str, mode: Dict[str, Any], condition: Dict[str, Any]) -> bool:
     condition_type = condition.get("condition_type")
     config = get_condition_config(condition)
     if condition_type == "counter_threshold":
@@ -540,8 +653,7 @@ def trigger_condition_met(connection, guild_id: str, condition: Dict[str, Any]) 
     if condition_type == "probability":
         return probability_hit(config)
     if condition_type == "period_not_triggered":
-        print("[INFO] period_not_triggered is not enforced in runtime MVP")
-        return True
+        return period_not_triggered_met(connection, guild_id, mode, condition)
     return False
 
 
@@ -557,7 +669,7 @@ def mode_triggers_met(connection, guild_id: str, mode: Dict[str, Any]) -> bool:
         return False
 
     operator = actionable[0].get("group_operator") or "AND"
-    results = [trigger_condition_met(connection, guild_id, condition) for condition in actionable]
+    results = [trigger_condition_met(connection, guild_id, mode, condition) for condition in actionable]
     if operator == "OR":
         return any(results)
     return all(results)
@@ -626,6 +738,7 @@ async def enter_mode_if_needed(message: discord.Message, guild_id: str, connecti
                 active_until,
                 {"entered_by": "runtime_mvp", "mode_key": mode.get("mode_key")},
             )
+            record_mode_period_trigger(connection, guild_id, mode)
             reset_counter_thresholds(connection, guild_id, int(mode["id"]))
             connection.commit()
             await send_mode_enter_message(message, mode)

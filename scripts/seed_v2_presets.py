@@ -410,6 +410,12 @@ class PresetSeeder:
             {"counter_key": "narita_count", "operator": ">=", "value": 22},
             "AND",
         )
+        self.ensure_trigger_condition(
+            modes["narita"],
+            "period_not_triggered",
+            {"period": "monthly", "reset": {"type": "day", "day": 22}},
+            "AND",
+        )
         for index, text in enumerate(
             [
                 "お金の代わりにデータを持つ時代が到来する",
