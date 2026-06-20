@@ -360,17 +360,21 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         enabled: Optional[str] = Form(None),
         allowed_channel_ids: str = Form(""),
         max_results: str = Form("3"),
+        x_search_max_results: str = Form("100"),
         deny_message: str = Form(""),
         missing_format_behavior: str = Form("ask_format"),
         x_query_template: str = Form(""),
-        search_mode: str = Form("recent"),
+        search_mode: str = Form("full_archive"),
         lookback_days: str = Form("14"),
         excluded_keywords: str = Form(""),
         include_retweets: Optional[str] = Form(None),
         include_replies: Optional[str] = Form(None),
-        image_scan_limit: str = Form("8"),
+        image_scan_limit: str = Form("80"),
+        image_scan_concurrency: str = Form("5"),
+        stop_after_candidates: Optional[str] = Form(None),
+        image_fetch_timeout_seconds: str = Form("5"),
         request_timeout_seconds: str = Form("10"),
-        cache_ttl_seconds: str = Form("60"),
+        cache_ttl_seconds: str = Form("300"),
         result_format: str = Form("default"),
         class_filter_required: Optional[str] = Form(None),
         description: str = Form(""),
@@ -399,6 +403,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 enabled,
                 allowed_channel_ids,
                 max_results,
+                x_search_max_results,
                 deny_message,
                 missing_format_behavior,
                 x_query_template,
@@ -408,6 +413,9 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 include_retweets,
                 include_replies,
                 image_scan_limit,
+                image_scan_concurrency,
+                stop_after_candidates,
+                image_fetch_timeout_seconds,
                 request_timeout_seconds,
                 cache_ttl_seconds,
                 result_format,
@@ -1096,34 +1104,42 @@ def build_deck_settings(reaction: Dict[str, Any]) -> Dict[str, Any]:
         "description": reaction.get("description") or "",
         "allowed_channel_ids": "\n".join(config.get("allowed_channel_ids") or []),
         "max_results": int(config.get("max_results") or 3),
+        "x_search_max_results": int(config.get("x_search_max_results") or 100),
         "deny_message": config.get("deny_message") or "このチャンネルではデッキ検索は使えません。",
         "missing_format_behavior": config.get("missing_format_behavior") or "ask_format",
         "x_query_template": config.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE,
-        "search_mode": config.get("search_mode") or "recent",
+        "search_mode": config.get("search_mode") or "full_archive",
         "lookback_days": int(config.get("lookback_days") or 14),
         "excluded_keywords": "\n".join([str(item) for item in excluded_keywords]),
         "include_retweets": bool(config.get("include_retweets", False)),
         "include_replies": bool(config.get("include_replies", False)),
-        "image_scan_limit": int(config.get("image_scan_limit") or 8),
+        "image_scan_limit": int(config.get("image_scan_limit") or 80),
+        "image_scan_concurrency": int(config.get("image_scan_concurrency") or 5),
+        "stop_after_candidates": bool(config.get("stop_after_candidates", True)),
+        "image_fetch_timeout_seconds": int(config.get("image_fetch_timeout_seconds") or 5),
         "request_timeout_seconds": int(config.get("request_timeout_seconds") or 10),
-        "cache_ttl_seconds": int(config.get("cache_ttl_seconds") or 60),
+        "cache_ttl_seconds": int(config.get("cache_ttl_seconds") or 300),
         "result_format": config.get("result_format") or "default",
         "class_filter_required": bool(config.get("class_filter_required", True)),
         "config_json": {
             "search_type": "deck_search",
             "allowed_channel_ids": config.get("allowed_channel_ids") or [],
             "max_results": int(config.get("max_results") or 3),
+            "x_search_max_results": int(config.get("x_search_max_results") or 100),
             "deny_message": config.get("deny_message") or "このチャンネルではデッキ検索は使えません。",
             "missing_format_behavior": config.get("missing_format_behavior") or "ask_format",
             "x_query_template": config.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE,
-            "search_mode": config.get("search_mode") or "recent",
+            "search_mode": config.get("search_mode") or "full_archive",
             "lookback_days": int(config.get("lookback_days") or 14),
             "excluded_keywords": excluded_keywords,
             "include_retweets": bool(config.get("include_retweets", False)),
             "include_replies": bool(config.get("include_replies", False)),
-            "image_scan_limit": int(config.get("image_scan_limit") or 8),
+            "image_scan_limit": int(config.get("image_scan_limit") or 80),
+            "image_scan_concurrency": int(config.get("image_scan_concurrency") or 5),
+            "stop_after_candidates": bool(config.get("stop_after_candidates", True)),
+            "image_fetch_timeout_seconds": int(config.get("image_fetch_timeout_seconds") or 5),
             "request_timeout_seconds": int(config.get("request_timeout_seconds") or 10),
-            "cache_ttl_seconds": int(config.get("cache_ttl_seconds") or 60),
+            "cache_ttl_seconds": int(config.get("cache_ttl_seconds") or 300),
             "result_format": config.get("result_format") or "default",
             "class_filter_required": bool(config.get("class_filter_required", True)),
         },
@@ -1136,6 +1152,7 @@ def build_deck_settings_form(
     enabled: Optional[str],
     allowed_channel_ids: str,
     max_results: str,
+    x_search_max_results: str,
     deny_message: str,
     missing_format_behavior: str,
     x_query_template: str,
@@ -1145,6 +1162,9 @@ def build_deck_settings_form(
     include_retweets: Optional[str],
     include_replies: Optional[str],
     image_scan_limit: str,
+    image_scan_concurrency: str,
+    stop_after_candidates: Optional[str],
+    image_fetch_timeout_seconds: str,
     request_timeout_seconds: str,
     cache_ttl_seconds: str,
     result_format: str,
@@ -1157,9 +1177,21 @@ def build_deck_settings_form(
     except ValueError:
         result_count = 0
     try:
+        x_result_count = int(x_search_max_results)
+    except ValueError:
+        x_result_count = 0
+    try:
         scan_limit = int(image_scan_limit)
     except ValueError:
         scan_limit = 0
+    try:
+        scan_concurrency = int(image_scan_concurrency)
+    except ValueError:
+        scan_concurrency = 0
+    try:
+        fetch_timeout_seconds = int(image_fetch_timeout_seconds)
+    except ValueError:
+        fetch_timeout_seconds = 0
     try:
         timeout_seconds = int(request_timeout_seconds)
     except ValueError:
@@ -1181,15 +1213,19 @@ def build_deck_settings_form(
         "description": description.strip(),
         "allowed_channel_ids": "\n".join(channel_ids),
         "max_results": result_count,
+        "x_search_max_results": x_result_count,
         "deny_message": deny_message.strip(),
         "missing_format_behavior": missing_format_behavior if missing_format_behavior in MISSING_FORMAT_BEHAVIORS else "ask_format",
         "x_query_template": x_query_template.strip() or DEFAULT_X_QUERY_TEMPLATE,
-        "search_mode": search_mode if search_mode in ("recent", "full_archive") else "recent",
+        "search_mode": search_mode if search_mode in ("recent", "full_archive") else "full_archive",
         "lookback_days": search_days,
         "excluded_keywords": "\n".join(excluded_keyword_list),
         "include_retweets": include_retweets == "on",
         "include_replies": include_replies == "on",
         "image_scan_limit": scan_limit,
+        "image_scan_concurrency": scan_concurrency,
+        "stop_after_candidates": stop_after_candidates == "on",
+        "image_fetch_timeout_seconds": fetch_timeout_seconds,
         "request_timeout_seconds": timeout_seconds,
         "cache_ttl_seconds": ttl_seconds,
         "result_format": result_format.strip() or "default",
@@ -1199,6 +1235,7 @@ def build_deck_settings_form(
         "search_type": "deck_search",
         "allowed_channel_ids": channel_ids,
         "max_results": result_count,
+        "x_search_max_results": x_result_count,
         "deny_message": settings["deny_message"],
         "missing_format_behavior": settings["missing_format_behavior"],
         "x_query_template": settings["x_query_template"],
@@ -1208,6 +1245,9 @@ def build_deck_settings_form(
         "include_retweets": settings["include_retweets"],
         "include_replies": settings["include_replies"],
         "image_scan_limit": settings["image_scan_limit"],
+        "image_scan_concurrency": settings["image_scan_concurrency"],
+        "stop_after_candidates": settings["stop_after_candidates"],
+        "image_fetch_timeout_seconds": settings["image_fetch_timeout_seconds"],
         "request_timeout_seconds": settings["request_timeout_seconds"],
         "cache_ttl_seconds": settings["cache_ttl_seconds"],
         "result_format": settings["result_format"],
@@ -1221,10 +1261,16 @@ def build_deck_settings_form(
         errors.append("一致方式を選択。")
     if result_count < 1:
         errors.append("返す件数は1以上。")
+    if x_result_count < 10 or x_result_count > 100:
+        errors.append("Xから取得する投稿数は10から100まで")
     if search_days < 1 or search_days > 30:
         errors.append("検索対象日数は1から30まで")
     if scan_limit < 1:
         errors.append("image_scan_limit must be 1 or more")
+    if scan_concurrency < 1 or scan_concurrency > 10:
+        errors.append("同時確認数は1から10まで")
+    if fetch_timeout_seconds < 1:
+        errors.append("画像取得秒数は1以上")
     if timeout_seconds < 1:
         errors.append("request_timeout_seconds must be 1 or more")
     if ttl_seconds < 0:

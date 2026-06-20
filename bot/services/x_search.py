@@ -63,10 +63,11 @@ def build_search_time_range(lookback_days: int, now: Optional[datetime] = None) 
     if current.tzinfo is None:
         current = current.replace(tzinfo=timezone.utc)
     current = current.astimezone(timezone.utc)
-    start = current - timedelta(days=clamp_lookback_days(lookback_days))
+    end = current - timedelta(minutes=5)
+    start = end - timedelta(days=clamp_lookback_days(lookback_days))
     return {
         "start_time": start.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-        "end_time": current.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "end_time": end.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     }
 
 
@@ -82,10 +83,9 @@ def build_search_params(query: str, max_results: int, search_mode: str, lookback
     params = {
         "query": query,
         "max_results": clamp_x_max_results(max_results),
-        "tweet.fields": "created_at,attachments,text",
+        "tweet.fields": "created_at",
         "expansions": "attachments.media_keys",
-        "media.fields": "url,preview_image_url,type,width,height",
-        "sort_order": "recency",
+        "media.fields": "url,preview_image_url,type",
     }
     if endpoint_type == "full_archive":
         params.update(build_search_time_range(lookback_days))

@@ -91,3 +91,34 @@ The initial enabled state is `false` so each guild can review channel restrictio
 ## Later Phases
 
 Later phases should implement the actual runtime use of these settings, including channel checks, result formatting, X search, and QR/class/card judgment.
+
+## Current Runtime Notes
+
+The runtime implementation now uses these settings:
+
+- `max_results`: number of candidates returned to Discord.
+- `x_search_max_results`: number of posts requested from X. Maximum 100.
+- `image_scan_limit`: number of images passed to QR detection.
+- `image_scan_concurrency`: concurrent image download / QR checks. Default 5.
+- `stop_after_candidates`: stop image checks after enough candidates are found.
+- `image_fetch_timeout_seconds`: timeout for each image download. Default 5.
+- `search_mode`: `recent` or `full_archive`.
+- `lookback_days`: full-archive lookback window. Start with 14 days.
+- `excluded_keywords`: words added to the X query as negative terms.
+
+Recommended stg values:
+
+```json
+{
+  "search_mode": "full_archive",
+  "lookback_days": 14,
+  "max_results": 3,
+  "x_search_max_results": 100,
+  "image_scan_limit": 80,
+  "image_scan_concurrency": 5,
+  "stop_after_candidates": true,
+  "image_fetch_timeout_seconds": 5,
+  "cache_ttl_seconds": 300,
+  "excluded_keywords": ["ドラゴンボール", "レジェンズ", "探索コード", "フレンドコード"]
+}
+```
