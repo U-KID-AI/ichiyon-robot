@@ -167,13 +167,13 @@ async def save_uploaded_image(
 
     suffix = Path(upload.filename).suffix.lower()
     if suffix not in ALLOWED_IMAGE_EXTENSIONS:
-        return None, "対応していない画像形式です。"
+        return None, "対応外の画像形式。"
 
     content = await upload.read()
     if len(content) > MAX_IMAGE_SIZE:
-        return None, "画像サイズは8MB以下にしてください。"
+        return None, "画像サイズは8MB以下。"
     if not content:
-        return None, "画像ファイルが空です。"
+        return None, "画像ファイルが空。"
 
     target_dir = IMAGE_ROOT / category
     target_dir.mkdir(parents=True, exist_ok=True)

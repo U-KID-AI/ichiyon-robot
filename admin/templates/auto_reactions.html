@@ -13,7 +13,7 @@
       {% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">通常メッセージに含まれる言葉へ自動で反応します。</p>
+        <p class="empty">特定の言葉に自動で返答。</p>
         {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
       </div>
     </div>
@@ -106,9 +106,9 @@
                     <a class="button-link secondary" href="{{ reaction.edit_url }}">編集</a>
                     <button class="info-button" type="button" data-modal-target="auto-reaction-info-{{ reaction.id }}" aria-label="{{ reaction.trigger_text }}のInfo">i</button>
                     <form method="post" action="{{ reaction.toggle_url }}">
-                      <button type="submit" {% if not can_create %}disabled title="この権限では切り替えできません"{% endif %}>{% if reaction.enabled %}無効にする{% else %}有効にする{% endif %}</button>
+                      <button type="submit" {% if not can_create %}disabled title="権限なし"{% endif %}>{% if reaction.enabled %}OFFにする{% else %}ONにする{% endif %}</button>
                     </form>
-                    <form method="post" action="{{ reaction.delete_url }}" data-confirm="この自動反応を削除しますか？">
+                    <form method="post" action="{{ reaction.delete_url }}" data-confirm="この自動反応を削除する？">
                       <button class="danger" type="submit" {% if not reaction.can_delete %}disabled{% endif %}>削除</button>
                     </form>
                   </div>

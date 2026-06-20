@@ -13,7 +13,7 @@
       {% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">Guild ID: {{ guild_id }}</p>
+        <p class="empty">特殊効果タグを候補に付与。</p>
         {% if server.role %}
           <strong class="status enabled">{{ server.role }}</strong>
         {% endif %}
@@ -35,8 +35,8 @@
       <dd>{{ choice.name }}</dd>
       <dt>本文</dt>
       <dd>{{ choice.body or "なし" }}</dd>
-      <dt>画像パス</dt>
-      <dd>{{ choice.image_path or "なし" }}</dd>
+      <dt>画像</dt>
+      <dd>{% if choice.image_path %}<img class="image-preview" src="/{{ choice.image_path }}" alt="">{% else %}なし{% endif %}</dd>
     </dl>
   </section>
 
@@ -48,11 +48,11 @@
         <input type="search" name="q" value="{{ filters.q }}" placeholder="タグ名、説明で検索">
       </label>
       <label>
-        効果タイプ
+        効果の種類
         <select name="effect_type">
           <option value="all" {% if filters.effect_type == "all" %}selected{% endif %}>すべて</option>
           {% for item in effect_types %}
-            <option value="{{ item }}" {% if filters.effect_type == item %}selected{% endif %}>{{ item }}</option>
+            <option value="{{ item }}" {% if filters.effect_type == item %}selected{% endif %}>{{ effect_type_labels.get(item, item) }}</option>
           {% endfor %}
         </select>
       </label>
@@ -86,7 +86,7 @@
               <th>状態</th>
               <th>タグ名</th>
               <th>タグ色</th>
-              <th>効果タイプ</th>
+              <th>効果の種類</th>
               <th>管理者限定</th>
               <th>操作</th>
             </tr>
@@ -113,7 +113,7 @@
                   <span class="color-swatch" style="background: {{ tag.color or '#6B7280' }}"></span>
                   {{ tag.color or "#6B7280" }}
                 </td>
-                <td data-label="効果タイプ">{{ tag.effect_type }}</td>
+                <td data-label="効果の種類">{{ tag.effect_type_label }}</td>
                 <td data-label="管理者限定">{% if tag.admin_only %}あり{% else %}なし{% endif %}</td>
                 <td data-label="操作">
                   <div class="row-actions">
@@ -122,10 +122,10 @@
                       <input type="hidden" name="tag_id" value="{{ tag.id }}">
                       {% if tag.assigned %}
                         <input type="hidden" name="action" value="unassign">
-                        <button type="submit" {% if not tag.can_manage %}disabled title="この権限では解除できません"{% endif %}>解除</button>
+                        <button type="submit" {% if not tag.can_manage %}disabled title="権限なし"{% endif %}>解除</button>
                       {% else %}
                         <input type="hidden" name="action" value="assign">
-                        <button type="submit" {% if not tag.can_manage %}disabled title="この権限では付与できません"{% endif %}>付与</button>
+                        <button type="submit" {% if not tag.can_manage %}disabled title="権限なし"{% endif %}>付与</button>
                       {% endif %}
                     </form>
                   </div>
@@ -148,20 +148,20 @@
               <dd>{{ tag.name }}</dd>
               <dt>説明</dt>
               <dd>{{ tag.description or "未設定" }}</dd>
-              <dt>効果タイプ</dt>
-              <dd>{{ tag.effect_type }}</dd>
+              <dt>効果の種類</dt>
+              <dd>{{ tag.effect_type_label }}</dd>
               <dt>効果設定概要</dt>
               <dd>{{ tag.effect_config_summary }}</dd>
               <dt>追加投稿</dt>
-              <dd>{% if tag.additional_text %}{{ tag.additional_text }}{% else %}なし{% endif %} / {{ tag.additional_post_timing }}</dd>
+              <dd>{% if tag.additional_text %}{{ tag.additional_text }}{% else %}なし{% endif %} / {{ tag.additional_post_timing_label }}</dd>
               <dt>有効期限</dt>
-              <dd>{{ tag.expires_type }}{% if tag.expires_value %}: {{ tag.expires_value }}{% endif %}</dd>
+              <dd>{{ tag.expires_type_label|default(tag.expires_type) }}{% if tag.expires_value %}: {{ tag.expires_value }}{% endif %}</dd>
               <dt>クールタイム</dt>
-              <dd>{{ tag.cooldown_seconds }}秒 / {{ tag.cooldown_scope }}</dd>
-              <dt>管理者限定かどうか</dt>
-              <dd>{% if tag.admin_only %}管理者限定です{% else %}管理者限定ではありません{% endif %}</dd>
+              <dd>{{ tag.cooldown_seconds }}秒 / {{ tag.cooldown_scope_label }}</dd>
+              <dt>管理者限定</dt>
+              <dd>{% if tag.admin_only %}あり{% else %}なし{% endif %}</dd>
               <dt>付与可能対象</dt>
-              <dd>{{ tag.target_type }}</dd>
+              <dd>{{ tag.target_type_label }}</dd>
             </dl>
           </div>
         </div>

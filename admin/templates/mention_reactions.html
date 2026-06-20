@@ -13,7 +13,7 @@
       {% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">メンションに反応して返す内容を管理します。</p>
+        <p class="empty">メンションに反応して返す内容を管理。</p>
         {% if server.role %}
           <strong class="status enabled">{{ server.role }}</strong>
         {% endif %}
@@ -30,11 +30,11 @@
       {% endif %}
       {% if not has_deck_search %}
         <form method="post" action="/guilds/{{ guild_id }}/mention-reactions/deck-search/create">
-          <button type="submit" {% if not can_create_deck_search %}disabled title="サーバー管理者以上が作成できます"{% endif %}>デッキ検索の固定枠を作成</button>
+          <button type="submit" {% if not can_create_deck_search %}disabled title="サーバー管理者以上のみ"{% endif %}>デッキ検索の固定枠を作成</button>
         </form>
       {% endif %}
     </div>
-    <p class="hint">検索型は固定機能です。デッキ検索は「検索」の中に置き、最初の機能一覧には表示しません。</p>
+    <p class="hint">検索型は固定機能。デッキ検索は「検索」の中。</p>
   </section>
 
   <section class="panel">
@@ -119,12 +119,12 @@
                     <a class="button-link secondary" href="{{ reaction.edit_url }}">編集</a>
                     <button class="info-button" type="button" data-modal-target="mention-reaction-info-{{ reaction.id }}" aria-label="{{ reaction.name }}のInfo">i</button>
                     <form method="post" action="{{ reaction.toggle_url }}">
-                      <button type="submit" {% if not reaction.can_toggle %}disabled title="この権限では切り替えできません"{% endif %}>
-                        {% if reaction.enabled %}無効にする{% else %}有効にする{% endif %}
+                      <button type="submit" {% if not reaction.can_toggle %}disabled title="権限なし"{% endif %}>
+                        {% if reaction.enabled %}OFFにする{% else %}ONにする{% endif %}
                       </button>
                     </form>
-                    <form method="post" action="{{ reaction.delete_url }}" data-confirm="このメンション反応を削除しますか？">
-                      <button class="danger" type="submit" {% if not reaction.can_delete %}disabled title="{% if reaction.is_system %}固定機能のため削除できません{% else %}削除する権限がありません{% endif %}"{% endif %}>削除</button>
+                    <form method="post" action="{{ reaction.delete_url }}" data-confirm="このメンション反応を削除する？">
+                      <button class="danger" type="submit" {% if not reaction.can_delete %}disabled title="{% if reaction.is_system %}固定機能のため削除不可{% else %}権限なし{% endif %}"{% endif %}>削除</button>
                     </form>
                   </div>
                 </td>
@@ -142,13 +142,13 @@
               <button class="modal-close" type="button" data-modal-close aria-label="閉じる">x</button>
             </div>
             <dl class="info-list">
-              <dt>概要</dt><dd>{{ reaction.description or "説明は未設定です。" }}</dd>
+              <dt>概要</dt><dd>{{ reaction.description or "説明なし" }}</dd>
               <dt>種類</dt><dd>{{ reaction.reaction_kind_label }}</dd>
               <dt>呼び出しワード</dt><dd>{{ reaction.keyword or "なし" }}</dd>
               <dt>一致方式</dt><dd>{{ reaction.match_type_label }}</dd>
               <dt>OFF時</dt><dd>このメンション反応は使われません。</dd>
-              <dt>固定機能</dt><dd>{% if reaction.is_system %}固定機能です。削除できません。{% else %}追加した反応です。{% endif %}</dd>
-              <dt>管理者限定</dt><dd>{% if reaction.admin_only %}管理者限定です。{% else %}通常利用できます。{% endif %}</dd>
+              <dt>固定機能</dt><dd>{% if reaction.is_system %}固定機能。削除不可。{% else %}追加した反応。{% endif %}</dd>
+              <dt>管理者限定</dt><dd>{% if reaction.admin_only %}管理者限定。{% else %}通常利用。{% endif %}</dd>
               <dt>候補数</dt><dd>{{ reaction.choice_count }}</dd>
             </dl>
           </div>

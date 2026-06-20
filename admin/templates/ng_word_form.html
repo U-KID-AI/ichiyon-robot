@@ -9,7 +9,7 @@
       {% if server.icon_url %}<img class="server-icon" src="{{ server.icon_url }}" alt="">{% else %}<div class="server-icon placeholder"></div>{% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">NGワードを編集します。</p>
+        <p class="empty">反応を止める言葉を設定。</p>
         {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
       </div>
     </div>
@@ -35,10 +35,10 @@
         <input type="checkbox" name="enabled" {% if word.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
         有効
       </label>
-      {% if can_edit %}<button type="submit">{% if mode == "new" %}作成{% else %}保存{% endif %}</button>{% else %}<button type="button" disabled>保存できません</button>{% endif %}
+      {% if can_edit %}<button type="submit">{% if mode == "new" %}作成{% else %}保存{% endif %}</button>{% else %}<button type="button" disabled>保存不可</button>{% endif %}
     </form>
     {% if mode == "edit" %}
-      <form method="post" action="/guilds/{{ guild_id }}/ng-words/{{ word.id }}/delete" data-confirm="このNGワードを削除しますか？">
+      <form method="post" action="/guilds/{{ guild_id }}/ng-words/{{ word.id }}/delete" data-confirm="このNGワードを削除する？">
         <button class="danger" type="submit" {% if not can_edit %}disabled{% endif %}>削除</button>
       </form>
     {% endif %}

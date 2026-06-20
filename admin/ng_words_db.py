@@ -7,7 +7,13 @@ from fastapi.templating import Jinja2Templates
 
 from admin.auth import get_current_user
 from admin.servers import can_access_guild, find_server, role_allows
-from admin.ux import is_test_data, parse_show_test_data
+from admin.ux import (
+    ADDITIONAL_POST_TIMING_LABELS,
+    COOLDOWN_SCOPE_LABELS,
+    EFFECT_TYPE_LABELS,
+    is_test_data,
+    parse_show_test_data,
+)
 from bot.db import get_connection
 from bot.repositories import NgWordRepository, SpecialEffectRepository
 
@@ -29,7 +35,7 @@ EFFECT_TYPES = (
     "ng_behavior",
     "extra_choice",
 )
-DUPLICATE_ERROR = "同じワードが既に登録されています。"
+DUPLICATE_ERROR = "同じワードが登録済み。"
 
 
 def register_ng_word_routes(templates: Jinja2Templates) -> None:
@@ -242,6 +248,7 @@ def register_ng_word_routes(templates: Jinja2Templates) -> None:
                 "filters": filters,
                 "tags": tags,
                 "effect_types": EFFECT_TYPES,
+                "effect_type_labels": EFFECT_TYPE_LABELS,
             },
         )
 
@@ -345,7 +352,7 @@ def build_form(word: str, enabled: Optional[str]) -> Tuple[Dict[str, Any], List[
     form.update({"word": word.strip(), "enabled": enabled == "on"})
     errors = []
     if not form["word"]:
-        errors.append("ワードを入力してください。")
+        errors.append("ワードを入力。")
     return form, errors
 
 
@@ -404,6 +411,12 @@ def build_effect_view(effect: Dict[str, Any], role: str) -> Dict[str, Any]:
     row = dict(effect)
     row["can_manage"] = can_manage_effect_assignment(role, effect)
     row["effect_config_summary"] = compact_json(effect.get("effect_config_json"))
+    row["effect_type_label"] = EFFECT_TYPE_LABELS.get(row.get("effect_type"), row.get("effect_type"))
+    row["additional_post_timing_label"] = ADDITIONAL_POST_TIMING_LABELS.get(
+        row.get("additional_post_timing"),
+        row.get("additional_post_timing"),
+    )
+    row["cooldown_scope_label"] = COOLDOWN_SCOPE_LABELS.get(row.get("cooldown_scope"), row.get("cooldown_scope"))
     return row
 
 

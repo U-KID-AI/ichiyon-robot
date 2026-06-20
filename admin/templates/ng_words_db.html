@@ -9,7 +9,7 @@
       {% if server.icon_url %}<img class="server-icon" src="{{ server.icon_url }}" alt="">{% else %}<div class="server-icon placeholder"></div>{% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">反応を止めたい言葉を管理します。</p>
+        <p class="empty">反応を止める言葉を設定。</p>
         {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
       </div>
     </div>
@@ -73,9 +73,9 @@
                     <a class="button-link secondary" href="{{ word.edit_url }}">編集</a>
                     <button class="info-button" type="button" data-modal-target="ng-word-info-{{ word.id }}" aria-label="{{ word.word }}のInfo">i</button>
                     <form method="post" action="{{ word.toggle_url }}">
-                      <button type="submit" {% if not can_create %}disabled title="この権限では切り替えできません"{% endif %}>{% if word.enabled %}無効にする{% else %}有効にする{% endif %}</button>
+                      <button type="submit" {% if not can_create %}disabled title="権限なし"{% endif %}>{% if word.enabled %}OFFにする{% else %}ONにする{% endif %}</button>
                     </form>
-                    <form method="post" action="{{ word.delete_url }}" data-confirm="このNGワードを削除しますか？">
+                    <form method="post" action="{{ word.delete_url }}" data-confirm="このNGワードを削除する？">
                       <button class="danger" type="submit" {% if not word.can_delete %}disabled{% endif %}>削除</button>
                     </form>
                   </div>

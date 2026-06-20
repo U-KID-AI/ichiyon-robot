@@ -13,7 +13,7 @@
       {% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">メンションされた時の返答を種類ごとに管理します。</p>
+        <p class="empty">メンションされた時の返答を種類ごとに管理。</p>
         {% if server.role %}
           <strong class="status enabled">{{ server.role }}</strong>
         {% endif %}
@@ -30,23 +30,16 @@
     <div class="feature-grid">
       <a class="feature-card" href="/guilds/{{ guild_id }}/mention-reactions?kind=random_draw">
         <span class="feature-card-title">ランダム抽選</span>
-        <span class="feature-card-body">名言・おみくじ・お前も〇〇よな？など、登録した候補からランダムに返します。</span>
+        <span class="feature-card-body">名言・おみくじなど、登録した候補からランダムに返答。</span>
       </a>
       <a class="feature-card" href="/guilds/{{ guild_id }}/mention-reactions?kind=search">
         <span class="feature-card-title">検索</span>
-        <span class="feature-card-body">デッキ検索など、入力内容をもとに検索して返す固定機能です。</span>
+        <span class="feature-card-body">デッキ検索など、入力内容をもとに検索して返答。</span>
       </a>
     </div>
-    <p class="hint">検索型の新規追加は通常画面では行いません。必要な固定機能だけを設定します。</p>
-    <div class="page-actions">
-      {% if can_create_random %}
-        <a class="button-link" href="/guilds/{{ guild_id }}/mention-reactions/new">+ ランダム抽選を追加</a>
-      {% else %}
-        <button type="button" disabled>+ ランダム抽選を追加</button>
-      {% endif %}
       {% if not has_deck_search %}
         <form method="post" action="/guilds/{{ guild_id }}/mention-reactions/deck-search/create">
-          <button type="submit" {% if not can_create_deck_search %}disabled title="サーバー管理者以上が作成できます"{% endif %}>デッキ検索の固定枠を作成</button>
+          <button type="submit" {% if not can_create_deck_search %}disabled title="サーバー管理者以上のみ"{% endif %}>デッキ検索の固定枠を作成</button>
         </form>
       {% endif %}
     </div>

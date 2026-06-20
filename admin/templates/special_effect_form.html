@@ -13,7 +13,7 @@
       {% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">抽選候補・自動反応・NGワードに追加効果を付けるタグです。</p>
+        <p class="empty">追加投稿やカウント変更を設定。</p>
         {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
       </div>
     </div>
@@ -22,7 +22,7 @@
       <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
       <a class="button-link secondary" href="/guilds/{{ guild_id }}/special-effects">特殊効果タグ一覧へ戻る</a>
     </div>
-    <p class="hint">危険度は使わず、管理者限定で操作できる範囲を分けます。追加投稿テキストは空でも保存できます。</p>
+    <p class="hint">管理者限定で操作範囲を分ける。追加投稿は空でもOK。</p>
   </section>
 
   {% if errors %}
@@ -57,7 +57,7 @@
           <li><code>{match_2}</code> 正規表現で一致した2つ目</li>
           <li><code>{user_name}</code> ユーザー名</li>
           <li><code>{user_mention}</code> ユーザーへのメンション</li>
-          <li><code>{match_1:hankaku}</code> ひらがなをカタカナ化し、全角カタカナを半角カタカナにします。</li>
+          <li><code>{match_1:mini_ichiyon}</code> ひらがなをカタカナ化。全角カタカナを半角化。</li>
         </ul>
       </section>
 
@@ -85,7 +85,7 @@
             追加投稿タイミング
             <select name="additional_post_timing" {% if not can_edit %}disabled{% endif %}>
               {% for item in additional_post_timings %}
-                <option value="{{ item }}" {% if tag.additional_post_timing == item %}selected{% endif %}>{{ item }}</option>
+                <option value="{{ item }}" {% if tag.additional_post_timing == item %}selected{% endif %}>{{ additional_post_timing_labels.get(item, item) }}</option>
               {% endfor %}
             </select>
           </label>
@@ -93,7 +93,7 @@
             有効期限タイプ
             <select name="expires_type" {% if not can_edit %}disabled{% endif %}>
               {% for item in expires_types %}
-                <option value="{{ item }}" {% if tag.expires_type == item %}selected{% endif %}>{{ item }}</option>
+                <option value="{{ item }}" {% if tag.expires_type == item %}selected{% endif %}>{{ expires_type_labels.get(item, item) }}</option>
               {% endfor %}
             </select>
           </label>
@@ -103,7 +103,7 @@
             クールタイム単位
             <select name="cooldown_scope" {% if not can_edit %}disabled{% endif %}>
               {% for item in cooldown_scopes %}
-                <option value="{{ item }}" {% if tag.cooldown_scope == item %}selected{% endif %}>{{ item }}</option>
+                <option value="{{ item }}" {% if tag.cooldown_scope == item %}selected{% endif %}>{{ cooldown_scope_labels.get(item, item) }}</option>
               {% endfor %}
             </select>
           </label>
@@ -114,11 +114,11 @@
       {% if can_edit %}
         <button type="submit">{% if mode == "new" %}作成{% else %}保存{% endif %}</button>
       {% else %}
-        <button type="button" disabled>保存できません</button>
+        <button type="button" disabled>保存不可</button>
       {% endif %}
     </form>
     {% if mode == "edit" %}
-      <form method="post" action="/guilds/{{ guild_id }}/special-effects/{{ tag_id }}/delete" data-confirm="この特殊効果タグを削除しますか？">
+      <form method="post" action="/guilds/{{ guild_id }}/special-effects/{{ tag_id }}/delete" data-confirm="この特殊効果タグを削除する？">
         <button class="danger" type="submit" {% if not can_edit %}disabled{% endif %}>削除</button>
       </form>
     {% endif %}
@@ -127,7 +127,7 @@
   <section class="panel">
     <h2>プリセット例</h2>
     <ul class="config-list">
-      <li>ミニいちよん: 効果の種類=確率で追加投稿、確率 1/32、追加投稿 <code>:yukkuri_itiyon: ｲﾔ〜{match_1:hankaku}ﾈ〜</code></li>
+      <li>ミニいちよん: 効果の種類=確率で追加投稿、確率 1/32、追加投稿 <code>:yukkuri_itiyon: ｲﾔ〜{match_1:mini_ichiyon}ﾈ〜</code></li>
       <li>しこっち抽選: カウンター設定、確率 1/444、<code>shikocchi_count=1</code></li>
       <li>成田カウント加算: カウンター加算、<code>narita_count +1</code></li>
     </ul>

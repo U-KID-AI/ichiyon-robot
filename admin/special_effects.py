@@ -8,7 +8,16 @@ from fastapi.templating import Jinja2Templates
 
 from admin.auth import get_current_user
 from admin.servers import can_access_guild, find_server, role_allows
-from admin.ux import EFFECT_TYPE_LABELS, is_test_data, parse_show_test_data
+from admin.ux import (
+    ADDITIONAL_POST_TIMING_LABELS,
+    COOLDOWN_SCOPE_LABELS,
+    EFFECT_TYPE_LABELS,
+    EXPIRES_TYPE_LABELS,
+    TARGET_TYPE_LABELS,
+    TRIGGER_TIMING_LABELS,
+    is_test_data,
+    parse_show_test_data,
+)
 from bot.db import get_connection
 from bot.repositories import SpecialEffectRepository
 
@@ -109,7 +118,7 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
             if not can_edit_tag(server["role"], tag):
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="削除する権限がありません。")
             if not tag.get("is_deletable", True):
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="固定タグのため削除できません。")
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="固定タグのため削除不可。")
             repository.delete_tag(guild_id, tag_id)
             connection.commit()
         return RedirectResponse(url="/guilds/{0}/special-effects".format(guild_id), status_code=303)
@@ -187,7 +196,7 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
             cooldown_scope,
         )
         if form["admin_only"] and not role_allows(server["role"], "guild_admin"):
-            errors.append("管理者限定タグは guild_admin 以上だけが作成できます。")
+            errors.append("管理者限定タグはサーバー管理者以上だけ作成可。")
 
         if errors:
             return render_form(
@@ -296,7 +305,7 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
                 cooldown_scope,
             )
             if form["admin_only"] != bool(tag["admin_only"]) and not role_allows(server["role"], "guild_admin"):
-                errors.append("管理者限定の変更は guild_admin 以上だけが実行できます。")
+                errors.append("管理者限定の変更はサーバー管理者以上だけ。")
 
             if errors:
                 return render_form(
@@ -356,6 +365,14 @@ def list_tag_rows(guild_id: str, role: str, filters: Dict[str, Any]) -> List[Dic
         row["can_delete"] = can_edit_tag(role, tag) and bool(tag.get("is_deletable", True))
         row["has_additional_text"] = bool(row["additional_text"].strip())
         row["effect_type_label"] = EFFECT_TYPE_LABELS.get(row["effect_type"], row["effect_type"])
+        row["target_type_label"] = TARGET_TYPE_LABELS.get(row["target_type"], row["target_type"])
+        row["trigger_timing_label"] = TRIGGER_TIMING_LABELS.get(row["trigger_timing"], row["trigger_timing"])
+        row["additional_post_timing_label"] = ADDITIONAL_POST_TIMING_LABELS.get(
+            row["additional_post_timing"],
+            row["additional_post_timing"],
+        )
+        row["expires_type_label"] = EXPIRES_TYPE_LABELS.get(row["expires_type"], row["expires_type"])
+        row["cooldown_scope_label"] = COOLDOWN_SCOPE_LABELS.get(row["cooldown_scope"], row["cooldown_scope"])
         row["edit_url"] = "/guilds/{0}/special-effects/{1}".format(guild_id, tag["id"])
         row["toggle_url"] = "/guilds/{0}/special-effects/{1}/toggle".format(guild_id, tag["id"])
         row["delete_url"] = "/guilds/{0}/special-effects/{1}/delete".format(guild_id, tag["id"])
@@ -478,37 +495,37 @@ def build_form(
     form["cooldown_seconds"] = parse_int(cooldown_seconds, 0)
 
     if not form["name"]:
-        errors.append("タグ名を入力してください。")
+        errors.append("タグ名を入力。")
     if not COLOR_PATTERN.match(form["color"]):
-        errors.append("タグ色は #RRGGBB 形式で入力してください。")
+        errors.append("タグ色は #RRGGBB 形式。")
     if form["target_type"] not in TARGET_TYPES:
-        errors.append("付与可能対象を選択してください。")
+        errors.append("付与できる対象を選択。")
     if form["trigger_timing"] not in TRIGGER_TIMINGS:
-        errors.append("発動タイミングを選択してください。")
+        errors.append("発動タイミングを選択。")
     if form["effect_type"] not in EFFECT_TYPES:
-        errors.append("効果タイプを選択してください。")
+        errors.append("効果の種類を選択。")
     if form["additional_post_timing"] not in ADDITIONAL_POST_TIMINGS:
-        errors.append("追加投稿タイミングを選択してください。")
+        errors.append("追加投稿タイミングを選択。")
     if form["expires_type"] not in EXPIRES_TYPES:
-        errors.append("有効期限タイプを選択してください。")
+        errors.append("有効期限タイプを選択。")
     if isinstance(form["expires_value"], int) and form["expires_value"] < 0:
-        errors.append("有効期限値は0以上の整数で入力してください。")
+        errors.append("有効期限値は0以上の整数。")
     if form["cooldown_seconds"] < 0:
-        errors.append("クールタイム秒数は0以上の整数で入力してください。")
+        errors.append("クールタイム秒数は0以上の整数。")
     if form["cooldown_scope"] not in COOLDOWN_SCOPES:
-        errors.append("クールタイム適用単位を選択してください。")
+        errors.append("クールタイム単位を選択。")
     if form["cooldown_scope"] == "none":
         form["cooldown_seconds"] = 0
 
     try:
         parsed_json = json.loads(form["effect_config_json"])
         if not isinstance(parsed_json, dict):
-            errors.append("効果設定JSONはオブジェクト形式で入力してください。")
+            errors.append("詳細設定はオブジェクト形式。")
         else:
             form["effect_config"] = parsed_json
             form["effect_config_summary"] = compact_json(form["effect_config_json"])
     except json.JSONDecodeError:
-        errors.append("効果設定JSONが正しいJSONではありません。")
+        errors.append("詳細設定のJSONが不正。")
         form["effect_config"] = {}
         form["effect_config_summary"] = form["effect_config_json"]
 
@@ -605,6 +622,11 @@ def render_form(
             "trigger_timings": TRIGGER_TIMINGS,
             "effect_types": EFFECT_TYPES,
             "effect_type_labels": EFFECT_TYPE_LABELS,
+            "target_type_labels": TARGET_TYPE_LABELS,
+            "trigger_timing_labels": TRIGGER_TIMING_LABELS,
+            "additional_post_timing_labels": ADDITIONAL_POST_TIMING_LABELS,
+            "expires_type_labels": EXPIRES_TYPE_LABELS,
+            "cooldown_scope_labels": COOLDOWN_SCOPE_LABELS,
             "additional_post_timings": ADDITIONAL_POST_TIMINGS,
             "expires_types": EXPIRES_TYPES,
             "cooldown_scopes": COOLDOWN_SCOPES,

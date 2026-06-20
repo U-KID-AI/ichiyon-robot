@@ -9,7 +9,7 @@
       {% if server.icon_url %}<img class="server-icon" src="{{ server.icon_url }}" alt="">{% else %}<div class="server-icon placeholder"></div>{% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">指定日時や繰り返しで投稿する内容を管理します。</p>
+        <p class="empty">決まった日時の投稿を設定。</p>
         {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
       </div>
     </div>
@@ -73,9 +73,9 @@
                     <a class="button-link secondary" href="{{ post.edit_url }}">編集</a>
                     <button class="info-button" type="button" data-modal-target="auto-post-info-{{ post.id }}" aria-label="{{ post.name }}のInfo">i</button>
                     <form method="post" action="{{ post.toggle_url }}">
-                      <button type="submit" {% if not can_create %}disabled title="この権限では切り替えできません"{% endif %}>{% if post.enabled %}無効にする{% else %}有効にする{% endif %}</button>
+                      <button type="submit" {% if not can_create %}disabled title="権限なし"{% endif %}>{% if post.enabled %}OFFにする{% else %}ONにする{% endif %}</button>
                     </form>
-                    <form method="post" action="{{ post.delete_url }}" data-confirm="この自動投稿を削除しますか？">
+                    <form method="post" action="{{ post.delete_url }}" data-confirm="この自動投稿を削除する？">
                       <button class="danger" type="submit" {% if not can_create %}disabled{% endif %}>削除</button>
                     </form>
                   </div>
@@ -99,7 +99,7 @@
               <dt>画像</dt><dd>{% if post.image_path %}<img class="image-preview" src="/{{ post.image_path }}" alt="">{% else %}なし{% endif %}</dd>
               <dt>スケジュール</dt><dd>{{ post.schedule_summary }}</dd>
               <dt>最終投稿</dt><dd>{{ post.last_posted_at or "-" }}</dd>
-              <dt>次回予定</dt><dd>{{ post.next_run_at or "後続Phaseで計算します" }}</dd>
+              <dt>次回予定</dt><dd>{{ post.next_run_at or "後続Phaseで計算" }}</dd>
             </dl>
           </div>
         </div>

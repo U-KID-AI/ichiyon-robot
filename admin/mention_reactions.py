@@ -8,8 +8,18 @@ from fastapi.templating import Jinja2Templates
 
 from admin.auth import get_current_user
 from admin.servers import can_access_guild, find_server, role_allows
-from admin.ux import MATCH_TYPE_LABELS as UX_MATCH_TYPE_LABELS
-from admin.ux import REACTION_KIND_LABELS, is_test_data, parse_show_test_data, save_uploaded_image
+from admin.ux import (
+    ADDITIONAL_POST_TIMING_LABELS,
+    COOLDOWN_SCOPE_LABELS,
+    EFFECT_TYPE_LABELS,
+    EXPIRES_TYPE_LABELS,
+    MATCH_TYPE_LABELS as UX_MATCH_TYPE_LABELS,
+    REACTION_KIND_LABELS,
+    TARGET_TYPE_LABELS,
+    is_test_data,
+    parse_show_test_data,
+    save_uploaded_image,
+)
 from bot.db import connect, get_connection
 from bot.repositories import MentionReactionRepository, SpecialEffectRepository
 
@@ -35,7 +45,7 @@ REACTION_MATCH_TYPES = ("exact", "prefix", "regex")
 SEARCH_MATCH_TYPES = ("exact", "prefix", "regex")
 MISSING_FORMAT_BEHAVIORS = ("ask_format", "latest", "reject")
 DECK_SEARCH_KEY = "deck_search"
-KEYWORD_DUPLICATE_ERROR = "このキーワードは既存のメンション反応で使用されています。"
+KEYWORD_DUPLICATE_ERROR = "この呼び出しワードは使用済み。"
 ASSIGNMENT_TARGET_TYPE = "mention_reaction_choice"
 ASSIGNMENT_EFFECT_TYPES = (
     "probability_message",
@@ -178,9 +188,9 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
             if not role_allows(server["role"], "editor"):
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="削除する権限がありません。")
             if reaction.get("admin_only") and not role_allows(server["role"], "guild_admin"):
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="管理者限定の反応はサーバー管理者だけが削除できます。")
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="管理者限定の反応はサーバー管理者だけ削除可。")
             if reaction.get("is_system") or not reaction.get("is_deletable", True):
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="固定機能のため削除できません。")
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="固定機能のため削除不可。")
 
             repository.delete_reaction(guild_id, reaction_id)
             connection.commit()
@@ -244,7 +254,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         form = build_reaction_form(name, description, keyword, match_type, enabled, admin_only)
         errors = validate_reaction_form(form)
         if form["admin_only"] and not role_allows(server["role"], "guild_admin"):
-            errors.append("管理者限定の反応は guild_admin 以上だけが作成できます。")
+            errors.append("管理者限定の反応はサーバー管理者以上だけ作成可。")
         with get_connection() as connection:
             repository = MentionReactionRepository(connection)
             if not errors and repository.keyword_exists(guild_id, form["keyword"]):
@@ -469,7 +479,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
             form = build_reaction_form(name, description, keyword, match_type, enabled, admin_only)
             errors = validate_reaction_form(form)
             if form["admin_only"] != bool(reaction["admin_only"]) and not role_allows(server["role"], "guild_admin"):
-                errors.append("管理者限定の変更は guild_admin 以上だけが実行できます。")
+                errors.append("管理者限定の変更はサーバー管理者以上だけ。")
             if not errors and repository.keyword_exists(guild_id, form["keyword"], reaction_id):
                 errors.append(KEYWORD_DUPLICATE_ERROR)
 
@@ -712,6 +722,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 "filters": filters,
                 "tags": tags,
                 "effect_types": ASSIGNMENT_EFFECT_TYPES,
+                "effect_type_labels": EFFECT_TYPE_LABELS,
                 "can_manage_any": role_allows(server["role"], "editor"),
             },
         )
@@ -920,6 +931,14 @@ def build_effect_assignment_view(effect: Dict[str, Any], role: str) -> Dict[str,
     row = dict(effect)
     row["can_manage"] = can_manage_effect_assignment(role, effect)
     row["effect_config_summary"] = compact_effect_json(effect.get("effect_config_json"))
+    row["effect_type_label"] = EFFECT_TYPE_LABELS.get(row.get("effect_type"), row.get("effect_type"))
+    row["additional_post_timing_label"] = ADDITIONAL_POST_TIMING_LABELS.get(
+        row.get("additional_post_timing"),
+        row.get("additional_post_timing"),
+    )
+    row["cooldown_scope_label"] = COOLDOWN_SCOPE_LABELS.get(row.get("cooldown_scope"), row.get("cooldown_scope"))
+    row["expires_type_label"] = EXPIRES_TYPE_LABELS.get(row.get("expires_type"), row.get("expires_type"))
+    row["target_type_label"] = TARGET_TYPE_LABELS.get(row.get("target_type"), row.get("target_type"))
     return row
 
 
@@ -1098,13 +1117,13 @@ def build_deck_settings_form(
 
     errors = []
     if not settings["keyword"]:
-        errors.append("Deck search keyword is required.")
+        errors.append("デッキ検索の呼び出しワードを入力。")
     if match_type not in SEARCH_MATCH_TYPES:
-        errors.append("Match type is invalid.")
+        errors.append("一致方式を選択。")
     if result_count < 1:
-        errors.append("Max results must be 1 or greater.")
+        errors.append("返す件数は1以上。")
     if missing_format_behavior not in MISSING_FORMAT_BEHAVIORS:
-        errors.append("Missing format behavior is invalid.")
+        errors.append("フォーマット未指定時の扱いを選択。")
     return settings, errors
 
 
@@ -1169,11 +1188,11 @@ def build_reaction_form(
 def validate_reaction_form(form: Dict[str, Any]) -> List[str]:
     errors = []
     if not form["name"]:
-        errors.append("反応名を入力してください。")
+        errors.append("反応名を入力。")
     if not form["keyword"]:
-        errors.append("キーワード/パターンを入力してください。")
+        errors.append("呼び出しワードを入力。")
     if form["match_type"] not in REACTION_MATCH_TYPES:
-        errors.append("一致方式を選択してください。")
+        errors.append("一致方式を選択。")
     return errors
 
 
@@ -1201,11 +1220,11 @@ def build_choice_form(
 def validate_choice_form(form: Dict[str, Any]) -> List[str]:
     errors = []
     if not form["name"]:
-        errors.append("候補名を入力してください。")
+        errors.append("候補名を入力。")
     if not form["body"] and not form["image_path"]:
-        errors.append("本文と画像パスのどちらかは入力してください。")
+        errors.append("本文か画像を入力。")
     if form["appearance_rate"] < 1:
-        errors.append("出やすさは1以上の整数で入力してください。")
+        errors.append("出やすさは1以上の整数。")
     return errors
 
 

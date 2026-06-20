@@ -5,7 +5,7 @@
 
 {% block content %}
   <section class="panel">
-    <p class="hint">管理するサーバーを選択してください。</p>
+    <p class="hint">管理するサーバーを選択。</p>
     <div class="server-list">
       {% for server in servers %}
         <article class="server-item">
@@ -17,7 +17,7 @@
             {% endif %}
             <div>
               <h2>{{ server.name }}</h2>
-              <p class="empty">Guild ID: {{ server.guild_id }}</p>
+              <p class="empty">サーバーID: {{ server.guild_id }}</p>
               <strong class="status enabled">{{ server.role }}</strong>
             </div>
           </div>

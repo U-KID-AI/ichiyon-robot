@@ -9,7 +9,7 @@
       {% if server.icon_url %}<img class="server-icon" src="{{ server.icon_url }}" alt="">{% else %}<div class="server-icon placeholder"></div>{% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">はゆす・成田・しこっちなど、一定条件で入るモードを管理します。</p>
+        <p class="empty">一時的な特殊状態を設定。</p>
         {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
       </div>
     </div>
@@ -78,10 +78,10 @@
                     <a class="button-link secondary" href="{{ item.edit_url }}">編集</a>
                     <button class="info-button" type="button" data-modal-target="mode-info-{{ item.id }}" aria-label="{{ item.name }}のInfo">i</button>
                     <form method="post" action="{{ item.toggle_url }}">
-                      <button type="submit" {% if not item.can_toggle %}disabled title="この権限では切り替えできません"{% endif %}>{% if item.enabled %}無効にする{% else %}有効にする{% endif %}</button>
+                      <button type="submit" {% if not item.can_toggle %}disabled title="権限なし"{% endif %}>{% if item.enabled %}OFFにする{% else %}ONにする{% endif %}</button>
                     </form>
-                    <form method="post" action="{{ item.delete_url }}" data-confirm="このモードを削除しますか？">
-                      <button class="danger" type="submit" {% if not item.can_delete %}disabled title="固定モード、または権限不足のため削除できません"{% endif %}>削除</button>
+                    <form method="post" action="{{ item.delete_url }}" data-confirm="このモードを削除する？">
+                      <button class="danger" type="submit" {% if not item.can_delete %}disabled title="固定モード、または権限なし"{% endif %}>削除</button>
                     </form>
                   </div>
                 </td>
@@ -104,7 +104,7 @@
               <dt>発動条件</dt><dd>{{ item.trigger_count }}</dd>
               <dt>返答候補</dt><dd>{{ item.reply_count }}</dd>
               <dt>終了条件</dt><dd>{{ item.exit_count }}</dd>
-              <dt>固定プリセット</dt><dd>しこっち復帰メッセージは固定で、この画面では編集しません。</dd>
+              <dt>固定プリセット</dt><dd>しこっち復帰メッセージは固定。ここでは編集しない。</dd>
             </dl>
           </div>
         </div>

@@ -7,7 +7,17 @@ from fastapi.templating import Jinja2Templates
 
 from admin.auth import get_current_user
 from admin.servers import can_access_guild, find_server, role_allows
-from admin.ux import BEHAVIOR_LABELS, is_test_data, parse_show_test_data, save_uploaded_image
+from admin.ux import (
+    BEHAVIOR_LABELS,
+    CONDITION_TYPE_LABELS,
+    COOLDOWN_PERIOD_LABELS,
+    COOLDOWN_RESET_LABELS,
+    COOLDOWN_TYPE_LABELS,
+    RESET_TYPE_LABELS,
+    is_test_data,
+    parse_show_test_data,
+    save_uploaded_image,
+)
 from bot.db import get_connection
 from bot.repositories import CounterRepository, ModeRepository
 
@@ -92,7 +102,7 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
             if not can_edit_mode(server["role"], mode):
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="削除する権限がありません。")
             if not mode.get("is_deletable", True):
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="固定モードのため削除できません。")
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="固定モードのため削除不可。")
             repository.delete_mode(guild_id, mode_id)
             connection.commit()
         return RedirectResponse(url="/guilds/{0}/modes".format(guild_id), status_code=303)
@@ -544,16 +554,18 @@ def split_csv(value: str) -> List[str]:
 
 def summarize_cooldown(config: Dict[str, Any]) -> str:
     if not config or config.get("type", "none") == "none":
-        return "none"
+        return "なし"
     if config.get("type") == "duration":
-        return "duration / {0}s".format(config.get("seconds", 0))
+        return "{0}秒".format(config.get("seconds", 0))
     if config.get("type") == "once_per_period":
+        period = COOLDOWN_PERIOD_LABELS.get(config.get("period"), config.get("period"))
         if config.get("reset") == "day":
-            return "once_per_period / {0} / day {1}".format(
-                config.get("period"),
+            return "期間内1回 / {0} / 毎月{1}日リセット".format(
+                period,
                 config.get("day"),
             )
-        return "once_per_period / {0} / {1}".format(config.get("period"), config.get("reset"))
+        reset = COOLDOWN_RESET_LABELS.get(config.get("reset"), config.get("reset"))
+        return "期間内1回 / {0} / {1}リセット".format(period, reset)
     return str(config)
 
 
@@ -568,6 +580,7 @@ def format_condition(item: Dict[str, Any]) -> Dict[str, Any]:
         row["ui_condition_type"] = "duration"
     else:
         row["ui_condition_type"] = row.get("condition_type")
+    row["condition_type_label"] = CONDITION_TYPE_LABELS.get(row["ui_condition_type"], row["ui_condition_type"])
     return row
 
 
@@ -642,9 +655,9 @@ def build_mode_form(values: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str], 
 
     errors = list(cooldown_errors)
     if not form["mode_key"]:
-        errors.append("mode_key is required.")
+        errors.append("モードキーを入力。")
     if not form["name"]:
-        errors.append("mode name is required.")
+        errors.append("モード名を入力。")
     return form, errors, cooldown
 
 
@@ -655,7 +668,7 @@ def build_cooldown(values: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
     if cooldown_type == "duration":
         seconds = parse_int(values.get("cooldown_seconds"), 0)
         if seconds <= 0:
-            errors.append("cooldown seconds must be 1 or greater for duration.")
+            errors.append("時間指定のクールタイムは1秒以上。")
         config["seconds"] = seconds
     elif cooldown_type == "once_per_period":
         config["period"] = values.get("cooldown_period") if values.get("cooldown_period") in COOLDOWN_PERIODS else "monthly"
@@ -663,7 +676,7 @@ def build_cooldown(values: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
         if config["reset"] == "day":
             day = parse_int(values.get("cooldown_day"), 0)
             if day < 1 or day > 31:
-                errors.append("cooldown reset day must be between 1 and 31.")
+                errors.append("リセット日は1〜31。")
             config["day"] = day
     return config, errors
 
@@ -718,9 +731,9 @@ async def save_mode(
         if mode_id is None and not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="mode creation denied")
         if form["admin_only"] and not role_allows(server["role"], "guild_admin"):
-            errors.append("admin_only modes can only be saved by guild_admin or higher.")
+            errors.append("管理者限定モードはサーバー管理者以上だけ保存可。")
         if not errors and repository.mode_key_exists(guild_id, form["mode_key"], mode_id):
-            errors.append("This mode_key is already used in this guild.")
+            errors.append("このモードキーは同じサーバーで使用済み。")
 
         if errors:
             counters = CounterRepository(connection).list_counters(guild_id)
@@ -987,12 +1000,18 @@ def render_form(
             "can_edit": can_edit,
             "can_set_admin_only": can_set_admin_only,
             "behavior_types": BEHAVIOR_TYPES,
+            "behavior_labels": BEHAVIOR_LABELS,
             "cooldown_types": COOLDOWN_TYPES,
+            "cooldown_type_labels": COOLDOWN_TYPE_LABELS,
             "cooldown_periods": COOLDOWN_PERIODS,
+            "cooldown_period_labels": COOLDOWN_PERIOD_LABELS,
             "cooldown_resets": COOLDOWN_RESETS,
+            "cooldown_reset_labels": COOLDOWN_RESET_LABELS,
             "trigger_types": TRIGGER_TYPES,
+            "condition_type_labels": CONDITION_TYPE_LABELS,
             "exit_types": EXIT_TYPES,
             "reset_types": RESET_TYPES,
+            "reset_type_labels": RESET_TYPE_LABELS,
             "counters": counters or [],
         },
         status_code=status_code,

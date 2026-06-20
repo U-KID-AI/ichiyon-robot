@@ -7,7 +7,15 @@ from fastapi.templating import Jinja2Templates
 
 from admin.auth import get_current_user
 from admin.servers import can_access_guild, find_server, role_allows
-from admin.ux import MATCH_TYPE_LABELS, is_test_data, parse_show_test_data, save_uploaded_image
+from admin.ux import (
+    ADDITIONAL_POST_TIMING_LABELS,
+    COOLDOWN_SCOPE_LABELS,
+    EFFECT_TYPE_LABELS,
+    MATCH_TYPE_LABELS,
+    is_test_data,
+    parse_show_test_data,
+    save_uploaded_image,
+)
 from bot.db import get_connection
 from bot.repositories import AutoReactionRepository, SpecialEffectRepository
 
@@ -30,7 +38,7 @@ EFFECT_TYPES = (
     "ng_behavior",
     "extra_choice",
 )
-DUPLICATE_ERROR = "同じトリガーと一致方式の自動反応が既に登録されています。"
+DUPLICATE_ERROR = "同じ呼び出しワードと一致方式の自動反応が登録済み。"
 
 
 def register_auto_reaction_routes(templates: Jinja2Templates) -> None:
@@ -303,6 +311,7 @@ def register_auto_reaction_routes(templates: Jinja2Templates) -> None:
                 "filters": filters,
                 "tags": tags,
                 "effect_types": EFFECT_TYPES,
+                "effect_type_labels": EFFECT_TYPE_LABELS,
             },
         )
 
@@ -481,13 +490,13 @@ def build_form(
 
     errors = []
     if not form["trigger_text"]:
-        errors.append("トリガーを入力してください。")
+        errors.append("呼び出しワードを入力。")
     if not form["response_text"] and not form["image_path"] and not form["emoji_internal"]:
-        errors.append("返答テキスト、画像パス、絵文字のいずれかを入力してください。")
+        errors.append("返答テキストか画像を入力。")
     if match_type not in MATCH_TYPES:
-        errors.append("一致方式を選択してください。")
+        errors.append("一致方式を選択。")
     if priority_error:
-        errors.append("優先度は整数で入力してください。")
+        errors.append("優先度は整数。")
     return form, errors
 
 
@@ -548,6 +557,12 @@ def build_effect_view(effect: Dict[str, Any], role: str) -> Dict[str, Any]:
     row = dict(effect)
     row["can_manage"] = can_manage_effect_assignment(role, effect)
     row["effect_config_summary"] = compact_json(effect.get("effect_config_json"))
+    row["effect_type_label"] = EFFECT_TYPE_LABELS.get(row.get("effect_type"), row.get("effect_type"))
+    row["additional_post_timing_label"] = ADDITIONAL_POST_TIMING_LABELS.get(
+        row.get("additional_post_timing"),
+        row.get("additional_post_timing"),
+    )
+    row["cooldown_scope_label"] = COOLDOWN_SCOPE_LABELS.get(row.get("cooldown_scope"), row.get("cooldown_scope"))
     return row
 
 

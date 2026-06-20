@@ -13,7 +13,7 @@
       {% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">通常メッセージへの自動反応を編集します。</p>
+        <p class="empty">特定の言葉に自動で返答。</p>
         {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
       </div>
     </div>
@@ -54,7 +54,7 @@
           一致方式
           <select name="match_type" {% if not can_edit %}disabled{% endif %}>
             {% for item in match_types %}
-              <option value="{{ item }}" {% if reaction.match_type == item %}selected{% endif %}>{{ match_type_labels.get(item, item) }}{% if item == "regex" %}（上級者向け）{% endif %}</option>
+              <option value="{{ item }}" {% if reaction.match_type == item %}selected{% endif %}>{{ match_type_labels.get(item, item) }}{% if item == "regex" %}{% endif %}</option>
             {% endfor %}
           </select>
         </label>
@@ -66,18 +66,17 @@
       </label>
       <details>
         <summary>詳細設定</summary>
-        <p class="hint">正規表現は上級者向けです。絵文字内部表記は通常画面では編集しません。</p>
       </details>
       <div class="row-actions">
         {% if can_edit %}
           <button type="submit">{% if mode == "new" %}作成{% else %}保存{% endif %}</button>
         {% else %}
-          <button type="button" disabled>保存できません</button>
+          <button type="button" disabled>保存不可</button>
         {% endif %}
       </div>
     </form>
     {% if mode == "edit" %}
-      <form method="post" action="/guilds/{{ guild_id }}/auto-reactions/{{ reaction.id }}/delete" data-confirm="この自動反応を削除しますか？">
+      <form method="post" action="/guilds/{{ guild_id }}/auto-reactions/{{ reaction.id }}/delete" data-confirm="この自動反応を削除する？">
         <button class="danger" type="submit" {% if not can_edit %}disabled{% endif %}>削除</button>
       </form>
     {% endif %}

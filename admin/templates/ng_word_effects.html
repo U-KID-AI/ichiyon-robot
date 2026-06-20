@@ -9,7 +9,7 @@
       {% if server.icon_url %}<img class="server-icon" src="{{ server.icon_url }}" alt="">{% else %}<div class="server-icon placeholder"></div>{% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">Guild ID: {{ guild_id }}</p>
+        <p class="empty">特殊効果タグをNGワードに付与。</p>
         {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
       </div>
     </div>
@@ -30,10 +30,10 @@
     <form class="filter-form" method="get" action="/guilds/{{ guild_id }}/ng-words/{{ word.id }}/effects">
       <label>キーワード<input type="search" name="q" value="{{ filters.q }}" placeholder="タグ名、説明で検索"></label>
       <label>
-        効果タイプ
+        効果の種類
         <select name="effect_type">
           <option value="all" {% if filters.effect_type == "all" %}selected{% endif %}>すべて</option>
-          {% for item in effect_types %}<option value="{{ item }}" {% if filters.effect_type == item %}selected{% endif %}>{{ item }}</option>{% endfor %}
+          {% for item in effect_types %}<option value="{{ item }}" {% if filters.effect_type == item %}selected{% endif %}>{{ effect_type_labels.get(item, item) }}</option>{% endfor %}
         </select>
       </label>
       <label>
@@ -60,7 +60,7 @@
     {% if tags %}
       <div class="table-wrap">
         <table class="admin-table">
-          <thead><tr><th>付与</th><th>状態</th><th>タグ名</th><th>タグ色</th><th>効果タイプ</th><th>管理者限定</th><th>操作</th></tr></thead>
+          <thead><tr><th>付与</th><th>状態</th><th>タグ名</th><th>タグ色</th><th>効果の種類</th><th>管理者限定</th><th>操作</th></tr></thead>
           <tbody>
             {% for tag in tags %}
               <tr>
@@ -68,7 +68,7 @@
                 <td data-label="状態">{% if tag.enabled %}<strong class="status enabled">有効</strong>{% else %}<strong class="status disabled">無効</strong>{% endif %}</td>
                 <td data-label="タグ名">{{ tag.name }}</td>
                 <td data-label="タグ色"><span class="color-swatch" style="background: {{ tag.color or '#6B7280' }}"></span>{{ tag.color or "#6B7280" }}</td>
-                <td data-label="効果タイプ">{{ tag.effect_type }}</td>
+                <td data-label="効果の種類">{{ tag.effect_type_label }}</td>
                 <td data-label="管理者限定">{% if tag.admin_only %}あり{% else %}なし{% endif %}</td>
                 <td data-label="操作">
                   <div class="row-actions">
@@ -77,10 +77,10 @@
                       <input type="hidden" name="tag_id" value="{{ tag.id }}">
                       {% if tag.assigned %}
                         <input type="hidden" name="action" value="unassign">
-                        <button type="submit" {% if not tag.can_manage %}disabled title="この権限では解除できません"{% endif %}>解除</button>
+                        <button type="submit" {% if not tag.can_manage %}disabled title="権限なし"{% endif %}>解除</button>
                       {% else %}
                         <input type="hidden" name="action" value="assign">
-                        <button type="submit" {% if not tag.can_manage %}disabled title="この権限では付与できません"{% endif %}>付与</button>
+                        <button type="submit" {% if not tag.can_manage %}disabled title="権限なし"{% endif %}>付与</button>
                       {% endif %}
                     </form>
                   </div>
@@ -100,10 +100,10 @@
             <dl class="info-list">
               <dt>タグ名</dt><dd>{{ tag.name }}</dd>
               <dt>説明</dt><dd>{{ tag.description or "未設定" }}</dd>
-              <dt>効果タイプ</dt><dd>{{ tag.effect_type }}</dd>
+              <dt>効果の種類</dt><dd>{{ tag.effect_type_label }}</dd>
               <dt>効果設定概要</dt><dd>{{ tag.effect_config_summary }}</dd>
-              <dt>追加投稿</dt><dd>{% if tag.additional_text %}{{ tag.additional_text }}{% else %}なし{% endif %} / {{ tag.additional_post_timing }}</dd>
-              <dt>クールタイム</dt><dd>{{ tag.cooldown_seconds }}秒 / {{ tag.cooldown_scope }}</dd>
+              <dt>追加投稿</dt><dd>{% if tag.additional_text %}{{ tag.additional_text }}{% else %}なし{% endif %} / {{ tag.additional_post_timing_label }}</dd>
+              <dt>クールタイム</dt><dd>{{ tag.cooldown_seconds }}秒 / {{ tag.cooldown_scope_label }}</dd>
               <dt>管理者限定</dt><dd>{% if tag.admin_only %}あり{% else %}なし{% endif %}</dd>
             </dl>
           </div>

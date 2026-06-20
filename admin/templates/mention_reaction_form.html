@@ -13,7 +13,7 @@
       {% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">メンション反応を管理します。</p>
+        <p class="empty">メンション反応を管理。</p>
         {% if server.role %}
           <strong class="status enabled">{{ server.role }}</strong>
         {% endif %}
@@ -24,7 +24,7 @@
       <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
       <a class="button-link secondary" href="/guilds/{{ guild_id }}/mention-reactions?kind={% if reaction.reaction_kind == 'search' %}search{% else %}random_draw{% endif %}">メンション反応一覧へ戻る</a>
     </div>
-    <p class="hint">検索型は固定機能です。通常画面から新しく作れるのはランダム抽選だけです。</p>
+    <p class="hint">検索型は固定機能。新規作成はランダム抽選だけ。</p>
   </section>
 
   {% if errors %}
@@ -38,10 +38,10 @@
   <section class="panel">
     <h2>基本情報</h2>
     {% if search_readonly %}
-      <p class="hint">この反応は検索型です。検索ロジック本体は編集せず、呼び出しワードなどの設定だけを扱います。</p>
+      <p class="hint">検索型。ここでは呼び出しワードなどを設定。</p>
     {% endif %}
     {% if reaction.is_system %}
-      <p class="hint">固定機能です。削除はできません。重要な設定変更はサーバー管理者以上に限定します。</p>
+      <p class="hint">固定機能。削除不可。重要設定はサーバー管理者以上。</p>
     {% endif %}
 
     <form class="quote-form" method="post">
@@ -61,7 +61,7 @@
         一致方式
         <select name="match_type" {% if not can_edit_reaction %}disabled{% endif %}>
           {% for match_type in match_types %}
-            <option value="{{ match_type.value }}" {% if reaction.match_type == match_type.value %}selected{% endif %}>{{ match_type.label }}{% if match_type.value == "regex" %}（上級者向け）{% endif %}</option>
+            <option value="{{ match_type.value }}" {% if reaction.match_type == match_type.value %}selected{% endif %}>{{ match_type.label }}{% if match_type.value == "regex" %}{% endif %}</option>
           {% endfor %}
         </select>
       </label>
@@ -82,7 +82,7 @@
           <dt>固定機能</dt>
           <dd>{% if reaction.is_system %}固定機能{% else %}追加した反応{% endif %}</dd>
           <dt>削除</dt>
-          <dd>{% if reaction.is_system or not reaction.is_deletable %}固定機能のため削除できません。{% else %}削除できます。{% endif %}</dd>
+          <dd>{% if reaction.is_system or not reaction.is_deletable %}固定機能のため削除不可。{% else %}削除可。{% endif %}</dd>
         </dl>
       </details>
 
@@ -90,13 +90,13 @@
         {% if can_edit_reaction %}
           <button type="submit">{% if mode == "new" %}作成{% else %}保存{% endif %}</button>
         {% else %}
-          <button type="button" disabled>保存できません</button>
+          <button type="button" disabled>保存不可</button>
         {% endif %}
       </div>
     </form>
     {% if mode == "edit" %}
-      <form method="post" action="/guilds/{{ guild_id }}/mention-reactions/{{ reaction.id }}/delete" data-confirm="このメンション反応を削除しますか？">
-        <button class="danger" type="submit" {% if reaction.is_system or not reaction.is_deletable or not can_edit_reaction %}disabled title="固定機能、または権限不足のため削除できません"{% endif %}>削除</button>
+      <form method="post" action="/guilds/{{ guild_id }}/mention-reactions/{{ reaction.id }}/delete" data-confirm="このメンション反応を削除する？">
+        <button class="danger" type="submit" {% if reaction.is_system or not reaction.is_deletable or not can_edit_reaction %}disabled title="固定機能、または権限なし"{% endif %}>削除</button>
       </form>
     {% endif %}
   </section>
@@ -104,7 +104,7 @@
   {% if mode == "edit" and deck_settings %}
     <section class="panel">
       <h2>デッキ検索の設定</h2>
-      <p class="hint">デッキ検索は検索型の固定機能です。検索ロジックや画像判定は後続Phaseで扱い、この画面では使い方の設定だけ保存します。</p>
+      <p class="hint">デッキ検索は固定機能。ここでは使い方だけ設定。</p>
       {% if deck_errors %}
         {% for error in deck_errors %}
           <p class="error">{{ error }}</p>
@@ -120,11 +120,11 @@
           一致方式
           <select name="match_type" {% if not can_edit_deck_settings %}disabled{% endif %}>
             {% for match_type in match_types %}
-              <option value="{{ match_type.value }}" {% if deck_settings.match_type == match_type.value %}selected{% endif %}>{{ match_type.label }}{% if match_type.value == "regex" %}（上級者向け）{% endif %}</option>
+              <option value="{{ match_type.value }}" {% if deck_settings.match_type == match_type.value %}selected{% endif %}>{{ match_type.label }}{% if match_type.value == "regex" %}{% endif %}</option>
             {% endfor %}
           </select>
         </label>
-        <label>使用できるチャンネルID（1行に1つ）<textarea name="allowed_channel_ids" placeholder="123&#10;456" {% if not can_edit_deck_settings %}disabled{% endif %}>{{ deck_settings.allowed_channel_ids }}</textarea></label>
+        <label>使えるチャンネルID（1行に1つ）<textarea name="allowed_channel_ids" placeholder="123&#10;456" {% if not can_edit_deck_settings %}disabled{% endif %}>{{ deck_settings.allowed_channel_ids }}</textarea></label>
         <label>返す件数<input type="number" min="1" name="max_results" value="{{ deck_settings.max_results }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
         <label>使えないチャンネルでのメッセージ<textarea name="deny_message" {% if not can_edit_deck_settings %}disabled{% endif %}>{{ deck_settings.deny_message }}</textarea></label>
         <label>
@@ -132,7 +132,7 @@
           <select name="missing_format_behavior" {% if not can_edit_deck_settings %}disabled{% endif %}>
             <option value="ask_format" {% if deck_settings.missing_format_behavior == "ask_format" %}selected{% endif %}>形式を確認する</option>
             <option value="latest" {% if deck_settings.missing_format_behavior == "latest" %}selected{% endif %}>最新扱いにする</option>
-            <option value="reject" {% if deck_settings.missing_format_behavior == "reject" %}selected{% endif %}>使えないことを伝える</option>
+              <option value="reject" {% if deck_settings.missing_format_behavior == "reject" %}selected{% endif %}>使えないと返す</option>
           </select>
         </label>
         <label>説明<textarea name="description" {% if not can_edit_deck_settings %}disabled{% endif %}>{{ deck_settings.description }}</textarea></label>
@@ -140,7 +140,7 @@
           <summary>詳細設定</summary>
           <dl class="info-list">
             <dt>検索タイプ</dt><dd>デッキ検索</dd>
-            <dt>新規作成</dt><dd>検索型機能は通常フォームから新規追加しません。</dd>
+            <dt>新規作成</dt><dd>検索型は通常フォームから追加しない。</dd>
           </dl>
         </details>
         {% if can_edit_deck_settings %}
@@ -186,12 +186,12 @@
                   {% if can_edit_choices %}
                     <button type="submit">候補を保存</button>
                   {% else %}
-                    <button type="button" disabled>候補を保存できません</button>
+                    <button type="button" disabled>保存不可</button>
                   {% endif %}
                   <a class="button-link secondary" href="{{ choice.effects_url }}">特殊効果を編集</a>
                 </div>
               </form>
-              <form method="post" action="/guilds/{{ guild_id }}/mention-reactions/{{ reaction.id }}/choices/{{ choice.id }}/delete" data-confirm="この候補を削除しますか？">
+              <form method="post" action="/guilds/{{ guild_id }}/mention-reactions/{{ reaction.id }}/choices/{{ choice.id }}/delete" data-confirm="この候補を削除する？">
                 <button class="danger" type="submit" {% if not can_edit_choices %}disabled{% endif %}>候補を削除</button>
               </form>
               <div class="assigned-effects">
@@ -229,7 +229,7 @@
             {% if can_edit_choices %}
               <button type="submit">候補を追加</button>
             {% else %}
-              <button type="button" disabled>候補を追加できません</button>
+              <button type="button" disabled>追加不可</button>
             {% endif %}
           </form>
         </section>

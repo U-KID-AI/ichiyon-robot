@@ -21,7 +21,7 @@ MATCH_TYPE_LABELS = {
     "exact": "完全一致",
     "prefix": "前方一致",
     "contains": "含む",
-    "regex": "正規表現（上級者向け）",
+    "regex": "正規表現",
 }
 
 STATUS_LABELS = {
@@ -47,6 +47,77 @@ EFFECT_TYPE_LABELS = {
     "temporary_state": "一時状態",
     "ng_behavior": "NGワード動作",
     "extra_choice": "候補追加",
+}
+
+TARGET_TYPE_LABELS = {
+    "mention_reaction_choice": "抽選候補",
+    "auto_reaction": "自動反応",
+    "ng_word": "NGワード",
+}
+
+TRIGGER_TIMING_LABELS = {
+    "choice_selected": "候補が選ばれた時",
+    "auto_reaction_triggered": "自動反応が動いた時",
+    "ng_word_detected": "NGワード検知時",
+}
+
+ADDITIONAL_POST_TIMING_LABELS = {
+    "none": "投稿なし",
+    "tag_triggered": "タグ発動時",
+    "effect_success": "効果成功時",
+    "effect_end": "効果終了時",
+}
+
+EXPIRES_TYPE_LABELS = {
+    "immediate": "その場だけ",
+    "next_bot_action": "次のBot動作まで",
+    "next_special_roll": "次の特殊抽選まで",
+    "seconds": "秒数指定",
+    "count": "回数指定",
+    "permanent": "期限なし",
+}
+
+COOLDOWN_SCOPE_LABELS = {
+    "none": "なし",
+    "guild": "サーバー単位",
+    "channel": "チャンネル単位",
+    "user": "ユーザー単位",
+    "assigned_event": "付与先ごと",
+}
+
+COOLDOWN_TYPE_LABELS = {
+    "none": "なし",
+    "duration": "時間指定",
+    "once_per_period": "期間内1回",
+}
+
+COOLDOWN_PERIOD_LABELS = {
+    "none": "なし",
+    "monthly": "月ごと",
+}
+
+COOLDOWN_RESET_LABELS = {
+    "none": "なし",
+    "month_start": "月初",
+    "day": "指定日",
+}
+
+CONDITION_TYPE_LABELS = {
+    "probability": "確率抽選",
+    "counter_threshold": "カウント到達",
+    "period_not_triggered": "期間内未発動",
+    "manual": "手動",
+    "schedule": "日時指定",
+    "duration": "時間経過",
+    "duration_elapsed": "時間経過",
+}
+
+RESET_TYPE_LABELS = {
+    "none": "なし",
+    "daily": "毎日",
+    "monthly": "毎月",
+    "monthly_day": "毎月指定日",
+    "manual": "手動",
 }
 
 SCHEDULE_TYPE_LABELS = {
@@ -99,13 +170,13 @@ async def save_uploaded_image(
 
     suffix = Path(upload.filename).suffix.lower()
     if suffix not in ALLOWED_IMAGE_EXTENSIONS:
-        return None, "対応していない画像形式です。png, jpg, jpeg, gif, webp を選んでください。"
+        return None, "対応外の画像形式。png, jpg, jpeg, gif, webp のみ。"
 
     content = await upload.read()
     if not content:
-        return None, "画像ファイルが空です。"
+        return None, "画像ファイルが空。"
     if len(content) > MAX_IMAGE_SIZE:
-        return None, "画像サイズは8MB以下にしてください。"
+        return None, "画像サイズは8MB以下。"
 
     target_dir = IMAGE_ROOT / category
     target_dir.mkdir(parents=True, exist_ok=True)

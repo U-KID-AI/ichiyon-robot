@@ -9,7 +9,7 @@
       {% if server.icon_url %}<img class="server-icon" src="{{ server.icon_url }}" alt="">{% else %}<div class="server-icon placeholder"></div>{% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">指定したタイミングで投稿する内容を管理します。</p>
+        <p class="empty">決まった日時の投稿を設定。</p>
         {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
       </div>
     </div>
@@ -73,7 +73,7 @@
         <label>タイムゾーン<input type="text" name="timezone" value="{{ post.timezone }}" placeholder="Asia/Tokyo" {% if not can_edit %}disabled{% endif %}></label>
       </div>
       <p class="empty">現在の設定: {{ schedule_summary }}</p>
-      <p class="hint">6/30投稿の例: 種類は「毎年」、月は6、日は30、本文は「サ終やめませんか？」です。</p>
+      <p class="hint">6/30投稿の例: 種類は「毎年」、月は6、日は30、本文は「サ終やめませんか？」。</p>
 
       {% if mode == "edit" %}
         <details>
@@ -92,7 +92,7 @@
       {% endif %}
     </form>
     {% if mode == "edit" %}
-      <form method="post" action="/guilds/{{ guild_id }}/auto-posts/{{ post.id }}/delete" data-confirm="この自動投稿を削除しますか？">
+      <form method="post" action="/guilds/{{ guild_id }}/auto-posts/{{ post.id }}/delete" data-confirm="この自動投稿を削除する？">
         <button class="danger" type="submit" {% if not can_edit %}disabled{% endif %}>削除</button>
       </form>
     {% endif %}

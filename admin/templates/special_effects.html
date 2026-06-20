@@ -9,7 +9,7 @@
       {% if server.icon_url %}<img class="server-icon" src="{{ server.icon_url }}" alt="">{% else %}<div class="server-icon placeholder"></div>{% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">抽選候補・自動反応・NGワードへ付ける追加効果を管理します。</p>
+        <p class="empty">追加投稿やカウント変更を設定。</p>
         {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
       </div>
     </div>
@@ -18,7 +18,7 @@
       <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
       {% if can_create %}<a class="button-link" href="/guilds/{{ guild_id }}/special-effects/new">+ 特殊効果タグを追加</a>{% else %}<button type="button" disabled>+ 特殊効果タグを追加</button>{% endif %}
     </div>
-    <p class="hint">付与できる対象は、メンション反応の抽選候補・自動反応・NGワードだけです。</p>
+    <p class="hint">付与先は抽選候補・自動反応・NGワードだけ。</p>
   </section>
 
   <section class="panel">
@@ -75,16 +75,16 @@
                 <td data-label="効果の種類">{{ tag.effect_type_label }}</td>
                 <td data-label="管理者限定">{% if tag.admin_only %}あり{% else %}なし{% endif %}</td>
                 <td data-label="追加投稿">{% if tag.has_additional_text %}あり{% else %}なし{% endif %}</td>
-                <td data-label="クールタイム">{{ tag.cooldown_seconds }}秒 / {{ tag.cooldown_scope }}</td>
+                <td data-label="クールタイム">{{ tag.cooldown_seconds }}秒 / {{ tag.cooldown_scope_label }}</td>
                 <td data-label="操作">
                   <div class="row-actions">
                     <a class="button-link secondary" href="{{ tag.edit_url }}">編集</a>
                     <button class="info-button" type="button" data-modal-target="special-effect-info-{{ tag.id }}" aria-label="{{ tag.name }}のInfo">i</button>
                     <form method="post" action="{{ tag.toggle_url }}">
-                      <button type="submit" {% if not tag.can_toggle %}disabled title="この権限では切り替えできません"{% endif %}>{% if tag.enabled %}無効にする{% else %}有効にする{% endif %}</button>
+                      <button type="submit" {% if not tag.can_toggle %}disabled title="権限なし"{% endif %}>{% if tag.enabled %}OFFにする{% else %}ONにする{% endif %}</button>
                     </form>
-                    <form method="post" action="{{ tag.delete_url }}" data-confirm="この特殊効果タグを削除しますか？">
-                      <button class="danger" type="submit" {% if not tag.can_delete %}disabled title="固定タグ、または権限不足のため削除できません"{% endif %}>削除</button>
+                    <form method="post" action="{{ tag.delete_url }}" data-confirm="この特殊効果タグを削除する？">
+                      <button class="danger" type="submit" {% if not tag.can_delete %}disabled title="固定タグ、または権限なし"{% endif %}>削除</button>
                     </form>
                   </div>
                 </td>
@@ -102,14 +102,14 @@
               <button class="modal-close" type="button" data-modal-close aria-label="閉じる">x</button>
             </div>
             <dl class="info-list">
-              <dt>説明</dt><dd>{{ tag.description or "説明は未設定です。" }}</dd>
+              <dt>説明</dt><dd>{{ tag.description or "説明なし" }}</dd>
               <dt>効果の種類</dt><dd>{{ tag.effect_type_label }}</dd>
               <dt>詳細設定</dt><dd>{{ tag.effect_config_summary }}</dd>
-              <dt>追加投稿</dt><dd>{% if tag.additional_text %}{{ tag.additional_text }}{% else %}なし{% endif %} / {{ tag.additional_post_timing }}</dd>
-              <dt>有効期限</dt><dd>{{ tag.expires_type }}{% if tag.expires_value %}: {{ tag.expires_value }}{% endif %}</dd>
-              <dt>クールタイム</dt><dd>{{ tag.cooldown_seconds }}秒 / {{ tag.cooldown_scope }}</dd>
-              <dt>管理者限定</dt><dd>{% if tag.admin_only %}管理者限定です。{% else %}通常タグです。{% endif %}</dd>
-              <dt>付与可能対象</dt><dd>{{ tag.target_type }}</dd>
+              <dt>追加投稿</dt><dd>{% if tag.additional_text %}{{ tag.additional_text }}{% else %}なし{% endif %} / {{ tag.additional_post_timing_label }}</dd>
+              <dt>有効期限</dt><dd>{{ tag.expires_type_label }}{% if tag.expires_value %}: {{ tag.expires_value }}{% endif %}</dd>
+              <dt>クールタイム</dt><dd>{{ tag.cooldown_seconds }}秒 / {{ tag.cooldown_scope_label }}</dd>
+              <dt>管理者限定</dt><dd>{% if tag.admin_only %}管理者限定。{% else %}通常タグ。{% endif %}</dd>
+              <dt>付与可能対象</dt><dd>{{ tag.target_type_label }}</dd>
             </dl>
           </div>
         </div>

@@ -318,15 +318,15 @@ def build_form(values: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str], str]:
 
     errors = []
     if not form["name"]:
-        errors.append("Post name is required.")
+        errors.append("投稿名を入力。")
     if not form["body"] and not form["image_path"]:
-        errors.append("Body or image path is required.")
+        errors.append("本文か画像を入力。")
     if not form["channel_id"]:
-        errors.append("Channel ID is required.")
+        errors.append("投稿チャンネルIDを入力。")
     if values.get("schedule_type") not in SCHEDULE_TYPES:
-        errors.append("Schedule type is invalid.")
+        errors.append("スケジュール種別を選択。")
     if not TIME_PATTERN.match(form["time"]) or form["time"] > "23:59":
-        errors.append("Time must be HH:MM.")
+        errors.append("時刻は HH:MM 形式。")
 
     schedule, schedule_errors = build_schedule_config(form)
     errors.extend(schedule_errors)
@@ -350,18 +350,18 @@ def build_schedule_config(form: Dict[str, Any]) -> Tuple[Dict[str, Any], List[st
 
     if schedule_type in ("once", "yearly"):
         if month is None or month < 1 or month > 12:
-            errors.append("Month must be 1-12 for once/yearly schedules.")
+            errors.append("月は1〜12。")
         if day is None or day < 1 or day > 31:
-            errors.append("Day must be 1-31 for once/yearly schedules.")
+            errors.append("日は1〜31。")
         config["month"] = month
         config["day"] = day
     elif schedule_type == "monthly":
         if day is None or day < 1 or day > 31:
-            errors.append("Day must be 1-31 for monthly schedules.")
+            errors.append("日は1〜31。")
         config["day"] = day
     elif schedule_type == "weekly":
         if weekday not in WEEKDAYS or not weekday:
-            errors.append("Weekday is required for weekly schedules.")
+            errors.append("曜日を選択。")
         config["weekday"] = weekday
 
     return config, errors

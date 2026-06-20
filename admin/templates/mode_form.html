@@ -9,7 +9,7 @@
       {% if server.icon_url %}<img class="server-icon" src="{{ server.icon_url }}" alt="">{% else %}<div class="server-icon placeholder"></div>{% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">Guild ID: {{ guild_id }}</p>
+        <p class="empty">一時的な特殊状態を設定。</p>
         {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
       </div>
     </div>
@@ -41,7 +41,7 @@
           モード中の動き
           <select name="behavior_type" {% if not can_edit %}disabled{% endif %}>
             {% for item in behavior_types %}
-              <option value="{{ item }}" {% if mode_data.behavior_type == item %}selected{% endif %}>{% if item == "reply" %}返信する{% elif item == "offline" %}反応しない{% else %}{{ item }}{% endif %}</option>
+              <option value="{{ item }}" {% if mode_data.behavior_type == item %}selected{% endif %}>{{ behavior_labels.get(item, item) }}</option>
             {% endfor %}
           </select>
         </label>
@@ -90,7 +90,7 @@
           方式
           <select name="cooldown_type" {% if not can_edit %}disabled{% endif %}>
             {% for item in cooldown_types %}
-              <option value="{{ item }}" {% if mode_data.cooldown_type == item %}selected{% endif %}>{{ item }}</option>
+              <option value="{{ item }}" {% if mode_data.cooldown_type == item %}selected{% endif %}>{{ cooldown_type_labels.get(item, item) }}</option>
             {% endfor %}
           </select>
         </label>
@@ -99,7 +99,7 @@
           期間
           <select name="cooldown_period" {% if not can_edit %}disabled{% endif %}>
             {% for item in cooldown_periods %}
-              <option value="{{ item }}" {% if mode_data.cooldown_period == item %}selected{% endif %}>{{ item }}</option>
+              <option value="{{ item }}" {% if mode_data.cooldown_period == item %}selected{% endif %}>{{ cooldown_period_labels.get(item, item) }}</option>
             {% endfor %}
           </select>
         </label>
@@ -107,24 +107,24 @@
           リセット
           <select name="cooldown_reset" {% if not can_edit %}disabled{% endif %}>
             {% for item in cooldown_resets %}
-              <option value="{{ item }}" {% if mode_data.cooldown_reset == item %}selected{% endif %}>{{ item }}</option>
+              <option value="{{ item }}" {% if mode_data.cooldown_reset == item %}selected{% endif %}>{{ cooldown_reset_labels.get(item, item) }}</option>
             {% endfor %}
           </select>
         </label>
         <label>リセット日<input type="number" name="cooldown_day" value="{{ mode_data.cooldown_day }}" min="1" max="31" {% if not can_edit %}disabled{% endif %}></label>
       </div>
-      <p class="empty">Examples: hayusu = once_per_period/monthly/month_start, narita = once_per_period/monthly/day 22.</p>
-      <p class="empty">Shikocchi recovery message "まずは女子供から殺す" is a fixed preset and is not editable here.</p>
+      <p class="empty">例: はゆすは「期間内1回 / 月ごと / 月初」。成田は「期間内1回 / 月ごと / 22日」。</p>
+      <p class="empty">しこっち復帰メッセージ「まずは女子供から殺す」は固定。ここでは編集しない。</p>
 
       {% if can_edit %}
         <button type="submit">{% if mode == "new" %}作成{% else %}保存{% endif %}</button>
       {% else %}
-        <button type="button" disabled>保存できません</button>
+        <button type="button" disabled>保存不可</button>
       {% endif %}
     </form>
     {% if mode == "edit" %}
-      <form method="post" action="/guilds/{{ guild_id }}/modes/{{ mode_id }}/delete" data-confirm="このモードを削除しますか？">
-        <button class="danger" type="submit" {% if not can_edit or not mode_data.is_deletable %}disabled title="固定モード、または権限不足のため削除できません"{% endif %}>削除</button>
+      <form method="post" action="/guilds/{{ guild_id }}/modes/{{ mode_id }}/delete" data-confirm="このモードを削除する？">
+        <button class="danger" type="submit" {% if not can_edit or not mode_data.is_deletable %}disabled title="固定モード、または権限なし"{% endif %}>削除</button>
       </form>
     {% endif %}
   </section>
@@ -170,7 +170,7 @@
                 <label class="check-row"><input type="checkbox" name="choice_enabled" {% if choice.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>有効</label>
                 {% if can_edit %}<button type="submit">候補を保存</button>{% endif %}
               </form>
-              <form method="post" action="/guilds/{{ guild_id }}/modes/{{ mode_id }}/reply-choices/{{ choice.id }}/delete" data-confirm="この返答候補を削除しますか？">
+              <form method="post" action="/guilds/{{ guild_id }}/modes/{{ mode_id }}/reply-choices/{{ choice.id }}/delete" data-confirm="この返答候補を削除する？">
                 <button class="danger" type="submit" {% if not can_edit %}disabled{% endif %}>候補を削除</button>
               </form>
             {% endfor %}
@@ -198,7 +198,7 @@
       {% if counters %}
         <p class="empty">既存カウント: {% for counter in counters %}<code>{{ counter.count_key }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
       {% else %}
-        <p class="empty">カウントはまだありません。カウント到達条件を追加する時に作成できます。</p>
+        <p class="empty">カウントはまだなし。カウント到達条件で作成可。</p>
       {% endif %}
 
       {% if mode_data.trigger_conditions %}
@@ -210,7 +210,7 @@
                   条件の種類
                   <select name="condition_type" {% if not can_edit %}disabled{% endif %}>
                     {% for item in trigger_types %}
-                      <option value="{{ item }}" {% if condition.ui_condition_type == item %}selected{% endif %}>{{ item }}</option>
+                      <option value="{{ item }}" {% if condition.ui_condition_type == item %}selected{% endif %}>{{ condition_type_labels.get(item, item) }}</option>
                     {% endfor %}
                   </select>
                 </label>
@@ -242,7 +242,7 @@
             条件の種類
             <select name="condition_type" {% if not can_edit %}disabled{% endif %}>
               {% for item in trigger_types %}
-                <option value="{{ item }}">{{ item }}</option>
+                <option value="{{ item }}">{{ condition_type_labels.get(item, item) }}</option>
               {% endfor %}
             </select>
           </label>
@@ -269,7 +269,7 @@
             リセット方式
             <select name="new_count_reset_type" {% if not can_edit %}disabled{% endif %}>
               {% for item in reset_types %}
-                <option value="{{ item }}">{{ item }}</option>
+                <option value="{{ item }}">{{ reset_type_labels.get(item, item) }}</option>
               {% endfor %}
             </select>
           </label>
@@ -288,7 +288,7 @@
                 条件の種類
                 <select name="condition_type" {% if not can_edit %}disabled{% endif %}>
                   {% for item in exit_types %}
-                    <option value="{{ item }}" {% if condition.ui_condition_type == item %}selected{% endif %}>{{ item }}</option>
+                    <option value="{{ item }}" {% if condition.ui_condition_type == item %}selected{% endif %}>{{ condition_type_labels.get(item, item) }}</option>
                   {% endfor %}
                 </select>
               </label>
@@ -311,7 +311,7 @@
           条件の種類
           <select name="condition_type" {% if not can_edit %}disabled{% endif %}>
             {% for item in exit_types %}
-              <option value="{{ item }}">{{ item }}</option>
+              <option value="{{ item }}">{{ condition_type_labels.get(item, item) }}</option>
             {% endfor %}
           </select>
         </label>
