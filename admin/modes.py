@@ -564,9 +564,23 @@ def summarize_cooldown(config: Dict[str, Any]) -> str:
                 period,
                 config.get("day"),
             )
-        reset = COOLDOWN_RESET_LABELS.get(config.get("reset"), config.get("reset"))
+        
+        reset_value = config.get("reset")
+        if isinstance(reset_value, dict):
+            reset_key = reset_value.get("type") or reset_value.get("unit") or reset_value.get("value")
+            reset_detail = reset_value.get("day") or reset_value.get("at")
+        else:
+            reset_key = reset_value
+            reset_detail = None
+    
+        if isinstance(reset_key, (dict, list)):
+            reset_key = ""
+            
+        reset = COOLDOWN_RESET_LABELS.get(reset_key, reset_key or "")
+        if reset_detail:
+            reset = "{0} {1}".format(reset, reset_detail)
+            
         return "期間内1回 / {0} / {1}リセット".format(period, reset)
-    return str(config)
 
 
 def format_condition(item: Dict[str, Any]) -> Dict[str, Any]:
