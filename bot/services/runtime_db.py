@@ -20,6 +20,7 @@ from bot.repositories import (
     NgWordRepository,
     SpecialEffectRepository,
 )
+from bot.services.deck_search import search_decks
 
 
 FEATURE_MENTION_REACTIONS = "mention_reactions"
@@ -691,6 +692,20 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
             return RuntimeAction(False)
         selected_search = sort_mention_matches(search_matches)[0]
         values = build_template_values(message, command_text, selected_search.groups)
+        config_json = normalize_json(selected_search.row.get("config_json"))
+        if config_json.get("search_type") == "deck_search":
+            response = await search_decks(
+                guild_id,
+                str(getattr(message.channel, "id", "")),
+                command_text,
+                config_json,
+            )
+            await message.channel.send(response)
+            count_changed = False
+            if limited_effects:
+                effect_result = await execute_effects(connection, guild_id, limited_effects, message, values)
+                count_changed = effect_result.count_changed
+            return RuntimeAction(True, count_changed)
         effect_result = await execute_effects(connection, guild_id, limited_effects, message, values)
         return RuntimeAction(bool(limited_effects), effect_result.count_changed)
 

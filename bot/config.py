@@ -80,6 +80,9 @@ APP_ENV = get_app_env()
 DATA_BACKEND = get_data_backend()
 ENABLE_DEV_COMMANDS = get_env_bool("ENABLE_DEV_COMMANDS", False)
 DEVELOPER_USER_ID = get_env_int("DEVELOPER_USER_ID")
+X_BEARER_TOKEN = get_env_str("X_BEARER_TOKEN", "")
+X_SEARCH_ENABLED = get_env_bool("X_SEARCH_ENABLED", False)
+X_SEARCH_MAX_RESULTS = get_env_int("X_SEARCH_MAX_RESULTS", 10)
 NORMAL_BOT_NICKNAME = get_env_str(
     "NORMAL_BOT_NICKNAME",
     get_default_normal_bot_nickname(APP_ENV),

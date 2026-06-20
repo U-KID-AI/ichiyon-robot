@@ -263,6 +263,14 @@ class MentionReactionRepository:
             "max_results": 3,
             "deny_message": "このチャンネルではデッキ検索は使えません。",
             "missing_format_behavior": "ask_format",
+            "x_query_template": "({class_label} デッキ OR {class_label} deck) has:images",
+            "include_retweets": False,
+            "include_replies": False,
+            "image_scan_limit": 8,
+            "request_timeout_seconds": 10,
+            "cache_ttl_seconds": 60,
+            "result_format": "default",
+            "class_filter_required": True,
         }
         with self.connection.cursor() as cursor:
             cursor.execute(

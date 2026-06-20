@@ -361,6 +361,14 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         max_results: str = Form("3"),
         deny_message: str = Form(""),
         missing_format_behavior: str = Form("ask_format"),
+        x_query_template: str = Form(""),
+        include_retweets: Optional[str] = Form(None),
+        include_replies: Optional[str] = Form(None),
+        image_scan_limit: str = Form("8"),
+        request_timeout_seconds: str = Form("10"),
+        cache_ttl_seconds: str = Form("60"),
+        result_format: str = Form("default"),
+        class_filter_required: Optional[str] = Form(None),
         description: str = Form(""),
     ):
         user = get_current_user(request)
@@ -389,6 +397,14 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 max_results,
                 deny_message,
                 missing_format_behavior,
+                x_query_template,
+                include_retweets,
+                include_replies,
+                image_scan_limit,
+                request_timeout_seconds,
+                cache_ttl_seconds,
+                result_format,
+                class_filter_required,
                 description,
             )
             if not errors and repository.keyword_exists(guild_id, deck_settings["keyword"], reaction_id):
@@ -1072,12 +1088,28 @@ def build_deck_settings(reaction: Dict[str, Any]) -> Dict[str, Any]:
         "max_results": int(config.get("max_results") or 3),
         "deny_message": config.get("deny_message") or "このチャンネルではデッキ検索は使えません。",
         "missing_format_behavior": config.get("missing_format_behavior") or "ask_format",
+        "x_query_template": config.get("x_query_template") or "({class_label} デッキ OR {class_label} deck) has:images",
+        "include_retweets": bool(config.get("include_retweets", False)),
+        "include_replies": bool(config.get("include_replies", False)),
+        "image_scan_limit": int(config.get("image_scan_limit") or 8),
+        "request_timeout_seconds": int(config.get("request_timeout_seconds") or 10),
+        "cache_ttl_seconds": int(config.get("cache_ttl_seconds") or 60),
+        "result_format": config.get("result_format") or "default",
+        "class_filter_required": bool(config.get("class_filter_required", True)),
         "config_json": {
             "search_type": "deck_search",
             "allowed_channel_ids": config.get("allowed_channel_ids") or [],
             "max_results": int(config.get("max_results") or 3),
             "deny_message": config.get("deny_message") or "このチャンネルではデッキ検索は使えません。",
             "missing_format_behavior": config.get("missing_format_behavior") or "ask_format",
+            "x_query_template": config.get("x_query_template") or "({class_label} デッキ OR {class_label} deck) has:images",
+            "include_retweets": bool(config.get("include_retweets", False)),
+            "include_replies": bool(config.get("include_replies", False)),
+            "image_scan_limit": int(config.get("image_scan_limit") or 8),
+            "request_timeout_seconds": int(config.get("request_timeout_seconds") or 10),
+            "cache_ttl_seconds": int(config.get("cache_ttl_seconds") or 60),
+            "result_format": config.get("result_format") or "default",
+            "class_filter_required": bool(config.get("class_filter_required", True)),
         },
     }
 
@@ -1090,6 +1122,14 @@ def build_deck_settings_form(
     max_results: str,
     deny_message: str,
     missing_format_behavior: str,
+    x_query_template: str,
+    include_retweets: Optional[str],
+    include_replies: Optional[str],
+    image_scan_limit: str,
+    request_timeout_seconds: str,
+    cache_ttl_seconds: str,
+    result_format: str,
+    class_filter_required: Optional[str],
     description: str,
 ) -> Tuple[Dict[str, Any], List[str]]:
     channel_ids = split_channel_ids(allowed_channel_ids)
@@ -1097,6 +1137,18 @@ def build_deck_settings_form(
         result_count = int(max_results)
     except ValueError:
         result_count = 0
+    try:
+        scan_limit = int(image_scan_limit)
+    except ValueError:
+        scan_limit = 0
+    try:
+        timeout_seconds = int(request_timeout_seconds)
+    except ValueError:
+        timeout_seconds = 0
+    try:
+        ttl_seconds = int(cache_ttl_seconds)
+    except ValueError:
+        ttl_seconds = 0
 
     settings = {
         "keyword": keyword.strip(),
@@ -1107,6 +1159,14 @@ def build_deck_settings_form(
         "max_results": result_count,
         "deny_message": deny_message.strip(),
         "missing_format_behavior": missing_format_behavior if missing_format_behavior in MISSING_FORMAT_BEHAVIORS else "ask_format",
+        "x_query_template": x_query_template.strip(),
+        "include_retweets": include_retweets == "on",
+        "include_replies": include_replies == "on",
+        "image_scan_limit": scan_limit,
+        "request_timeout_seconds": timeout_seconds,
+        "cache_ttl_seconds": ttl_seconds,
+        "result_format": result_format.strip() or "default",
+        "class_filter_required": class_filter_required == "on",
     }
     settings["config_json"] = {
         "search_type": "deck_search",
@@ -1114,6 +1174,14 @@ def build_deck_settings_form(
         "max_results": result_count,
         "deny_message": settings["deny_message"],
         "missing_format_behavior": settings["missing_format_behavior"],
+        "x_query_template": settings["x_query_template"],
+        "include_retweets": settings["include_retweets"],
+        "include_replies": settings["include_replies"],
+        "image_scan_limit": settings["image_scan_limit"],
+        "request_timeout_seconds": settings["request_timeout_seconds"],
+        "cache_ttl_seconds": settings["cache_ttl_seconds"],
+        "result_format": settings["result_format"],
+        "class_filter_required": settings["class_filter_required"],
     }
 
     errors = []
@@ -1123,6 +1191,12 @@ def build_deck_settings_form(
         errors.append("一致方式を選択。")
     if result_count < 1:
         errors.append("返す件数は1以上。")
+    if scan_limit < 1:
+        errors.append("image_scan_limit must be 1 or more")
+    if timeout_seconds < 1:
+        errors.append("request_timeout_seconds must be 1 or more")
+    if ttl_seconds < 0:
+        errors.append("cache_ttl_seconds must be 0 or more")
     if missing_format_behavior not in MISSING_FORMAT_BEHAVIORS:
         errors.append("フォーマット未指定時の扱いを選択。")
     return settings, errors

@@ -138,6 +138,14 @@
         <label>説明<textarea name="description" {% if not can_edit_deck_settings %}disabled{% endif %}>{{ deck_settings.description }}</textarea></label>
         <details>
           <summary>詳細設定</summary>
+          <label>X検索クエリ<input type="text" name="x_query_template" value="{{ deck_settings.x_query_template or '' }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+          <label class="check-row"><input type="checkbox" name="include_retweets" {% if deck_settings.include_retweets %}checked{% endif %} {% if not can_edit_deck_settings %}disabled{% endif %}>リポストを含める</label>
+          <label class="check-row"><input type="checkbox" name="include_replies" {% if deck_settings.include_replies %}checked{% endif %} {% if not can_edit_deck_settings %}disabled{% endif %}>返信を含める</label>
+          <label>画像確認上限<input type="number" min="1" name="image_scan_limit" value="{{ deck_settings.image_scan_limit or 8 }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+          <label>タイムアウト秒<input type="number" min="1" name="request_timeout_seconds" value="{{ deck_settings.request_timeout_seconds or 10 }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+          <label>キャッシュ秒<input type="number" min="0" name="cache_ttl_seconds" value="{{ deck_settings.cache_ttl_seconds or 60 }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+          <label>表示形式<input type="text" name="result_format" value="{{ deck_settings.result_format or 'default' }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+          <label class="check-row"><input type="checkbox" name="class_filter_required" {% if deck_settings.class_filter_required %}checked{% endif %} {% if not can_edit_deck_settings %}disabled{% endif %}>クラス指定を必須にする</label>
           <dl class="info-list">
             <dt>検索タイプ</dt><dd>デッキ検索</dd>
             <dt>新規作成</dt><dd>検索型は通常フォームから追加しない。</dd>
