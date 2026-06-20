@@ -1,0 +1,70 @@
+{% extends "layout.html" %}
+
+{% block title %}{% if mode == "new" %}限定機能を追加{% else %}限定機能を編集{% endif %} - いちよんロボ管理画面{% endblock %}
+{% block heading %}{% if mode == "new" %}限定機能を追加{% else %}限定機能を編集{% endif %}{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="server-summary page-summary">
+      {% if server.icon_url %}<img class="server-icon" src="{{ server.icon_url }}" alt="">{% else %}<div class="server-icon placeholder"></div>{% endif %}
+      <div>
+        <h2>{{ server.name }}</h2>
+        <p class="empty">特定ユーザーのメンションに追加効果を付ける。</p>
+        {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
+      </div>
+    </div>
+    <div class="page-actions">
+      <a class="button-link secondary" href="/servers">サーバー選択へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}/mention-reactions/limited">限定機能一覧へ戻る</a>
+    </div>
+    <p class="hint">対象ユーザーがBotへメンションした時、選んだタグを必ず実行対象に追加。</p>
+  </section>
+
+  {% if errors %}
+    <section class="panel">
+      {% for error in errors %}<p class="error">{{ error }}</p>{% endfor %}
+    </section>
+  {% endif %}
+
+  <section class="panel">
+    <h2>設定</h2>
+    <form class="quote-form" method="post">
+      <div class="form-grid">
+        <label>対象ユーザーID<input type="text" name="discord_user_id" value="{{ entry.discord_user_id }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>表示名/メモ<input type="text" name="display_name" value="{{ entry.display_name }}" {% if not can_edit %}disabled{% endif %}></label>
+      </div>
+      <label>
+        付与する特殊効果タグ
+        <select name="effect_tag_id" {% if not can_edit %}disabled{% endif %}>
+          <option value="">選択</option>
+          {% for tag in tags %}
+            <option value="{{ tag.id }}" {% if entry.effect_tag_id == tag.id|string %}selected{% endif %}>
+              {{ tag.name }} / {{ tag.effect_type_label }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>説明<textarea name="description" {% if not can_edit %}disabled{% endif %}>{{ entry.description }}</textarea></label>
+      <label class="check-row"><input type="checkbox" name="enabled" {% if entry.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>有効</label>
+      {% if can_edit %}
+        <button type="submit">{% if mode == "new" %}作成{% else %}保存{% endif %}</button>
+      {% else %}
+        <button type="button" disabled>保存不可</button>
+      {% endif %}
+    </form>
+    {% if mode == "edit" %}
+      <form method="post" action="/guilds/{{ guild_id }}/mention-reactions/limited/{{ entry_id }}/delete" data-confirm="この限定機能を削除する？">
+        <button class="danger" type="submit" {% if not can_edit %}disabled title="権限なし"{% endif %}>削除</button>
+      </form>
+    {% endif %}
+  </section>
+
+  <script>
+    document.querySelectorAll("[data-confirm]").forEach(function (form) {
+      form.addEventListener("submit", function (event) {
+        if (!confirm(form.dataset.confirm)) { event.preventDefault(); }
+      });
+    });
+  </script>
+{% endblock %}

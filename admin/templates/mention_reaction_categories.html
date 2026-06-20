@@ -26,7 +26,7 @@
   </section>
 
   <section class="panel">
-    <h2>種類を選んでください</h2>
+    <h2>種類を選ぶ</h2>
     <div class="feature-grid">
       <a class="feature-card" href="/guilds/{{ guild_id }}/mention-reactions?kind=random_draw">
         <span class="feature-card-title">ランダム抽選</span>
@@ -36,12 +36,15 @@
         <span class="feature-card-title">検索</span>
         <span class="feature-card-body">デッキ検索など、入力内容をもとに検索して返答。</span>
       </a>
+      <a class="feature-card" href="/guilds/{{ guild_id }}/mention-reactions/limited">
+        <span class="feature-card-title">限定機能</span>
+        <span class="feature-card-body">特定ユーザーのメンションに追加効果を付ける。</span>
+      </a>
     </div>
-      {% if not has_deck_search %}
-        <form method="post" action="/guilds/{{ guild_id }}/mention-reactions/deck-search/create">
-          <button type="submit" {% if not can_create_deck_search %}disabled title="サーバー管理者以上のみ"{% endif %}>デッキ検索の固定枠を作成</button>
-        </form>
-      {% endif %}
-    </div>
+    {% if not has_deck_search %}
+      <form method="post" action="/guilds/{{ guild_id }}/mention-reactions/deck-search/create">
+        <button type="submit" {% if not can_create_deck_search %}disabled title="サーバー管理者以上のみ"{% endif %}>デッキ検索の固定枠を作成</button>
+      </form>
+    {% endif %}
   </section>
 {% endblock %}

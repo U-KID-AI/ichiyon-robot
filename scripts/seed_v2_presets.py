@@ -33,12 +33,25 @@ class Stats:
 
 
 class PresetSeeder:
-    def __init__(self, connection, guild_id: str, guild_name: str, dry_run: bool, force: bool) -> None:
+    def __init__(
+        self,
+        connection,
+        guild_id: str,
+        guild_name: str,
+        dry_run: bool,
+        force: bool,
+        limited_user_id: Optional[str] = None,
+        limited_display_name: str = "",
+        limited_tag_name: str = "ミニいちよん",
+    ) -> None:
         self.connection = connection
         self.guild_id = guild_id
         self.guild_name = guild_name
         self.dry_run = dry_run
         self.force = force
+        self.limited_user_id = limited_user_id
+        self.limited_display_name = limited_display_name
+        self.limited_tag_name = limited_tag_name
         self.stats = {
             "guilds": Stats(),
             "counters": Stats(),
@@ -52,6 +65,7 @@ class PresetSeeder:
             "mention_reaction_choices": Stats(),
             "auto_reactions": Stats(),
             "ng_words": Stats(),
+            "mention_limited_effects": Stats(),
         }
 
     def run(self) -> Dict[str, Stats]:
@@ -62,6 +76,7 @@ class PresetSeeder:
         reactions = self.seed_mention_reactions(tags)
         self.seed_auto_reactions(tags)
         self.seed_ng_words(tags)
+        self.seed_limited_effect(tags)
         self.print_material_summary(tags, modes, reactions)
         return self.stats
 
@@ -162,7 +177,7 @@ class PresetSeeder:
                 trigger_timing="choice_selected",
                 effect_type="probability_message",
                 effect_config={"probability": {"numerator": 1, "denominator": 32}},
-                additional_text=":yukkuri_itiyon: ｲﾔ〜{match_1:hankaku}ﾈ〜",
+                additional_text=":yukkuri_itiyon: ｲﾔ〜{match_1:mini_ichiyon}ﾈ〜",
                 additional_post_timing="effect_success",
                 expires_type="immediate",
                 cooldown_seconds=0,
@@ -241,6 +256,21 @@ class PresetSeeder:
                 trigger_timing="auto_reaction_triggered",
                 effect_type="next_action_count",
                 effect_config={"count": 2, "label": "cherry"},
+                additional_text="",
+                additional_post_timing="none",
+                expires_type="immediate",
+                cooldown_seconds=0,
+                cooldown_scope="none",
+            ),
+            "destroy": self.ensure_effect_tag(
+                name="破壊",
+                description="破壊系の危険機能を特殊効果タグとして扱うための枠。実行処理は後続。",
+                color="#DA373C",
+                priority=10,
+                target_type="mention_reaction_choice",
+                trigger_timing="choice_selected",
+                effect_type="custom",
+                effect_config={"preset": "destroy", "enabled_runtime": False},
                 additional_text="",
                 additional_post_timing="none",
                 expires_type="immediate",
@@ -888,6 +918,70 @@ class PresetSeeder:
             word_id = self.ensure_ng_word(word, True)
             self.ensure_assignment(tags["narita_ng"], "ng_word", word_id)
 
+    def seed_limited_effect(self, tags: Dict[str, int]) -> None:
+        if not self.limited_user_id:
+            return
+        tag_id = self.find_tag_id_by_name(self.limited_tag_name) or tags.get("hankaku")
+        if tag_id is None:
+            self.add("mention_limited_effects", "skipped")
+            return
+        self.ensure_limited_effect(
+            self.limited_user_id,
+            self.limited_display_name,
+            tag_id,
+            "seedで追加した限定機能。",
+            True,
+        )
+
+    def find_tag_id_by_name(self, name: str) -> Optional[int]:
+        row = self.fetch_one(
+            "SELECT id FROM special_effect_tags WHERE guild_id = %s AND name = %s",
+            (self.guild_id, name),
+        )
+        if row is None:
+            return None
+        return int(row["id"])
+
+    def ensure_limited_effect(
+        self,
+        discord_user_id: str,
+        display_name: str,
+        effect_tag_id: int,
+        description: str,
+        enabled: bool,
+    ) -> int:
+        existing = self.fetch_one(
+            """
+            SELECT *
+            FROM mention_limited_effects
+            WHERE guild_id = %s AND discord_user_id = %s AND effect_tag_id = %s
+            """,
+            (self.guild_id, discord_user_id, effect_tag_id),
+        )
+        if existing is not None and not self.force:
+            self.add("mention_limited_effects", "skipped")
+            return int(existing["id"])
+
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO mention_limited_effects (
+                    guild_id, discord_user_id, display_name, effect_tag_id, description, enabled
+                )
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (guild_id, discord_user_id, effect_tag_id) DO UPDATE
+                SET display_name = EXCLUDED.display_name,
+                    description = EXCLUDED.description,
+                    enabled = EXCLUDED.enabled,
+                    updated_at = NOW()
+                RETURNING id
+                """,
+                (self.guild_id, discord_user_id, display_name, effect_tag_id, description, enabled),
+            )
+            entry_id = int(cursor.fetchone()[0])
+        self.add("mention_limited_effects", "updated" if existing is not None else "inserted")
+        return entry_id
+
     def ensure_ng_word(self, word: str, enabled: bool) -> int:
         existing = self.fetch_one(
             "SELECT * FROM ng_words WHERE guild_id = %s AND word = %s",
@@ -952,6 +1046,7 @@ class PresetSeeder:
     ) -> None:
         print("preset material ids:")
         print("  mini tag id: {0}".format(tags["hankaku"]))
+        print("  destroy tag id: {0}".format(tags["destroy"]))
         print("  shikocchi roll tag id: {0}".format(tags["shikocchi_roll"]))
         print("  narita ng tag id: {0}".format(tags["narita_ng"]))
         print("  hayusu mode id: {0}".format(modes["hayusu"]))
@@ -968,6 +1063,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--guild-name", default="いちよんプリセット", help="Guild display name.")
     parser.add_argument("--dry-run", action="store_true", help="Run inside a rollback-only transaction.")
     parser.add_argument("--force", action="store_true", help="Update existing preset rows instead of skipping them.")
+    parser.add_argument("--limited-user-id", help="Optional Discord user id for mention limited effect.")
+    parser.add_argument("--limited-display-name", default="", help="Display memo for --limited-user-id.")
+    parser.add_argument("--limited-tag-name", default="ミニいちよん", help="Special effect tag name for --limited-user-id.")
     return parser.parse_args()
 
 
@@ -995,6 +1093,9 @@ def main() -> None:
             args.guild_name,
             args.dry_run,
             args.force,
+            args.limited_user_id,
+            args.limited_display_name,
+            args.limited_tag_name,
         )
         stats = seeder.run()
         if args.dry_run:

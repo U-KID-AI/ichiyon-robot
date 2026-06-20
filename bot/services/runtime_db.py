@@ -14,6 +14,7 @@ from bot.repositories import (
     CounterRepository,
     FeatureFlagRepository,
     MentionReactionRepository,
+    MentionLimitedEffectRepository,
     ModeRepository,
     NgWordRepository,
     SpecialEffectRepository,
@@ -79,7 +80,7 @@ def render_template(text: Optional[str], values: Dict[str, str]) -> str:
         value = values.get(key)
         if value is None:
             return match.group(0)
-        if transform == "hankaku":
+        if transform in ("hankaku", "mini_ichiyon"):
             return to_hankaku_text(value)
         return match.group(0)
 
@@ -219,6 +220,43 @@ def list_effects(connection, guild_id: str, target_type: str, target_id: int) ->
             )
         )
     return effects
+
+
+def get_message_author_id(message: discord.Message) -> str:
+    return str(getattr(getattr(message, "author", None), "id", "") or "")
+
+
+def list_limited_effects(connection, guild_id: str, message: discord.Message) -> List[Dict[str, Any]]:
+    discord_user_id = get_message_author_id(message)
+    if not discord_user_id:
+        return []
+    repository = MentionLimitedEffectRepository(connection)
+    try:
+        effects = repository.list_effects_for_user(guild_id, discord_user_id, enabled=True)
+    except Exception as exc:
+        try:
+            connection.rollback()
+        except Exception:
+            pass
+        print("[WARN] Failed to load mention limited effects for user {0}: {1}".format(discord_user_id, exc))
+        return []
+    if effects:
+        print("[INFO] Loaded {0} mention limited effect tag(s) for user {1}".format(len(effects), discord_user_id))
+    return effects
+
+
+def merge_effects(*effect_groups: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    merged = []
+    seen = set()
+    for effects in effect_groups:
+        for effect in effects:
+            effect_id = effect.get("id")
+            key = effect_id if effect_id is not None else ("limited", effect.get("limited_effect_id"))
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(effect)
+    return merged
 
 
 def normalize_json(value) -> Dict[str, Any]:
@@ -365,6 +403,7 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
         return RuntimeAction(False)
 
     repository = MentionReactionRepository(connection)
+    limited_effects = list_limited_effects(connection, guild_id, message)
     reactions = repository.list_reactions(guild_id, enabled=True, reaction_kind="random_draw")
     matches = []
     for reaction in reactions:
@@ -372,7 +411,21 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
         if groups is not None:
             matches.append(MatchResult(reaction, groups))
     if not matches:
-        return RuntimeAction(False)
+        search_matches = []
+        for reaction in repository.list_reactions(guild_id, enabled=True, reaction_kind="search"):
+            groups = match_pattern(
+                reaction.get("keyword") or "",
+                reaction.get("match_type") or "exact",
+                command_text,
+            )
+            if groups is not None:
+                search_matches.append(MatchResult(reaction, groups))
+        if not search_matches or not limited_effects:
+            return RuntimeAction(False)
+        selected_search = sort_mention_matches(search_matches)[0]
+        values = build_template_values(message, command_text, selected_search.groups)
+        count_changed = await execute_effects(connection, guild_id, limited_effects, message, values)
+        return RuntimeAction(bool(limited_effects), count_changed)
 
     selected = sort_mention_matches(matches)[0]
     choices = repository.list_choices(guild_id, int(selected.row["id"]), enabled=True)
@@ -384,7 +437,8 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
     text = render_template(choice.get("body"), values)
     image_path = choice.get("image_path") or ""
     handled = await send_text_or_image(message.channel, text, image_path)
-    effects = list_effects(connection, guild_id, "mention_reaction_choice", int(choice["id"]))
+    choice_effects = list_effects(connection, guild_id, "mention_reaction_choice", int(choice["id"]))
+    effects = merge_effects(choice_effects, limited_effects)
     count_changed = await execute_effects(connection, guild_id, effects, message, values)
     return RuntimeAction(handled or bool(effects), count_changed)
 

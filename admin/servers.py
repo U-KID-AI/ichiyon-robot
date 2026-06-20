@@ -72,16 +72,6 @@ FEATURES = [
         "off_behavior": "OFFにすると、特殊効果タグを適用しない想定。",
         "notes": "メンション反応本体とモードには付与しない。",
     },
-    {
-        "key": "destroy",
-        "label": "破壊",
-        "edit_path": "destroy",
-        "required_role": "guild_admin",
-        "overview": "管理者用の危険機能。",
-        "settings": "安全ガード、許可範囲、有効/無効",
-        "off_behavior": "OFFにすると、破壊系の動作を使わない想定。",
-        "notes": "サーバー管理者以上のみ切り替え可能。実装は後回し。",
-    },
 ]
 
 ROLE_LEVELS = {

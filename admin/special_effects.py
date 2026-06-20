@@ -39,6 +39,7 @@ EFFECT_TYPES = (
     "temporary_state",
     "ng_behavior",
     "extra_choice",
+    "custom",
 )
 ADDITIONAL_POST_TIMINGS = ("none", "tag_triggered", "effect_success", "effect_end")
 EXPIRES_TYPES = ("immediate", "next_bot_action", "next_special_roll", "seconds", "count", "permanent")

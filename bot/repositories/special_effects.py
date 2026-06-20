@@ -232,7 +232,7 @@ class SpecialEffectRepository:
             cursor.execute(
                 """
                 DELETE FROM special_effect_assignments
-                WHERE guild_id = %s AND tag_id = %s
+                WHERE guild_id = %s AND special_effect_tag_id = %s
                 """,
                 (guild_id, tag_id),
             )

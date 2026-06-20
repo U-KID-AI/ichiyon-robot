@@ -21,6 +21,10 @@ from admin.mention_reactions import (
     register_mention_reaction_routes,
     router as mention_reaction_router,
 )
+from admin.mention_limited_effects import (
+    register_mention_limited_effect_routes,
+    router as mention_limited_effect_router,
+)
 from admin.modes import register_mode_routes, router as mode_router
 from admin.ng_words_db import register_ng_word_routes, router as ng_word_router
 from admin.servers import register_server_routes, router as server_router
@@ -55,6 +59,7 @@ app.mount("/assets", StaticFiles(directory=BASE_DIR / "assets"), name="assets")
 templates = Jinja2Templates(directory=Path(__file__).resolve().parent / "templates")
 register_auth_routes(templates)
 register_server_routes(templates)
+register_mention_limited_effect_routes(templates)
 register_mention_reaction_routes(templates)
 register_special_effect_routes(templates)
 register_auto_reaction_routes(templates)
@@ -63,6 +68,7 @@ register_mode_routes(templates)
 register_auto_post_routes(templates)
 app.include_router(auth_router)
 app.include_router(server_router)
+app.include_router(mention_limited_effect_router)
 app.include_router(mention_reaction_router)
 app.include_router(special_effect_router)
 app.include_router(auto_reaction_router)

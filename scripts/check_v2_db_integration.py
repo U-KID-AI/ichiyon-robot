@@ -271,6 +271,17 @@ class IntegrationChecker:
                 (self.guild_id,),
             ),
             (
+                "destroy special effect tag",
+                """
+                SELECT 1 FROM special_effect_tags
+                WHERE guild_id = %s
+                  AND name = '破壊'
+                  AND target_type = 'mention_reaction_choice'
+                  AND effect_type = 'custom'
+                """,
+                (self.guild_id,),
+            ),
+            (
                 "omae choice has mini tag",
                 """
                 SELECT 1
@@ -320,6 +331,7 @@ class IntegrationChecker:
                     (%s, %s, %s, 0, 'manual'),
                     (%s, %s, %s, 0, 'manual'),
                     (%s, %s, %s, 0, 'manual'),
+                    (%s, %s, %s, 0, 'manual'),
                     (%s, %s, %s, 0, 'manual')
                 ON CONFLICT (guild_id, count_key) DO NOTHING
                 """,
@@ -333,6 +345,9 @@ class IntegrationChecker:
                     self.guild_id,
                     CHECK_PREFIX + "_ng_count",
                     "integration ng count",
+                    self.guild_id,
+                    CHECK_PREFIX + "_limited_count",
+                    "integration limited count",
                     self.guild_id,
                     CHECK_PREFIX + "_mode_count",
                     "integration mode count",
@@ -393,12 +408,46 @@ class IntegrationChecker:
             {"chance_denominator": 1},
             "extra {match_1}",
         )
+        limited_tag_id = self.ensure_effect_tag(
+            connection,
+            CHECK_PREFIX + "_limited_tag",
+            "mention_reaction_choice",
+            "choice_selected",
+            "counter_delta",
+            {"counter_key": CHECK_PREFIX + "_limited_count", "delta": 1},
+        )
         self.ensure_assignment(connection, delta_tag_id, "auto_reaction", auto_delta_id)
         self.ensure_assignment(connection, set_tag_id, "auto_reaction", auto_set_id)
         self.ensure_assignment(connection, ng_tag_id, "ng_word", ng_id)
         self.ensure_assignment(connection, message_tag_id, "mention_reaction_choice", choice_id)
+        self.ensure_limited_effect(connection, limited_tag_id)
         self.ensure_reply_mode(connection)
         self.ensure_offline_mode(connection)
+
+    def ensure_limited_effect(self, connection, tag_id: int) -> int:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO mention_limited_effects (
+                    guild_id, discord_user_id, display_name, effect_tag_id, description, enabled
+                )
+                VALUES (%s, %s, %s, %s, %s, TRUE)
+                ON CONFLICT (guild_id, discord_user_id, effect_tag_id) DO UPDATE
+                SET display_name = EXCLUDED.display_name,
+                    description = EXCLUDED.description,
+                    enabled = TRUE,
+                    updated_at = NOW()
+                RETURNING id
+                """,
+                (
+                    self.guild_id,
+                    "111111111111111111",
+                    "IntegrationUser",
+                    tag_id,
+                    "integration check limited effect",
+                ),
+            )
+            return int(cursor.fetchone()[0])
 
     def ensure_mention_reaction(self, connection) -> int:
         with connection.cursor() as cursor:
@@ -725,14 +774,21 @@ class IntegrationChecker:
         FeatureFlagRepository(connection).set_flag(self.guild_id, "ng_words", True, "integration_check")
         connection.commit()
 
+        self.set_counter(connection, CHECK_PREFIX + "_limited_count", 0)
         mention_channel = FakeChannel()
         handled = asyncio.run(
             self.handle_message("<@{0}> {1}_mention alpha".format(BOT_USER_ID, CHECK_PREFIX), mention_channel, True)
         )
+        limited_value = self.get_counter_value(connection, CHECK_PREFIX + "_limited_count")
         self.add_result(
             "runtime: mention reaction",
             handled is True and mention_channel.sent == ["mention ok alpha", "extra alpha"],
             str(mention_channel.sent),
+        )
+        self.add_result(
+            "runtime: mention limited effect",
+            limited_value == 1,
+            "limited_count={0}".format(limited_value),
         )
 
         self.set_counter(connection, CHECK_PREFIX + "_delta_count", 0)
