@@ -30,7 +30,7 @@ X_BEARER_TOKEN=
   "max_results": 3,
   "deny_message": "このチャンネルではデッキ検索は使えません。",
   "missing_format_behavior": "ask_format",
-  "x_query_template": "({class_label} デッキ OR {class_label} deck) has:images",
+  "x_query_template": "({class_label} OR {class_en}) (デッキ OR deck OR QR OR コード) has:images",
   "include_retweets": false,
   "include_replies": false,
   "image_scan_limit": 8,

@@ -11,6 +11,7 @@ if str(ROOT_DIR) not in sys.path:
 from bot import config
 from bot.services import deck_search
 from bot.services import runtime_db
+from bot.services.deck_search import DeckSearchStats, build_x_query
 from bot.services.deck_search import parse_deck_search_command, search_decks
 from bot.services.qr_detector import detect_qr_codes, opencv_available
 from bot.services.x_search import XMedia, XPost, parse_search_response
@@ -139,6 +140,12 @@ async def check_runtime_path(check: Check) -> None:
 async def check_search_flow(check: Check) -> None:
     parsed = parse_deck_search_command("デッキ elf", "ask_format")
     check.add("class alias elf", parsed is not None and parsed.class_key == "elf")
+    query = build_x_query(parsed, {}) if parsed is not None else ""
+    check.add(
+        "relaxed default query includes jp/en and QR terms",
+        "エルフ" in query and "elf" in query and "QR" in query and "コード" in query and "has:images" in query,
+        query,
+    )
     check.add("missing class asks format", parse_deck_search_command("デッキ", "ask_format") is None)
 
     disabled_before = config.X_SEARCH_ENABLED
@@ -161,7 +168,10 @@ async def check_search_flow(check: Check) -> None:
             )
         ]
 
-    async def fake_scan_post_images(post, class_label, limit, timeout_seconds):
+    async def fake_scan_post_images(post, class_label, limit, timeout_seconds, stats=None):
+        if stats is not None:
+            stats.image_downloaded += 1
+            stats.qr_detected += 1
         return deck_search.DeckSearchResult(
             post=post,
             image_url=post.media[0].url,
@@ -200,6 +210,16 @@ def check_x_payload(check: Check) -> None:
     check.add("x payload media parsed", len(posts) == 1 and len(posts[0].media) == 1)
 
 
+def check_stats(check: Check) -> None:
+    stats = DeckSearchStats(x_results=20, media_posts=8, image_downloaded=5, qr_detected=0, candidates=0)
+    log_text = stats.to_log()
+    check.add(
+        "stats log contains safe counters",
+        "X results=20" in log_text and "media=8" in log_text and "downloaded=5" in log_text and "qr=0" in log_text,
+        log_text,
+    )
+
+
 def check_qr_optional(check: Check) -> None:
     if not opencv_available():
         check.add("opencv optional", True, "not installed")
@@ -213,6 +233,7 @@ def main() -> None:
     asyncio.run(check_search_flow(check))
     asyncio.run(check_runtime_path(check))
     check_x_payload(check)
+    check_stats(check)
     check_qr_optional(check)
     check.print_results()
     if not check.ok():

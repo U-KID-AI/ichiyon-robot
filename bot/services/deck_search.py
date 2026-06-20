@@ -15,6 +15,7 @@ DEFAULT_DISABLED_MESSAGE = "デッキ検索はまだ無効"
 DEFAULT_ERROR_MESSAGE = "検索でエラー"
 DEFAULT_NOT_FOUND_MESSAGE = "見つからなかった"
 DEFAULT_ASK_FORMAT_MESSAGE = "クラス名も入れて"
+DEFAULT_X_QUERY_TEMPLATE = "({class_label} OR {class_en}) (デッキ OR deck OR QR OR コード) has:images"
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
 CLASS_ALIASES = {
@@ -36,6 +37,7 @@ class DeckSearchRequest:
     query: str
     class_key: str
     class_label: str
+    class_en: str
 
 
 @dataclass
@@ -45,6 +47,37 @@ class DeckSearchResult:
     detected_class: str
     qr_score: int
     created_at: str
+
+
+@dataclass
+class DeckSearchStats:
+    x_results: int = 0
+    media_posts: int = 0
+    image_downloaded: int = 0
+    qr_detected: int = 0
+    candidates: int = 0
+    skipped_no_media: int = 0
+    skipped_non_photo: int = 0
+    skipped_image_fetch: int = 0
+    skipped_no_qr: int = 0
+    skipped_qr_error: int = 0
+
+    def to_log(self) -> str:
+        return (
+            "X results={0}, media={1}, downloaded={2}, qr={3}, candidates={4}, "
+            "skip_no_media={5}, skip_non_photo={6}, skip_image_fetch={7}, skip_no_qr={8}, skip_qr_error={9}"
+        ).format(
+            self.x_results,
+            self.media_posts,
+            self.image_downloaded,
+            self.qr_detected,
+            self.candidates,
+            self.skipped_no_media,
+            self.skipped_non_photo,
+            self.skipped_image_fetch,
+            self.skipped_no_qr,
+            self.skipped_qr_error,
+        )
 
 
 def normalize_text(value: str) -> str:
@@ -66,10 +99,10 @@ def parse_deck_search_command(command_text: str, missing_behavior: str = "ask_fo
     found = detect_class(text)
     if found is None:
         if missing_behavior == "latest":
-            return DeckSearchRequest(query=text or "デッキ", class_key="", class_label="指定なし")
+            return DeckSearchRequest(query=text or "デッキ", class_key="", class_label="指定なし", class_en="")
         return None
     class_key, class_label = found
-    return DeckSearchRequest(query=text or class_label, class_key=class_key, class_label=class_label)
+    return DeckSearchRequest(query=text or class_label, class_key=class_key, class_label=class_label, class_en=class_key)
 
 
 def get_config_int(config_json: Dict[str, Any], key: str, default: int, minimum: int, maximum: int) -> int:
@@ -90,10 +123,11 @@ def get_config_bool(config_json: Dict[str, Any], key: str, default: bool) -> boo
 
 
 def build_x_query(request: DeckSearchRequest, config_json: Dict[str, Any]) -> str:
-    template = config_json.get("x_query_template") or '({class_label} デッキ OR {class_label} deck) has:images'
+    template = config_json.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE
     query = template.format(
         class_key=request.class_key,
         class_label=request.class_label,
+        class_en=request.class_en,
         query=request.query,
     )
     if not get_config_bool(config_json, "include_retweets", False):
@@ -154,27 +188,45 @@ async def fetch_image_bytes(url: str, timeout_seconds: int) -> Optional[bytes]:
     return body
 
 
-async def scan_post_images(post: XPost, class_label: str, limit: int, timeout_seconds: int) -> Optional[DeckSearchResult]:
+async def scan_post_images(
+    post: XPost,
+    class_label: str,
+    limit: int,
+    timeout_seconds: int,
+    stats: Optional[DeckSearchStats] = None,
+) -> Optional[DeckSearchResult]:
     scanned = 0
     for media in post.media:
         if media.type and media.type != "photo":
+            if stats is not None:
+                stats.skipped_non_photo += 1
             continue
         if scanned >= limit:
             break
         scanned += 1
         image_bytes = await fetch_image_bytes(media.url, timeout_seconds)
         if image_bytes is None:
+            if stats is not None:
+                stats.skipped_image_fetch += 1
             continue
+        if stats is not None:
+            stats.image_downloaded += 1
         try:
             detections = detect_qr_codes(image_bytes)
         except RuntimeError:
             raise
         except Exception as exc:
             print("[WARN] deck QR detection failed: {0}".format(exc.__class__.__name__))
+            if stats is not None:
+                stats.skipped_qr_error += 1
             continue
         if not detections:
+            if stats is not None:
+                stats.skipped_no_qr += 1
             continue
         best = sorted(detections, key=lambda item: item.score, reverse=True)[0]
+        if stats is not None:
+            stats.qr_detected += 1
         return DeckSearchResult(
             post=post,
             image_url=media.url,
@@ -214,6 +266,8 @@ async def search_decks(guild_id: str, channel_id: str, command_text: str, config
         return format_results(request, cached, max_results)
 
     query = build_x_query(request, config_json)
+    print("[INFO] deck search query: {0}".format(query))
+    stats = DeckSearchStats()
     try:
         posts = await search_recent_posts(query, search_limit, timeout_seconds)
     except XSearchDisabled:
@@ -221,16 +275,22 @@ async def search_decks(guild_id: str, channel_id: str, command_text: str, config
     except XSearchError:
         return DEFAULT_ERROR_MESSAGE
 
+    stats.x_results = len(posts)
     results = []
     for post in posts:
         if not post.media:
+            stats.skipped_no_media += 1
             continue
-        found = await scan_post_images(post, request.class_label, image_scan_limit, timeout_seconds)
+        stats.media_posts += 1
+        found = await scan_post_images(post, request.class_label, image_scan_limit, timeout_seconds, stats)
         if found is not None:
             results.append(found)
+            stats.candidates = len(results)
         if len(results) >= max_results:
             break
     set_cached(key, results)
+    stats.candidates = len(results)
+    print("[INFO] deck search stats: {0}".format(stats.to_log()))
     return format_results(request, results, max_results)
 
 
