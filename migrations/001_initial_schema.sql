@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS special_effect_tags (
             'count_add',
             'mode_lottery',
             'pseudo_offline_lottery',
-            'mini_ichiyon',
+            'hankaku',
             'shikocchi_lottery',
             'custom',
             'probability_message',

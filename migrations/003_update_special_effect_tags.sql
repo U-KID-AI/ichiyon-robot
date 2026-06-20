@@ -51,7 +51,7 @@ BEGIN
                     'count_add',
                     'mode_lottery',
                     'pseudo_offline_lottery',
-                    'mini_ichiyon',
+                    'hankaku',
                     'shikocchi_lottery',
                     'custom',
                     'probability_message',
