@@ -99,6 +99,7 @@ Example for the annual 6/30 post:
 
 No automatic seed data is inserted in this phase.
 
-## Future Runtime Phase
+## Runtime
 
-This phase only stores DB settings. A later runtime phase should decide how the bot reads `auto_posts`, calculates next run timestamps, prevents duplicate posts, and updates `last_posted_at`.
+DB backend時のBot実行側は `docs/v2-auto-posts-runtime.md` を参照。
+管理画面は `auto_posts` を編集し、BotはJST基準でスケジュールを解釈する。

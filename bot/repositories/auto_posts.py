@@ -59,6 +59,18 @@ class AutoPostRepository:
             )
             return fetch_one(cursor)
 
+    def list_enabled_posts(self) -> List[Dict[str, Any]]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM auto_posts
+                WHERE enabled = TRUE
+                ORDER BY guild_id ASC, id ASC
+                """
+            )
+            return fetch_all(cursor)
+
     def create_post(
         self,
         guild_id: str,
@@ -176,3 +188,52 @@ class AutoPostRepository:
                 (guild_id, post_id),
             )
             return cursor.rowcount > 0
+
+    def was_delivered(self, post_id: int, due_key: str) -> bool:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT 1
+                FROM auto_post_delivery_history
+                WHERE auto_post_id = %s AND due_key = %s
+                """,
+                (post_id, due_key),
+            )
+            return cursor.fetchone() is not None
+
+    def record_delivery(
+        self,
+        guild_id: str,
+        post_id: int,
+        due_key: str,
+        channel_id: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO auto_post_delivery_history (
+                    guild_id,
+                    auto_post_id,
+                    due_key,
+                    delivered_at,
+                    channel_id
+                )
+                VALUES (%s, %s, %s, NOW(), %s)
+                ON CONFLICT (auto_post_id, due_key) DO NOTHING
+                RETURNING *
+                """,
+                (guild_id, post_id, due_key, channel_id),
+            )
+            return fetch_one(cursor)
+
+    def update_last_posted_at(self, guild_id: str, post_id: int) -> None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE auto_posts
+                SET last_posted_at = NOW(),
+                    updated_at = NOW()
+                WHERE guild_id = %s AND id = %s
+                """,
+                (guild_id, post_id),
+            )

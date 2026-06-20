@@ -7,6 +7,7 @@ from bot.kuji import draw_kuji_message
 from bot.ng_words import contains_ng_word
 from bot.quotes import draw_quote_message
 from bot.reactions import handle_word_response
+from bot.services.auto_posts import run_db_auto_posts_once
 from bot.services.runtime_db import get_message_guild_id, handle_db_runtime_message
 
 
@@ -56,7 +57,10 @@ async def on_ready():
 
     await messages.sync_bot_identity_for_all_guilds()
 
-    if not annual_message_task.is_running():
+    if config.DATA_BACKEND == "db":
+        if not db_auto_post_task.is_running():
+            db_auto_post_task.start()
+    elif not annual_message_task.is_running():
         annual_message_task.start()
 
     await hayusu.restore_hayusu_auto_exit()
@@ -80,6 +84,19 @@ async def annual_message_task():
 
 @annual_message_task.before_loop
 async def before_annual_message_task():
+    await bot.wait_until_ready()
+
+
+@tasks.loop(minutes=1)
+async def db_auto_post_task():
+    try:
+        await run_db_auto_posts_once(bot)
+    except Exception as e:
+        print(f"[WARN] db_auto_post_task failed: {e}")
+
+
+@db_auto_post_task.before_loop
+async def before_db_auto_post_task():
     await bot.wait_until_ready()
 
 
