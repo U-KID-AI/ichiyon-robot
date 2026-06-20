@@ -10,6 +10,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from bot import config
 from bot.services import deck_search
+from bot.services import runtime_db
 from bot.services.deck_search import parse_deck_search_command, search_decks
 from bot.services.qr_detector import detect_qr_codes, opencv_available
 from bot.services.x_search import XMedia, XPost, parse_search_response
@@ -34,6 +35,64 @@ class Check:
         return all(result["ok"] for result in self.results)
 
 
+class FakeChannel:
+    def __init__(self, channel_id: str = "123") -> None:
+        self.id = channel_id
+        self.sent = []
+
+    async def send(self, content=None, **kwargs):
+        self.sent.append(content)
+
+
+class FakeAuthor:
+    bot = False
+    id = 111
+    display_name = "DeckUser"
+    name = "DeckUser"
+    mention = "<@111>"
+
+
+class FakeGuild:
+    id = "guild"
+
+
+class FakeMessage:
+    def __init__(self, content: str) -> None:
+        self.content = content
+        self.channel = FakeChannel()
+        self.author = FakeAuthor()
+        self.guild = FakeGuild()
+        self.mentions = []
+
+    async def add_reaction(self, emoji) -> None:
+        pass
+
+
+class FakeMentionReactionRepository:
+    def __init__(self, connection) -> None:
+        self.connection = connection
+
+    def list_reactions(self, guild_id, enabled=None, reaction_kind=None, include_system=True):
+        if reaction_kind == "random_draw":
+            return []
+        if reaction_kind == "search":
+            return [
+                {
+                    "id": 10,
+                    "guild_id": guild_id,
+                    "reaction_key": "deck_search",
+                    "keyword": "デッキ",
+                    "match_type": "prefix",
+                    "reaction_kind": "search",
+                    "name": "デッキ検索",
+                    "enabled": True,
+                    "config_json": base_config(),
+                    "created_at": "2026-06-20T00:00:00Z",
+                }
+            ]
+        return []
+
+
 def base_config() -> Dict[str, Any]:
     return {
         "search_type": "deck_search",
@@ -45,6 +104,36 @@ def base_config() -> Dict[str, Any]:
         "request_timeout_seconds": 1,
         "image_scan_limit": 3,
     }
+
+
+async def check_runtime_path(check: Check) -> None:
+    disabled_before = config.X_SEARCH_ENABLED
+    token_before = config.X_BEARER_TOKEN
+    repository_before = runtime_db.MentionReactionRepository
+    feature_before = runtime_db.feature_enabled
+    limited_before = runtime_db.list_limited_effects
+    command_before = runtime_db.get_mention_command_text
+    try:
+        config.X_SEARCH_ENABLED = False
+        config.X_BEARER_TOKEN = ""
+        runtime_db.MentionReactionRepository = FakeMentionReactionRepository
+        runtime_db.feature_enabled = lambda connection, guild_id, feature_key: True
+        runtime_db.list_limited_effects = lambda connection, guild_id, message: []
+        runtime_db.get_mention_command_text = lambda message: "デッキ エルフ"
+        message = FakeMessage("@bot デッキ エルフ")
+        action = await runtime_db.process_db_mention(message, "guild", object())
+        check.add(
+            "DB runtime deck search responds without limited effects",
+            action.handled is True and message.channel.sent == ["デッキ検索はまだ無効"],
+            str(message.channel.sent),
+        )
+    finally:
+        config.X_SEARCH_ENABLED = disabled_before
+        config.X_BEARER_TOKEN = token_before
+        runtime_db.MentionReactionRepository = repository_before
+        runtime_db.feature_enabled = feature_before
+        runtime_db.list_limited_effects = limited_before
+        runtime_db.get_mention_command_text = command_before
 
 
 async def check_search_flow(check: Check) -> None:
@@ -122,6 +211,7 @@ def check_qr_optional(check: Check) -> None:
 def main() -> None:
     check = Check()
     asyncio.run(check_search_flow(check))
+    asyncio.run(check_runtime_path(check))
     check_x_payload(check)
     check_qr_optional(check)
     check.print_results()

@@ -688,7 +688,7 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
             )
             if groups is not None:
                 search_matches.append(MatchResult(reaction, groups))
-        if not search_matches or not limited_effects:
+        if not search_matches:
             return RuntimeAction(False)
         selected_search = sort_mention_matches(search_matches)[0]
         values = build_template_values(message, command_text, selected_search.groups)
