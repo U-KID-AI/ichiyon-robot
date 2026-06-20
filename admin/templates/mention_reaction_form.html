@@ -125,7 +125,7 @@
           </select>
         </label>
         <label>使えるチャンネルID（1行に1つ）<textarea name="allowed_channel_ids" placeholder="123&#10;456" {% if not can_edit_deck_settings %}disabled{% endif %}>{{ deck_settings.allowed_channel_ids }}</textarea></label>
-        <label>返す件数<input type="number" min="1" name="max_results" value="{{ deck_settings.max_results }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+        <label>Discordに返す候補数<input type="number" min="1" name="max_results" value="{{ deck_settings.max_results }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
         <label>使えないチャンネルでのメッセージ<textarea name="deny_message" {% if not can_edit_deck_settings %}disabled{% endif %}>{{ deck_settings.deny_message }}</textarea></label>
         <label>
           フォーマット未指定時
@@ -139,6 +139,7 @@
         <details>
           <summary>詳細設定</summary>
           <label>X検索クエリ<input type="text" name="x_query_template" value="{{ deck_settings.x_query_template or '' }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+          <label>Xから取得する投稿数<input type="number" min="10" max="100" name="x_search_max_results" value="{{ deck_settings.x_search_max_results or 100 }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
           <label>
             検索範囲
             <select name="search_mode" {% if not can_edit_deck_settings %}disabled{% endif %}>
@@ -150,9 +151,12 @@
           <label>除外ワード<textarea name="excluded_keywords" placeholder="ドラゴンボール&#10;レジェンズ" {% if not can_edit_deck_settings %}disabled{% endif %}>{{ deck_settings.excluded_keywords }}</textarea></label>
           <label class="check-row"><input type="checkbox" name="include_retweets" {% if deck_settings.include_retweets %}checked{% endif %} {% if not can_edit_deck_settings %}disabled{% endif %}>リポストを含める</label>
           <label class="check-row"><input type="checkbox" name="include_replies" {% if deck_settings.include_replies %}checked{% endif %} {% if not can_edit_deck_settings %}disabled{% endif %}>返信を含める</label>
-          <label>画像確認上限<input type="number" min="1" name="image_scan_limit" value="{{ deck_settings.image_scan_limit or 8 }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+          <label>QR判定する画像数<input type="number" min="1" name="image_scan_limit" value="{{ deck_settings.image_scan_limit or 80 }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+          <label>同時確認数<input type="number" min="1" max="10" name="image_scan_concurrency" value="{{ deck_settings.image_scan_concurrency or 5 }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+          <label class="check-row"><input type="checkbox" name="stop_after_candidates" {% if deck_settings.stop_after_candidates %}checked{% endif %} {% if not can_edit_deck_settings %}disabled{% endif %}>候補が揃ったら止める</label>
+          <label>画像取得秒数<input type="number" min="1" name="image_fetch_timeout_seconds" value="{{ deck_settings.image_fetch_timeout_seconds or 5 }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
           <label>タイムアウト秒<input type="number" min="1" name="request_timeout_seconds" value="{{ deck_settings.request_timeout_seconds or 10 }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
-          <label>キャッシュ秒<input type="number" min="0" name="cache_ttl_seconds" value="{{ deck_settings.cache_ttl_seconds or 60 }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+          <label>キャッシュ秒<input type="number" min="0" name="cache_ttl_seconds" value="{{ deck_settings.cache_ttl_seconds or 300 }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
           <label>表示形式<input type="text" name="result_format" value="{{ deck_settings.result_format or 'default' }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
           <label class="check-row"><input type="checkbox" name="class_filter_required" {% if deck_settings.class_filter_required %}checked{% endif %} {% if not can_edit_deck_settings %}disabled{% endif %}>クラス指定を必須にする</label>
           <dl class="info-list">

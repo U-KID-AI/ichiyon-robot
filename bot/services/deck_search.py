@@ -1,3 +1,4 @@
+import asyncio
 import re
 import time
 from dataclasses import dataclass
@@ -17,8 +18,10 @@ DEFAULT_NOT_FOUND_MESSAGE = "見つからなかった"
 DEFAULT_ASK_FORMAT_MESSAGE = "クラス名も入れて"
 DEFAULT_FULL_ARCHIVE_UNAVAILABLE_MESSAGE = "過去検索が使えません"
 DEFAULT_X_QUERY_TEMPLATE = "({class_label} OR {class_en}) (シャドバ OR Shadowverse OR シャドウバース OR SV) (デッキ OR deck OR QR OR コード) has:images"
-DEFAULT_EXCLUDED_KEYWORDS = ["ドラゴンボール", "レジェンズ"]
+DEFAULT_EXCLUDED_KEYWORDS = ["ドラゴンボール", "レジェンズ", "探索コード", "フレンドコード"]
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
+HIGH_SCORE_TERMS = ["デッキ", "deck", "レシピ", "構築", "QR", "コード", "BEYOND", "WB", "シャドバ", "Shadowverse"]
+LOW_SCORE_TERMS = ["キャンペーン", "100万円", "配信", "YouTube", "大会", "勝ったら", "探索コード", "フレンドコード", "ドラゴンボール", "レジェンズ"]
 
 CLASS_ALIASES = {
     "elf": ("エルフ", ["エルフ", "elf", "えるふ"]),
@@ -57,6 +60,11 @@ class DeckSearchStats:
     endpoint_type: str = "recent"
     lookback_days: int = 14
     http_status: Optional[int] = None
+    total_ms: int = 0
+    x_api_ms: int = 0
+    image_scan_ms: int = 0
+    image_scan_concurrency: int = 5
+    stopped_after_candidates: bool = False
     x_results: int = 0
     media_posts: int = 0
     image_downloaded: int = 0
@@ -71,13 +79,19 @@ class DeckSearchStats:
     def to_log(self) -> str:
         return (
             "mode={0}, endpoint={1}, lookback_days={2}, http_status={3}, "
-            "X results={4}, media={5}, downloaded={6}, qr={7}, candidates={8}, "
-            "skip_no_media={9}, skip_non_photo={10}, skip_image_fetch={11}, skip_no_qr={12}, skip_qr_error={13}"
+            "total_ms={4}, x_api_ms={5}, image_scan_ms={6}, image_scan_concurrency={7}, stopped_after_candidates={8}, "
+            "X results={9}, media={10}, downloaded={11}, qr={12}, candidates={13}, "
+            "skip_no_media={14}, skip_non_photo={15}, skip_image_fetch={16}, skip_no_qr={17}, skip_qr_error={18}"
         ).format(
             self.search_mode,
             self.endpoint_type,
             self.lookback_days,
             self.http_status if self.http_status is not None else "-",
+            self.total_ms,
+            self.x_api_ms,
+            self.image_scan_ms,
+            self.image_scan_concurrency,
+            self.stopped_after_candidates,
             self.x_results,
             self.media_posts,
             self.image_downloaded,
@@ -207,6 +221,38 @@ def set_cached(key: str, value: List[DeckSearchResult]) -> None:
     _CACHE[key] = (time.time(), value)
 
 
+def monotonic_ms() -> int:
+    return int(time.monotonic() * 1000)
+
+
+def elapsed_ms(start_ms: int) -> int:
+    return max(0, monotonic_ms() - start_ms)
+
+
+def score_post(post: XPost, request: DeckSearchRequest) -> int:
+    text = normalize_text(post.text)
+    score = 0
+    for term in HIGH_SCORE_TERMS:
+        if normalize_text(term) in text:
+            score += 3
+    for term in LOW_SCORE_TERMS:
+        if normalize_text(term) in text:
+            score -= 4
+    if request.class_label and normalize_text(request.class_label) in text:
+        score += 5
+    if request.class_en and normalize_text(request.class_en) in text:
+        score += 5
+    if post.media:
+        score += 1
+    return score
+
+
+def sort_posts_for_scan(posts: List[XPost], request: DeckSearchRequest) -> List[XPost]:
+    indexed = list(enumerate(posts))
+    indexed.sort(key=lambda item: (-score_post(item[1], request), item[0]))
+    return [post for _, post in indexed]
+
+
 async def fetch_image_bytes(url: str, timeout_seconds: int) -> Optional[bytes]:
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=True) as client:
@@ -228,6 +274,111 @@ async def fetch_image_bytes(url: str, timeout_seconds: int) -> Optional[bytes]:
     if len(body) > MAX_IMAGE_BYTES:
         return None
     return body
+
+
+async def detect_qr_codes_async(image_bytes: bytes):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, detect_qr_codes, image_bytes)
+
+
+async def scan_media_image(
+    post: XPost,
+    media,
+    class_label: str,
+    timeout_seconds: int,
+    stats: DeckSearchStats,
+) -> Optional[DeckSearchResult]:
+    if media.type and media.type != "photo":
+        stats.skipped_non_photo += 1
+        return None
+    image_bytes = await fetch_image_bytes(media.url, timeout_seconds)
+    if image_bytes is None:
+        stats.skipped_image_fetch += 1
+        return None
+    stats.image_downloaded += 1
+    try:
+        detections = await detect_qr_codes_async(image_bytes)
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        print("[WARN] deck QR detection failed: {0}".format(exc.__class__.__name__))
+        stats.skipped_qr_error += 1
+        return None
+    if not detections:
+        stats.skipped_no_qr += 1
+        return None
+    best = sorted(detections, key=lambda item: item.score, reverse=True)[0]
+    stats.qr_detected += 1
+    return DeckSearchResult(
+        post=post,
+        image_url=media.url,
+        detected_class=class_label,
+        qr_score=best.score,
+        created_at=post.created_at,
+    )
+
+
+async def scan_posts_concurrently(
+    posts: List[XPost],
+    request: DeckSearchRequest,
+    max_results: int,
+    image_scan_limit: int,
+    image_fetch_timeout_seconds: int,
+    image_scan_concurrency: int,
+    stop_after_candidates: bool,
+    stats: DeckSearchStats,
+) -> List[DeckSearchResult]:
+    semaphore = asyncio.Semaphore(image_scan_concurrency)
+    scan_items = []
+    for post in sort_posts_for_scan(posts, request):
+        if not post.media:
+            stats.skipped_no_media += 1
+            continue
+        stats.media_posts += 1
+        for media in post.media:
+            if len(scan_items) >= image_scan_limit:
+                break
+            scan_items.append((post, media))
+        if len(scan_items) >= image_scan_limit:
+            break
+
+    async def run_one(post, media):
+        async with semaphore:
+            return await scan_media_image(post, media, request.class_label, image_fetch_timeout_seconds, stats)
+
+    tasks = [asyncio.ensure_future(run_one(post, media)) for post, media in scan_items]
+    results = []
+    pending = set(tasks)
+    try:
+        while pending:
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                try:
+                    found = task.result()
+                except asyncio.CancelledError:
+                    continue
+                except RuntimeError:
+                    raise
+                except Exception as exc:
+                    print("[WARN] deck image scan task failed: {0}".format(exc.__class__.__name__))
+                    continue
+                if found is not None:
+                    results.append(found)
+                    stats.candidates = len(results)
+                    if stop_after_candidates and len(results) >= max_results:
+                        stats.stopped_after_candidates = True
+                        for pending_task in pending:
+                            pending_task.cancel()
+                        if pending:
+                            await asyncio.gather(*pending, return_exceptions=True)
+                        return results
+    finally:
+        for task in pending:
+            if not task.done():
+                task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+    return results
 
 
 async def scan_post_images(
@@ -280,6 +431,7 @@ async def scan_post_images(
 
 
 async def search_decks(guild_id: str, channel_id: str, command_text: str, config_json: Dict[str, Any]) -> str:
+    total_started_ms = monotonic_ms()
     if not allowed_in_channel(config_json, channel_id):
         return config_json.get("deny_message") or DEFAULT_DENY_MESSAGE
 
@@ -300,7 +452,10 @@ async def search_decks(guild_id: str, channel_id: str, command_text: str, config
     max_results = get_config_int(config_json, "max_results", 3, 1, 10)
     timeout_seconds = get_config_int(config_json, "request_timeout_seconds", 10, 1, 30)
     cache_ttl_seconds = get_config_int(config_json, "cache_ttl_seconds", 60, 0, 3600)
-    image_scan_limit = get_config_int(config_json, "image_scan_limit", 8, 1, 50)
+    image_scan_limit = get_config_int(config_json, "image_scan_limit", 80, 1, 200)
+    image_scan_concurrency = get_config_int(config_json, "image_scan_concurrency", 5, 1, 10)
+    image_fetch_timeout_seconds = get_config_int(config_json, "image_fetch_timeout_seconds", 5, 1, 30)
+    stop_after_candidates = get_config_bool(config_json, "stop_after_candidates", True)
     search_limit = get_config_int(config_json, "x_search_max_results", config.X_SEARCH_MAX_RESULTS, 10, 100)
     search_mode = normalize_search_mode(get_config_str(config_json, "search_mode", config.X_SEARCH_MODE))
     lookback_days = get_config_int(config_json, "lookback_days", config.X_SEARCH_LOOKBACK_DAYS, 1, 30)
@@ -311,33 +466,42 @@ async def search_decks(guild_id: str, channel_id: str, command_text: str, config
 
     query = build_x_query(request, config_json)
     print("[INFO] deck search query: {0}".format(query))
-    stats = DeckSearchStats(search_mode=search_mode, endpoint_type=search_mode, lookback_days=lookback_days)
+    stats = DeckSearchStats(
+        search_mode=search_mode,
+        endpoint_type=search_mode,
+        lookback_days=lookback_days,
+        image_scan_concurrency=image_scan_concurrency,
+    )
     try:
+        x_started_ms = monotonic_ms()
         posts = await search_posts(query, search_limit, timeout_seconds, search_mode, lookback_days)
+        stats.x_api_ms = elapsed_ms(x_started_ms)
     except XSearchDisabled:
         return DEFAULT_DISABLED_MESSAGE
     except XSearchError as exc:
         stats.http_status = exc.status_code
+        stats.total_ms = elapsed_ms(total_started_ms)
         print("[INFO] deck search stats: {0}".format(stats.to_log()))
         if search_mode == "full_archive" and exc.status_code in (401, 403, 404):
             return DEFAULT_FULL_ARCHIVE_UNAVAILABLE_MESSAGE
         return DEFAULT_ERROR_MESSAGE
 
     stats.x_results = len(posts)
-    results = []
-    for post in posts:
-        if not post.media:
-            stats.skipped_no_media += 1
-            continue
-        stats.media_posts += 1
-        found = await scan_post_images(post, request.class_label, image_scan_limit, timeout_seconds, stats)
-        if found is not None:
-            results.append(found)
-            stats.candidates = len(results)
-        if len(results) >= max_results:
-            break
+    image_started_ms = monotonic_ms()
+    results = await scan_posts_concurrently(
+        posts,
+        request,
+        max_results,
+        image_scan_limit,
+        image_fetch_timeout_seconds,
+        image_scan_concurrency,
+        stop_after_candidates,
+        stats,
+    )
+    stats.image_scan_ms = elapsed_ms(image_started_ms)
     set_cached(key, results)
     stats.candidates = len(results)
+    stats.total_ms = elapsed_ms(total_started_ms)
     print("[INFO] deck search stats: {0}".format(stats.to_log()))
     return format_results(request, results, max_results)
 
