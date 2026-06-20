@@ -34,6 +34,7 @@ EFFECT_TYPES = (
     "temporary_state",
     "ng_behavior",
     "extra_choice",
+    "destroy",
 )
 DUPLICATE_ERROR = "同じワードが登録済み。"
 

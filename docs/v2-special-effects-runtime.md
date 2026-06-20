@@ -82,6 +82,40 @@ Unicode絵文字とDiscordカスタム絵文字内部表記を想定。
 
 不正な値はログを出してスキップする。
 
+### destroy
+
+破壊タグ用のeffect_type。
+独立機能ではなく、特殊効果タグの一種として扱う。
+MVPでは危険な処理はせず、dry-run中心の安全なactionだけを実行する。
+管理画面では管理者限定タグとして作る運用を推奨する。
+
+対応action:
+
+- `log_only`: 何も変更せずログだけ出す
+- `send_message`: 追加メッセージを投稿する
+- `counter_reset`: 指定カウントを0など指定値へ戻す
+
+`log_only` 例:
+
+```json
+{"action": "log_only", "reason": "破壊タグ疎通確認"}
+```
+
+`send_message` 例:
+
+```json
+{"action": "send_message", "message": "破壊タグが発動した"}
+```
+
+`counter_reset` 例:
+
+```json
+{"action": "counter_reset", "counter_key": "narita_count", "value": 0}
+```
+
+action未指定、未対応action、対象カウント不正の場合はログを出してスキップする。
+将来、削除、ミュート、ロール変更、カウント破壊などをactionとして追加できる形にしている。
+
 ## テンプレート
 
 追加投稿は既存のテンプレート変換を使う。

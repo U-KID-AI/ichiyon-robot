@@ -47,6 +47,7 @@ EFFECT_TYPE_LABELS = {
     "temporary_state": "一時状態",
     "ng_behavior": "NGワード動作",
     "extra_choice": "候補追加",
+    "destroy": "破壊",
     "custom": "カスタム",
 }
 

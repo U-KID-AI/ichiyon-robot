@@ -493,6 +493,61 @@ async def repeat_text_image_action(
     return handled
 
 
+async def execute_destroy_effect(
+    connection,
+    guild_id: str,
+    effect: Dict[str, Any],
+    message: discord.Message,
+    template_values: Dict[str, str],
+    config: Dict[str, Any],
+) -> EffectExecutionResult:
+    result = EffectExecutionResult()
+    action = get_config_text(config, ["action"])
+    reason = get_config_text(config, ["reason"]) or ""
+    if action == "log_only":
+        print(
+            "[INFO] destroy effect log_only: id={0} reason={1}".format(
+                effect.get("id"),
+                render_template(reason, template_values),
+            )
+        )
+        return result
+
+    if action == "send_message":
+        text = get_config_text(config, ["message", "text"]) or get_additional_message(effect)
+        if not text:
+            print("[WARN] destroy send_message skipped without message: id={0}".format(effect.get("id")))
+            return result
+        await message.channel.send(render_template(text, template_values))
+        print("[INFO] destroy effect send_message executed: id={0}".format(effect.get("id")))
+        return result
+
+    if action == "counter_reset":
+        counter_key = get_counter_key(config)
+        if counter_key is None:
+            print("[WARN] destroy counter_reset skipped without counter_key: id={0}".format(effect.get("id")))
+            return result
+        if connection is None:
+            print("[WARN] destroy counter_reset skipped without DB connection: id={0}".format(effect.get("id")))
+            return result
+        value = get_config_int(config, ["value", "set_value", "count"], 0)
+        repository = CounterRepository(connection)
+        repository.ensure_counter(guild_id, counter_key, counter_key)
+        repository.set_value(guild_id, counter_key, value)
+        result.count_changed = True
+        print(
+            "[INFO] destroy effect counter_reset executed: id={0} counter_key={1} value={2}".format(
+                effect.get("id"),
+                counter_key,
+                value,
+            )
+        )
+        return result
+
+    print("[WARN] destroy effect skipped unsupported action: id={0} action={1}".format(effect.get("id"), action))
+    return result
+
+
 async def execute_effects(
     connection,
     guild_id: str,
@@ -567,6 +622,16 @@ async def execute_effects(
                     print("[WARN] next_action_count skipped invalid count: {0}".format(count))
                     continue
                 result.repeat_count += min(count, 5)
+            elif effect_type == "destroy":
+                destroy_result = await execute_destroy_effect(
+                    connection,
+                    guild_id,
+                    effect,
+                    message,
+                    template_values,
+                    config,
+                )
+                result.count_changed = result.count_changed or destroy_result.count_changed
         except Exception as exc:
             print("[WARN] Failed to execute special effect {0}: {1}".format(effect.get("id"), exc))
             try:

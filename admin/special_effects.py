@@ -39,6 +39,7 @@ EFFECT_TYPES = (
     "temporary_state",
     "ng_behavior",
     "extra_choice",
+    "destroy",
     "custom",
 )
 ADDITIONAL_POST_TIMINGS = ("none", "tag_triggered", "effect_success", "effect_end")

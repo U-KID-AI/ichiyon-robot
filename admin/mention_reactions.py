@@ -60,6 +60,7 @@ ASSIGNMENT_EFFECT_TYPES = (
     "temporary_state",
     "ng_behavior",
     "extra_choice",
+    "destroy",
 )
 
 

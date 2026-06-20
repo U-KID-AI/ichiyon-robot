@@ -303,7 +303,7 @@ class IntegrationChecker:
                 WHERE guild_id = %s
                   AND name = '破壊'
                   AND target_type = 'mention_reaction_choice'
-                  AND effect_type = 'custom'
+                  AND effect_type = 'destroy'
                 """,
                 (self.guild_id,),
             ),

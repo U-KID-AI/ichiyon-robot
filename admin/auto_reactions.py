@@ -37,6 +37,7 @@ EFFECT_TYPES = (
     "temporary_state",
     "ng_behavior",
     "extra_choice",
+    "destroy",
 )
 DUPLICATE_ERROR = "同じ呼び出しワードと一致方式の自動反応が登録済み。"
 

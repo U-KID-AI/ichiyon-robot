@@ -87,6 +87,29 @@ async def check_execute_effects(check: Check) -> None:
     )
     check.add("next_action_count is capped", capped.repeat_count == 5, "repeat={0}".format(capped.repeat_count))
 
+    destroy_message = FakeMessage()
+    destroy_result = await execute_effects(
+        None,
+        "guild",
+        [
+            effect("destroy", {"action": "log_only", "reason": "dry-run"}),
+            effect("destroy", {"action": "send_message", "message": "破壊 {match_1:hankaku}"}),
+            effect("destroy", {"action": "counter_reset", "counter_key": "narita_count", "value": 0}),
+        ],
+        destroy_message,
+        values,
+    )
+    check.add(
+        "destroy send_message sends template text",
+        destroy_message.channel.sent == ["破壊 ｼｺｯﾁ"],
+        str(destroy_message.channel.sent),
+    )
+    check.add(
+        "destroy dry-run counter_reset does not crash",
+        destroy_result.count_changed is False,
+        "count_changed={0}".format(destroy_result.count_changed),
+    )
+
 
 def check_multiplier(check: Check) -> None:
     effects = [
