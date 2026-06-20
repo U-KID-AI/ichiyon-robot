@@ -1,0 +1,33 @@
+{% extends "layout.html" %}
+
+{% block title %}ログイン - いちよんロボ{% endblock %}
+{% block heading %}ログイン{% endblock %}
+
+{% block content %}
+  {% if error %}
+    <p class="error">Discordログイン失敗: {{ error }}</p>
+  {% endif %}
+
+  <section class="panel">
+    {% if user %}
+      <p class="empty">ログイン済み。</p>
+      <div class="actions">
+        <a class="button-link" href="/me">ログイン状態を見る</a>
+        <a class="button-link secondary" href="/logout">ログアウト</a>
+      </div>
+    {% else %}
+      {% if oauth_configured %}
+        <p class="hint">Discordアカウントでログイン。</p>
+        <a class="button-link" href="/auth/discord">Discordでログイン</a>
+      {% else %}
+        <p class="error">Discord OAuth設定が未設定。.env を確認。</p>
+        <ul class="config-list">
+          <li>DISCORD_OAUTH_CLIENT_ID: {{ "OK" if oauth_status.client_id else "未設定" }}</li>
+          <li>DISCORD_OAUTH_CLIENT_SECRET: {{ "OK" if oauth_status.client_secret else "未設定" }}</li>
+          <li>DISCORD_OAUTH_REDIRECT_URI: {{ "OK" if oauth_status.redirect_uri else "未設定" }}</li>
+          <li>ADMIN_SESSION_SECRET: {{ "OK" if oauth_status.session_secret else "開発用フォールバック" }}</li>
+        </ul>
+      {% endif %}
+    {% endif %}
+  </section>
+{% endblock %}

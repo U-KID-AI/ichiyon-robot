@@ -1,0 +1,107 @@
+{% extends "layout.html" %}
+
+{% block title %}{% if mode == "new" %}自動反応を追加{% else %}{{ reaction.trigger_text }}{% endif %} - いちよんロボ管理画面{% endblock %}
+{% block heading %}{% if mode == "new" %}自動反応を追加{% else %}{{ reaction.trigger_text }}{% endif %}{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="server-summary page-summary">
+      {% if server.icon_url %}
+        <img class="server-icon" src="{{ server.icon_url }}" alt="">
+      {% else %}
+        <div class="server-icon placeholder"></div>
+      {% endif %}
+      <div>
+        <h2>{{ server.name }}</h2>
+        <p class="empty">特定の言葉に自動で返答。</p>
+        {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
+      </div>
+    </div>
+    <div class="page-actions">
+      <a class="button-link secondary" href="/servers">サーバー選択へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}/auto-reactions">自動反応一覧へ戻る</a>
+      {% if mode == "edit" %}
+        <a class="button-link secondary" href="/guilds/{{ guild_id }}/auto-reactions/{{ reaction.id }}/effects">特殊効果を編集</a>
+      {% endif %}
+    </div>
+  </section>
+
+  {% if errors %}
+    <section class="panel">
+      {% for error in errors %}
+        <p class="error">{{ error }}</p>
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  <section class="panel">
+    <h2>基本情報</h2>
+    <form class="quote-form" method="post" enctype="multipart/form-data">
+      <label>呼び出しワード<input type="text" name="trigger_text" value="{{ reaction.trigger_text }}" {% if not can_edit %}disabled{% endif %}></label>
+      <label>返答テキスト<textarea name="response_text" {% if not can_edit %}disabled{% endif %}>{{ reaction.response_text }}</textarea></label>
+      <input type="hidden" name="emoji_internal" value="{{ reaction.emoji_internal }}">
+      <div class="image-field">
+        <input type="hidden" name="image_path" value="{{ reaction.image_path }}">
+        {% if reaction.image_path %}
+          <img class="image-preview" src="/{{ reaction.image_path }}" alt="">
+          <label class="check-row"><input type="checkbox" name="delete_image" {% if not can_edit %}disabled{% endif %}>画像を削除</label>
+        {% endif %}
+        <label>画像を選ぶ<input type="file" name="image_upload" accept="image/*" {% if not can_edit %}disabled{% endif %}></label>
+      </div>
+      <div class="form-grid">
+        <label>
+          一致方式
+          <select name="match_type" {% if not can_edit %}disabled{% endif %}>
+            {% for item in match_types %}
+              <option value="{{ item }}" {% if reaction.match_type == item %}selected{% endif %}>{{ match_type_labels.get(item, item) }}{% if item == "regex" %}{% endif %}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>優先度<input type="number" name="priority" value="{{ reaction.priority }}" {% if not can_edit %}disabled{% endif %}></label>
+      </div>
+      <label class="check-row">
+        <input type="checkbox" name="enabled" {% if reaction.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+        有効
+      </label>
+      <details>
+        <summary>詳細設定</summary>
+      </details>
+      <div class="row-actions">
+        {% if can_edit %}
+          <button type="submit">{% if mode == "new" %}作成{% else %}保存{% endif %}</button>
+        {% else %}
+          <button type="button" disabled>保存不可</button>
+        {% endif %}
+      </div>
+    </form>
+    {% if mode == "edit" %}
+      <form method="post" action="/guilds/{{ guild_id }}/auto-reactions/{{ reaction.id }}/delete" data-confirm="この自動反応を削除する？">
+        <button class="danger" type="submit" {% if not can_edit %}disabled{% endif %}>削除</button>
+      </form>
+    {% endif %}
+  </section>
+
+  {% if mode == "edit" %}
+    <section class="panel">
+      <h2>付与済み特殊効果</h2>
+      {% if reaction.effects %}
+        <div class="effect-chip-list">
+          {% for effect in reaction.effects %}
+            <span class="effect-chip"><span class="color-swatch" style="background: {{ effect.color or '#6B7280' }}"></span>{{ effect.name }}</span>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="empty">付与済みタグはありません。</p>
+      {% endif %}
+    </section>
+  {% endif %}
+
+  <script>
+    document.querySelectorAll("[data-confirm]").forEach(function (form) {
+      form.addEventListener("submit", function (event) {
+        if (!confirm(form.dataset.confirm)) { event.preventDefault(); }
+      });
+    });
+  </script>
+{% endblock %}

@@ -1,0 +1,105 @@
+{% extends "layout.html" %}
+
+{% block title %}機能一覧 - いちよんロボ{% endblock %}
+{% block heading %}機能一覧{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="server-summary page-summary">
+      {% if server.icon_url %}
+        <img class="server-icon" src="{{ server.icon_url }}" alt="">
+      {% else %}
+        <div class="server-icon placeholder"></div>
+      {% endif %}
+      <div>
+        <h2>{{ server.name }}</h2>
+        <p class="empty">サーバーID: {{ guild_id }}</p>
+        {% if server.role %}
+          <strong class="status enabled">{{ server.role }}</strong>
+        {% endif %}
+      </div>
+    </div>
+    <a class="button-link secondary" href="/servers">サーバー選択へ戻る</a>
+  </section>
+
+  <section class="panel">
+    <h2>機能一覧</h2>
+    <div class="feature-list">
+      {% for feature in features %}
+        <article class="feature-item">
+          <div class="feature-main">
+            <div>
+              <div class="feature-title-row">
+                <h3>{{ feature.label }}</h3>
+                {% if feature.enabled %}
+                  <strong class="status enabled">ON</strong>
+                {% else %}
+                  <strong class="status disabled">OFF</strong>
+                {% endif %}
+              </div>
+              <p class="empty">{{ feature.overview }}</p>
+            </div>
+          </div>
+          <div class="feature-actions">
+            <button
+              class="info-button"
+              type="button"
+              data-modal-target="feature-info-{{ feature.key }}"
+              aria-label="{{ feature.label }}の情報"
+            >i</button>
+            <a class="button-link secondary" href="{{ feature.edit_url }}">編集</a>
+            <form method="post" action="{{ feature.toggle_url }}">
+              <button type="submit" {% if not feature.can_toggle %}disabled title="権限なし"{% endif %}>
+                {% if feature.enabled %}OFFにする{% else %}ONにする{% endif %}
+              </button>
+            </form>
+          </div>
+        </article>
+
+        <div class="modal-backdrop" id="feature-info-{{ feature.key }}" hidden>
+          <div class="modal" role="dialog" aria-modal="true" aria-labelledby="feature-info-title-{{ feature.key }}">
+            <div class="modal-header">
+              <h2 id="feature-info-title-{{ feature.key }}">{{ feature.label }}</h2>
+              <button class="modal-close" type="button" data-modal-close aria-label="閉じる">x</button>
+            </div>
+            <dl class="info-list">
+              <dt>概要</dt>
+              <dd>{{ feature.overview }}</dd>
+              <dt>主な設定項目</dt>
+              <dd>{{ feature.settings }}</dd>
+              <dt>OFF時の挙動</dt>
+              <dd>{{ feature.off_behavior }}</dd>
+              <dt>注意点</dt>
+              <dd>{{ feature.notes }}</dd>
+            </dl>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <script>
+    document.querySelectorAll("[data-modal-target]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var modal = document.getElementById(button.dataset.modalTarget);
+        if (modal) {
+          modal.hidden = false;
+        }
+      });
+    });
+
+    document.querySelectorAll("[data-modal-close]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        button.closest(".modal-backdrop").hidden = true;
+      });
+    });
+
+    document.querySelectorAll(".modal-backdrop").forEach(function (backdrop) {
+      backdrop.addEventListener("click", function (event) {
+        if (event.target === backdrop) {
+          backdrop.hidden = true;
+        }
+      });
+    });
+  </script>
+{% endblock %}

@@ -1,0 +1,266 @@
+{% extends "layout.html" %}
+
+{% block title %}{% if mode == "new" %}ランダム抽選を追加{% else %}{{ reaction.name }}{% endif %} - いちよんロボ管理画面{% endblock %}
+{% block heading %}{% if mode == "new" %}ランダム抽選を追加{% else %}{{ reaction.name }}{% endif %}{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="server-summary page-summary">
+      {% if server.icon_url %}
+        <img class="server-icon" src="{{ server.icon_url }}" alt="">
+      {% else %}
+        <div class="server-icon placeholder"></div>
+      {% endif %}
+      <div>
+        <h2>{{ server.name }}</h2>
+        <p class="empty">メンション反応を管理。</p>
+        {% if server.role %}
+          <strong class="status enabled">{{ server.role }}</strong>
+        {% endif %}
+      </div>
+    </div>
+    <div class="page-actions">
+      <a class="button-link secondary" href="/servers">サーバー選択へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}/mention-reactions?kind={% if reaction.reaction_kind == 'search' %}search{% else %}random_draw{% endif %}">メンション反応一覧へ戻る</a>
+    </div>
+    <p class="hint">検索型は固定機能。新規作成はランダム抽選だけ。</p>
+  </section>
+
+  {% if errors %}
+    <section class="panel">
+      {% for error in errors %}
+        <p class="error">{{ error }}</p>
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  <section class="panel">
+    <h2>基本情報</h2>
+    {% if search_readonly %}
+      <p class="hint">検索型。ここでは呼び出しワードなどを設定。</p>
+    {% endif %}
+    {% if reaction.is_system %}
+      <p class="hint">固定機能。削除不可。重要設定はサーバー管理者以上。</p>
+    {% endif %}
+
+    <form class="quote-form" method="post">
+      <label>
+        反応名
+        <input type="text" name="name" value="{{ reaction.name }}" {% if not can_edit_reaction %}disabled{% endif %}>
+      </label>
+      <label>
+        説明
+        <textarea name="description" {% if not can_edit_reaction %}disabled{% endif %}>{{ reaction.description or "" }}</textarea>
+      </label>
+      <label>
+        呼び出しワード
+        <input type="text" name="keyword" value="{{ reaction.keyword }}" {% if not can_edit_reaction %}disabled{% endif %}>
+      </label>
+      <label>
+        一致方式
+        <select name="match_type" {% if not can_edit_reaction %}disabled{% endif %}>
+          {% for match_type in match_types %}
+            <option value="{{ match_type.value }}" {% if reaction.match_type == match_type.value %}selected{% endif %}>{{ match_type.label }}{% if match_type.value == "regex" %}{% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="check-row">
+        <input type="checkbox" name="enabled" {% if reaction.enabled %}checked{% endif %} {% if not can_edit_reaction %}disabled{% endif %}>
+        有効
+      </label>
+      <label class="check-row">
+        <input type="checkbox" name="admin_only" {% if reaction.admin_only %}checked{% endif %} {% if not can_edit_reaction or not can_set_admin_only %}disabled{% endif %}>
+        管理者限定
+      </label>
+
+      <details>
+        <summary>詳細設定</summary>
+        <dl class="info-list">
+          <dt>種類</dt>
+          <dd>{% if reaction.reaction_kind == "search" %}検索{% else %}ランダム抽選{% endif %}</dd>
+          <dt>固定機能</dt>
+          <dd>{% if reaction.is_system %}固定機能{% else %}追加した反応{% endif %}</dd>
+          <dt>削除</dt>
+          <dd>{% if reaction.is_system or not reaction.is_deletable %}固定機能のため削除不可。{% else %}削除可。{% endif %}</dd>
+        </dl>
+      </details>
+
+      <div class="row-actions">
+        {% if can_edit_reaction %}
+          <button type="submit">{% if mode == "new" %}作成{% else %}保存{% endif %}</button>
+        {% else %}
+          <button type="button" disabled>保存不可</button>
+        {% endif %}
+      </div>
+    </form>
+    {% if mode == "edit" %}
+      <form method="post" action="/guilds/{{ guild_id }}/mention-reactions/{{ reaction.id }}/delete" data-confirm="このメンション反応を削除する？">
+        <button class="danger" type="submit" {% if reaction.is_system or not reaction.is_deletable or not can_edit_reaction %}disabled title="固定機能、または権限なし"{% endif %}>削除</button>
+      </form>
+    {% endif %}
+  </section>
+
+  {% if mode == "edit" and deck_settings %}
+    <section class="panel">
+      <h2>デッキ検索の設定</h2>
+      <p class="hint">デッキ検索は固定機能。ここでは使い方だけ設定。</p>
+      {% if deck_errors %}
+        {% for error in deck_errors %}
+          <p class="error">{{ error }}</p>
+        {% endfor %}
+      {% endif %}
+      <form class="quote-form" method="post" action="/guilds/{{ guild_id }}/mention-reactions/{{ reaction.id }}/search-settings">
+        <label class="check-row">
+          <input type="checkbox" name="enabled" {% if deck_settings.enabled %}checked{% endif %} {% if not can_edit_deck_settings %}disabled{% endif %}>
+          有効
+        </label>
+        <label>呼び出しワード<input type="text" name="keyword" value="{{ deck_settings.keyword }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+        <label>
+          一致方式
+          <select name="match_type" {% if not can_edit_deck_settings %}disabled{% endif %}>
+            {% for match_type in match_types %}
+              <option value="{{ match_type.value }}" {% if deck_settings.match_type == match_type.value %}selected{% endif %}>{{ match_type.label }}{% if match_type.value == "regex" %}{% endif %}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>使えるチャンネルID（1行に1つ）<textarea name="allowed_channel_ids" placeholder="123&#10;456" {% if not can_edit_deck_settings %}disabled{% endif %}>{{ deck_settings.allowed_channel_ids }}</textarea></label>
+        <label>返す件数<input type="number" min="1" name="max_results" value="{{ deck_settings.max_results }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+        <label>使えないチャンネルでのメッセージ<textarea name="deny_message" {% if not can_edit_deck_settings %}disabled{% endif %}>{{ deck_settings.deny_message }}</textarea></label>
+        <label>
+          フォーマット未指定時
+          <select name="missing_format_behavior" {% if not can_edit_deck_settings %}disabled{% endif %}>
+            <option value="ask_format" {% if deck_settings.missing_format_behavior == "ask_format" %}selected{% endif %}>形式を確認する</option>
+            <option value="latest" {% if deck_settings.missing_format_behavior == "latest" %}selected{% endif %}>最新扱いにする</option>
+              <option value="reject" {% if deck_settings.missing_format_behavior == "reject" %}selected{% endif %}>使えないと返す</option>
+          </select>
+        </label>
+        <label>説明<textarea name="description" {% if not can_edit_deck_settings %}disabled{% endif %}>{{ deck_settings.description }}</textarea></label>
+        <details>
+          <summary>詳細設定</summary>
+          <label>X検索クエリ<input type="text" name="x_query_template" value="{{ deck_settings.x_query_template or '' }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+          <label>
+            検索範囲
+            <select name="search_mode" {% if not can_edit_deck_settings %}disabled{% endif %}>
+              <option value="recent" {% if deck_settings.search_mode == "recent" %}selected{% endif %}>直近検索</option>
+              <option value="full_archive" {% if deck_settings.search_mode == "full_archive" %}selected{% endif %}>過去検索</option>
+            </select>
+          </label>
+          <label>検索対象日数<input type="number" min="1" max="30" name="lookback_days" value="{{ deck_settings.lookback_days or 14 }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+          <label>除外ワード<textarea name="excluded_keywords" placeholder="ドラゴンボール&#10;レジェンズ" {% if not can_edit_deck_settings %}disabled{% endif %}>{{ deck_settings.excluded_keywords }}</textarea></label>
+          <label class="check-row"><input type="checkbox" name="include_retweets" {% if deck_settings.include_retweets %}checked{% endif %} {% if not can_edit_deck_settings %}disabled{% endif %}>リポストを含める</label>
+          <label class="check-row"><input type="checkbox" name="include_replies" {% if deck_settings.include_replies %}checked{% endif %} {% if not can_edit_deck_settings %}disabled{% endif %}>返信を含める</label>
+          <label>画像確認上限<input type="number" min="1" name="image_scan_limit" value="{{ deck_settings.image_scan_limit or 8 }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+          <label>タイムアウト秒<input type="number" min="1" name="request_timeout_seconds" value="{{ deck_settings.request_timeout_seconds or 10 }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+          <label>キャッシュ秒<input type="number" min="0" name="cache_ttl_seconds" value="{{ deck_settings.cache_ttl_seconds or 60 }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+          <label>表示形式<input type="text" name="result_format" value="{{ deck_settings.result_format or 'default' }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+          <label class="check-row"><input type="checkbox" name="class_filter_required" {% if deck_settings.class_filter_required %}checked{% endif %} {% if not can_edit_deck_settings %}disabled{% endif %}>クラス指定を必須にする</label>
+          <dl class="info-list">
+            <dt>検索タイプ</dt><dd>デッキ検索</dd>
+            <dt>新規作成</dt><dd>検索型は通常フォームから追加しない。</dd>
+          </dl>
+        </details>
+        {% if can_edit_deck_settings %}
+          <button type="submit">デッキ検索設定を保存</button>
+        {% else %}
+          <button type="button" disabled>閲覧のみ</button>
+        {% endif %}
+      </form>
+    </section>
+  {% endif %}
+
+  {% if mode == "edit" %}
+    <section class="panel">
+      <h2>抽選候補</h2>
+      {% if reaction.reaction_kind == "search" %}
+        <p class="empty">検索型には抽選候補を追加しません。</p>
+      {% else %}
+        {% if choice_errors %}
+          {% for error in choice_errors %}
+            <p class="error">{{ error }}</p>
+          {% endfor %}
+        {% endif %}
+
+        {% if choices %}
+          <div class="choice-list">
+            {% for choice in choices %}
+              <form class="choice-item" method="post" action="/guilds/{{ guild_id }}/mention-reactions/{{ reaction.id }}/choices/{{ choice.id }}" enctype="multipart/form-data">
+                <div class="choice-grid">
+                  <label>候補名<input type="text" name="choice_name" value="{{ choice.name }}" {% if not can_edit_choices %}disabled{% endif %}></label>
+                  <label>出やすさ<input type="number" min="1" name="appearance_rate" value="{{ choice.appearance_rate }}" {% if not can_edit_choices %}disabled{% endif %}></label>
+                  <label class="choice-wide">本文<textarea name="body" {% if not can_edit_choices %}disabled{% endif %}>{{ choice.body or "" }}</textarea></label>
+                  <div class="choice-wide image-field">
+                    <input type="hidden" name="image_path" value="{{ choice.image_path or "" }}">
+                    {% if choice.image_path %}
+                      <img class="image-preview" src="/{{ choice.image_path }}" alt="">
+                      <label class="check-row"><input type="checkbox" name="delete_image" {% if not can_edit_choices %}disabled{% endif %}>画像を削除</label>
+                    {% endif %}
+                    <label>画像を選ぶ<input type="file" name="image_upload" accept="image/*" {% if not can_edit_choices %}disabled{% endif %}></label>
+                  </div>
+                  <label class="check-row"><input type="checkbox" name="choice_enabled" {% if choice.enabled %}checked{% endif %} {% if not can_edit_choices %}disabled{% endif %}>有効</label>
+                </div>
+                <div class="row-actions">
+                  {% if can_edit_choices %}
+                    <button type="submit">候補を保存</button>
+                  {% else %}
+                    <button type="button" disabled>保存不可</button>
+                  {% endif %}
+                  <a class="button-link secondary" href="{{ choice.effects_url }}">特殊効果を編集</a>
+                </div>
+              </form>
+              <form method="post" action="/guilds/{{ guild_id }}/mention-reactions/{{ reaction.id }}/choices/{{ choice.id }}/delete" data-confirm="この候補を削除する？">
+                <button class="danger" type="submit" {% if not can_edit_choices %}disabled{% endif %}>候補を削除</button>
+              </form>
+              <div class="assigned-effects">
+                <strong>付与済み特殊効果</strong>
+                {% if choice.effects %}
+                  <div class="effect-chip-list">
+                    {% for effect in choice.effects %}
+                      <span class="effect-chip">
+                        <span class="color-swatch" style="background: {{ effect.color or '#6B7280' }}"></span>
+                        {{ effect.name }} / {{ effect.effect_type }}
+                      </span>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <p class="empty">付与済みタグはありません。</p>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="empty">抽選候補はまだありません。</p>
+        {% endif %}
+
+        <section class="subpanel">
+          <h3>候補を追加</h3>
+          <form class="choice-item" method="post" action="/guilds/{{ guild_id }}/mention-reactions/{{ reaction.id }}/choices" enctype="multipart/form-data">
+            <div class="choice-grid">
+              <label>候補名<input type="text" name="choice_name" {% if not can_edit_choices %}disabled{% endif %}></label>
+              <label>出やすさ<input type="number" min="1" name="appearance_rate" value="1" {% if not can_edit_choices %}disabled{% endif %}></label>
+              <label class="choice-wide">本文<textarea name="body" {% if not can_edit_choices %}disabled{% endif %}></textarea></label>
+              <label class="choice-wide">画像を選ぶ<input type="file" name="image_upload" accept="image/*" {% if not can_edit_choices %}disabled{% endif %}></label>
+              <input type="hidden" name="image_path" value="">
+              <label class="check-row"><input type="checkbox" name="choice_enabled" checked {% if not can_edit_choices %}disabled{% endif %}>有効</label>
+            </div>
+            {% if can_edit_choices %}
+              <button type="submit">候補を追加</button>
+            {% else %}
+              <button type="button" disabled>追加不可</button>
+            {% endif %}
+          </form>
+        </section>
+      {% endif %}
+    </section>
+  {% endif %}
+
+  <script>
+    document.querySelectorAll("[data-confirm]").forEach(function (form) {
+      form.addEventListener("submit", function (event) {
+        if (!confirm(form.dataset.confirm)) {
+          event.preventDefault();
+        }
+      });
+    });
+  </script>
+{% endblock %}

@@ -1,0 +1,24 @@
+{% extends "layout.html" %}
+
+{% block title %}ログイン状態 - いちよんロボ{% endblock %}
+{% block heading %}ログイン状態{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="profile-row">
+      {% if user.avatar_url %}
+        <img class="avatar" src="{{ user.avatar_url }}" alt="">
+      {% endif %}
+      <div>
+        <h2>{{ user.global_name or user.username or "Discordユーザー" }}</h2>
+        <p class="empty">Discord User ID: {{ user.user_id }}</p>
+        {% if user.username %}
+          <p class="empty">Username: {{ user.username }}</p>
+        {% endif %}
+      </div>
+    </div>
+    <div class="actions">
+      <a class="button-link secondary" href="/logout">ログアウト</a>
+    </div>
+  </section>
+{% endblock %}

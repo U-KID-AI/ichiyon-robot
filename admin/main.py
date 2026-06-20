@@ -9,6 +9,29 @@ from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
+
+from admin.auto_reactions import (
+    register_auto_reaction_routes,
+    router as auto_reaction_router,
+)
+from admin.auto_posts import register_auto_post_routes, router as auto_post_router
+from admin.auth import get_session_secret, register_auth_routes, router as auth_router
+from admin.mention_reactions import (
+    register_mention_reaction_routes,
+    router as mention_reaction_router,
+)
+from admin.mention_limited_effects import (
+    register_mention_limited_effect_routes,
+    router as mention_limited_effect_router,
+)
+from admin.modes import register_mode_routes, router as mode_router
+from admin.ng_words_db import register_ng_word_routes, router as ng_word_router
+from admin.servers import register_server_routes, router as server_router
+from admin.special_effects import (
+    register_special_effect_routes,
+    router as special_effect_router,
+)
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,9 +48,54 @@ for image_category in ("quotes", "kuji", "reactions"):
     (IMAGE_ROOT / image_category).mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="いちよんロボ 管理画面")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=get_session_secret(),
+    same_site="lax",
+    https_only=False,
+)
 app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent / "static"), name="static")
 app.mount("/assets", StaticFiles(directory=BASE_DIR / "assets"), name="assets")
 templates = Jinja2Templates(directory=Path(__file__).resolve().parent / "templates")
+register_auth_routes(templates)
+register_server_routes(templates)
+register_mention_limited_effect_routes(templates)
+register_mention_reaction_routes(templates)
+register_special_effect_routes(templates)
+register_auto_reaction_routes(templates)
+register_ng_word_routes(templates)
+register_mode_routes(templates)
+register_auto_post_routes(templates)
+app.include_router(auth_router)
+app.include_router(server_router)
+app.include_router(mention_limited_effect_router)
+app.include_router(mention_reaction_router)
+app.include_router(special_effect_router)
+app.include_router(auto_reaction_router)
+app.include_router(ng_word_router)
+app.include_router(mode_router)
+app.include_router(auto_post_router)
+
+
+LEGACY_JSON_PATHS = ("/quotes", "/reactions", "/ng-words", "/kuji")
+
+
+def legacy_json_pages_enabled() -> bool:
+    return os.getenv("ADMIN_ENABLE_LEGACY_JSON_PAGES", "").strip().lower() == "true"
+
+
+def is_legacy_json_path(path: str) -> bool:
+    for legacy_path in LEGACY_JSON_PATHS:
+        if path == legacy_path or path.startswith(legacy_path + "/"):
+            return True
+    return False
+
+
+@app.middleware("http")
+async def redirect_legacy_json_pages(request: Request, call_next):
+    if is_legacy_json_path(request.url.path) and not legacy_json_pages_enabled():
+        return RedirectResponse(url="/servers", status_code=303)
+    return await call_next(request)
 
 
 def load_json_file(path: Path, default):
@@ -105,13 +173,13 @@ async def save_uploaded_image(
 
     suffix = Path(upload.filename).suffix.lower()
     if suffix not in ALLOWED_IMAGE_EXTENSIONS:
-        return None, "対応していない画像形式です。"
+        return None, "対応外の画像形式。"
 
     content = await upload.read()
     if len(content) > MAX_IMAGE_SIZE:
-        return None, "画像サイズは8MB以下にしてください。"
+        return None, "画像サイズは8MB以下。"
     if not content:
-        return None, "画像ファイルが空です。"
+        return None, "画像ファイルが空。"
 
     target_dir = IMAGE_ROOT / category
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -468,8 +536,10 @@ def build_next_id(items: List[Dict], prefix: str) -> str:
 
 
 @app.get("/")
-async def index():
-    return RedirectResponse(url="/quotes", status_code=303)
+async def index(request: Request):
+    if request.session.get("discord_user"):
+        return RedirectResponse(url="/servers", status_code=303)
+    return RedirectResponse(url="/login", status_code=303)
 
 
 @app.get("/quotes")
