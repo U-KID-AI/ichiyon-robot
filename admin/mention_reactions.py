@@ -22,6 +22,7 @@ from admin.ux import (
 )
 from bot.db import connect, get_connection
 from bot.repositories import MentionReactionRepository, SpecialEffectRepository
+from bot.services.deck_search import DEFAULT_EXCLUDED_KEYWORDS, DEFAULT_X_QUERY_TEMPLATE
 
 
 router = APIRouter()
@@ -362,6 +363,9 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         deny_message: str = Form(""),
         missing_format_behavior: str = Form("ask_format"),
         x_query_template: str = Form(""),
+        search_mode: str = Form("recent"),
+        lookback_days: str = Form("14"),
+        excluded_keywords: str = Form(""),
         include_retweets: Optional[str] = Form(None),
         include_replies: Optional[str] = Form(None),
         image_scan_limit: str = Form("8"),
@@ -398,6 +402,9 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 deny_message,
                 missing_format_behavior,
                 x_query_template,
+                search_mode,
+                lookback_days,
+                excluded_keywords,
                 include_retweets,
                 include_replies,
                 image_scan_limit,
@@ -1079,6 +1086,9 @@ def normalize_config_json(value) -> Dict[str, Any]:
 
 def build_deck_settings(reaction: Dict[str, Any]) -> Dict[str, Any]:
     config = normalize_config_json(reaction.get("config_json"))
+    excluded_keywords = config.get("excluded_keywords")
+    if excluded_keywords is None:
+        excluded_keywords = DEFAULT_EXCLUDED_KEYWORDS
     return {
         "keyword": reaction.get("keyword") or "",
         "match_type": reaction.get("match_type") or "prefix",
@@ -1088,7 +1098,10 @@ def build_deck_settings(reaction: Dict[str, Any]) -> Dict[str, Any]:
         "max_results": int(config.get("max_results") or 3),
         "deny_message": config.get("deny_message") or "このチャンネルではデッキ検索は使えません。",
         "missing_format_behavior": config.get("missing_format_behavior") or "ask_format",
-        "x_query_template": config.get("x_query_template") or "({class_label} OR {class_en}) (デッキ OR deck OR QR OR コード) has:images",
+        "x_query_template": config.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE,
+        "search_mode": config.get("search_mode") or "recent",
+        "lookback_days": int(config.get("lookback_days") or 14),
+        "excluded_keywords": "\n".join([str(item) for item in excluded_keywords]),
         "include_retweets": bool(config.get("include_retweets", False)),
         "include_replies": bool(config.get("include_replies", False)),
         "image_scan_limit": int(config.get("image_scan_limit") or 8),
@@ -1102,7 +1115,10 @@ def build_deck_settings(reaction: Dict[str, Any]) -> Dict[str, Any]:
             "max_results": int(config.get("max_results") or 3),
             "deny_message": config.get("deny_message") or "このチャンネルではデッキ検索は使えません。",
             "missing_format_behavior": config.get("missing_format_behavior") or "ask_format",
-            "x_query_template": config.get("x_query_template") or "({class_label} OR {class_en}) (デッキ OR deck OR QR OR コード) has:images",
+            "x_query_template": config.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE,
+            "search_mode": config.get("search_mode") or "recent",
+            "lookback_days": int(config.get("lookback_days") or 14),
+            "excluded_keywords": excluded_keywords,
             "include_retweets": bool(config.get("include_retweets", False)),
             "include_replies": bool(config.get("include_replies", False)),
             "image_scan_limit": int(config.get("image_scan_limit") or 8),
@@ -1123,6 +1139,9 @@ def build_deck_settings_form(
     deny_message: str,
     missing_format_behavior: str,
     x_query_template: str,
+    search_mode: str,
+    lookback_days: str,
+    excluded_keywords: str,
     include_retweets: Optional[str],
     include_replies: Optional[str],
     image_scan_limit: str,
@@ -1149,6 +1168,11 @@ def build_deck_settings_form(
         ttl_seconds = int(cache_ttl_seconds)
     except ValueError:
         ttl_seconds = 0
+    try:
+        search_days = int(lookback_days)
+    except ValueError:
+        search_days = 0
+    excluded_keyword_list = split_channel_ids(excluded_keywords)
 
     settings = {
         "keyword": keyword.strip(),
@@ -1159,7 +1183,10 @@ def build_deck_settings_form(
         "max_results": result_count,
         "deny_message": deny_message.strip(),
         "missing_format_behavior": missing_format_behavior if missing_format_behavior in MISSING_FORMAT_BEHAVIORS else "ask_format",
-        "x_query_template": x_query_template.strip(),
+        "x_query_template": x_query_template.strip() or DEFAULT_X_QUERY_TEMPLATE,
+        "search_mode": search_mode if search_mode in ("recent", "full_archive") else "recent",
+        "lookback_days": search_days,
+        "excluded_keywords": "\n".join(excluded_keyword_list),
         "include_retweets": include_retweets == "on",
         "include_replies": include_replies == "on",
         "image_scan_limit": scan_limit,
@@ -1175,6 +1202,9 @@ def build_deck_settings_form(
         "deny_message": settings["deny_message"],
         "missing_format_behavior": settings["missing_format_behavior"],
         "x_query_template": settings["x_query_template"],
+        "search_mode": settings["search_mode"],
+        "lookback_days": settings["lookback_days"],
+        "excluded_keywords": excluded_keyword_list,
         "include_retweets": settings["include_retweets"],
         "include_replies": settings["include_replies"],
         "image_scan_limit": settings["image_scan_limit"],
@@ -1191,6 +1221,8 @@ def build_deck_settings_form(
         errors.append("一致方式を選択。")
     if result_count < 1:
         errors.append("返す件数は1以上。")
+    if search_days < 1 or search_days > 30:
+        errors.append("検索対象日数は1から30まで")
     if scan_limit < 1:
         errors.append("image_scan_limit must be 1 or more")
     if timeout_seconds < 1:

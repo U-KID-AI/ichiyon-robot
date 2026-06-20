@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -7,6 +8,7 @@ from bot import config
 
 
 RECENT_SEARCH_URL = "https://api.x.com/2/tweets/search/recent"
+FULL_ARCHIVE_SEARCH_URL = "https://api.x.com/2/tweets/search/all"
 
 
 @dataclass
@@ -35,11 +37,59 @@ class XSearchDisabled(Exception):
 
 
 class XSearchError(Exception):
-    pass
+    def __init__(self, message: str, status_code: Optional[int] = None, endpoint_type: str = "recent") -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.endpoint_type = endpoint_type
 
 
 def clamp_x_max_results(value: int) -> int:
     return max(10, min(100, value))
+
+
+def clamp_lookback_days(value: int) -> int:
+    return max(1, min(30, value))
+
+
+def normalize_search_mode(value: str) -> str:
+    normalized = (value or "recent").strip().lower()
+    if normalized == "full_archive":
+        return "full_archive"
+    return "recent"
+
+
+def build_search_time_range(lookback_days: int, now: Optional[datetime] = None) -> Dict[str, str]:
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    current = current.astimezone(timezone.utc)
+    start = current - timedelta(days=clamp_lookback_days(lookback_days))
+    return {
+        "start_time": start.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "end_time": current.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+    }
+
+
+def get_search_endpoint(search_mode: str) -> str:
+    endpoint_type = normalize_search_mode(search_mode)
+    if endpoint_type == "full_archive":
+        return FULL_ARCHIVE_SEARCH_URL
+    return RECENT_SEARCH_URL
+
+
+def build_search_params(query: str, max_results: int, search_mode: str, lookback_days: int) -> Dict[str, Any]:
+    endpoint_type = normalize_search_mode(search_mode)
+    params = {
+        "query": query,
+        "max_results": clamp_x_max_results(max_results),
+        "tweet.fields": "created_at,attachments,text",
+        "expansions": "attachments.media_keys",
+        "media.fields": "url,preview_image_url,type,width,height",
+        "sort_order": "recency",
+    }
+    if endpoint_type == "full_archive":
+        params.update(build_search_time_range(lookback_days))
+    return params
 
 
 def build_media_map(payload: Dict[str, Any]) -> Dict[str, XMedia]:
@@ -82,38 +132,45 @@ def parse_search_response(payload: Dict[str, Any]) -> List[XPost]:
     return posts
 
 
-async def search_recent_posts(query: str, max_results: int, timeout_seconds: int) -> List[XPost]:
+async def search_posts(
+    query: str,
+    max_results: int,
+    timeout_seconds: int,
+    search_mode: str = "recent",
+    lookback_days: int = 14,
+) -> List[XPost]:
     if not config.X_SEARCH_ENABLED:
         raise XSearchDisabled()
     bearer_token = config.X_BEARER_TOKEN.strip()
     if not bearer_token:
         raise XSearchDisabled()
 
-    request_results = clamp_x_max_results(max_results)
-    params = {
-        "query": query,
-        "max_results": request_results,
-        "tweet.fields": "created_at,attachments,text",
-        "expansions": "attachments.media_keys",
-        "media.fields": "url,preview_image_url,type,width,height",
-        "sort_order": "recency",
-    }
+    endpoint_type = normalize_search_mode(search_mode)
+    url = get_search_endpoint(endpoint_type)
+    params = build_search_params(query, max_results, endpoint_type, lookback_days)
     headers = {"Authorization": "Bearer {0}".format(bearer_token)}
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-            response = await client.get(RECENT_SEARCH_URL, params=params, headers=headers)
+            response = await client.get(url, params=params, headers=headers)
     except httpx.TimeoutException as exc:
-        raise XSearchError("timeout") from exc
+        raise XSearchError("timeout", endpoint_type=endpoint_type) from exc
     except httpx.HTTPError as exc:
-        raise XSearchError("request failed") from exc
+        raise XSearchError("request failed", endpoint_type=endpoint_type) from exc
 
-    if response.status_code in (401, 403, 429):
-        raise XSearchError("api status {0}".format(response.status_code))
     if response.status_code >= 400:
-        raise XSearchError("api status {0}".format(response.status_code))
+        print("[WARN] X search failed: endpoint={0} status={1}".format(endpoint_type, response.status_code))
+        raise XSearchError(
+            "api status {0}".format(response.status_code),
+            status_code=response.status_code,
+            endpoint_type=endpoint_type,
+        )
 
     try:
         payload = response.json()
     except ValueError as exc:
-        raise XSearchError("invalid json") from exc
+        raise XSearchError("invalid json", endpoint_type=endpoint_type) from exc
     return parse_search_response(payload)
+
+
+async def search_recent_posts(query: str, max_results: int, timeout_seconds: int) -> List[XPost]:
+    return await search_posts(query, max_results, timeout_seconds, "recent", 14)

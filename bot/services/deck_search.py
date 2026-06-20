@@ -7,7 +7,7 @@ import httpx
 
 from bot import config
 from bot.services.qr_detector import detect_qr_codes, opencv_available
-from bot.services.x_search import XPost, XSearchDisabled, XSearchError, search_recent_posts
+from bot.services.x_search import XPost, XSearchDisabled, XSearchError, search_posts
 
 
 DEFAULT_DENY_MESSAGE = "このチャンネルではデッキ検索は使えません。"
@@ -15,7 +15,9 @@ DEFAULT_DISABLED_MESSAGE = "デッキ検索はまだ無効"
 DEFAULT_ERROR_MESSAGE = "検索でエラー"
 DEFAULT_NOT_FOUND_MESSAGE = "見つからなかった"
 DEFAULT_ASK_FORMAT_MESSAGE = "クラス名も入れて"
-DEFAULT_X_QUERY_TEMPLATE = "({class_label} OR {class_en}) (デッキ OR deck OR QR OR コード) has:images"
+DEFAULT_FULL_ARCHIVE_UNAVAILABLE_MESSAGE = "過去検索が使えません"
+DEFAULT_X_QUERY_TEMPLATE = "({class_label} OR {class_en}) (シャドバ OR Shadowverse OR シャドウバース OR SV) (デッキ OR deck OR QR OR コード) has:images"
+DEFAULT_EXCLUDED_KEYWORDS = ["ドラゴンボール", "レジェンズ"]
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
 CLASS_ALIASES = {
@@ -51,6 +53,10 @@ class DeckSearchResult:
 
 @dataclass
 class DeckSearchStats:
+    search_mode: str = "recent"
+    endpoint_type: str = "recent"
+    lookback_days: int = 14
+    http_status: Optional[int] = None
     x_results: int = 0
     media_posts: int = 0
     image_downloaded: int = 0
@@ -64,9 +70,14 @@ class DeckSearchStats:
 
     def to_log(self) -> str:
         return (
-            "X results={0}, media={1}, downloaded={2}, qr={3}, candidates={4}, "
-            "skip_no_media={5}, skip_non_photo={6}, skip_image_fetch={7}, skip_no_qr={8}, skip_qr_error={9}"
+            "mode={0}, endpoint={1}, lookback_days={2}, http_status={3}, "
+            "X results={4}, media={5}, downloaded={6}, qr={7}, candidates={8}, "
+            "skip_no_media={9}, skip_non_photo={10}, skip_image_fetch={11}, skip_no_qr={12}, skip_qr_error={13}"
         ).format(
+            self.search_mode,
+            self.endpoint_type,
+            self.lookback_days,
+            self.http_status if self.http_status is not None else "-",
             self.x_results,
             self.media_posts,
             self.image_downloaded,
@@ -122,6 +133,35 @@ def get_config_bool(config_json: Dict[str, Any], key: str, default: bool) -> boo
     return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
+def get_config_str(config_json: Dict[str, Any], key: str, default: str) -> str:
+    value = config_json.get(key)
+    if value is None or not str(value).strip():
+        return default
+    return str(value).strip()
+
+
+def normalize_search_mode(value: str) -> str:
+    normalized = (value or "recent").strip().lower()
+    if normalized == "full_archive":
+        return "full_archive"
+    return "recent"
+
+
+def get_excluded_keywords(config_json: Dict[str, Any]) -> List[str]:
+    raw = config_json.get("excluded_keywords")
+    if raw is None:
+        return list(DEFAULT_EXCLUDED_KEYWORDS)
+    if isinstance(raw, list):
+        return [str(item).strip() for item in raw if str(item).strip()]
+    text = str(raw)
+    keywords = []
+    for line in text.replace(",", "\n").splitlines():
+        item = line.strip()
+        if item:
+            keywords.append(item)
+    return keywords
+
+
 def build_x_query(request: DeckSearchRequest, config_json: Dict[str, Any]) -> str:
     template = config_json.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE
     query = template.format(
@@ -134,6 +174,8 @@ def build_x_query(request: DeckSearchRequest, config_json: Dict[str, Any]) -> st
         query += " -is:retweet"
     if not get_config_bool(config_json, "include_replies", False):
         query += " -is:reply"
+    for keyword in get_excluded_keywords(config_json):
+        query += " -{0}".format(keyword)
     return query
 
 
@@ -260,6 +302,8 @@ async def search_decks(guild_id: str, channel_id: str, command_text: str, config
     cache_ttl_seconds = get_config_int(config_json, "cache_ttl_seconds", 60, 0, 3600)
     image_scan_limit = get_config_int(config_json, "image_scan_limit", 8, 1, 50)
     search_limit = get_config_int(config_json, "x_search_max_results", config.X_SEARCH_MAX_RESULTS, 10, 100)
+    search_mode = normalize_search_mode(get_config_str(config_json, "search_mode", config.X_SEARCH_MODE))
+    lookback_days = get_config_int(config_json, "lookback_days", config.X_SEARCH_LOOKBACK_DAYS, 1, 30)
     key = cache_key(guild_id, channel_id, request)
     cached = get_cached(key, cache_ttl_seconds)
     if cached is not None:
@@ -267,12 +311,16 @@ async def search_decks(guild_id: str, channel_id: str, command_text: str, config
 
     query = build_x_query(request, config_json)
     print("[INFO] deck search query: {0}".format(query))
-    stats = DeckSearchStats()
+    stats = DeckSearchStats(search_mode=search_mode, endpoint_type=search_mode, lookback_days=lookback_days)
     try:
-        posts = await search_recent_posts(query, search_limit, timeout_seconds)
+        posts = await search_posts(query, search_limit, timeout_seconds, search_mode, lookback_days)
     except XSearchDisabled:
         return DEFAULT_DISABLED_MESSAGE
-    except XSearchError:
+    except XSearchError as exc:
+        stats.http_status = exc.status_code
+        print("[INFO] deck search stats: {0}".format(stats.to_log()))
+        if search_mode == "full_archive" and exc.status_code in (401, 403, 404):
+            return DEFAULT_FULL_ARCHIVE_UNAVAILABLE_MESSAGE
         return DEFAULT_ERROR_MESSAGE
 
     stats.x_results = len(posts)

@@ -14,7 +14,7 @@ from bot.services import runtime_db
 from bot.services.deck_search import DeckSearchStats, build_x_query
 from bot.services.deck_search import parse_deck_search_command, search_decks
 from bot.services.qr_detector import detect_qr_codes, opencv_available
-from bot.services.x_search import XMedia, XPost, parse_search_response
+from bot.services.x_search import XMedia, XPost, XSearchError, build_search_params, get_search_endpoint, parse_search_response
 
 
 class Check:
@@ -104,6 +104,7 @@ def base_config() -> Dict[str, Any]:
         "cache_ttl_seconds": 0,
         "request_timeout_seconds": 1,
         "image_scan_limit": 3,
+        "excluded_keywords": ["ドラゴンボール", "レジェンズ"],
     }
 
 
@@ -142,8 +143,13 @@ async def check_search_flow(check: Check) -> None:
     check.add("class alias elf", parsed is not None and parsed.class_key == "elf")
     query = build_x_query(parsed, {}) if parsed is not None else ""
     check.add(
-        "relaxed default query includes jp/en and QR terms",
-        "エルフ" in query and "elf" in query and "QR" in query and "コード" in query and "has:images" in query,
+        "default query includes shadowverse terms",
+        "シャドバ" in query and "Shadowverse" in query and "シャドウバース" in query and "SV" in query,
+        query,
+    )
+    check.add(
+        "default query includes exclusions",
+        "-ドラゴンボール" in query and "-レジェンズ" in query,
         query,
     )
     check.add("missing class asks format", parse_deck_search_command("デッキ", "ask_format") is None)
@@ -158,7 +164,10 @@ async def check_search_flow(check: Check) -> None:
     denied = await search_decks("g", "999", "デッキ エルフ", base_config())
     check.add("channel deny message", denied == "このチャンネルではデッキ検索は使えません。", denied)
 
-    async def fake_search_recent_posts(query, max_results, timeout_seconds):
+    called_modes = []
+
+    async def fake_search_posts(query, max_results, timeout_seconds, search_mode, lookback_days):
+        called_modes.append({"mode": search_mode, "lookback_days": lookback_days, "query": query})
         return [
             XPost(
                 post_id="111",
@@ -180,23 +189,72 @@ async def check_search_flow(check: Check) -> None:
             created_at=post.created_at,
         )
 
-    original_search = deck_search.search_recent_posts
+    original_search = deck_search.search_posts
     original_scan = deck_search.scan_post_images
     original_opencv = deck_search.opencv_available
     try:
-        deck_search.search_recent_posts = fake_search_recent_posts
+        deck_search.search_posts = fake_search_posts
         deck_search.scan_post_images = fake_scan_post_images
         deck_search.opencv_available = lambda: True
         config.X_SEARCH_ENABLED = True
         config.X_BEARER_TOKEN = "dummy"
         response = await search_decks("g", "123", "デッキ エルフ", base_config())
         check.add("mock search formats result", "エルフのデッキ候補" in response and "https://x.com/i/web/status/111" in response, response)
+        check.add("recent endpoint selected", called_modes[-1]["mode"] == "recent", str(called_modes[-1]))
+        full_archive_config = base_config()
+        full_archive_config["search_mode"] = "full_archive"
+        full_archive_config["lookback_days"] = 14
+        await search_decks("g", "123", "デッキ エルフ", full_archive_config)
+        check.add(
+            "full archive endpoint selected",
+            called_modes[-1]["mode"] == "full_archive" and called_modes[-1]["lookback_days"] == 14,
+            str(called_modes[-1]),
+        )
     finally:
-        deck_search.search_recent_posts = original_search
+        deck_search.search_posts = original_search
         deck_search.scan_post_images = original_scan
         deck_search.opencv_available = original_opencv
         config.X_SEARCH_ENABLED = disabled_before
         config.X_BEARER_TOKEN = token_before
+
+
+async def check_full_archive_error(check: Check) -> None:
+    disabled_before = config.X_SEARCH_ENABLED
+    token_before = config.X_BEARER_TOKEN
+    original_search = deck_search.search_posts
+    original_opencv = deck_search.opencv_available
+
+    async def fake_forbidden_search(query, max_results, timeout_seconds, search_mode, lookback_days):
+        raise XSearchError("api status 403", status_code=403, endpoint_type=search_mode)
+
+    try:
+        deck_search.search_posts = fake_forbidden_search
+        deck_search.opencv_available = lambda: True
+        config.X_SEARCH_ENABLED = True
+        config.X_BEARER_TOKEN = "dummy"
+        full_archive_config = base_config()
+        full_archive_config["search_mode"] = "full_archive"
+        response = await search_decks("g", "123", "デッキ エルフ", full_archive_config)
+        check.add("full archive permission error is safe", response == "過去検索が使えません", response)
+    finally:
+        deck_search.search_posts = original_search
+        deck_search.opencv_available = original_opencv
+        config.X_SEARCH_ENABLED = disabled_before
+        config.X_BEARER_TOKEN = token_before
+
+
+def check_search_params(check: Check) -> None:
+    recent_endpoint = get_search_endpoint("recent")
+    full_endpoint = get_search_endpoint("full_archive")
+    recent_params = build_search_params("query", 10, "recent", 14)
+    archive_params = build_search_params("query", 10, "full_archive", 14)
+    check.add("recent endpoint path", recent_endpoint.endswith("/2/tweets/search/recent"), recent_endpoint)
+    check.add("full archive endpoint path", full_endpoint.endswith("/2/tweets/search/all"), full_endpoint)
+    check.add(
+        "full archive has time range",
+        "start_time" in archive_params and "end_time" in archive_params and "start_time" not in recent_params,
+        str(archive_params),
+    )
 
 
 def check_x_payload(check: Check) -> None:
@@ -231,7 +289,9 @@ def check_qr_optional(check: Check) -> None:
 def main() -> None:
     check = Check()
     asyncio.run(check_search_flow(check))
+    asyncio.run(check_full_archive_error(check))
     asyncio.run(check_runtime_path(check))
+    check_search_params(check)
     check_x_payload(check)
     check_stats(check)
     check_qr_optional(check)
