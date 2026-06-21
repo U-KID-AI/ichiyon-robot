@@ -454,6 +454,7 @@ class MentionReactionRepository:
         appearance_rate: int,
         enabled: bool,
         result_label: Optional[str] = None,
+        emoji_internal: Optional[str] = None,
     ) -> Dict[str, Any]:
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -466,9 +467,10 @@ class MentionReactionRepository:
                     image_path,
                     appearance_rate,
                     enabled,
-                    result_label
+                    result_label,
+                    emoji_internal
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING *
                 """,
                 (
@@ -480,6 +482,7 @@ class MentionReactionRepository:
                     appearance_rate,
                     enabled,
                     result_label,
+                    emoji_internal,
                 ),
             )
             return fetch_one(cursor)
@@ -494,6 +497,7 @@ class MentionReactionRepository:
         appearance_rate: int,
         enabled: bool,
         result_label: Optional[str] = None,
+        emoji_internal: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -505,6 +509,7 @@ class MentionReactionRepository:
                     appearance_rate = %s,
                     enabled = %s,
                     result_label = %s,
+                    emoji_internal = %s,
                     updated_at = NOW()
                 WHERE guild_id = %s AND id = %s
                 RETURNING *
@@ -516,6 +521,7 @@ class MentionReactionRepository:
                     appearance_rate,
                     enabled,
                     result_label,
+                    emoji_internal,
                     guild_id,
                     choice_id,
                 ),

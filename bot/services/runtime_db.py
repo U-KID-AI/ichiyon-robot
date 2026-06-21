@@ -556,6 +556,20 @@ def choose_auto_match_with_effects(
     return weighted[-1][0]
 
 
+async def add_message_reaction_safe(message: discord.Message, emoji: str, context: str) -> bool:
+    emoji_value = (emoji or "").strip()
+    if not emoji_value:
+        return False
+    try:
+        await message.add_reaction(emoji_value)
+        return True
+    except discord.DiscordException as exc:
+        print("[WARN] Failed to add DB {0} emoji: {1}".format(context, exc))
+    except Exception as exc:
+        print("[WARN] Failed to add DB {0} emoji: {1}".format(context, exc))
+    return False
+
+
 async def repeat_text_image_action(
     message: discord.Message,
     text: str,
@@ -567,12 +581,8 @@ async def repeat_text_image_action(
     for _ in range(repeat_count):
         if await send_text_or_image(message.channel, text, image_path):
             handled = True
-        if emoji:
-            try:
-                await message.add_reaction(emoji)
-                handled = True
-            except discord.DiscordException as exc:
-                print("[WARN] Failed to add repeated DB reaction emoji {0!r}: {1}".format(emoji, exc))
+        if await add_message_reaction_safe(message, emoji, "repeated reaction"):
+            handled = True
     return handled
 
 
@@ -811,17 +821,20 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
     values = build_template_values(message, command_text, selected.groups)
     text = render_choice_body(choice, values)
     image_path = choice.get("image_path") or ""
+    emoji = choice.get("emoji_internal") or ""
     handled = await send_text_or_image(message.channel, text, image_path)
+    if await add_message_reaction_safe(message, emoji, "mention reaction choice"):
+        handled = True
     pending_repeats = get_next_action_extra_repeats(pending_effects, "mention_reaction_choice")
     if pending_repeats:
-        repeated = await repeat_text_image_action(message, text, image_path, "", pending_repeats)
+        repeated = await repeat_text_image_action(message, text, image_path, emoji, pending_repeats)
         handled = handled or repeated
     choice_effects = list_effects(connection, guild_id, "mention_reaction_choice", int(choice["id"]))
     effects = merge_effects(choice_effects, limited_effects)
     effect_result = await execute_effects(connection, guild_id, effects, message, values)
     store_pending_next_effects(guild_id, message, effect_result.pending_effects)
     if effect_result.repeat_count:
-        repeated = await repeat_text_image_action(message, text, image_path, "", effect_result.repeat_count)
+        repeated = await repeat_text_image_action(message, text, image_path, emoji, effect_result.repeat_count)
         handled = handled or repeated
     return RuntimeAction(handled or bool(effects), effect_result.count_changed)
 
@@ -859,12 +872,8 @@ async def process_db_auto_reaction(message: discord.Message, guild_id: str, conn
     sent = await send_text_or_image(message.channel, text, image_path)
 
     emoji = selected.row.get("emoji_internal") or ""
-    if emoji:
-        try:
-            await message.add_reaction(emoji)
-            sent = True
-        except discord.DiscordException as exc:
-            print("[WARN] Failed to add DB auto reaction emoji {0!r}: {1}".format(emoji, exc))
+    if await add_message_reaction_safe(message, emoji, "auto reaction"):
+        sent = True
 
     pending_repeats = get_next_action_extra_repeats(pending_effects, "auto_reaction")
     if pending_repeats:

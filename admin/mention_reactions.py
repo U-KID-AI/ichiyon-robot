@@ -582,6 +582,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         choice_name: str = Form(""),
         result_label: str = Form(""),
         body: str = Form(""),
+        emoji_internal: str = Form(""),
         image_path: str = Form(""),
         image_upload: Optional[UploadFile] = File(None),
         appearance_rate: str = Form("1"),
@@ -596,7 +597,15 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
             uploaded_path, upload_error = await save_uploaded_image(image_upload, "mention_reaction_choices")
             if uploaded_path:
                 image_path = uploaded_path
-            choice_form = build_choice_form(choice_name, result_label, body, image_path, appearance_rate, choice_enabled)
+            choice_form = build_choice_form(
+                choice_name,
+                result_label,
+                body,
+                emoji_internal,
+                image_path,
+                appearance_rate,
+                choice_enabled,
+            )
             errors = validate_choice_form(choice_form)
             if upload_error:
                 errors.append(upload_error)
@@ -623,6 +632,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 choice_form["appearance_rate"],
                 choice_form["enabled"],
                 choice_form["result_label"] or None,
+                choice_form["emoji_internal"] or None,
             )
             connection.commit()
         finally:
@@ -642,6 +652,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         choice_name: str = Form(""),
         result_label: str = Form(""),
         body: str = Form(""),
+        emoji_internal: str = Form(""),
         image_path: str = Form(""),
         image_upload: Optional[UploadFile] = File(None),
         delete_image: Optional[str] = Form(None),
@@ -663,7 +674,15 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
             uploaded_path, upload_error = await save_uploaded_image(image_upload, "mention_reaction_choices")
             if uploaded_path:
                 image_path = uploaded_path
-            choice_form = build_choice_form(choice_name, result_label, body, image_path, appearance_rate, choice_enabled)
+            choice_form = build_choice_form(
+                choice_name,
+                result_label,
+                body,
+                emoji_internal,
+                image_path,
+                appearance_rate,
+                choice_enabled,
+            )
             errors = validate_choice_form(choice_form)
             if upload_error:
                 errors.append(upload_error)
@@ -690,6 +709,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 choice_form["appearance_rate"],
                 choice_form["enabled"],
                 choice_form["result_label"] or None,
+                choice_form["emoji_internal"] or None,
             )
             connection.commit()
         finally:
@@ -1404,6 +1424,7 @@ def build_choice_form(
     name: str,
     result_label: str,
     body: str,
+    emoji_internal: str,
     image_path: str,
     appearance_rate: str,
     enabled: Optional[str],
@@ -1417,6 +1438,7 @@ def build_choice_form(
         "name": name.strip(),
         "result_label": result_label.strip(),
         "body": body.strip(),
+        "emoji_internal": emoji_internal.strip(),
         "image_path": image_path.strip(),
         "appearance_rate": parsed_rate,
         "enabled": enabled == "on",

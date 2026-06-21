@@ -75,6 +75,7 @@
               <th>呼び出しワード</th>
               <th>返答</th>
               <th>画像</th>
+              <th>リアクション</th>
               <th>一致方式</th>
               <th>優先度</th>
               <th>特殊効果</th>
@@ -88,6 +89,7 @@
                 <td data-label="呼び出しワード">{{ reaction.trigger_text }}</td>
                 <td data-label="返答">{{ reaction.response_summary }}</td>
                 <td data-label="画像">{% if reaction.has_image %}あり{% else %}なし{% endif %}</td>
+                <td data-label="リアクション">{{ reaction.emoji_internal or "なし" }}</td>
                 <td data-label="一致方式">{{ reaction.match_type_label }}</td>
                 <td data-label="優先度">{{ reaction.priority }}</td>
                 <td data-label="特殊効果">
@@ -128,6 +130,7 @@
             <dl class="info-list">
               <dt>呼び出しワード</dt><dd>{{ reaction.trigger_text }}</dd>
               <dt>返答テキスト</dt><dd>{{ reaction.response_text or "なし" }}</dd>
+              <dt>リアクション絵文字</dt><dd>{{ reaction.emoji_internal or "なし" }}</dd>
               <dt>画像</dt><dd>{% if reaction.image_path %}<img class="image-preview" src="/{{ reaction.image_path }}" alt="">{% else %}なし{% endif %}</dd>
               <dt>一致方式</dt><dd>{{ reaction.match_type_label }}</dd>
               <dt>優先度</dt><dd>{{ reaction.priority }}</dd>

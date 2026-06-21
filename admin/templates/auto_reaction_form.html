@@ -43,7 +43,7 @@
     <form class="quote-form" method="post" enctype="multipart/form-data">
       <label>呼び出しワード<input type="text" name="trigger_text" value="{{ reaction.trigger_text }}" {% if not can_edit %}disabled{% endif %}></label>
       <label>返答テキスト<textarea name="response_text" {% if not can_edit %}disabled{% endif %}>{{ reaction.response_text }}</textarea></label>
-      <input type="hidden" name="emoji_internal" value="{{ reaction.emoji_internal }}">
+      <label>リアクション絵文字<input type="text" name="emoji_internal" value="{{ reaction.emoji_internal }}" placeholder="🍒 / <:name:123456789012345678>" {% if not can_edit %}disabled{% endif %}></label>
       <div class="image-field">
         <input type="hidden" name="image_path" value="{{ reaction.image_path }}">
         {% if reaction.image_path %}

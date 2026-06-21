@@ -202,6 +202,7 @@
                   <label>何吉<input type="text" name="result_label" value="{{ choice.result_label or '' }}" {% if not can_edit_choices %}disabled{% endif %}></label>
                   <label>出やすさ<input type="number" min="1" name="appearance_rate" value="{{ choice.appearance_rate }}" {% if not can_edit_choices %}disabled{% endif %}></label>
                   <label class="choice-wide">本文<textarea name="body" {% if not can_edit_choices %}disabled{% endif %}>{{ choice.body or "" }}</textarea></label>
+                  <label class="choice-wide">リアクション絵文字<input type="text" name="emoji_internal" value="{{ choice.emoji_internal or '' }}" placeholder="🍒 / <:name:123456789012345678>" {% if not can_edit_choices %}disabled{% endif %}></label>
                   <div class="choice-wide image-field">
                     <input type="hidden" name="image_path" value="{{ choice.image_path or "" }}">
                     {% if choice.image_path %}
@@ -253,6 +254,7 @@
               <label>何吉<input type="text" name="result_label" {% if not can_edit_choices %}disabled{% endif %}></label>
               <label>出やすさ<input type="number" min="1" name="appearance_rate" value="1" {% if not can_edit_choices %}disabled{% endif %}></label>
               <label class="choice-wide">本文<textarea name="body" {% if not can_edit_choices %}disabled{% endif %}></textarea></label>
+              <label class="choice-wide">リアクション絵文字<input type="text" name="emoji_internal" placeholder="🍒 / <:name:123456789012345678>" {% if not can_edit_choices %}disabled{% endif %}></label>
               <label class="choice-wide">画像を選ぶ<input type="file" name="image_upload" accept="image/*" {% if not can_edit_choices %}disabled{% endif %}></label>
               <input type="hidden" name="image_path" value="">
               <label class="check-row"><input type="checkbox" name="choice_enabled" checked {% if not can_edit_choices %}disabled{% endif %}>有効</label>

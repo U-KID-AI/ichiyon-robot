@@ -175,8 +175,9 @@ def upsert_choice(
     enabled: bool,
     sort_order: int,
     result_label: Optional[str] = None,
+    emoji_internal: Optional[str] = None,
 ) -> str:
-    if body is None and image_path is None:
+    if body is None and image_path is None and emoji_internal is None:
         return "skipped"
 
     cursor.execute(
@@ -199,10 +200,11 @@ def upsert_choice(
                 enabled = %s,
                 sort_order = %s,
                 result_label = %s,
+                emoji_internal = %s,
                 updated_at = NOW()
             WHERE id = %s
             """,
-            (body, image_path, appearance_rate, enabled, sort_order, result_label, row[0]),
+            (body, image_path, appearance_rate, enabled, sort_order, result_label, emoji_internal, row[0]),
         )
         return "updated"
 
@@ -217,9 +219,10 @@ def upsert_choice(
             appearance_rate,
             enabled,
             sort_order,
-            result_label
+            result_label,
+            emoji_internal
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             guild_id,
@@ -231,6 +234,7 @@ def upsert_choice(
             enabled,
             sort_order,
             result_label,
+            emoji_internal,
         ),
     )
     return "inserted"
@@ -340,6 +344,7 @@ def iter_quote_choices(data_dir: Path) -> Iterable[Dict[str, Any]]:
             "name": clean_text(item.get("id")) or "quote_{0:03d}".format(index + 1),
             "body": clean_text(item.get("text")),
             "image_path": clean_text(item.get("image_path")),
+            "emoji_internal": clean_text(item.get("emoji")) or clean_text(item.get("emoji_internal")),
             "appearance_rate": 1,
             "enabled": clean_bool(item.get("enabled"), True),
             "sort_order": index,
@@ -356,6 +361,7 @@ def iter_kuji_choices(data_dir: Path) -> Iterable[Dict[str, Any]]:
             "result_label": result_label,
             "body": clean_text(item.get("message")) or clean_text(item.get("body")),
             "image_path": clean_text(item.get("image_path")),
+            "emoji_internal": clean_text(item.get("emoji")) or clean_text(item.get("emoji_internal")),
             "appearance_rate": max(clean_int(item.get("weight"), 1), 1),
             "enabled": clean_bool(item.get("enabled"), True),
             "sort_order": index,
