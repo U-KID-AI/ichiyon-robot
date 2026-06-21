@@ -103,13 +103,24 @@ class FakeMentionReactionRepository:
         return []
 
 
-class FakeFallbackMentionReactionRepository:
+class FakeMentionPriorityRepository:
     def __init__(self, connection) -> None:
         self.connection = connection
 
     def list_reactions(self, guild_id, enabled=None, reaction_kind=None, include_system=True):
         if reaction_kind == "random_draw":
             return [
+                {
+                    "id": 21,
+                    "guild_id": guild_id,
+                    "reaction_key": "kuji",
+                    "keyword": "おみくじ",
+                    "match_type": "exact",
+                    "reaction_kind": "random_draw",
+                    "name": "おみくじ",
+                    "enabled": True,
+                    "created_at": "2026-06-20T00:00:00Z",
+                },
                 {
                     "id": 20,
                     "guild_id": guild_id,
@@ -123,10 +134,36 @@ class FakeFallbackMentionReactionRepository:
                 }
             ]
         if reaction_kind == "search":
-            return []
+            return [
+                {
+                    "id": 10,
+                    "guild_id": guild_id,
+                    "reaction_key": "deck_search",
+                    "keyword": "デッキ",
+                    "match_type": "prefix",
+                    "reaction_kind": "search",
+                    "name": "デッキ検索",
+                    "enabled": True,
+                    "config_json": base_config(),
+                    "created_at": "2026-06-20T00:00:00Z",
+                }
+            ]
         return []
 
     def list_choices(self, guild_id, mention_reaction_id, enabled=None):
+        if mention_reaction_id == 21:
+            return [
+                {
+                    "id": 31,
+                    "guild_id": guild_id,
+                    "mention_reaction_id": mention_reaction_id,
+                    "name": "kuji",
+                    "body": "kuji result",
+                    "image_path": "",
+                    "appearance_rate": 1,
+                    "enabled": True,
+                }
+            ]
         return [
             {
                 "id": 30,
@@ -190,17 +227,40 @@ async def check_runtime_path(check: Check) -> None:
         runtime_db.get_mention_command_text = command_before
 
 
-async def check_mention_fallback(check: Check) -> None:
+async def check_mention_priority(check: Check) -> None:
+    disabled_before = config.X_SEARCH_ENABLED
+    token_before = config.X_BEARER_TOKEN
     repository_before = runtime_db.MentionReactionRepository
     feature_before = runtime_db.feature_enabled
     limited_before = runtime_db.list_limited_effects
     effects_before = runtime_db.list_effects
     command_before = runtime_db.get_mention_command_text
     try:
-        runtime_db.MentionReactionRepository = FakeFallbackMentionReactionRepository
+        config.X_SEARCH_ENABLED = False
+        config.X_BEARER_TOKEN = ""
+        runtime_db.MentionReactionRepository = FakeMentionPriorityRepository
         runtime_db.feature_enabled = lambda connection, guild_id, feature_key: True
         runtime_db.list_limited_effects = lambda connection, guild_id, message: []
         runtime_db.list_effects = lambda connection, guild_id, target_type, target_id: []
+
+        runtime_db.get_mention_command_text = lambda message: "デッキ エルフ"
+        deck_message = FakeMessage("@bot デッキ エルフ")
+        deck_action = await runtime_db.process_db_mention(deck_message, "guild", object())
+        check.add(
+            "deck mention uses search before fallback",
+            deck_action.handled is True and deck_message.channel.sent == ["デッキ検索はまだ無効"],
+            str(deck_message.channel.sent),
+        )
+
+        runtime_db.get_mention_command_text = lambda message: "デッキ　エルフ"
+        wide_space_message = FakeMessage("@bot デッキ　エルフ")
+        wide_space_action = await runtime_db.process_db_mention(wide_space_message, "guild", object())
+        check.add(
+            "deck mention accepts full-width space",
+            wide_space_action.handled is True and wide_space_message.channel.sent == ["デッキ検索はまだ無効"],
+            str(wide_space_message.channel.sent),
+        )
+
         runtime_db.get_mention_command_text = lambda message: "なんでもない文章"
         message = FakeMessage("@bot なんでもない文章")
         action = await runtime_db.process_db_mention(message, "guild", object())
@@ -209,7 +269,18 @@ async def check_mention_fallback(check: Check) -> None:
             action.handled is True and message.channel.sent == ["fallback quote"],
             str(message.channel.sent),
         )
+
+        runtime_db.get_mention_command_text = lambda message: "おみくじ"
+        kuji_message = FakeMessage("@bot おみくじ")
+        kuji_action = await runtime_db.process_db_mention(kuji_message, "guild", object())
+        check.add(
+            "kuji mention uses keyword reaction before fallback",
+            kuji_action.handled is True and kuji_message.channel.sent == ["kuji result"],
+            str(kuji_message.channel.sent),
+        )
     finally:
+        config.X_SEARCH_ENABLED = disabled_before
+        config.X_BEARER_TOKEN = token_before
         runtime_db.MentionReactionRepository = repository_before
         runtime_db.feature_enabled = feature_before
         runtime_db.list_limited_effects = limited_before
@@ -492,7 +563,7 @@ def main() -> None:
     asyncio.run(check_parallel_scan(check))
     asyncio.run(check_image_fetch_failure(check))
     asyncio.run(check_runtime_path(check))
-    asyncio.run(check_mention_fallback(check))
+    asyncio.run(check_mention_priority(check))
     check_search_params(check)
     check_post_scoring(check)
     check_x_payload(check)

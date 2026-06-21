@@ -153,6 +153,8 @@ def regex_groups(match: re.Match) -> Dict[str, str]:
 
 
 def match_pattern(pattern: str, match_type: str, content: str) -> Optional[Dict[str, str]]:
+    content = normalize_command_text(content)
+    pattern = normalize_command_text(pattern)
     if match_type == "exact":
         if content == pattern:
             return {}
@@ -210,6 +212,10 @@ def find_mention_fallback(reactions: List[Dict[str, Any]]) -> Optional[MatchResu
         if not keyword:
             return MatchResult(reaction, {})
     return None
+
+
+def normalize_command_text(value: str) -> str:
+    return " ".join((value or "").replace("\u3000", " ").split())
 
 
 def choose_weighted_choice(choices: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -751,6 +757,37 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
     repository = MentionReactionRepository(connection)
     limited_effects = list_limited_effects(connection, guild_id, message)
     pending_effects = pop_pending_next_effects(guild_id, message)
+    search_matches = []
+    for reaction in repository.list_reactions(guild_id, enabled=True, reaction_kind="search"):
+        groups = match_pattern(
+            reaction.get("keyword") or "",
+            reaction.get("match_type") or "exact",
+            command_text,
+        )
+        if groups is not None:
+            search_matches.append(MatchResult(reaction, groups))
+    if search_matches:
+        selected_search = sort_mention_matches(search_matches)[0]
+        values = build_template_values(message, command_text, selected_search.groups)
+        config_json = normalize_json(selected_search.row.get("config_json"))
+        if config_json.get("search_type") == "deck_search":
+            response = await search_decks(
+                guild_id,
+                str(getattr(message.channel, "id", "")),
+                command_text,
+                config_json,
+            )
+            await message.channel.send(response)
+            count_changed = False
+            if limited_effects:
+                effect_result = await execute_effects(connection, guild_id, limited_effects, message, values)
+                count_changed = effect_result.count_changed
+                store_pending_next_effects(guild_id, message, effect_result.pending_effects)
+            return RuntimeAction(True, count_changed)
+        effect_result = await execute_effects(connection, guild_id, limited_effects, message, values)
+        store_pending_next_effects(guild_id, message, effect_result.pending_effects)
+        return RuntimeAction(bool(limited_effects), effect_result.count_changed)
+
     reactions = repository.list_reactions(guild_id, enabled=True, reaction_kind="random_draw")
     matches = []
     for reaction in reactions:
@@ -758,42 +795,11 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
         if groups is not None:
             matches.append(MatchResult(reaction, groups))
     if not matches:
-        search_matches = []
-        for reaction in repository.list_reactions(guild_id, enabled=True, reaction_kind="search"):
-            groups = match_pattern(
-                reaction.get("keyword") or "",
-                reaction.get("match_type") or "exact",
-                command_text,
-            )
-            if groups is not None:
-                search_matches.append(MatchResult(reaction, groups))
-        if not search_matches:
-            fallback = find_mention_fallback(reactions)
-            if fallback is None:
-                store_pending_next_effects(guild_id, message, pending_effects)
-                return RuntimeAction(False)
-            matches = [fallback]
-        else:
-            selected_search = sort_mention_matches(search_matches)[0]
-            values = build_template_values(message, command_text, selected_search.groups)
-            config_json = normalize_json(selected_search.row.get("config_json"))
-            if config_json.get("search_type") == "deck_search":
-                response = await search_decks(
-                    guild_id,
-                    str(getattr(message.channel, "id", "")),
-                    command_text,
-                    config_json,
-                )
-                await message.channel.send(response)
-                count_changed = False
-                if limited_effects:
-                    effect_result = await execute_effects(connection, guild_id, limited_effects, message, values)
-                    count_changed = effect_result.count_changed
-                    store_pending_next_effects(guild_id, message, effect_result.pending_effects)
-                return RuntimeAction(True, count_changed)
-            effect_result = await execute_effects(connection, guild_id, limited_effects, message, values)
-            store_pending_next_effects(guild_id, message, effect_result.pending_effects)
-            return RuntimeAction(bool(limited_effects), effect_result.count_changed)
+        fallback = find_mention_fallback(reactions)
+        if fallback is None:
+            store_pending_next_effects(guild_id, message, pending_effects)
+            return RuntimeAction(False)
+        matches = [fallback]
 
     selected = sort_mention_matches(matches)[0]
     choices = repository.list_choices(guild_id, int(selected.row["id"]), enabled=True)
