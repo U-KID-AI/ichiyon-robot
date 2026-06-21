@@ -263,6 +263,7 @@ class MentionReactionRepository:
             "max_results": 3,
             "x_search_max_results": 100,
             "deny_message": "このチャンネルではデッキ検索は使えません。",
+            "not_found_message": "おい ないんだが",
             "missing_format_behavior": "ask_format",
             "x_query_template": "({class_label} OR {class_en}) (シャドバ OR Shadowverse OR シャドウバース OR SV) (デッキ OR deck OR QR OR コード) has:images",
             "search_mode": "full_archive",
@@ -448,6 +449,7 @@ class MentionReactionRepository:
         image_path: Optional[str],
         appearance_rate: int,
         enabled: bool,
+        result_label: Optional[str] = None,
     ) -> Dict[str, Any]:
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -459,9 +461,10 @@ class MentionReactionRepository:
                     body,
                     image_path,
                     appearance_rate,
-                    enabled
+                    enabled,
+                    result_label
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING *
                 """,
                 (
@@ -472,6 +475,7 @@ class MentionReactionRepository:
                     image_path,
                     appearance_rate,
                     enabled,
+                    result_label,
                 ),
             )
             return fetch_one(cursor)
@@ -485,6 +489,7 @@ class MentionReactionRepository:
         image_path: Optional[str],
         appearance_rate: int,
         enabled: bool,
+        result_label: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -495,6 +500,7 @@ class MentionReactionRepository:
                     image_path = %s,
                     appearance_rate = %s,
                     enabled = %s,
+                    result_label = %s,
                     updated_at = NOW()
                 WHERE guild_id = %s AND id = %s
                 RETURNING *
@@ -505,6 +511,7 @@ class MentionReactionRepository:
                     image_path,
                     appearance_rate,
                     enabled,
+                    result_label,
                     guild_id,
                     choice_id,
                 ),

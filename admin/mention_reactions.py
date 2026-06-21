@@ -362,6 +362,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         max_results: str = Form("3"),
         x_search_max_results: str = Form("100"),
         deny_message: str = Form(""),
+        not_found_message: str = Form(""),
         missing_format_behavior: str = Form("ask_format"),
         x_query_template: str = Form(""),
         search_mode: str = Form("full_archive"),
@@ -405,6 +406,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 max_results,
                 x_search_max_results,
                 deny_message,
+                not_found_message,
                 missing_format_behavior,
                 x_query_template,
                 search_mode,
@@ -570,6 +572,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         guild_id: str,
         reaction_id: int,
         choice_name: str = Form(""),
+        result_label: str = Form(""),
         body: str = Form(""),
         image_path: str = Form(""),
         image_upload: Optional[UploadFile] = File(None),
@@ -585,7 +588,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
             uploaded_path, upload_error = await save_uploaded_image(image_upload, "mention_reaction_choices")
             if uploaded_path:
                 image_path = uploaded_path
-            choice_form = build_choice_form(choice_name, body, image_path, appearance_rate, choice_enabled)
+            choice_form = build_choice_form(choice_name, result_label, body, image_path, appearance_rate, choice_enabled)
             errors = validate_choice_form(choice_form)
             if upload_error:
                 errors.append(upload_error)
@@ -611,6 +614,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 choice_form["image_path"] or None,
                 choice_form["appearance_rate"],
                 choice_form["enabled"],
+                choice_form["result_label"] or None,
             )
             connection.commit()
         finally:
@@ -628,6 +632,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         reaction_id: int,
         choice_id: int,
         choice_name: str = Form(""),
+        result_label: str = Form(""),
         body: str = Form(""),
         image_path: str = Form(""),
         image_upload: Optional[UploadFile] = File(None),
@@ -650,7 +655,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
             uploaded_path, upload_error = await save_uploaded_image(image_upload, "mention_reaction_choices")
             if uploaded_path:
                 image_path = uploaded_path
-            choice_form = build_choice_form(choice_name, body, image_path, appearance_rate, choice_enabled)
+            choice_form = build_choice_form(choice_name, result_label, body, image_path, appearance_rate, choice_enabled)
             errors = validate_choice_form(choice_form)
             if upload_error:
                 errors.append(upload_error)
@@ -676,6 +681,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 choice_form["image_path"] or None,
                 choice_form["appearance_rate"],
                 choice_form["enabled"],
+                choice_form["result_label"] or None,
             )
             connection.commit()
         finally:
@@ -1106,6 +1112,7 @@ def build_deck_settings(reaction: Dict[str, Any]) -> Dict[str, Any]:
         "max_results": int(config.get("max_results") or 3),
         "x_search_max_results": int(config.get("x_search_max_results") or 100),
         "deny_message": config.get("deny_message") or "このチャンネルではデッキ検索は使えません。",
+        "not_found_message": config.get("not_found_message") or "おい ないんだが",
         "missing_format_behavior": config.get("missing_format_behavior") or "ask_format",
         "x_query_template": config.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE,
         "search_mode": config.get("search_mode") or "full_archive",
@@ -1127,6 +1134,7 @@ def build_deck_settings(reaction: Dict[str, Any]) -> Dict[str, Any]:
             "max_results": int(config.get("max_results") or 3),
             "x_search_max_results": int(config.get("x_search_max_results") or 100),
             "deny_message": config.get("deny_message") or "このチャンネルではデッキ検索は使えません。",
+            "not_found_message": config.get("not_found_message") or "おい ないんだが",
             "missing_format_behavior": config.get("missing_format_behavior") or "ask_format",
             "x_query_template": config.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE,
             "search_mode": config.get("search_mode") or "full_archive",
@@ -1154,6 +1162,7 @@ def build_deck_settings_form(
     max_results: str,
     x_search_max_results: str,
     deny_message: str,
+    not_found_message: str,
     missing_format_behavior: str,
     x_query_template: str,
     search_mode: str,
@@ -1215,6 +1224,7 @@ def build_deck_settings_form(
         "max_results": result_count,
         "x_search_max_results": x_result_count,
         "deny_message": deny_message.strip(),
+        "not_found_message": not_found_message.strip() or "おい ないんだが",
         "missing_format_behavior": missing_format_behavior if missing_format_behavior in MISSING_FORMAT_BEHAVIORS else "ask_format",
         "x_query_template": x_query_template.strip() or DEFAULT_X_QUERY_TEMPLATE,
         "search_mode": search_mode if search_mode in ("recent", "full_archive") else "full_archive",
@@ -1237,6 +1247,7 @@ def build_deck_settings_form(
         "max_results": result_count,
         "x_search_max_results": x_result_count,
         "deny_message": settings["deny_message"],
+        "not_found_message": settings["not_found_message"],
         "missing_format_behavior": settings["missing_format_behavior"],
         "x_query_template": settings["x_query_template"],
         "search_mode": settings["search_mode"],
@@ -1351,6 +1362,7 @@ def validate_reaction_form(form: Dict[str, Any]) -> List[str]:
 
 def build_choice_form(
     name: str,
+    result_label: str,
     body: str,
     image_path: str,
     appearance_rate: str,
@@ -1363,6 +1375,7 @@ def build_choice_form(
 
     return {
         "name": name.strip(),
+        "result_label": result_label.strip(),
         "body": body.strip(),
         "image_path": image_path.strip(),
         "appearance_rate": parsed_rate,
@@ -1374,8 +1387,6 @@ def validate_choice_form(form: Dict[str, Any]) -> List[str]:
     errors = []
     if not form["name"]:
         errors.append("候補名を入力。")
-    if not form["body"] and not form["image_path"]:
-        errors.append("本文か画像を入力。")
     if form["appearance_rate"] < 1:
         errors.append("出やすさは1以上の整数。")
     return errors

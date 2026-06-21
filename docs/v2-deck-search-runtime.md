@@ -29,6 +29,7 @@ X_BEARER_TOKEN=
   "max_results": 3,
   "x_search_max_results": 100,
   "deny_message": "このチャンネルではデッキ検索は使えません。",
+  "not_found_message": "おい ないんだが",
   "missing_format_behavior": "ask_format",
   "x_query_template": "({class_label} OR {class_en}) (シャドバ OR Shadowverse OR シャドウバース OR SV) (デッキ OR deck OR QR OR コード) has:images",
   "search_mode": "full_archive",
@@ -101,7 +102,7 @@ deck search stats: mode=full_archive, endpoint=full_archive, lookback_days=14, t
 ## 返答
 
 - 結果あり: 既存形式で返す。
-- 結果なし: `見つからなかった`
+- 結果なし: `おい ないんだが`
 - Full-Archive権限なし: `過去検索が使えません`
 - `X_SEARCH_ENABLED=false`: `デッキ検索はまだ無効`
 - その他エラー: `検索でエラー`
@@ -111,7 +112,7 @@ deck search stats: mode=full_archive, endpoint=full_archive, lookback_days=14, t
 ```sql
 UPDATE mention_reactions
 SET config_json = config_json
-  || '{"search_mode":"full_archive","lookback_days":14,"max_results":3,"x_search_max_results":100,"image_scan_limit":80,"image_scan_concurrency":5,"stop_after_candidates":true,"image_fetch_timeout_seconds":5,"cache_ttl_seconds":300,"excluded_keywords":["ドラゴンボール","レジェンズ","探索コード","フレンドコード"]}'::jsonb
+  || '{"search_mode":"full_archive","lookback_days":14,"max_results":3,"x_search_max_results":100,"image_scan_limit":80,"image_scan_concurrency":5,"stop_after_candidates":true,"image_fetch_timeout_seconds":5,"cache_ttl_seconds":300,"not_found_message":"おい ないんだが","excluded_keywords":["ドラゴンボール","レジェンズ","探索コード","フレンドコード"]}'::jsonb
 WHERE reaction_key = 'deck_search'
   AND reaction_kind = 'search';
 ```

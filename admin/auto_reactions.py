@@ -492,8 +492,6 @@ def build_form(
     errors = []
     if not form["trigger_text"]:
         errors.append("呼び出しワードを入力。")
-    if not form["response_text"] and not form["image_path"] and not form["emoji_internal"]:
-        errors.append("返答テキストか画像を入力。")
     if match_type not in MATCH_TYPES:
         errors.append("一致方式を選択。")
     if priority_error:

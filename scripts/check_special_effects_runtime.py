@@ -9,6 +9,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from bot.services.runtime_db import execute_effects
+from bot.services.runtime_db import get_next_action_extra_repeats
 from bot.services.runtime_db import get_probability_multiplier_for_target
 
 
@@ -76,7 +77,15 @@ async def check_execute_effects(check: Check) -> None:
     result = await execute_effects(None, "guild", effects, message, values)
     check.add("message effect sends template text", message.channel.sent == ["追加 ｼｺｯﾁ"], str(message.channel.sent))
     check.add("reaction effect adds emoji", message.reactions == ["🍒"], str(message.reactions))
-    check.add("next_action_count returns repeat count", result.repeat_count == 2, "repeat={0}".format(result.repeat_count))
+    check.add(
+        "next_action_count is queued for next action",
+        result.repeat_count == 0 and len(result.pending_effects) == 1,
+        "repeat={0} pending={1}".format(result.repeat_count, len(result.pending_effects)),
+    )
+    check.add(
+        "queued next_action_count repeats next action once",
+        get_next_action_extra_repeats(result.pending_effects, "mention_reaction_choice") == 1,
+    )
 
     capped = await execute_effects(
         None,
@@ -85,7 +94,11 @@ async def check_execute_effects(check: Check) -> None:
         FakeMessage(),
         values,
     )
-    check.add("next_action_count is capped", capped.repeat_count == 5, "repeat={0}".format(capped.repeat_count))
+    check.add(
+        "next_action_count total is capped",
+        get_next_action_extra_repeats(capped.pending_effects, "mention_reaction_choice") == 4,
+        "pending={0}".format(len(capped.pending_effects)),
+    )
 
     destroy_message = FakeMessage()
     destroy_result = await execute_effects(

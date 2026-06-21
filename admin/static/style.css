@@ -25,6 +25,7 @@
 
 html {
   background: var(--app-bg);
+  color-scheme: dark;
 }
 
 body {
@@ -238,6 +239,23 @@ button:disabled {
   background: #3f4147;
   color: #80848e;
   cursor: not-allowed;
+}
+
+button:disabled:hover,
+.button-link[aria-disabled="true"],
+input:disabled,
+select:disabled,
+textarea:disabled {
+  border-color: #34363c;
+  background: #2b2d31;
+  color: #80848e;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+input:disabled::placeholder,
+textarea:disabled::placeholder {
+  color: #6d737c;
 }
 
 .hint,
@@ -592,6 +610,13 @@ a {
 }
 
 @media (max-width: 760px) {
+  html,
+  body {
+    min-height: 100%;
+    background: var(--app-bg);
+    color: var(--text);
+  }
+
   .topbar,
   .quote-meta,
   .actions,
@@ -608,6 +633,7 @@ a {
   .topbar {
     position: static;
     padding: 16px;
+    background: var(--shell-bg);
   }
 
   nav {
@@ -616,6 +642,28 @@ a {
 
   main {
     padding: 16px;
+    background: var(--app-bg);
+  }
+
+  .panel,
+  .subpanel,
+  .image-field,
+  .admin-table tr,
+  .feature-card,
+  .choice-item {
+    background-color: var(--panel-bg);
+    color: var(--text);
+  }
+
+  input,
+  select,
+  textarea {
+    background-color: var(--input-bg);
+    color: var(--text);
+  }
+
+  input[type="file"] {
+    color: var(--muted);
   }
 
   .filter-form,

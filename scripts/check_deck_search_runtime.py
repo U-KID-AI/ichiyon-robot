@@ -103,6 +103,44 @@ class FakeMentionReactionRepository:
         return []
 
 
+class FakeFallbackMentionReactionRepository:
+    def __init__(self, connection) -> None:
+        self.connection = connection
+
+    def list_reactions(self, guild_id, enabled=None, reaction_kind=None, include_system=True):
+        if reaction_kind == "random_draw":
+            return [
+                {
+                    "id": 20,
+                    "guild_id": guild_id,
+                    "reaction_key": "quotes",
+                    "keyword": "名言",
+                    "match_type": "exact",
+                    "reaction_kind": "random_draw",
+                    "name": "名言",
+                    "enabled": True,
+                    "created_at": "2026-06-20T00:00:00Z",
+                }
+            ]
+        if reaction_kind == "search":
+            return []
+        return []
+
+    def list_choices(self, guild_id, mention_reaction_id, enabled=None):
+        return [
+            {
+                "id": 30,
+                "guild_id": guild_id,
+                "mention_reaction_id": mention_reaction_id,
+                "name": "fallback",
+                "body": "fallback quote",
+                "image_path": "",
+                "appearance_rate": 1,
+                "enabled": True,
+            }
+        ]
+
+
 def base_config() -> Dict[str, Any]:
     return {
         "search_type": "deck_search",
@@ -110,6 +148,7 @@ def base_config() -> Dict[str, Any]:
         "max_results": 3,
         "x_search_max_results": 100,
         "deny_message": "このチャンネルではデッキ検索は使えません。",
+        "not_found_message": "おい ないんだが",
         "missing_format_behavior": "ask_format",
         "cache_ttl_seconds": 0,
         "request_timeout_seconds": 1,
@@ -151,6 +190,33 @@ async def check_runtime_path(check: Check) -> None:
         runtime_db.get_mention_command_text = command_before
 
 
+async def check_mention_fallback(check: Check) -> None:
+    repository_before = runtime_db.MentionReactionRepository
+    feature_before = runtime_db.feature_enabled
+    limited_before = runtime_db.list_limited_effects
+    effects_before = runtime_db.list_effects
+    command_before = runtime_db.get_mention_command_text
+    try:
+        runtime_db.MentionReactionRepository = FakeFallbackMentionReactionRepository
+        runtime_db.feature_enabled = lambda connection, guild_id, feature_key: True
+        runtime_db.list_limited_effects = lambda connection, guild_id, message: []
+        runtime_db.list_effects = lambda connection, guild_id, target_type, target_id: []
+        runtime_db.get_mention_command_text = lambda message: "なんでもない文章"
+        message = FakeMessage("@bot なんでもない文章")
+        action = await runtime_db.process_db_mention(message, "guild", object())
+        check.add(
+            "unknown mention falls back to single mention reaction",
+            action.handled is True and message.channel.sent == ["fallback quote"],
+            str(message.channel.sent),
+        )
+    finally:
+        runtime_db.MentionReactionRepository = repository_before
+        runtime_db.feature_enabled = feature_before
+        runtime_db.list_limited_effects = limited_before
+        runtime_db.list_effects = effects_before
+        runtime_db.get_mention_command_text = command_before
+
+
 async def check_search_flow(check: Check) -> None:
     parsed = parse_deck_search_command("デッキ elf", "ask_format")
     check.add("class alias elf", parsed is not None and parsed.class_key == "elf")
@@ -176,6 +242,24 @@ async def check_search_flow(check: Check) -> None:
 
     denied = await search_decks("g", "999", "デッキ エルフ", base_config())
     check.add("channel deny message", denied == "このチャンネルではデッキ検索は使えません。", denied)
+
+    empty_config = base_config()
+    config.X_SEARCH_ENABLED = True
+    config.X_BEARER_TOKEN = "dummy"
+
+    async def fake_empty_search(query, max_results, timeout_seconds, search_mode, lookback_days):
+        return []
+
+    original_empty_search = deck_search.search_posts
+    original_empty_opencv = deck_search.opencv_available
+    try:
+        deck_search.search_posts = fake_empty_search
+        deck_search.opencv_available = lambda: True
+        not_found = await search_decks("g", "123", "デッキ エルフ", empty_config)
+        check.add("deck search not found message", not_found == "おい ないんだが", not_found)
+    finally:
+        deck_search.search_posts = original_empty_search
+        deck_search.opencv_available = original_empty_opencv
 
     called_modes = []
 
@@ -406,6 +490,7 @@ def main() -> None:
     asyncio.run(check_parallel_scan(check))
     asyncio.run(check_image_fetch_failure(check))
     asyncio.run(check_runtime_path(check))
+    asyncio.run(check_mention_fallback(check))
     check_search_params(check)
     check_post_scoring(check)
     check_x_payload(check)

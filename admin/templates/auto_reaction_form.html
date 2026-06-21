@@ -37,6 +37,9 @@
 
   <section class="panel">
     <h2>基本情報</h2>
+    {% if not can_edit %}
+      <p class="hint">閲覧のみ。権限がありません。</p>
+    {% endif %}
     <form class="quote-form" method="post" enctype="multipart/form-data">
       <label>呼び出しワード<input type="text" name="trigger_text" value="{{ reaction.trigger_text }}" {% if not can_edit %}disabled{% endif %}></label>
       <label>返答テキスト<textarea name="response_text" {% if not can_edit %}disabled{% endif %}>{{ reaction.response_text }}</textarea></label>

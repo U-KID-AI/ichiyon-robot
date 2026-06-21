@@ -14,7 +14,7 @@ from bot.services.x_search import XPost, XSearchDisabled, XSearchError, search_p
 DEFAULT_DENY_MESSAGE = "このチャンネルではデッキ検索は使えません。"
 DEFAULT_DISABLED_MESSAGE = "デッキ検索はまだ無効"
 DEFAULT_ERROR_MESSAGE = "検索でエラー"
-DEFAULT_NOT_FOUND_MESSAGE = "見つからなかった"
+DEFAULT_NOT_FOUND_MESSAGE = "おい ないんだが"
 DEFAULT_ASK_FORMAT_MESSAGE = "クラス名も入れて"
 DEFAULT_FULL_ARCHIVE_UNAVAILABLE_MESSAGE = "過去検索が使えません"
 DEFAULT_X_QUERY_TEMPLATE = "({class_label} OR {class_en}) (シャドバ OR Shadowverse OR シャドウバース OR SV) (デッキ OR deck OR QR OR コード) has:images"
@@ -200,8 +200,21 @@ def allowed_in_channel(config_json: Dict[str, Any], channel_id: str) -> bool:
     return str(channel_id) in [str(item) for item in allowed]
 
 
-def cache_key(guild_id: str, channel_id: str, request: DeckSearchRequest) -> str:
-    return "{0}:{1}:{2}:{3}".format(guild_id, channel_id, request.class_key, request.query)
+def cache_key(guild_id: str, channel_id: str, request: DeckSearchRequest, config_json: Dict[str, Any]) -> str:
+    mode = normalize_search_mode(get_config_str(config_json, "search_mode", config.X_SEARCH_MODE))
+    lookback_days = get_config_int(config_json, "lookback_days", config.X_SEARCH_LOOKBACK_DAYS, 1, 30)
+    query_template = config_json.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE
+    excluded_keywords = ",".join(get_excluded_keywords(config_json))
+    return "{0}:{1}:{2}:{3}:{4}:{5}:{6}:{7}".format(
+        guild_id,
+        channel_id,
+        request.class_key,
+        request.query,
+        mode,
+        lookback_days,
+        query_template,
+        excluded_keywords,
+    )
 
 
 def get_cached(key: str, ttl_seconds: int) -> Optional[List[DeckSearchResult]]:
@@ -459,10 +472,10 @@ async def search_decks(guild_id: str, channel_id: str, command_text: str, config
     search_limit = get_config_int(config_json, "x_search_max_results", config.X_SEARCH_MAX_RESULTS, 10, 100)
     search_mode = normalize_search_mode(get_config_str(config_json, "search_mode", config.X_SEARCH_MODE))
     lookback_days = get_config_int(config_json, "lookback_days", config.X_SEARCH_LOOKBACK_DAYS, 1, 30)
-    key = cache_key(guild_id, channel_id, request)
+    key = cache_key(guild_id, channel_id, request, config_json)
     cached = get_cached(key, cache_ttl_seconds)
     if cached is not None:
-        return format_results(request, cached, max_results)
+        return format_results(request, cached, max_results, config_json)
 
     query = build_x_query(request, config_json)
     print("[INFO] deck search query: {0}".format(query))
@@ -503,7 +516,7 @@ async def search_decks(guild_id: str, channel_id: str, command_text: str, config
     stats.candidates = len(results)
     stats.total_ms = elapsed_ms(total_started_ms)
     print("[INFO] deck search stats: {0}".format(stats.to_log()))
-    return format_results(request, results, max_results)
+    return format_results(request, results, max_results, config_json)
 
 
 def summarize_text(text: str, limit: int = 80) -> str:
@@ -513,8 +526,15 @@ def summarize_text(text: str, limit: int = 80) -> str:
     return normalized[:limit] + "..."
 
 
-def format_results(request: DeckSearchRequest, results: List[DeckSearchResult], max_results: int) -> str:
+def format_results(
+    request: DeckSearchRequest,
+    results: List[DeckSearchResult],
+    max_results: int,
+    config_json: Optional[Dict[str, Any]] = None,
+) -> str:
     if not results:
+        if config_json:
+            return get_config_str(config_json, "not_found_message", DEFAULT_NOT_FOUND_MESSAGE)
         return DEFAULT_NOT_FOUND_MESSAGE
     lines = ["{0}のデッキ候補".format(request.class_label)]
     for index, result in enumerate(results[:max_results], start=1):

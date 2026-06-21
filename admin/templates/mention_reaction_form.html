@@ -43,6 +43,9 @@
     {% if reaction.is_system %}
       <p class="hint">固定機能。削除不可。重要設定はサーバー管理者以上。</p>
     {% endif %}
+    {% if not can_edit_reaction %}
+      <p class="hint">閲覧のみ。権限がありません。</p>
+    {% endif %}
 
     <form class="quote-form" method="post">
       <label>
@@ -126,7 +129,8 @@
         </label>
         <label>使えるチャンネルID（1行に1つ）<textarea name="allowed_channel_ids" placeholder="123&#10;456" {% if not can_edit_deck_settings %}disabled{% endif %}>{{ deck_settings.allowed_channel_ids }}</textarea></label>
         <label>Discordに返す候補数<input type="number" min="1" name="max_results" value="{{ deck_settings.max_results }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
-        <label>使えないチャンネルでのメッセージ<textarea name="deny_message" {% if not can_edit_deck_settings %}disabled{% endif %}>{{ deck_settings.deny_message }}</textarea></label>
+        <label>使えないチャンネルでの返答<textarea name="deny_message" {% if not can_edit_deck_settings %}disabled{% endif %}>{{ deck_settings.deny_message }}</textarea></label>
+        <label>見つからない時の返答<textarea name="not_found_message" {% if not can_edit_deck_settings %}disabled{% endif %}>{{ deck_settings.not_found_message }}</textarea></label>
         <label>
           フォーマット未指定時
           <select name="missing_format_behavior" {% if not can_edit_deck_settings %}disabled{% endif %}>
@@ -191,6 +195,7 @@
               <form class="choice-item" method="post" action="/guilds/{{ guild_id }}/mention-reactions/{{ reaction.id }}/choices/{{ choice.id }}" enctype="multipart/form-data">
                 <div class="choice-grid">
                   <label>候補名<input type="text" name="choice_name" value="{{ choice.name }}" {% if not can_edit_choices %}disabled{% endif %}></label>
+                  <label>何吉<input type="text" name="result_label" value="{{ choice.result_label or '' }}" {% if not can_edit_choices %}disabled{% endif %}></label>
                   <label>出やすさ<input type="number" min="1" name="appearance_rate" value="{{ choice.appearance_rate }}" {% if not can_edit_choices %}disabled{% endif %}></label>
                   <label class="choice-wide">本文<textarea name="body" {% if not can_edit_choices %}disabled{% endif %}>{{ choice.body or "" }}</textarea></label>
                   <div class="choice-wide image-field">
@@ -241,6 +246,7 @@
           <form class="choice-item" method="post" action="/guilds/{{ guild_id }}/mention-reactions/{{ reaction.id }}/choices" enctype="multipart/form-data">
             <div class="choice-grid">
               <label>候補名<input type="text" name="choice_name" {% if not can_edit_choices %}disabled{% endif %}></label>
+              <label>何吉<input type="text" name="result_label" {% if not can_edit_choices %}disabled{% endif %}></label>
               <label>出やすさ<input type="number" min="1" name="appearance_rate" value="1" {% if not can_edit_choices %}disabled{% endif %}></label>
               <label class="choice-wide">本文<textarea name="body" {% if not can_edit_choices %}disabled{% endif %}></textarea></label>
               <label class="choice-wide">画像を選ぶ<input type="file" name="image_upload" accept="image/*" {% if not can_edit_choices %}disabled{% endif %}></label>

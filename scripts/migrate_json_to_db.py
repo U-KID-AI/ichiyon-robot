@@ -174,6 +174,7 @@ def upsert_choice(
     appearance_rate: int,
     enabled: bool,
     sort_order: int,
+    result_label: Optional[str] = None,
 ) -> str:
     if body is None and image_path is None:
         return "skipped"
@@ -197,10 +198,11 @@ def upsert_choice(
                 appearance_rate = %s,
                 enabled = %s,
                 sort_order = %s,
+                result_label = %s,
                 updated_at = NOW()
             WHERE id = %s
             """,
-            (body, image_path, appearance_rate, enabled, sort_order, row[0]),
+            (body, image_path, appearance_rate, enabled, sort_order, result_label, row[0]),
         )
         return "updated"
 
@@ -214,9 +216,10 @@ def upsert_choice(
             image_path,
             appearance_rate,
             enabled,
-            sort_order
+            sort_order,
+            result_label
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             guild_id,
@@ -227,6 +230,7 @@ def upsert_choice(
             appearance_rate,
             enabled,
             sort_order,
+            result_label,
         ),
     )
     return "inserted"
@@ -346,8 +350,10 @@ def iter_kuji_choices(data_dir: Path) -> Iterable[Dict[str, Any]]:
     data = load_json(data_dir / "kuji.json", {"results": []})
     for index, item in enumerate(get_items(data, "results")):
         name = clean_text(item.get("id")) or clean_text(item.get("name"))
+        result_label = clean_text(item.get("name")) or clean_text(item.get("label")) or clean_text(item.get("fortune"))
         yield {
             "name": name or "kuji_{0:03d}".format(index + 1),
+            "result_label": result_label,
             "body": clean_text(item.get("message")) or clean_text(item.get("body")),
             "image_path": clean_text(item.get("image_path")),
             "appearance_rate": max(clean_int(item.get("weight"), 1), 1),

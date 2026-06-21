@@ -301,8 +301,13 @@ class PresetSeeder:
             (self.guild_id, name),
         )
         if existing is not None and not self.force:
-            self.add("special_effect_tags", "skipped")
-            return int(existing["id"])
+            if (
+                existing.get("effect_type") == effect_type
+                and existing.get("target_type") == target_type
+                and existing.get("trigger_timing") == trigger_timing
+            ):
+                self.add("special_effect_tags", "skipped")
+                return int(existing["id"])
 
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -719,6 +724,7 @@ class PresetSeeder:
                 "max_results": 3,
                 "x_search_max_results": 100,
                 "deny_message": "このチャンネルではデッキ検索は使えません。",
+                "not_found_message": "おい ないんだが",
                 "missing_format_behavior": "ask_format",
                 "x_query_template": "({class_label} OR {class_en}) (シャドバ OR Shadowverse OR シャドウバース OR SV) (デッキ OR deck OR QR OR コード) has:images",
                 "search_mode": "full_archive",

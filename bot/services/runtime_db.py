@@ -1,7 +1,7 @@
 import calendar
 import random
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -34,6 +34,8 @@ MATCH_TYPE_RANK = {
     "regex": 1,
 }
 SHIKOCCHI_RECOVERY_MESSAGE = "まずは女子供から殺す"
+MAX_NEXT_ACTION_COUNT = 5
+_PENDING_NEXT_EFFECTS: Dict[str, List[Dict[str, Any]]] = {}
 
 
 @dataclass
@@ -52,6 +54,7 @@ class RuntimeAction:
 class EffectExecutionResult:
     count_changed: bool = False
     repeat_count: int = 0
+    pending_effects: List[Dict[str, Any]] = field(default_factory=list)
 
 
 def get_message_guild_id(message: discord.Message) -> Optional[str]:
@@ -97,6 +100,18 @@ def render_template(text: Optional[str], values: Dict[str, str]) -> str:
     for key, value in values.items():
         rendered = rendered.replace("{" + key + "}", value)
     return rendered
+
+
+def render_choice_body(choice: Dict[str, Any], values: Dict[str, str]) -> str:
+    body = render_template(choice.get("body"), values)
+    label = (choice.get("result_label") or "").strip()
+    if not label:
+        return body
+    if body.startswith(label):
+        return body
+    if body:
+        return "{0}\n{1}".format(label, body)
+    return label
 
 
 def to_hankaku_text(value: str) -> str:
@@ -184,6 +199,19 @@ def sort_auto_matches(matches: List[MatchResult]) -> List[MatchResult]:
     )
 
 
+def find_mention_fallback(reactions: List[Dict[str, Any]]) -> Optional[MatchResult]:
+    preferred_keys = ("quotes", "quote", "meigen")
+    for key in preferred_keys:
+        for reaction in reactions:
+            if (reaction.get("reaction_key") or "").lower() == key:
+                return MatchResult(reaction, {})
+    for reaction in reactions:
+        keyword = (reaction.get("keyword") or "").strip()
+        if not keyword:
+            return MatchResult(reaction, {})
+    return None
+
+
 def choose_weighted_choice(choices: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     weighted = []
     total = 0
@@ -266,6 +294,44 @@ def merge_effects(*effect_groups: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             seen.add(key)
             merged.append(effect)
     return merged
+
+
+def pending_effect_key(guild_id: str, message: discord.Message) -> str:
+    return "{0}:{1}".format(guild_id, get_message_author_id(message))
+
+
+def pop_pending_next_effects(guild_id: str, message: discord.Message) -> List[Dict[str, Any]]:
+    return _PENDING_NEXT_EFFECTS.pop(pending_effect_key(guild_id, message), [])
+
+
+def store_pending_next_effects(guild_id: str, message: discord.Message, effects: List[Dict[str, Any]]) -> None:
+    if not effects:
+        return
+    key = pending_effect_key(guild_id, message)
+    current = _PENDING_NEXT_EFFECTS.get(key, [])
+    _PENDING_NEXT_EFFECTS[key] = (current + effects)[-10:]
+
+
+def next_action_matches(effect: Dict[str, Any], config: Dict[str, Any], action_type: str) -> bool:
+    target_action = get_config_text(config, ["target_action", "action"])
+    if target_action in (None, "", "next", "any", "same"):
+        return True
+    return target_action == action_type
+
+
+def get_next_action_extra_repeats(effects: List[Dict[str, Any]], action_type: str) -> int:
+    repeat_total = 1
+    for effect in effects:
+        if effect.get("effect_type") != "next_action_count":
+            continue
+        config = normalize_json(effect.get("effect_config_json"))
+        if not next_action_matches(effect, config, action_type):
+            continue
+        count = get_config_int(config, ["count", "repeat", "times"], 1)
+        if count <= 1:
+            continue
+        repeat_total = max(repeat_total, min(count, MAX_NEXT_ACTION_COUNT))
+    return max(0, repeat_total - 1)
 
 
 def normalize_json(value) -> Dict[str, Any]:
@@ -420,15 +486,20 @@ def get_probability_multiplier_for_target(
     return multiplier
 
 
-def choose_weighted_choice_with_effects(connection, guild_id: str, choices: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def choose_weighted_choice_with_effects(
+    connection,
+    guild_id: str,
+    choices: List[Dict[str, Any]],
+    pending_effects: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[Dict[str, Any]]:
     if not choices:
         return None
+    pending = pending_effects or []
     weighted = []
     total = 0
     for choice in choices:
         choice_id = int(choice["id"])
-        effects = list_effects(connection, guild_id, "mention_reaction_choice", choice_id)
-        multiplier = get_probability_multiplier_for_target(effects, "mention_reaction_choice", choice_id)
+        multiplier = get_probability_multiplier_for_target(pending, "mention_reaction_choice", choice_id)
         base_weight = max(1, int(choice.get("appearance_rate") or choice.get("weight") or 1))
         weight = max(1, int(round(base_weight * multiplier)))
         weighted.append((choice, weight))
@@ -444,7 +515,12 @@ def choose_weighted_choice_with_effects(connection, guild_id: str, choices: List
     return weighted[-1][0]
 
 
-def choose_auto_match_with_effects(connection, guild_id: str, matches: List[MatchResult]) -> Optional[MatchResult]:
+def choose_auto_match_with_effects(
+    connection,
+    guild_id: str,
+    matches: List[MatchResult],
+    pending_effects: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[MatchResult]:
     if not matches:
         return None
     sorted_matches = sort_auto_matches(matches)
@@ -453,10 +529,10 @@ def choose_auto_match_with_effects(connection, guild_id: str, matches: List[Matc
     weighted = []
     total = 0
     has_multiplier = False
+    pending = pending_effects or []
     for match in candidates:
         reaction_id = int(match.row["id"])
-        effects = list_effects(connection, guild_id, "auto_reaction", reaction_id)
-        multiplier = get_probability_multiplier_for_target(effects, "auto_reaction", reaction_id)
+        multiplier = get_probability_multiplier_for_target(pending, "auto_reaction", reaction_id)
         if multiplier != 1.0:
             has_multiplier = True
         base_weight = max(1, len(match.row.get("trigger_text") or ""))
@@ -612,17 +688,19 @@ async def execute_effects(
                 if multiplier <= 0:
                     print("[WARN] probability_multiplier skipped invalid multiplier: id={0}".format(effect.get("id")))
                 else:
-                    print("[INFO] probability_multiplier applied during selection when target is selectable: id={0}".format(effect.get("id")))
+                    result.pending_effects.append(effect)
+                    print("[INFO] probability_multiplier queued for next action: id={0}".format(effect.get("id")))
             elif effect_type == "next_action_count":
-                target_action = get_config_text(config, ["target_action", "action"]) or "same"
-                if target_action not in ("same", "mention_reaction_choice", "auto_reaction"):
+                target_action = get_config_text(config, ["target_action", "action"]) or "next"
+                if target_action not in ("same", "next", "any", "mention_reaction_choice", "auto_reaction"):
                     print("[WARN] next_action_count skipped invalid target_action: {0}".format(target_action))
                     continue
                 count = get_config_int(config, ["count", "repeat", "times"], 1)
                 if count <= 0:
                     print("[WARN] next_action_count skipped invalid count: {0}".format(count))
                     continue
-                result.repeat_count += min(count, 5)
+                result.pending_effects.append(effect)
+                print("[INFO] next_action_count queued for next action: id={0}".format(effect.get("id")))
             elif effect_type == "destroy":
                 destroy_result = await execute_destroy_effect(
                     connection,
@@ -639,7 +717,7 @@ async def execute_effects(
                 connection.rollback()
             except Exception:
                 pass
-    result.repeat_count = min(result.repeat_count, 5)
+    result.repeat_count = min(result.repeat_count, MAX_NEXT_ACTION_COUNT)
     return result
 
 
@@ -672,6 +750,7 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
 
     repository = MentionReactionRepository(connection)
     limited_effects = list_limited_effects(connection, guild_id, message)
+    pending_effects = pop_pending_next_effects(guild_id, message)
     reactions = repository.list_reactions(guild_id, enabled=True, reaction_kind="random_draw")
     matches = []
     for reaction in reactions:
@@ -689,39 +768,52 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
             if groups is not None:
                 search_matches.append(MatchResult(reaction, groups))
         if not search_matches:
-            return RuntimeAction(False)
-        selected_search = sort_mention_matches(search_matches)[0]
-        values = build_template_values(message, command_text, selected_search.groups)
-        config_json = normalize_json(selected_search.row.get("config_json"))
-        if config_json.get("search_type") == "deck_search":
-            response = await search_decks(
-                guild_id,
-                str(getattr(message.channel, "id", "")),
-                command_text,
-                config_json,
-            )
-            await message.channel.send(response)
-            count_changed = False
-            if limited_effects:
-                effect_result = await execute_effects(connection, guild_id, limited_effects, message, values)
-                count_changed = effect_result.count_changed
-            return RuntimeAction(True, count_changed)
-        effect_result = await execute_effects(connection, guild_id, limited_effects, message, values)
-        return RuntimeAction(bool(limited_effects), effect_result.count_changed)
+            fallback = find_mention_fallback(reactions)
+            if fallback is None:
+                store_pending_next_effects(guild_id, message, pending_effects)
+                return RuntimeAction(False)
+            matches = [fallback]
+        else:
+            selected_search = sort_mention_matches(search_matches)[0]
+            values = build_template_values(message, command_text, selected_search.groups)
+            config_json = normalize_json(selected_search.row.get("config_json"))
+            if config_json.get("search_type") == "deck_search":
+                response = await search_decks(
+                    guild_id,
+                    str(getattr(message.channel, "id", "")),
+                    command_text,
+                    config_json,
+                )
+                await message.channel.send(response)
+                count_changed = False
+                if limited_effects:
+                    effect_result = await execute_effects(connection, guild_id, limited_effects, message, values)
+                    count_changed = effect_result.count_changed
+                    store_pending_next_effects(guild_id, message, effect_result.pending_effects)
+                return RuntimeAction(True, count_changed)
+            effect_result = await execute_effects(connection, guild_id, limited_effects, message, values)
+            store_pending_next_effects(guild_id, message, effect_result.pending_effects)
+            return RuntimeAction(bool(limited_effects), effect_result.count_changed)
 
     selected = sort_mention_matches(matches)[0]
     choices = repository.list_choices(guild_id, int(selected.row["id"]), enabled=True)
-    choice = choose_weighted_choice_with_effects(connection, guild_id, choices)
+    choice = choose_weighted_choice_with_effects(connection, guild_id, choices, pending_effects)
     if choice is None:
+        store_pending_next_effects(guild_id, message, pending_effects)
         return RuntimeAction(False)
 
     values = build_template_values(message, command_text, selected.groups)
-    text = render_template(choice.get("body"), values)
+    text = render_choice_body(choice, values)
     image_path = choice.get("image_path") or ""
     handled = await send_text_or_image(message.channel, text, image_path)
+    pending_repeats = get_next_action_extra_repeats(pending_effects, "mention_reaction_choice")
+    if pending_repeats:
+        repeated = await repeat_text_image_action(message, text, image_path, "", pending_repeats)
+        handled = handled or repeated
     choice_effects = list_effects(connection, guild_id, "mention_reaction_choice", int(choice["id"]))
     effects = merge_effects(choice_effects, limited_effects)
     effect_result = await execute_effects(connection, guild_id, effects, message, values)
+    store_pending_next_effects(guild_id, message, effect_result.pending_effects)
     if effect_result.repeat_count:
         repeated = await repeat_text_image_action(message, text, image_path, "", effect_result.repeat_count)
         handled = handled or repeated
@@ -750,8 +842,10 @@ async def process_db_auto_reaction(message: discord.Message, guild_id: str, conn
     if not matches:
         return RuntimeAction(False)
 
-    selected = choose_auto_match_with_effects(connection, guild_id, matches)
+    pending_effects = pop_pending_next_effects(guild_id, message)
+    selected = choose_auto_match_with_effects(connection, guild_id, matches, pending_effects)
     if selected is None:
+        store_pending_next_effects(guild_id, message, pending_effects)
         return RuntimeAction(False)
     values = build_template_values(message, message.content, selected.groups)
     text = render_template(selected.row.get("response_text"), values)
@@ -766,8 +860,14 @@ async def process_db_auto_reaction(message: discord.Message, guild_id: str, conn
         except discord.DiscordException as exc:
             print("[WARN] Failed to add DB auto reaction emoji {0!r}: {1}".format(emoji, exc))
 
+    pending_repeats = get_next_action_extra_repeats(pending_effects, "auto_reaction")
+    if pending_repeats:
+        repeated = await repeat_text_image_action(message, text, image_path, emoji, pending_repeats)
+        sent = sent or repeated
+
     effects = list_effects(connection, guild_id, "auto_reaction", int(selected.row["id"]))
     effect_result = await execute_effects(connection, guild_id, effects, message, values)
+    store_pending_next_effects(guild_id, message, effect_result.pending_effects)
     if effect_result.repeat_count:
         repeated = await repeat_text_image_action(message, text, image_path, emoji, effect_result.repeat_count)
         sent = sent or repeated
@@ -1159,7 +1259,8 @@ async def handle_db_runtime_message(message: discord.Message) -> bool:
             if ng_word is not None:
                 values = build_template_values(message, message.content, {})
                 effects = list_effects(connection, guild_id, "ng_word", int(ng_word["id"]))
-                await execute_effects(connection, guild_id, effects, message, values)
+                effect_result = await execute_effects(connection, guild_id, effects, message, values)
+                store_pending_next_effects(guild_id, message, effect_result.pending_effects)
                 connection.commit()
                 await enter_mode_if_needed(message, guild_id, connection)
                 print("[DEBUG] ignored by DB ng word")
