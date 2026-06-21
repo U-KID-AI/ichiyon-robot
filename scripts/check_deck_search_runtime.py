@@ -294,7 +294,9 @@ async def check_search_flow(check: Check) -> None:
         deck_search.opencv_available = lambda: True
         config.X_SEARCH_ENABLED = True
         config.X_BEARER_TOKEN = "dummy"
-        response = await search_decks("g", "123", "デッキ エルフ", base_config())
+        recent_config = base_config()
+        recent_config["search_mode"] = "recent"
+        response = await search_decks("g", "123", "デッキ エルフ", recent_config)
         check.add("mock search formats result", "エルフのデッキ候補" in response and "https://x.com/i/web/status/111" in response, response)
         check.add("recent endpoint selected", called_modes[-1]["mode"] == "recent", str(called_modes[-1]))
         full_archive_config = base_config()
