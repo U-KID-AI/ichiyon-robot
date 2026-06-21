@@ -193,6 +193,10 @@ def base_config() -> Dict[str, Any]:
         "image_scan_concurrency": 5,
         "stop_after_candidates": True,
         "image_fetch_timeout_seconds": 5,
+        "high_accuracy_enabled": True,
+        "high_accuracy_image_scan_limit": 100,
+        "high_accuracy_image_scan_concurrency": 1,
+        "high_accuracy_stop_after_candidates": False,
         "excluded_keywords": ["ドラゴンボール", "レジェンズ", "探索コード", "フレンドコード"],
     }
 
@@ -261,6 +265,15 @@ async def check_mention_priority(check: Check) -> None:
             str(wide_space_message.channel.sent),
         )
 
+        runtime_db.get_mention_command_text = lambda message: "デッキ エルフ 高精度"
+        high_accuracy_message = FakeMessage("@bot デッキ エルフ 高精度")
+        high_accuracy_action = await runtime_db.process_db_mention(high_accuracy_message, "guild", object())
+        check.add(
+            "high accuracy deck mention uses search before fallback",
+            high_accuracy_action.handled is True and high_accuracy_message.channel.sent == ["デッキ検索はまだ無効"],
+            str(high_accuracy_message.channel.sent),
+        )
+
         runtime_db.get_mention_command_text = lambda message: "なんでもない文章"
         message = FakeMessage("@bot なんでもない文章")
         action = await runtime_db.process_db_mention(message, "guild", object())
@@ -291,6 +304,22 @@ async def check_mention_priority(check: Check) -> None:
 async def check_search_flow(check: Check) -> None:
     parsed = parse_deck_search_command("デッキ elf", "ask_format")
     check.add("class alias elf", parsed is not None and parsed.class_key == "elf")
+    high_tail = parse_deck_search_command("デッキ エルフ 高精度", "ask_format")
+    check.add(
+        "high accuracy suffix is parsed",
+        high_tail is not None and high_tail.class_key == "elf" and high_tail.high_accuracy is True,
+    )
+    high_middle = parse_deck_search_command("デッキ 高精度 エルフ", "ask_format")
+    check.add(
+        "high accuracy middle is parsed",
+        high_middle is not None and high_middle.class_key == "elf" and high_middle.high_accuracy is True,
+    )
+    high_wide_space = parse_deck_search_command("デッキ　エルフ　高精度", "ask_format")
+    check.add(
+        "high accuracy accepts full-width spaces",
+        high_wide_space is not None and high_wide_space.class_key == "elf" and high_wide_space.high_accuracy is True,
+    )
+    check.add("high accuracy without class asks format", parse_deck_search_command("デッキ 高精度", "ask_format") is None)
     query = build_x_query(parsed, {}) if parsed is not None else ""
     check.add(
         "default query includes shadowverse terms",
@@ -407,6 +436,62 @@ async def check_full_archive_error(check: Check) -> None:
         check.add("full archive permission error is safe", response == "過去検索が使えません", response)
     finally:
         deck_search.search_posts = original_search
+        deck_search.opencv_available = original_opencv
+        config.X_SEARCH_ENABLED = disabled_before
+        config.X_BEARER_TOKEN = token_before
+
+
+async def check_high_accuracy_mode(check: Check) -> None:
+    disabled_before = config.X_SEARCH_ENABLED
+    token_before = config.X_BEARER_TOKEN
+    original_search = deck_search.search_posts
+    original_scan_posts = deck_search.scan_posts_concurrently
+    original_opencv = deck_search.opencv_available
+    captured = {}
+
+    async def fake_search_posts(query, max_results, timeout_seconds, search_mode, lookback_days):
+        return [
+            XPost(
+                post_id="ha1",
+                text="エルフ デッキ QR",
+                created_at="2026-06-20T00:00:00Z",
+                media=[XMedia(media_key="ha1", url="https://example.test/ha.jpg", type="photo")],
+            )
+        ]
+
+    async def fake_scan_posts_concurrently(
+        posts,
+        request,
+        max_results,
+        image_scan_limit,
+        image_fetch_timeout_seconds,
+        image_scan_concurrency,
+        stop_after_candidates,
+        stats,
+    ):
+        captured["request_high_accuracy"] = request.high_accuracy
+        captured["image_scan_limit"] = image_scan_limit
+        captured["image_scan_concurrency"] = image_scan_concurrency
+        captured["stop_after_candidates"] = stop_after_candidates
+        captured["stats_high_accuracy"] = stats.high_accuracy
+        return []
+
+    try:
+        deck_search.search_posts = fake_search_posts
+        deck_search.scan_posts_concurrently = fake_scan_posts_concurrently
+        deck_search.opencv_available = lambda: True
+        config.X_SEARCH_ENABLED = True
+        config.X_BEARER_TOKEN = "dummy"
+        response = await search_decks("g", "123", "デッキ 高精度 エルフ", base_config())
+        check.add("high accuracy still enters deck search", response == "おい ないんだが", response)
+        check.add("high accuracy flag reaches request", captured.get("request_high_accuracy") is True, str(captured))
+        check.add("high accuracy disables early stop", captured.get("stop_after_candidates") is False, str(captured))
+        check.add("high accuracy uses configured scan limit", captured.get("image_scan_limit") == 100, str(captured))
+        check.add("high accuracy uses configured concurrency", captured.get("image_scan_concurrency") == 1, str(captured))
+        check.add("high accuracy appears in stats", captured.get("stats_high_accuracy") is True, str(captured))
+    finally:
+        deck_search.search_posts = original_search
+        deck_search.scan_posts_concurrently = original_scan_posts
         deck_search.opencv_available = original_opencv
         config.X_SEARCH_ENABLED = disabled_before
         config.X_BEARER_TOKEN = token_before
@@ -560,6 +645,7 @@ def main() -> None:
     check = Check()
     asyncio.run(check_search_flow(check))
     asyncio.run(check_full_archive_error(check))
+    asyncio.run(check_high_accuracy_mode(check))
     asyncio.run(check_parallel_scan(check))
     asyncio.run(check_image_fetch_failure(check))
     asyncio.run(check_runtime_path(check))

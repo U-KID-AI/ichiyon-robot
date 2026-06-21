@@ -374,6 +374,10 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         image_scan_concurrency: str = Form("5"),
         stop_after_candidates: Optional[str] = Form(None),
         image_fetch_timeout_seconds: str = Form("5"),
+        high_accuracy_enabled: Optional[str] = Form(None),
+        high_accuracy_image_scan_limit: str = Form("100"),
+        high_accuracy_image_scan_concurrency: str = Form("1"),
+        high_accuracy_stop_after_candidates: Optional[str] = Form(None),
         request_timeout_seconds: str = Form("10"),
         cache_ttl_seconds: str = Form("300"),
         result_format: str = Form("default"),
@@ -418,6 +422,10 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 image_scan_concurrency,
                 stop_after_candidates,
                 image_fetch_timeout_seconds,
+                high_accuracy_enabled,
+                high_accuracy_image_scan_limit,
+                high_accuracy_image_scan_concurrency,
+                high_accuracy_stop_after_candidates,
                 request_timeout_seconds,
                 cache_ttl_seconds,
                 result_format,
@@ -1124,6 +1132,10 @@ def build_deck_settings(reaction: Dict[str, Any]) -> Dict[str, Any]:
         "image_scan_concurrency": int(config.get("image_scan_concurrency") or 5),
         "stop_after_candidates": bool(config.get("stop_after_candidates", True)),
         "image_fetch_timeout_seconds": int(config.get("image_fetch_timeout_seconds") or 5),
+        "high_accuracy_enabled": bool(config.get("high_accuracy_enabled", True)),
+        "high_accuracy_image_scan_limit": int(config.get("high_accuracy_image_scan_limit") or 100),
+        "high_accuracy_image_scan_concurrency": int(config.get("high_accuracy_image_scan_concurrency") or 1),
+        "high_accuracy_stop_after_candidates": bool(config.get("high_accuracy_stop_after_candidates", False)),
         "request_timeout_seconds": int(config.get("request_timeout_seconds") or 10),
         "cache_ttl_seconds": int(config.get("cache_ttl_seconds") or 300),
         "result_format": config.get("result_format") or "default",
@@ -1146,6 +1158,10 @@ def build_deck_settings(reaction: Dict[str, Any]) -> Dict[str, Any]:
             "image_scan_concurrency": int(config.get("image_scan_concurrency") or 5),
             "stop_after_candidates": bool(config.get("stop_after_candidates", True)),
             "image_fetch_timeout_seconds": int(config.get("image_fetch_timeout_seconds") or 5),
+            "high_accuracy_enabled": bool(config.get("high_accuracy_enabled", True)),
+            "high_accuracy_image_scan_limit": int(config.get("high_accuracy_image_scan_limit") or 100),
+            "high_accuracy_image_scan_concurrency": int(config.get("high_accuracy_image_scan_concurrency") or 1),
+            "high_accuracy_stop_after_candidates": bool(config.get("high_accuracy_stop_after_candidates", False)),
             "request_timeout_seconds": int(config.get("request_timeout_seconds") or 10),
             "cache_ttl_seconds": int(config.get("cache_ttl_seconds") or 300),
             "result_format": config.get("result_format") or "default",
@@ -1174,6 +1190,10 @@ def build_deck_settings_form(
     image_scan_concurrency: str,
     stop_after_candidates: Optional[str],
     image_fetch_timeout_seconds: str,
+    high_accuracy_enabled: Optional[str],
+    high_accuracy_image_scan_limit: str,
+    high_accuracy_image_scan_concurrency: str,
+    high_accuracy_stop_after_candidates: Optional[str],
     request_timeout_seconds: str,
     cache_ttl_seconds: str,
     result_format: str,
@@ -1201,6 +1221,14 @@ def build_deck_settings_form(
         fetch_timeout_seconds = int(image_fetch_timeout_seconds)
     except ValueError:
         fetch_timeout_seconds = 0
+    try:
+        high_accuracy_scan_limit = int(high_accuracy_image_scan_limit)
+    except ValueError:
+        high_accuracy_scan_limit = 0
+    try:
+        high_accuracy_scan_concurrency = int(high_accuracy_image_scan_concurrency)
+    except ValueError:
+        high_accuracy_scan_concurrency = 0
     try:
         timeout_seconds = int(request_timeout_seconds)
     except ValueError:
@@ -1236,6 +1264,10 @@ def build_deck_settings_form(
         "image_scan_concurrency": scan_concurrency,
         "stop_after_candidates": stop_after_candidates == "on",
         "image_fetch_timeout_seconds": fetch_timeout_seconds,
+        "high_accuracy_enabled": high_accuracy_enabled == "on",
+        "high_accuracy_image_scan_limit": high_accuracy_scan_limit,
+        "high_accuracy_image_scan_concurrency": high_accuracy_scan_concurrency,
+        "high_accuracy_stop_after_candidates": high_accuracy_stop_after_candidates == "on",
         "request_timeout_seconds": timeout_seconds,
         "cache_ttl_seconds": ttl_seconds,
         "result_format": result_format.strip() or "default",
@@ -1259,6 +1291,10 @@ def build_deck_settings_form(
         "image_scan_concurrency": settings["image_scan_concurrency"],
         "stop_after_candidates": settings["stop_after_candidates"],
         "image_fetch_timeout_seconds": settings["image_fetch_timeout_seconds"],
+        "high_accuracy_enabled": settings["high_accuracy_enabled"],
+        "high_accuracy_image_scan_limit": settings["high_accuracy_image_scan_limit"],
+        "high_accuracy_image_scan_concurrency": settings["high_accuracy_image_scan_concurrency"],
+        "high_accuracy_stop_after_candidates": settings["high_accuracy_stop_after_candidates"],
         "request_timeout_seconds": settings["request_timeout_seconds"],
         "cache_ttl_seconds": settings["cache_ttl_seconds"],
         "result_format": settings["result_format"],
@@ -1282,6 +1318,10 @@ def build_deck_settings_form(
         errors.append("同時確認数は1から10まで")
     if fetch_timeout_seconds < 1:
         errors.append("画像取得秒数は1以上")
+    if high_accuracy_scan_limit < 1:
+        errors.append("高精度の画像確認数は1以上")
+    if high_accuracy_scan_concurrency < 1 or high_accuracy_scan_concurrency > 10:
+        errors.append("高精度の同時確認数は1から10まで")
     if timeout_seconds < 1:
         errors.append("request_timeout_seconds must be 1 or more")
     if ttl_seconds < 0:

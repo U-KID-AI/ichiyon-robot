@@ -41,6 +41,10 @@ X_BEARER_TOKEN=
   "image_scan_concurrency": 5,
   "stop_after_candidates": true,
   "image_fetch_timeout_seconds": 5,
+  "high_accuracy_enabled": true,
+  "high_accuracy_image_scan_limit": 100,
+  "high_accuracy_image_scan_concurrency": 1,
+  "high_accuracy_stop_after_candidates": false,
   "request_timeout_seconds": 10,
   "cache_ttl_seconds": 300,
   "result_format": "default",
@@ -56,6 +60,10 @@ X_BEARER_TOKEN=
 - `image_scan_concurrency`: 画像DL/QR判定の同時確認数。1から10。
 - `stop_after_candidates`: 候補が揃ったら残りの画像確認を止める。
 - `image_fetch_timeout_seconds`: 1画像ごとの取得待ち秒数。
+- `high_accuracy_enabled`: `高精度` 指定を使う。
+- `high_accuracy_image_scan_limit`: 高精度時に確認する画像数。デフォルト100。
+- `high_accuracy_image_scan_concurrency`: 高精度時の同時確認数。デフォルト1。
+- `high_accuracy_stop_after_candidates`: 高精度時も候補が揃ったら止めるか。デフォルトfalse。
 - `request_timeout_seconds`: X APIへのリクエスト待ち秒数。
 - `cache_ttl_seconds`: 同じ検索を再実行しない秒数。
 
@@ -91,6 +99,27 @@ TokenとQR文字列はログに出さない。
 - 画像取得は `image_fetch_timeout_seconds` で短めに切る。
 - キャッシュは維持。
 
+## 高精度
+
+ユーザーが `高精度` を付けた時だけ、画像確認を多めにする。
+
+例:
+
+- `@Bot デッキ エルフ`
+- `@Bot デッキ エルフ 高精度`
+- `@Bot デッキ 高精度 エルフ`
+
+`高精度` はクラス名解析から除外する。`デッキ 高精度` のようにクラス名がない場合は通常通り `クラス名も入れて` を返す。
+
+高精度時のデフォルト:
+
+- `stop_after_candidates=false`
+- `image_scan_limit=100`
+- `image_scan_concurrency=1`
+- `x_search_max_results=100`
+
+ログには `high_accuracy=True` / `precision_mode=True` を出す。TokenとQR文字列は出さない。
+
 スコアは画像確認順を変えるだけ。低スコア投稿も完全除外しない。
 
 処理時間ログ:
@@ -112,7 +141,7 @@ deck search stats: mode=full_archive, endpoint=full_archive, lookback_days=14, t
 ```sql
 UPDATE mention_reactions
 SET config_json = config_json
-  || '{"search_mode":"full_archive","lookback_days":14,"max_results":3,"x_search_max_results":100,"image_scan_limit":80,"image_scan_concurrency":5,"stop_after_candidates":true,"image_fetch_timeout_seconds":5,"cache_ttl_seconds":300,"not_found_message":"おい ないんだが","excluded_keywords":["ドラゴンボール","レジェンズ","探索コード","フレンドコード"]}'::jsonb
+  || '{"search_mode":"full_archive","lookback_days":14,"max_results":3,"x_search_max_results":100,"image_scan_limit":80,"image_scan_concurrency":5,"stop_after_candidates":true,"image_fetch_timeout_seconds":5,"high_accuracy_enabled":true,"high_accuracy_image_scan_limit":100,"high_accuracy_image_scan_concurrency":1,"high_accuracy_stop_after_candidates":false,"cache_ttl_seconds":300,"not_found_message":"おい ないんだが","excluded_keywords":["ドラゴンボール","レジェンズ","探索コード","フレンドコード"]}'::jsonb
 WHERE reaction_key = 'deck_search'
   AND reaction_kind = 'search';
 ```

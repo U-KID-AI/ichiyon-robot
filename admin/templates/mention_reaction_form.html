@@ -159,6 +159,10 @@
           <label>同時確認数<input type="number" min="1" max="10" name="image_scan_concurrency" value="{{ deck_settings.image_scan_concurrency or 5 }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
           <label class="check-row"><input type="checkbox" name="stop_after_candidates" {% if deck_settings.stop_after_candidates %}checked{% endif %} {% if not can_edit_deck_settings %}disabled{% endif %}>候補が揃ったら止める</label>
           <label>画像取得秒数<input type="number" min="1" name="image_fetch_timeout_seconds" value="{{ deck_settings.image_fetch_timeout_seconds or 5 }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+          <label class="check-row"><input type="checkbox" name="high_accuracy_enabled" {% if deck_settings.high_accuracy_enabled %}checked{% endif %} {% if not can_edit_deck_settings %}disabled{% endif %}>高精度を使う</label>
+          <label>高精度の画像確認数<input type="number" min="1" name="high_accuracy_image_scan_limit" value="{{ deck_settings.high_accuracy_image_scan_limit or 100 }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+          <label>高精度の同時確認数<input type="number" min="1" max="10" name="high_accuracy_image_scan_concurrency" value="{{ deck_settings.high_accuracy_image_scan_concurrency or 1 }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+          <label class="check-row"><input type="checkbox" name="high_accuracy_stop_after_candidates" {% if deck_settings.high_accuracy_stop_after_candidates %}checked{% endif %} {% if not can_edit_deck_settings %}disabled{% endif %}>高精度でも候補が揃ったら止める</label>
           <label>タイムアウト秒<input type="number" min="1" name="request_timeout_seconds" value="{{ deck_settings.request_timeout_seconds or 10 }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
           <label>キャッシュ秒<input type="number" min="0" name="cache_ttl_seconds" value="{{ deck_settings.cache_ttl_seconds or 300 }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
           <label>表示形式<input type="text" name="result_format" value="{{ deck_settings.result_format or 'default' }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>

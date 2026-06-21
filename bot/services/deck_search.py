@@ -43,6 +43,7 @@ class DeckSearchRequest:
     class_key: str
     class_label: str
     class_en: str
+    high_accuracy: bool = False
 
 
 @dataclass
@@ -64,6 +65,7 @@ class DeckSearchStats:
     x_api_ms: int = 0
     image_scan_ms: int = 0
     image_scan_concurrency: int = 5
+    high_accuracy: bool = False
     stopped_after_candidates: bool = False
     x_results: int = 0
     media_posts: int = 0
@@ -79,9 +81,10 @@ class DeckSearchStats:
     def to_log(self) -> str:
         return (
             "mode={0}, endpoint={1}, lookback_days={2}, http_status={3}, "
-            "total_ms={4}, x_api_ms={5}, image_scan_ms={6}, image_scan_concurrency={7}, stopped_after_candidates={8}, "
-            "X results={9}, media={10}, downloaded={11}, qr={12}, candidates={13}, "
-            "skip_no_media={14}, skip_non_photo={15}, skip_image_fetch={16}, skip_no_qr={17}, skip_qr_error={18}"
+            "total_ms={4}, x_api_ms={5}, image_scan_ms={6}, image_scan_concurrency={7}, "
+            "high_accuracy={8}, precision_mode={8}, stopped_after_candidates={9}, "
+            "X results={10}, media={11}, downloaded={12}, qr={13}, candidates={14}, "
+            "skip_no_media={15}, skip_non_photo={16}, skip_image_fetch={17}, skip_no_qr={18}, skip_qr_error={19}"
         ).format(
             self.search_mode,
             self.endpoint_type,
@@ -91,6 +94,7 @@ class DeckSearchStats:
             self.x_api_ms,
             self.image_scan_ms,
             self.image_scan_concurrency,
+            self.high_accuracy,
             self.stopped_after_candidates,
             self.x_results,
             self.media_posts,
@@ -109,6 +113,10 @@ def normalize_text(value: str) -> str:
     return value.strip().lower()
 
 
+def normalize_command_text(value: str) -> str:
+    return " ".join((value or "").replace("\u3000", " ").split())
+
+
 def detect_class(text: str) -> Optional[Tuple[str, str]]:
     normalized = normalize_text(text)
     for key, (label, aliases) in CLASS_ALIASES.items():
@@ -119,15 +127,35 @@ def detect_class(text: str) -> Optional[Tuple[str, str]]:
 
 
 def parse_deck_search_command(command_text: str, missing_behavior: str = "ask_format") -> Optional[DeckSearchRequest]:
-    text = command_text.strip()
+    text = normalize_command_text(command_text)
     text = re.sub(r"^(デッキ検索|デッキ|deck)\s*", "", text, flags=re.IGNORECASE).strip()
+    high_accuracy = False
+    tokens = []
+    for token in text.split():
+        if token == "高精度":
+            high_accuracy = True
+            continue
+        tokens.append(token)
+    text = " ".join(tokens).strip()
     found = detect_class(text)
     if found is None:
         if missing_behavior == "latest":
-            return DeckSearchRequest(query=text or "デッキ", class_key="", class_label="指定なし", class_en="")
+            return DeckSearchRequest(
+                query=text or "デッキ",
+                class_key="",
+                class_label="指定なし",
+                class_en="",
+                high_accuracy=high_accuracy,
+            )
         return None
     class_key, class_label = found
-    return DeckSearchRequest(query=text or class_label, class_key=class_key, class_label=class_label, class_en=class_key)
+    return DeckSearchRequest(
+        query=text or class_label,
+        class_key=class_key,
+        class_label=class_label,
+        class_en=class_key,
+        high_accuracy=high_accuracy,
+    )
 
 
 def get_config_int(config_json: Dict[str, Any], key: str, default: int, minimum: int, maximum: int) -> int:
@@ -205,11 +233,12 @@ def cache_key(guild_id: str, channel_id: str, request: DeckSearchRequest, config
     lookback_days = get_config_int(config_json, "lookback_days", config.X_SEARCH_LOOKBACK_DAYS, 1, 30)
     query_template = config_json.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE
     excluded_keywords = ",".join(get_excluded_keywords(config_json))
-    return "{0}:{1}:{2}:{3}:{4}:{5}:{6}:{7}".format(
+    return "{0}:{1}:{2}:{3}:{4}:{5}:{6}:{7}:{8}".format(
         guild_id,
         channel_id,
         request.class_key,
         request.query,
+        "high" if request.high_accuracy else "normal",
         mode,
         lookback_days,
         query_template,
@@ -472,6 +501,12 @@ async def search_decks(guild_id: str, channel_id: str, command_text: str, config
     search_limit = get_config_int(config_json, "x_search_max_results", config.X_SEARCH_MAX_RESULTS, 10, 100)
     search_mode = normalize_search_mode(get_config_str(config_json, "search_mode", config.X_SEARCH_MODE))
     lookback_days = get_config_int(config_json, "lookback_days", config.X_SEARCH_LOOKBACK_DAYS, 1, 30)
+    high_accuracy_enabled = get_config_bool(config_json, "high_accuracy_enabled", True)
+    high_accuracy = bool(request.high_accuracy and high_accuracy_enabled)
+    if high_accuracy:
+        image_scan_limit = get_config_int(config_json, "high_accuracy_image_scan_limit", 100, 1, 200)
+        image_scan_concurrency = get_config_int(config_json, "high_accuracy_image_scan_concurrency", 1, 1, 10)
+        stop_after_candidates = get_config_bool(config_json, "high_accuracy_stop_after_candidates", False)
     key = cache_key(guild_id, channel_id, request, config_json)
     cached = get_cached(key, cache_ttl_seconds)
     if cached is not None:
@@ -484,6 +519,7 @@ async def search_decks(guild_id: str, channel_id: str, command_text: str, config
         endpoint_type=search_mode,
         lookback_days=lookback_days,
         image_scan_concurrency=image_scan_concurrency,
+        high_accuracy=high_accuracy,
     )
     try:
         x_started_ms = monotonic_ms()
