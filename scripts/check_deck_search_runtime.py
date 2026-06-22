@@ -14,7 +14,7 @@ from bot.services import deck_search
 from bot.services import runtime_db
 from bot.services.deck_search import DeckSearchStats, build_x_query
 from bot.services.deck_search import parse_deck_search_command, search_decks
-from bot.services.qr_detector import detect_qr_codes, opencv_available
+from bot.services.qr_detector import build_qr_candidate_images, detect_qr_codes, opencv_available
 from bot.services.x_search import (
     XMedia,
     XPost,
@@ -641,8 +641,9 @@ def check_search_params(check: Check) -> None:
     )
     check.add(
         "x search params match stg request shape",
-        archive_params.get("tweet.fields") == "created_at"
-        and archive_params.get("expansions") == "attachments.media_keys"
+        archive_params.get("tweet.fields") == "created_at,referenced_tweets"
+        and archive_params.get("expansions")
+        == "attachments.media_keys,referenced_tweets.id,referenced_tweets.id.attachments.media_keys"
         and archive_params.get("media.fields") == "url,preview_image_url,type"
         and "sort_order" not in archive_params,
         str(archive_params),
@@ -654,17 +655,33 @@ def check_x_payload(check: Check) -> None:
         "data": [
             {"id": "1", "text": "deck", "created_at": "2026-06-20T00:00:00Z", "attachments": {"media_keys": ["m1"]}},
             {"id": "2", "text": "deck video", "created_at": "2026-06-20T00:00:00Z", "attachments": {"media_keys": ["m2"]}},
+            {
+                "id": "3",
+                "text": "deck quote",
+                "created_at": "2026-06-20T00:00:00Z",
+                "referenced_tweets": [{"type": "quoted", "id": "30"}],
+            },
         ],
         "includes": {
             "media": [
                 {"media_key": "m1", "type": "photo", "url": "https://example.test/a.jpg"},
                 {"media_key": "m2", "type": "video", "preview_image_url": "https://example.test/preview.jpg"},
+                {"media_key": "m3", "type": "photo", "url": "https://example.test/ref.jpg"},
+            ],
+            "tweets": [
+                {
+                    "id": "30",
+                    "text": "referenced deck",
+                    "created_at": "2026-06-19T00:00:00Z",
+                    "attachments": {"media_keys": ["m3"]},
+                }
             ]
         },
     }
     posts = parse_search_response(payload)
-    check.add("x payload media parsed", len(posts) == 2 and len(posts[0].media) == 1)
+    check.add("x payload media parsed", len(posts) == 3 and len(posts[0].media) == 1)
     check.add("x video preview media parsed", posts[1].media[0].url == "https://example.test/preview.jpg")
+    check.add("x referenced tweet media parsed", posts[2].media[0].url == "https://example.test/ref.jpg")
 
 
 def check_stats(check: Check) -> None:
@@ -700,8 +717,14 @@ def check_qr_optional(check: Check) -> None:
     if not opencv_available():
         check.add("opencv optional", True, "not installed")
         return
+    import cv2
+    import numpy as np
+
     detections = detect_qr_codes(b"")
     check.add("opencv empty image is safe", detections == [])
+    image = np.full((240, 240, 3), 255, dtype=np.uint8)
+    candidates = build_qr_candidate_images(cv2, image)
+    check.add("qr preprocessing creates multiple candidates", len(candidates) > 3, str(len(candidates)))
 
 
 def main() -> None:

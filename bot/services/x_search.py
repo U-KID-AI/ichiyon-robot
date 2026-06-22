@@ -83,8 +83,8 @@ def build_search_params(query: str, max_results: int, search_mode: str, lookback
     params = {
         "query": query,
         "max_results": clamp_x_max_results(max_results),
-        "tweet.fields": "created_at",
-        "expansions": "attachments.media_keys",
+        "tweet.fields": "created_at,referenced_tweets",
+        "expansions": "attachments.media_keys,referenced_tweets.id,referenced_tweets.id.attachments.media_keys",
         "media.fields": "url,preview_image_url,type",
     }
     if endpoint_type == "full_archive":
@@ -112,14 +112,17 @@ def build_media_map(payload: Dict[str, Any]) -> Dict[str, XMedia]:
 
 def parse_search_response(payload: Dict[str, Any]) -> List[XPost]:
     media_map = build_media_map(payload)
+    referenced_media = build_referenced_tweet_media(payload, media_map)
     posts = []
     for item in payload.get("data") or []:
-        attachments = item.get("attachments") or {}
-        media = []
-        for key in attachments.get("media_keys") or []:
-            found = media_map.get(key)
-            if found is not None:
-                media.append(found)
+        media = collect_tweet_media(item, media_map)
+        seen_keys = set([found.media_key for found in media])
+        for ref in item.get("referenced_tweets") or []:
+            ref_id = str(ref.get("id") or "")
+            for found in referenced_media.get(ref_id, []):
+                if found.media_key not in seen_keys:
+                    media.append(found)
+                    seen_keys.add(found.media_key)
         posts.append(
             XPost(
                 post_id=str(item.get("id") or ""),
@@ -130,6 +133,27 @@ def parse_search_response(payload: Dict[str, Any]) -> List[XPost]:
         )
     posts.sort(key=lambda post: 0 if post.media else 1)
     return posts
+
+
+def collect_tweet_media(item: Dict[str, Any], media_map: Dict[str, XMedia]) -> List[XMedia]:
+    attachments = item.get("attachments") or {}
+    media = []
+    for key in attachments.get("media_keys") or []:
+        found = media_map.get(key)
+        if found is not None:
+            media.append(found)
+    return media
+
+
+def build_referenced_tweet_media(payload: Dict[str, Any], media_map: Dict[str, XMedia]) -> Dict[str, List[XMedia]]:
+    includes = payload.get("includes") or {}
+    result = {}
+    for item in includes.get("tweets") or []:
+        tweet_id = str(item.get("id") or "")
+        if not tweet_id:
+            continue
+        result[tweet_id] = collect_tweet_media(item, media_map)
+    return result
 
 
 async def search_posts(

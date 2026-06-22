@@ -302,6 +302,11 @@ def get_config_str(config_json: Dict[str, Any], key: str, default: str) -> str:
     return str(value).strip()
 
 
+def get_debug_tweet_id(config_json: Dict[str, Any]) -> str:
+    value = config_json.get("debug_tweet_id") or config_json.get("deck_debug_tweet_id") or ""
+    return str(value).strip()
+
+
 def normalize_media_filter(value: str) -> str:
     normalized = (value or "media").strip().lower()
     if normalized in ("image", "images", "has:images"):
@@ -697,6 +702,10 @@ async def search_decks(guild_id: str, channel_id: str, command_text: str, config
         return DEFAULT_ERROR_MESSAGE
 
     stats.x_results = len(posts)
+    debug_tweet_id = get_debug_tweet_id(config_json)
+    if debug_tweet_id:
+        found_in_search = any(str(post.post_id) == debug_tweet_id for post in posts)
+        print("[INFO] deck search debug_tweet_id={0} found_in_search={1}".format(debug_tweet_id, found_in_search))
     image_started_ms = monotonic_ms()
     results = await scan_posts_concurrently(
         posts,
