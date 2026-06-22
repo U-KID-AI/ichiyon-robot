@@ -19,6 +19,12 @@ DEFAULT_ASK_FORMAT_MESSAGE = "クラス名も入れて"
 DEFAULT_FULL_ARCHIVE_UNAVAILABLE_MESSAGE = "過去検索が使えません"
 DEFAULT_X_QUERY_TEMPLATE = "({class_label} OR {class_en}) (シャドバ OR Shadowverse OR シャドウバース OR SV) (デッキ OR deck OR QR OR コード) has:images"
 DEFAULT_EXCLUDED_KEYWORDS = ["ドラゴンボール", "レジェンズ", "探索コード", "フレンドコード"]
+DECK_TRIGGER_ALIASES = ["デッキ検索", "デッキ", "deck"]
+HIGH_ACCURACY_WORDS = ["高精度"]
+MAX_EXTRA_TERMS = 8
+MAX_EXTRA_TERM_LENGTH = 40
+MAX_EXTRA_QUERY_LENGTH = 120
+MAX_X_QUERY_LENGTH = 480
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 HIGH_SCORE_TERMS = ["デッキ", "deck", "レシピ", "構築", "QR", "コード", "BEYOND", "WB", "シャドバ", "Shadowverse"]
 LOW_SCORE_TERMS = ["キャンペーン", "100万円", "配信", "YouTube", "大会", "勝ったら", "探索コード", "フレンドコード", "ドラゴンボール", "レジェンズ"]
@@ -34,6 +40,12 @@ CLASS_ALIASES = {
     "neutral": ("ニュートラル", ["ニュートラル", "neutral", "ニュート"]),
 }
 
+FORMAT_ALIASES = {
+    "rotation": ("ローテーション", ["ローテーション", "ローテ", "rotation", "rotate"]),
+    "unlimited": ("アンリミテッド", ["アンリミテッド", "アンリミ", "unlimited", "unlim"]),
+    "2pick": ("2Pick", ["2pick", "2ピック", "ツーピック", "pick"]),
+}
+
 _CACHE = {}
 
 
@@ -44,6 +56,9 @@ class DeckSearchRequest:
     class_label: str
     class_en: str
     high_accuracy: bool = False
+    format_key: str = ""
+    format_label: str = ""
+    extra_terms: Optional[List[str]] = None
 
 
 @dataclass
@@ -126,18 +141,111 @@ def detect_class(text: str) -> Optional[Tuple[str, str]]:
     return None
 
 
+def detect_class_token(token: str) -> Optional[Tuple[str, str]]:
+    normalized = normalize_text(token)
+    for key, (label, aliases) in CLASS_ALIASES.items():
+        for alias in aliases:
+            if normalized == normalize_text(alias):
+                return key, label
+    return None
+
+
+def detect_format_token(token: str) -> Optional[Tuple[str, str]]:
+    normalized = normalize_text(token)
+    for key, (label, aliases) in FORMAT_ALIASES.items():
+        for alias in aliases:
+            if normalized == normalize_text(alias):
+                return key, label
+    return None
+
+
+def is_deck_trigger_token(token: str) -> bool:
+    normalized = normalize_text(token)
+    return normalized in [normalize_text(alias) for alias in DECK_TRIGGER_ALIASES]
+
+
+def is_high_accuracy_token(token: str) -> bool:
+    normalized = normalize_text(token)
+    return normalized in [normalize_text(word) for word in HIGH_ACCURACY_WORDS]
+
+
+def sanitize_extra_term(token: str) -> str:
+    value = (token or "").strip()
+    if not value:
+        return ""
+    if value.startswith(("http://", "https://", "www.")):
+        return ""
+    if value.startswith("@") or value.startswith("<@"):
+        return ""
+    value = re.sub(r"[\x00-\x1f\x7f]", "", value)
+    value = value.replace('"', "").replace("'", "")
+    value = value.replace("(", "").replace(")", "")
+    value = value.strip()
+    if not value:
+        return ""
+    return value[:MAX_EXTRA_TERM_LENGTH]
+
+
+def limit_extra_terms(terms: List[str]) -> List[str]:
+    limited = []
+    total_length = 0
+    for term in terms:
+        if len(limited) >= MAX_EXTRA_TERMS:
+            break
+        next_length = total_length + len(term) + (1 if limited else 0)
+        if next_length > MAX_EXTRA_QUERY_LENGTH:
+            remaining = MAX_EXTRA_QUERY_LENGTH - total_length - (1 if limited else 0)
+            if remaining > 0:
+                limited.append(term[:remaining])
+            break
+        limited.append(term)
+        total_length = next_length
+    return limited
+
+
+def parse_deck_search_tokens(text: str) -> Dict[str, Any]:
+    class_match = None
+    format_match = None
+    high_accuracy = False
+    extra_terms = []
+
+    for token in text.split():
+        if is_deck_trigger_token(token):
+            continue
+        if is_high_accuracy_token(token):
+            high_accuracy = True
+            continue
+
+        token_class = detect_class_token(token)
+        if token_class is not None:
+            if class_match is None:
+                class_match = token_class
+            continue
+
+        token_format = detect_format_token(token)
+        if token_format is not None:
+            if format_match is None:
+                format_match = token_format
+            continue
+
+        term = sanitize_extra_term(token)
+        if term:
+            extra_terms.append(term)
+
+    return {
+        "class_match": class_match,
+        "format_match": format_match,
+        "high_accuracy": high_accuracy,
+        "extra_terms": limit_extra_terms(extra_terms),
+    }
+
+
 def parse_deck_search_command(command_text: str, missing_behavior: str = "ask_format") -> Optional[DeckSearchRequest]:
     text = normalize_command_text(command_text)
     text = re.sub(r"^(デッキ検索|デッキ|deck)\s*", "", text, flags=re.IGNORECASE).strip()
-    high_accuracy = False
-    tokens = []
-    for token in text.split():
-        if token == "高精度":
-            high_accuracy = True
-            continue
-        tokens.append(token)
-    text = " ".join(tokens).strip()
-    found = detect_class(text)
+    parsed = parse_deck_search_tokens(text)
+    high_accuracy = bool(parsed["high_accuracy"])
+    found = parsed["class_match"] or detect_class(text)
     if found is None:
         if missing_behavior == "latest":
             return DeckSearchRequest(
@@ -146,15 +254,22 @@ def parse_deck_search_command(command_text: str, missing_behavior: str = "ask_fo
                 class_label="指定なし",
                 class_en="",
                 high_accuracy=high_accuracy,
+                extra_terms=parsed["extra_terms"],
             )
         return None
     class_key, class_label = found
+    format_match = parsed["format_match"]
+    format_key = format_match[0] if format_match is not None else ""
+    format_label = format_match[1] if format_match is not None else ""
     return DeckSearchRequest(
         query=text or class_label,
         class_key=class_key,
         class_label=class_label,
         class_en=class_key,
         high_accuracy=high_accuracy,
+        format_key=format_key,
+        format_label=format_label,
+        extra_terms=parsed["extra_terms"],
     )
 
 
@@ -204,6 +319,25 @@ def get_excluded_keywords(config_json: Dict[str, Any]) -> List[str]:
     return keywords
 
 
+def get_extra_terms(request: DeckSearchRequest) -> List[str]:
+    return list(request.extra_terms or [])
+
+
+def insert_extra_terms(query: str, terms: List[str]) -> str:
+    safe_terms = limit_extra_terms([sanitize_extra_term(term) for term in terms])
+    safe_terms = [term for term in safe_terms if term]
+    if not safe_terms:
+        return query[:MAX_X_QUERY_LENGTH].rstrip()
+
+    extra_query = " ".join(safe_terms)
+    match = re.search(r"\s+has:images\b", query, flags=re.IGNORECASE)
+    if match:
+        query = "{0} {1}{2}".format(query[: match.start()], extra_query, query[match.start() :])
+    else:
+        query = "{0} {1}".format(query, extra_query)
+    return query[:MAX_X_QUERY_LENGTH].rstrip()
+
+
 def build_x_query(request: DeckSearchRequest, config_json: Dict[str, Any]) -> str:
     template = config_json.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE
     query = template.format(
@@ -212,13 +346,14 @@ def build_x_query(request: DeckSearchRequest, config_json: Dict[str, Any]) -> st
         class_en=request.class_en,
         query=request.query,
     )
+    query = insert_extra_terms(query, get_extra_terms(request))
     if not get_config_bool(config_json, "include_retweets", False):
         query += " -is:retweet"
     if not get_config_bool(config_json, "include_replies", False):
         query += " -is:reply"
     for keyword in get_excluded_keywords(config_json):
         query += " -{0}".format(keyword)
-    return query
+    return query[:MAX_X_QUERY_LENGTH].rstrip()
 
 
 def allowed_in_channel(config_json: Dict[str, Any], channel_id: str) -> bool:
@@ -233,12 +368,15 @@ def cache_key(guild_id: str, channel_id: str, request: DeckSearchRequest, config
     lookback_days = get_config_int(config_json, "lookback_days", config.X_SEARCH_LOOKBACK_DAYS, 1, 30)
     query_template = config_json.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE
     excluded_keywords = ",".join(get_excluded_keywords(config_json))
-    return "{0}:{1}:{2}:{3}:{4}:{5}:{6}:{7}:{8}".format(
+    extra_terms = ",".join(get_extra_terms(request))
+    return "{0}:{1}:{2}:{3}:{4}:{5}:{6}:{7}:{8}:{9}:{10}".format(
         guild_id,
         channel_id,
         request.class_key,
         request.query,
         "high" if request.high_accuracy else "normal",
+        request.format_key,
+        extra_terms,
         mode,
         lookback_days,
         query_template,
@@ -513,7 +651,7 @@ async def search_decks(guild_id: str, channel_id: str, command_text: str, config
         return format_results(request, cached, max_results, config_json)
 
     query = build_x_query(request, config_json)
-    print("[INFO] deck search query: {0}".format(query))
+    print("[INFO] deck search query: extra_terms={0} final_query={1}".format(get_extra_terms(request), query))
     stats = DeckSearchStats(
         search_mode=search_mode,
         endpoint_type=search_mode,

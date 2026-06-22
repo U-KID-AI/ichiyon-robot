@@ -319,6 +319,34 @@ async def check_search_flow(check: Check) -> None:
         "high accuracy accepts full-width spaces",
         high_wide_space is not None and high_wide_space.class_key == "elf" and high_wide_space.high_accuracy is True,
     )
+    bishop_extra = parse_deck_search_command("デッキ ビショップ アンリミテッド ロデオ", "ask_format")
+    bishop_query = build_x_query(bishop_extra, {}) if bishop_extra is not None else ""
+    check.add(
+        "extra term parses after class and format",
+        bishop_extra is not None
+        and bishop_extra.class_key == "bishop"
+        and bishop_extra.format_label == "アンリミテッド"
+        and bishop_extra.extra_terms == ["ロデオ"],
+        str(bishop_extra),
+    )
+    check.add("extra term appears in final query", "ロデオ" in bishop_query, bishop_query)
+    elf_extra = parse_deck_search_command("デッキ エルフ リノ セッカ", "ask_format")
+    elf_query = build_x_query(elf_extra, {}) if elf_extra is not None else ""
+    check.add(
+        "multiple extra terms are kept",
+        elf_extra is not None and elf_extra.class_key == "elf" and elf_extra.extra_terms == ["リノ", "セッカ"],
+        str(elf_extra),
+    )
+    check.add("multiple extra terms appear in final query", "リノ セッカ" in elf_query, elf_query)
+    royal_high_extra = parse_deck_search_command("デッキ 高精度 ロイヤル 連携", "ask_format")
+    check.add(
+        "high accuracy is not treated as extra term",
+        royal_high_extra is not None
+        and royal_high_extra.class_key == "royal"
+        and royal_high_extra.high_accuracy is True
+        and royal_high_extra.extra_terms == ["連携"],
+        str(royal_high_extra),
+    )
     check.add("high accuracy without class asks format", parse_deck_search_command("デッキ 高精度", "ask_format") is None)
     query = build_x_query(parsed, {}) if parsed is not None else ""
     check.add(
