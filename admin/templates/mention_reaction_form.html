@@ -143,6 +143,7 @@
         <details>
           <summary>詳細設定</summary>
           <label>X検索クエリ<input type="text" name="x_query_template" value="{{ deck_settings.x_query_template or '' }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
+          <label>本文必須語<textarea name="required_context_terms" placeholder="ビヨンド&#10;beyond" {% if not can_edit_deck_settings %}disabled{% endif %}>{{ deck_settings.required_context_terms }}</textarea></label>
           <label>Xから取得する投稿数<input type="number" min="10" max="100" name="x_search_max_results" value="{{ deck_settings.x_search_max_results or 100 }}" {% if not can_edit_deck_settings %}disabled{% endif %}></label>
           <label>
             検索範囲

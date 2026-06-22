@@ -18,7 +18,14 @@ DEFAULT_ERROR_MESSAGE = "検索でエラー"
 DEFAULT_NOT_FOUND_MESSAGE = "おい ないんだが"
 DEFAULT_ASK_FORMAT_MESSAGE = "クラス名も入れて"
 DEFAULT_FULL_ARCHIVE_UNAVAILABLE_MESSAGE = "過去検索が使えません"
-DEFAULT_X_QUERY_TEMPLATE = "({class_label} OR {class_en}) (シャドバ OR Shadowverse OR シャドウバース OR SV) (デッキ OR deck OR QR OR コード) has:media"
+DEFAULT_X_QUERY_TEMPLATE = "({class_label} OR {class_en}) {required_context_query} has:media"
+LEGACY_X_QUERY_TEMPLATES = [
+    "({class_label} OR {class_en}) (シャドバ OR Shadowverse OR シャドウバース OR SV) (デッキ OR deck OR QR OR コード) has:images",
+    "({class_label} OR {class_en}) (シャドバ OR Shadowverse OR シャドウバース OR SV) (デッキ OR deck OR QR OR コード) has:media",
+    "({class_label} OR {class_en}) (デッキ OR deck OR QR OR コード OR レシピ OR 構築) has:images",
+    "({class_label} OR {class_en}) (デッキ OR deck OR QR OR コード OR レシピ OR 構築) has:media",
+]
+DEFAULT_REQUIRED_CONTEXT_TERMS = ["ビヨンド", "beyond"]
 DEFAULT_EXCLUDED_KEYWORDS = ["ドラゴンボール", "レジェンズ", "探索コード", "フレンドコード"]
 DECK_TRIGGER_ALIASES = ["デッキ検索", "デッキ", "deck"]
 HIGH_ACCURACY_WORDS = ["高精度"]
@@ -336,11 +343,44 @@ def get_excluded_keywords(config_json: Dict[str, Any]) -> List[str]:
     return keywords
 
 
+def get_required_context_terms(config_json: Dict[str, Any]) -> List[str]:
+    raw = config_json.get("required_context_terms")
+    if raw is None:
+        return list(DEFAULT_REQUIRED_CONTEXT_TERMS)
+    if isinstance(raw, list):
+        return [sanitize_extra_term(str(item)) for item in raw if sanitize_extra_term(str(item))]
+    text = str(raw)
+    terms = []
+    for item in text.replace(",", "\n").splitlines():
+        term = sanitize_extra_term(item)
+        if term:
+            terms.append(term)
+    return terms
+
+
+def build_or_query(terms: List[str]) -> str:
+    safe_terms = [sanitize_extra_term(term) for term in terms]
+    safe_terms = [term for term in safe_terms if term]
+    if not safe_terms:
+        return ""
+    if len(safe_terms) == 1:
+        return safe_terms[0]
+    return "({0})".format(" OR ".join(safe_terms))
+
+
 def get_extra_terms(request: DeckSearchRequest) -> List[str]:
     return list(request.extra_terms or [])
 
 
-def insert_extra_terms(query: str, terms: List[str]) -> str:
+def get_query_terms(request: DeckSearchRequest) -> List[str]:
+    terms = []
+    if request.format_label:
+        terms.append(request.format_label)
+    terms.extend(get_extra_terms(request))
+    return terms
+
+
+def insert_query_terms(query: str, terms: List[str]) -> str:
     safe_terms = limit_extra_terms([sanitize_extra_term(term) for term in terms])
     safe_terms = [term for term in safe_terms if term]
     if not safe_terms:
@@ -362,16 +402,34 @@ def apply_media_filter(query: str, media_filter: str) -> str:
     return "{0} {1}".format(query, tag)
 
 
+def normalize_query_template(template: str) -> str:
+    value = (template or "").strip()
+    if not value:
+        return DEFAULT_X_QUERY_TEMPLATE
+    if value in LEGACY_X_QUERY_TEMPLATES:
+        return DEFAULT_X_QUERY_TEMPLATE
+    return value
+
+
 def build_x_query(request: DeckSearchRequest, config_json: Dict[str, Any]) -> str:
-    template = config_json.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE
+    template = normalize_query_template(config_json.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE)
+    required_context_terms = get_required_context_terms(config_json)
+    required_context_query = build_or_query(required_context_terms)
+    query_terms = get_query_terms(request)
+    extra_query = " ".join(limit_extra_terms([sanitize_extra_term(term) for term in query_terms]))
     query = template.format(
         class_key=request.class_key,
         class_label=request.class_label,
         class_en=request.class_en,
         query=request.query,
+        required_context_query=required_context_query,
+        format_key=request.format_key,
+        format_label=request.format_label,
+        extra_terms=" ".join(get_extra_terms(request)),
+        extra_query=extra_query,
     )
     query = apply_media_filter(query, get_config_str(config_json, "media_filter", "media"))
-    query = insert_extra_terms(query, get_extra_terms(request))
+    query = insert_query_terms(query, query_terms)
     if not get_config_bool(config_json, "include_retweets", False):
         query += " -is:retweet"
     if not get_config_bool(config_json, "include_replies", False):
@@ -391,10 +449,12 @@ def allowed_in_channel(config_json: Dict[str, Any], channel_id: str) -> bool:
 def cache_key(guild_id: str, channel_id: str, request: DeckSearchRequest, config_json: Dict[str, Any]) -> str:
     mode = normalize_search_mode(get_config_str(config_json, "search_mode", config.X_SEARCH_MODE))
     lookback_days = get_config_int(config_json, "lookback_days", config.X_SEARCH_LOOKBACK_DAYS, 1, 30)
-    query_template = config_json.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE
+    query_template = normalize_query_template(config_json.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE)
     excluded_keywords = ",".join(get_excluded_keywords(config_json))
+    required_context_terms = ",".join(get_required_context_terms(config_json))
+    media_filter = normalize_media_filter(get_config_str(config_json, "media_filter", "media"))
     extra_terms = ",".join(get_extra_terms(request))
-    return "{0}:{1}:{2}:{3}:{4}:{5}:{6}:{7}:{8}:{9}:{10}".format(
+    return "{0}:{1}:{2}:{3}:{4}:{5}:{6}:{7}:{8}:{9}:{10}:{11}:{12}".format(
         guild_id,
         channel_id,
         request.class_key,
@@ -402,6 +462,8 @@ def cache_key(guild_id: str, channel_id: str, request: DeckSearchRequest, config
         "high" if request.high_accuracy else "normal",
         request.format_key,
         extra_terms,
+        required_context_terms,
+        media_filter,
         mode,
         lookback_days,
         query_template,
@@ -671,11 +733,12 @@ async def search_decks(guild_id: str, channel_id: str, command_text: str, config
     query = build_x_query(request, config_json)
     media_filter = normalize_media_filter(get_config_str(config_json, "media_filter", "media"))
     print(
-        "[INFO] deck search query: class_label={0} class_en={1} format={2} extra_terms={3} media_filter={4} final_query={5}".format(
+        "[INFO] deck search query: class_label={0} class_en={1} format={2} extra_terms={3} required_context_terms={4} media_filter={5} final_query={6}".format(
             request.class_label,
             request.class_en,
             request.format_label or "-",
             get_extra_terms(request),
+            get_required_context_terms(config_json),
             media_filter,
             query,
         )

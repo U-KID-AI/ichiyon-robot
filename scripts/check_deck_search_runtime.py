@@ -329,7 +329,11 @@ async def check_search_flow(check: Check) -> None:
         and bishop_extra.extra_terms == ["ロデオ"],
         str(bishop_extra),
     )
-    check.add("extra term appears in final query", "ロデオ" in bishop_query, bishop_query)
+    check.add(
+        "format and extra term appear in final query",
+        "アンリミテッド" in bishop_query and "ロデオ" in bishop_query,
+        bishop_query,
+    )
     elf_extra = parse_deck_search_command("デッキ エルフ リノ セッカ", "ask_format")
     elf_query = build_x_query(elf_extra, {}) if elf_extra is not None else ""
     check.add(
@@ -339,6 +343,7 @@ async def check_search_flow(check: Check) -> None:
     )
     check.add("multiple extra terms appear in final query", "リノ セッカ" in elf_query, elf_query)
     royal_high_extra = parse_deck_search_command("デッキ 高精度 ロイヤル 連携", "ask_format")
+    royal_high_query = build_x_query(royal_high_extra, {}) if royal_high_extra is not None else ""
     check.add(
         "high accuracy is not treated as extra term",
         royal_high_extra is not None
@@ -346,6 +351,11 @@ async def check_search_flow(check: Check) -> None:
         and royal_high_extra.high_accuracy is True
         and royal_high_extra.extra_terms == ["連携"],
         str(royal_high_extra),
+    )
+    check.add(
+        "high accuracy is not included in final query",
+        "高精度" not in royal_high_query and "連携" in royal_high_query,
+        royal_high_query,
     )
     nightmare = parse_deck_search_command("デッキ ナイトメア", "ask_format")
     nightmare_query = build_x_query(nightmare, {}) if nightmare is not None else ""
@@ -358,6 +368,20 @@ async def check_search_flow(check: Check) -> None:
         str(nightmare),
     )
     check.add("nightmare appears in final query", "ナイトメア" in nightmare_query and "Nightmare" in nightmare_query, nightmare_query)
+    check.add(
+        "nightmare query uses beyond context",
+        "(ビヨンド OR beyond)" in nightmare_query and "has:media" in nightmare_query,
+        nightmare_query,
+    )
+    check.add(
+        "nightmare query does not require deck words",
+        "(デッキ OR deck" not in nightmare_query.split(" -is:")[0]
+        and " QR " not in nightmare_query.split(" -is:")[0]
+        and "コード" not in nightmare_query.split(" -is:")[0]
+        and "レシピ" not in nightmare_query.split(" -is:")[0]
+        and "構築" not in nightmare_query.split(" -is:")[0],
+        nightmare_query,
+    )
     nightmare_extra = parse_deck_search_command("デッキ ナイトメア ロデオ", "ask_format")
     nightmare_extra_query = build_x_query(nightmare_extra, {}) if nightmare_extra is not None else ""
     check.add(
@@ -377,10 +401,24 @@ async def check_search_flow(check: Check) -> None:
     check.add("high accuracy without class asks format", parse_deck_search_command("デッキ 高精度", "ask_format") is None)
     query = build_x_query(parsed, {}) if parsed is not None else ""
     check.add("default query uses media filter", "has:media" in query and "has:images" not in query, query)
+    check.add("default query includes beyond terms", "ビヨンド" in query and "beyond" in query, query)
+    legacy_query = build_x_query(
+        parsed,
+        {"x_query_template": "({class_label} OR {class_en}) (デッキ OR deck OR QR OR コード OR レシピ OR 構築) has:media"},
+    ) if parsed is not None else ""
     check.add(
-        "default query includes shadowverse terms",
-        "シャドバ" in query and "Shadowverse" in query and "シャドウバース" in query and "SV" in query,
-        query,
+        "legacy default query template is normalized",
+        "ビヨンド" in legacy_query and "デッキ OR deck" not in legacy_query,
+        legacy_query,
+    )
+    old_context_query = build_x_query(
+        parsed,
+        {"required_context_terms": ["デッキ", "deck", "QR", "コード", "レシピ", "構築"]},
+    ) if parsed is not None else ""
+    check.add(
+        "required context terms can restore old condition",
+        "(デッキ OR deck OR QR OR コード OR レシピ OR 構築)" in old_context_query,
+        old_context_query,
     )
     check.add(
         "default query includes exclusions",
