@@ -114,7 +114,10 @@ class DeckSearchStats:
     total_ms: int = 0
     x_api_ms: int = 0
     image_scan_ms: int = 0
+    x_search_max_results: int = 50
+    image_scan_limit: int = 30
     image_scan_concurrency: int = 5
+    stop_after_candidates: bool = True
     high_accuracy: bool = False
     stopped_after_candidates: bool = False
     x_results: int = 0
@@ -131,10 +134,11 @@ class DeckSearchStats:
     def to_log(self) -> str:
         return (
             "mode={0}, endpoint={1}, lookback_days={2}, http_status={3}, "
-            "total_ms={4}, x_api_ms={5}, image_scan_ms={6}, image_scan_concurrency={7}, "
-            "high_accuracy={8}, precision_mode={8}, stopped_after_candidates={9}, "
-            "X results={10}, media={11}, downloaded={12}, qr={13}, candidates={14}, "
-            "skip_no_media={15}, skip_non_photo={16}, skip_image_fetch={17}, skip_no_qr={18}, skip_qr_error={19}"
+            "total_ms={4}, x_api_ms={5}, image_scan_ms={6}, x_search_max_results={7}, "
+            "image_scan_limit={8}, image_scan_concurrency={9}, stop_after_candidates={10}, "
+            "high_accuracy={11}, precision_mode={11}, stopped_after_candidates={12}, "
+            "X results={13}, media={14}, downloaded={15}, qr={16}, candidates={17}, "
+            "skip_no_media={18}, skip_non_photo={19}, skip_image_fetch={20}, skip_no_qr={21}, skip_qr_error={22}"
         ).format(
             self.search_mode,
             self.endpoint_type,
@@ -143,7 +147,10 @@ class DeckSearchStats:
             self.total_ms,
             self.x_api_ms,
             self.image_scan_ms,
+            self.x_search_max_results,
+            self.image_scan_limit,
             self.image_scan_concurrency,
+            self.stop_after_candidates,
             self.high_accuracy,
             self.stopped_after_candidates,
             self.x_results,
@@ -746,18 +753,19 @@ async def search_decks(guild_id: str, channel_id: str, command_text: str, config
     max_results = get_config_int(config_json, "max_results", 3, 1, 10)
     timeout_seconds = get_config_int(config_json, "request_timeout_seconds", 10, 1, 30)
     cache_ttl_seconds = get_config_int(config_json, "cache_ttl_seconds", 60, 0, 3600)
-    image_scan_limit = get_config_int(config_json, "image_scan_limit", 80, 1, 200)
-    image_scan_concurrency = get_config_int(config_json, "image_scan_concurrency", 5, 1, 10)
+    image_scan_limit = get_config_int(config_json, "image_scan_limit", 30, 1, 200)
+    image_scan_concurrency = get_config_int(config_json, "image_scan_concurrency", 2, 1, 10)
     image_fetch_timeout_seconds = get_config_int(config_json, "image_fetch_timeout_seconds", 5, 1, 30)
     stop_after_candidates = get_config_bool(config_json, "stop_after_candidates", True)
-    search_limit = get_config_int(config_json, "x_search_max_results", config.X_SEARCH_MAX_RESULTS, 10, 100)
+    search_limit = get_config_int(config_json, "x_search_max_results", 50, 10, 100)
     search_mode = normalize_search_mode(get_config_str(config_json, "search_mode", config.X_SEARCH_MODE))
     lookback_days = get_config_int(config_json, "lookback_days", config.X_SEARCH_LOOKBACK_DAYS, 1, 30)
     high_accuracy_enabled = get_config_bool(config_json, "high_accuracy_enabled", True)
     high_accuracy = bool(request.high_accuracy and high_accuracy_enabled)
     if high_accuracy:
+        search_limit = get_config_int(config_json, "high_accuracy_x_search_max_results", 100, 10, 100)
         image_scan_limit = get_config_int(config_json, "high_accuracy_image_scan_limit", 100, 1, 200)
-        image_scan_concurrency = get_config_int(config_json, "high_accuracy_image_scan_concurrency", 1, 1, 10)
+        image_scan_concurrency = get_config_int(config_json, "high_accuracy_image_scan_concurrency", 2, 1, 10)
         stop_after_candidates = get_config_bool(config_json, "high_accuracy_stop_after_candidates", False)
     key = cache_key(guild_id, channel_id, request, config_json)
     cached = get_cached(key, cache_ttl_seconds)
@@ -781,7 +789,10 @@ async def search_decks(guild_id: str, channel_id: str, command_text: str, config
         search_mode=search_mode,
         endpoint_type=search_mode,
         lookback_days=lookback_days,
+        x_search_max_results=search_limit,
+        image_scan_limit=image_scan_limit,
         image_scan_concurrency=image_scan_concurrency,
+        stop_after_candidates=stop_after_candidates,
         high_accuracy=high_accuracy,
     )
     try:

@@ -99,9 +99,10 @@ The runtime implementation now uses these settings:
 - `max_results`: number of candidates returned to Discord.
 - `x_search_max_results`: number of posts requested from X. Maximum 100.
 - `image_scan_limit`: number of images passed to QR detection.
-- `image_scan_concurrency`: concurrent image download / QR checks. Default 5.
+- `image_scan_concurrency`: concurrent image download / QR checks. Default 2.
 - `stop_after_candidates`: stop image checks after enough candidates are found.
 - `image_fetch_timeout_seconds`: timeout for each image download. Default 5.
+- `high_accuracy_x_search_max_results`: number of posts requested from X in high accuracy mode. Default 100.
 - `search_mode`: `recent` or `full_archive`.
 - `lookback_days`: full-archive lookback window. Start with 14 days.
 - `excluded_keywords`: words added to the X query as negative terms.
@@ -113,9 +114,9 @@ Recommended stg values:
   "search_mode": "full_archive",
   "lookback_days": 14,
   "max_results": 3,
-  "x_search_max_results": 100,
-  "image_scan_limit": 80,
-  "image_scan_concurrency": 5,
+  "x_search_max_results": 50,
+  "image_scan_limit": 30,
+  "image_scan_concurrency": 2,
   "stop_after_candidates": true,
   "image_fetch_timeout_seconds": 5,
   "cache_ttl_seconds": 300,
