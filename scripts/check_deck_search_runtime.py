@@ -347,8 +347,36 @@ async def check_search_flow(check: Check) -> None:
         and royal_high_extra.extra_terms == ["連携"],
         str(royal_high_extra),
     )
+    nightmare = parse_deck_search_command("デッキ ナイトメア", "ask_format")
+    nightmare_query = build_x_query(nightmare, {}) if nightmare is not None else ""
+    check.add(
+        "nightmare class is parsed",
+        nightmare is not None
+        and nightmare.class_key == "nightmare"
+        and nightmare.class_label == "ナイトメア"
+        and nightmare.class_en == "Nightmare",
+        str(nightmare),
+    )
+    check.add("nightmare appears in final query", "ナイトメア" in nightmare_query and "Nightmare" in nightmare_query, nightmare_query)
+    nightmare_extra = parse_deck_search_command("デッキ ナイトメア ロデオ", "ask_format")
+    nightmare_extra_query = build_x_query(nightmare_extra, {}) if nightmare_extra is not None else ""
+    check.add(
+        "nightmare extra term is kept",
+        nightmare_extra is not None
+        and nightmare_extra.class_key == "nightmare"
+        and nightmare_extra.extra_terms == ["ロデオ"],
+        str(nightmare_extra),
+    )
+    check.add("nightmare extra term appears in final query", "ロデオ" in nightmare_extra_query, nightmare_extra_query)
+    nightmare_high = parse_deck_search_command("デッキ ナイトメア 高精度", "ask_format")
+    check.add(
+        "nightmare high accuracy is parsed",
+        nightmare_high is not None and nightmare_high.class_key == "nightmare" and nightmare_high.high_accuracy is True,
+        str(nightmare_high),
+    )
     check.add("high accuracy without class asks format", parse_deck_search_command("デッキ 高精度", "ask_format") is None)
     query = build_x_query(parsed, {}) if parsed is not None else ""
+    check.add("default query uses media filter", "has:media" in query and "has:images" not in query, query)
     check.add(
         "default query includes shadowverse terms",
         "シャドバ" in query and "Shadowverse" in query and "シャドウバース" in query and "SV" in query,
@@ -624,12 +652,19 @@ def check_search_params(check: Check) -> None:
 def check_x_payload(check: Check) -> None:
     payload = {
         "data": [
-            {"id": "1", "text": "deck", "created_at": "2026-06-20T00:00:00Z", "attachments": {"media_keys": ["m1"]}}
+            {"id": "1", "text": "deck", "created_at": "2026-06-20T00:00:00Z", "attachments": {"media_keys": ["m1"]}},
+            {"id": "2", "text": "deck video", "created_at": "2026-06-20T00:00:00Z", "attachments": {"media_keys": ["m2"]}},
         ],
-        "includes": {"media": [{"media_key": "m1", "type": "photo", "url": "https://example.test/a.jpg"}]},
+        "includes": {
+            "media": [
+                {"media_key": "m1", "type": "photo", "url": "https://example.test/a.jpg"},
+                {"media_key": "m2", "type": "video", "preview_image_url": "https://example.test/preview.jpg"},
+            ]
+        },
     }
     posts = parse_search_response(payload)
-    check.add("x payload media parsed", len(posts) == 1 and len(posts[0].media) == 1)
+    check.add("x payload media parsed", len(posts) == 2 and len(posts[0].media) == 1)
+    check.add("x video preview media parsed", posts[1].media[0].url == "https://example.test/preview.jpg")
 
 
 def check_stats(check: Check) -> None:

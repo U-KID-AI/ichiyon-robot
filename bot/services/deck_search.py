@@ -1,6 +1,7 @@
 import asyncio
 import re
 import time
+import unicodedata
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -17,7 +18,7 @@ DEFAULT_ERROR_MESSAGE = "検索でエラー"
 DEFAULT_NOT_FOUND_MESSAGE = "おい ないんだが"
 DEFAULT_ASK_FORMAT_MESSAGE = "クラス名も入れて"
 DEFAULT_FULL_ARCHIVE_UNAVAILABLE_MESSAGE = "過去検索が使えません"
-DEFAULT_X_QUERY_TEMPLATE = "({class_label} OR {class_en}) (シャドバ OR Shadowverse OR シャドウバース OR SV) (デッキ OR deck OR QR OR コード) has:images"
+DEFAULT_X_QUERY_TEMPLATE = "({class_label} OR {class_en}) (シャドバ OR Shadowverse OR シャドウバース OR SV) (デッキ OR deck OR QR OR コード) has:media"
 DEFAULT_EXCLUDED_KEYWORDS = ["ドラゴンボール", "レジェンズ", "探索コード", "フレンドコード"]
 DECK_TRIGGER_ALIASES = ["デッキ検索", "デッキ", "deck"]
 HIGH_ACCURACY_WORDS = ["高精度"]
@@ -34,10 +35,14 @@ CLASS_ALIASES = {
     "royal": ("ロイヤル", ["ロイヤル", "royal", "ロイ"]),
     "witch": ("ウィッチ", ["ウィッチ", "witch", "ウイッチ", "土", "スペル"]),
     "dragon": ("ドラゴン", ["ドラゴン", "dragon", "ドラ"]),
-    "nightmare": ("ナイトメア", ["ナイトメア", "nightmare", "ナイト", "nm"]),
+    "nightmare": ("ナイトメア", ["ナイトメア", "nightmare", "Nightmare", "ナイト", "Nm", "Ｎｍ", "nm"]),
     "bishop": ("ビショップ", ["ビショップ", "bishop", "ビショ"]),
     "nemesis": ("ネメシス", ["ネメシス", "nemesis", "ネメ"]),
     "neutral": ("ニュートラル", ["ニュートラル", "neutral", "ニュート"]),
+}
+
+CLASS_EN_LABELS = {
+    "nightmare": "Nightmare",
 }
 
 FORMAT_ALIASES = {
@@ -125,7 +130,7 @@ class DeckSearchStats:
 
 
 def normalize_text(value: str) -> str:
-    return value.strip().lower()
+    return unicodedata.normalize("NFKC", value or "").strip().lower()
 
 
 def normalize_command_text(value: str) -> str:
@@ -265,7 +270,7 @@ def parse_deck_search_command(command_text: str, missing_behavior: str = "ask_fo
         query=text or class_label,
         class_key=class_key,
         class_label=class_label,
-        class_en=class_key,
+        class_en=CLASS_EN_LABELS.get(class_key, class_key),
         high_accuracy=high_accuracy,
         format_key=format_key,
         format_label=format_label,
@@ -295,6 +300,13 @@ def get_config_str(config_json: Dict[str, Any], key: str, default: str) -> str:
     if value is None or not str(value).strip():
         return default
     return str(value).strip()
+
+
+def normalize_media_filter(value: str) -> str:
+    normalized = (value or "media").strip().lower()
+    if normalized in ("image", "images", "has:images"):
+        return "images"
+    return "media"
 
 
 def normalize_search_mode(value: str) -> str:
@@ -330,12 +342,19 @@ def insert_extra_terms(query: str, terms: List[str]) -> str:
         return query[:MAX_X_QUERY_LENGTH].rstrip()
 
     extra_query = " ".join(safe_terms)
-    match = re.search(r"\s+has:images\b", query, flags=re.IGNORECASE)
+    match = re.search(r"\s+has:(images|media)\b", query, flags=re.IGNORECASE)
     if match:
         query = "{0} {1}{2}".format(query[: match.start()], extra_query, query[match.start() :])
     else:
         query = "{0} {1}".format(query, extra_query)
     return query[:MAX_X_QUERY_LENGTH].rstrip()
+
+
+def apply_media_filter(query: str, media_filter: str) -> str:
+    tag = "has:images" if normalize_media_filter(media_filter) == "images" else "has:media"
+    if re.search(r"\bhas:(images|media)\b", query, flags=re.IGNORECASE):
+        return re.sub(r"\bhas:(images|media)\b", tag, query, flags=re.IGNORECASE)
+    return "{0} {1}".format(query, tag)
 
 
 def build_x_query(request: DeckSearchRequest, config_json: Dict[str, Any]) -> str:
@@ -346,6 +365,7 @@ def build_x_query(request: DeckSearchRequest, config_json: Dict[str, Any]) -> st
         class_en=request.class_en,
         query=request.query,
     )
+    query = apply_media_filter(query, get_config_str(config_json, "media_filter", "media"))
     query = insert_extra_terms(query, get_extra_terms(request))
     if not get_config_bool(config_json, "include_retweets", False):
         query += " -is:retweet"
@@ -468,9 +488,6 @@ async def scan_media_image(
     timeout_seconds: int,
     stats: DeckSearchStats,
 ) -> Optional[DeckSearchResult]:
-    if media.type and media.type != "photo":
-        stats.skipped_non_photo += 1
-        return None
     image_bytes = await fetch_image_bytes(media.url, timeout_seconds)
     if image_bytes is None:
         stats.skipped_image_fetch += 1
@@ -570,10 +587,6 @@ async def scan_post_images(
 ) -> Optional[DeckSearchResult]:
     scanned = 0
     for media in post.media:
-        if media.type and media.type != "photo":
-            if stats is not None:
-                stats.skipped_non_photo += 1
-            continue
         if scanned >= limit:
             break
         scanned += 1
@@ -651,7 +664,17 @@ async def search_decks(guild_id: str, channel_id: str, command_text: str, config
         return format_results(request, cached, max_results, config_json)
 
     query = build_x_query(request, config_json)
-    print("[INFO] deck search query: extra_terms={0} final_query={1}".format(get_extra_terms(request), query))
+    media_filter = normalize_media_filter(get_config_str(config_json, "media_filter", "media"))
+    print(
+        "[INFO] deck search query: class_label={0} class_en={1} format={2} extra_terms={3} media_filter={4} final_query={5}".format(
+            request.class_label,
+            request.class_en,
+            request.format_label or "-",
+            get_extra_terms(request),
+            media_filter,
+            query,
+        )
+    )
     stats = DeckSearchStats(
         search_mode=search_mode,
         endpoint_type=search_mode,
