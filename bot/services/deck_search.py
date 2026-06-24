@@ -103,6 +103,7 @@ class DeckSearchResult:
     detected_class: str
     qr_score: int
     created_at: str
+    qr_detected: bool = True
 
 
 @dataclass
@@ -576,6 +577,15 @@ async def detect_qr_codes_async(image_bytes: bytes):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, detect_qr_codes, image_bytes)
 
+def build_fallback_result(post: XPost, media, class_label: str) -> DeckSearchResult:
+    return DeckSearchResult(
+        post=post,
+        image_url=media.url,
+        detected_class=class_label,
+        qr_score=0,
+        created_at=post.created_at,
+        qr_detected=False,
+    )
 
 async def scan_media_image(
     post: XPost,
@@ -623,6 +633,9 @@ async def scan_posts_concurrently(
 ) -> List[DeckSearchResult]:
     semaphore = asyncio.Semaphore(image_scan_concurrency)
     scan_items = []
+    fallback_results = []
+    fallback_post_ids = set()
+
     for post in sort_posts_for_scan(posts, request):
         if not post.media:
             stats.skipped_no_media += 1
@@ -632,6 +645,9 @@ async def scan_posts_concurrently(
             if len(scan_items) >= image_scan_limit:
                 break
             scan_items.append((post, media))
+            if post.post_id not in fallback_post_ids:
+                fallback_results.append(build_fallback_result(post, media, request.class_label))
+                fallback_post_ids.add(post.post_id)
         if len(scan_items) >= image_scan_limit:
             break
 
@@ -640,8 +656,10 @@ async def scan_posts_concurrently(
             return await scan_media_image(post, media, request.class_label, image_fetch_timeout_seconds, stats)
 
     tasks = [asyncio.ensure_future(run_one(post, media)) for post, media in scan_items]
-    results = []
+    qr_results = []
+    qr_post_ids = set()
     pending = set(tasks)
+
     try:
         while pending:
             done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
@@ -655,22 +673,36 @@ async def scan_posts_concurrently(
                 except Exception as exc:
                     print("[WARN] deck image scan task failed: {0}".format(exc.__class__.__name__))
                     continue
-                if found is not None:
-                    results.append(found)
-                    stats.candidates = len(results)
-                    if stop_after_candidates and len(results) >= max_results:
+
+                if found is not None and found.post.post_id not in qr_post_ids:
+                    qr_results.append(found)
+                    qr_post_ids.add(found.post.post_id)
+                    stats.candidates = len(qr_results)
+
+                    if stop_after_candidates and len(qr_results) >= max_results:
                         stats.stopped_after_candidates = True
                         for pending_task in pending:
                             pending_task.cancel()
                         if pending:
                             await asyncio.gather(*pending, return_exceptions=True)
-                        return results
+                        return qr_results
+
     finally:
         for task in pending:
             if not task.done():
                 task.cancel()
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
+
+    results = list(qr_results)
+    for fallback in fallback_results:
+        if len(results) >= max_results:
+            break
+        if fallback.post.post_id in qr_post_ids:
+            continue
+        results.append(fallback)
+
+    stats.candidates = len(results)
     return results
 
 
@@ -830,14 +862,17 @@ def format_results(
         if config_json:
             return get_config_str(config_json, "not_found_message", DEFAULT_NOT_FOUND_MESSAGE)
         return DEFAULT_NOT_FOUND_MESSAGE
+
     lines = ["{0}のデッキ候補".format(request.class_label)]
     for index, result in enumerate(results[:max_results], start=1):
+        status_label = "QR検出済み" if result.qr_detected else "画像候補（QR未検出）"
         lines.append(
-            "{0}. {1}\n{2}\n{3} / QR検出済み".format(
+            "{0}. {1}\n{2}\n{3} / {4}".format(
                 index,
                 summarize_text(result.post.text),
                 result.post.url,
                 result.detected_class,
+                status_label,
             )
         )
     return "\n".join(lines)
