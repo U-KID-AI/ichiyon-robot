@@ -371,9 +371,16 @@ async def check_search_flow(check: Check) -> None:
     check.add(
         "nightmare query includes class search aliases",
         "メア" in nightmare_query
-        and "ネメ" in nightmare_query
+        and "ネメ" not in nightmare_query
         and "ナイトメアビヨンド" in nightmare_query,
         nightmare_query,
+    )
+    nemesis_alias = parse_deck_search_command("デッキ ネメ", "ask_format")
+    nemesis_query = build_x_query(nemesis_alias, {}) if nemesis_alias is not None else ""
+    check.add(
+        "neme alias belongs to nemesis",
+        nemesis_alias is not None and nemesis_alias.class_key == "nemesis" and "ネメ" in nemesis_query,
+        str(nemesis_alias),
     )
     check.add(
         "nightmare query uses beyond context",
