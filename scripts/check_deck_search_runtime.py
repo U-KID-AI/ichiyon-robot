@@ -369,6 +369,13 @@ async def check_search_flow(check: Check) -> None:
     )
     check.add("nightmare appears in final query", "ナイトメア" in nightmare_query and "Nightmare" in nightmare_query, nightmare_query)
     check.add(
+        "nightmare query includes class search aliases",
+        "メア" in nightmare_query
+        and "ネメ" in nightmare_query
+        and "ナイトメアビヨンド" in nightmare_query,
+        nightmare_query,
+    )
+    check.add(
         "nightmare query uses beyond context",
         "(ビヨンド OR beyond)" in nightmare_query and "has:media" in nightmare_query,
         nightmare_query,
@@ -408,7 +415,7 @@ async def check_search_flow(check: Check) -> None:
     ) if parsed is not None else ""
     check.add(
         "legacy default query template is normalized",
-        "ビヨンド" in legacy_query and "デッキ OR deck" not in legacy_query,
+        "ビヨンド" in legacy_query and "デッキ OR deck" not in legacy_query and "エル" in legacy_query,
         legacy_query,
     )
     old_context_query = build_x_query(

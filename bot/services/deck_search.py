@@ -18,12 +18,13 @@ DEFAULT_ERROR_MESSAGE = "検索でエラー"
 DEFAULT_NOT_FOUND_MESSAGE = "おい ないんだが"
 DEFAULT_ASK_FORMAT_MESSAGE = "クラス名も入れて"
 DEFAULT_FULL_ARCHIVE_UNAVAILABLE_MESSAGE = "過去検索が使えません"
-DEFAULT_X_QUERY_TEMPLATE = "({class_label} OR {class_en}) {required_context_query} has:media"
+DEFAULT_X_QUERY_TEMPLATE = "{class_search_query} {required_context_query} has:media"
 LEGACY_X_QUERY_TEMPLATES = [
     "({class_label} OR {class_en}) (シャドバ OR Shadowverse OR シャドウバース OR SV) (デッキ OR deck OR QR OR コード) has:images",
     "({class_label} OR {class_en}) (シャドバ OR Shadowverse OR シャドウバース OR SV) (デッキ OR deck OR QR OR コード) has:media",
     "({class_label} OR {class_en}) (デッキ OR deck OR QR OR コード OR レシピ OR 構築) has:images",
     "({class_label} OR {class_en}) (デッキ OR deck OR QR OR コード OR レシピ OR 構築) has:media",
+    "({class_label} OR {class_en}) {required_context_query} has:media",
 ]
 DEFAULT_REQUIRED_CONTEXT_TERMS = ["ビヨンド", "beyond"]
 DEFAULT_EXCLUDED_KEYWORDS = ["ドラゴンボール", "レジェンズ", "探索コード", "フレンドコード"]
@@ -42,7 +43,7 @@ CLASS_ALIASES = {
     "royal": ("ロイヤル", ["ロイヤル", "royal", "ロイ"]),
     "witch": ("ウィッチ", ["ウィッチ", "witch", "ウイッチ", "土", "スペル"]),
     "dragon": ("ドラゴン", ["ドラゴン", "dragon", "ドラ"]),
-    "nightmare": ("ナイトメア", ["ナイトメア", "nightmare", "Nightmare", "ナイト", "Nm", "Ｎｍ", "nm"]),
+    "nightmare": ("ナイトメア", ["ナイトメア", "nightmare", "Nightmare", "ナイト", "メア", "ネメ", "Nm", "Ｎｍ", "nm"]),
     "bishop": ("ビショップ", ["ビショップ", "bishop", "ビショ"]),
     "nemesis": ("ネメシス", ["ネメシス", "nemesis", "ネメ"]),
     "neutral": ("ニュートラル", ["ニュートラル", "neutral", "ニュート"]),
@@ -50,6 +51,29 @@ CLASS_ALIASES = {
 
 CLASS_EN_LABELS = {
     "nightmare": "Nightmare",
+}
+
+CLASS_SEARCH_TERMS = {
+    "elf": ["エルフ", "Elf", "elf", "エル"],
+    "royal": ["ロイヤル", "Royal", "royal", "ロイ"],
+    "witch": ["ウィッチ", "Witch", "witch", "ウィ"],
+    "dragon": ["ドラゴン", "Dragon", "dragon", "ドラ"],
+    "nightmare": [
+        "ナイトメア",
+        "Nightmare",
+        "nightmare",
+        "メア",
+        "ネメ",
+        "Nm",
+        "nm",
+        "Ｎｍ",
+        "ナイトメアビヨンド",
+        "メアビヨンド",
+        "NightmareBeyond",
+    ],
+    "bishop": ["ビショップ", "Bishop", "bishop", "ビショ", "ビショプ"],
+    "nemesis": ["ネメシス", "Nemesis", "nemesis"],
+    "neutral": ["ニュートラル", "Neutral", "neutral", "ニュート"],
 }
 
 FORMAT_ALIASES = {
@@ -363,6 +387,14 @@ def build_or_query(terms: List[str]) -> str:
     return "({0})".format(" OR ".join(safe_terms))
 
 
+def get_class_search_terms(request: DeckSearchRequest) -> List[str]:
+    configured = CLASS_SEARCH_TERMS.get(request.class_key)
+    if configured:
+        return list(configured)
+    terms = [request.class_label, request.class_en]
+    return [term for term in terms if term]
+
+
 def get_extra_terms(request: DeckSearchRequest) -> List[str]:
     return list(request.extra_terms or [])
 
@@ -409,6 +441,8 @@ def normalize_query_template(template: str) -> str:
 def build_x_query(request: DeckSearchRequest, config_json: Dict[str, Any]) -> str:
     template = normalize_query_template(config_json.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE)
     required_context_terms = get_required_context_terms(config_json)
+    class_search_terms = get_class_search_terms(request)
+    class_search_query = build_or_query(class_search_terms)
     required_context_query = build_or_query(required_context_terms)
     query_terms = get_query_terms(request)
     extra_query = " ".join(limit_extra_terms([sanitize_extra_term(term) for term in query_terms]))
@@ -416,6 +450,7 @@ def build_x_query(request: DeckSearchRequest, config_json: Dict[str, Any]) -> st
         class_key=request.class_key,
         class_label=request.class_label,
         class_en=request.class_en,
+        class_search_query=class_search_query,
         query=request.query,
         required_context_query=required_context_query,
         format_key=request.format_key,
