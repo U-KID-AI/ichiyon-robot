@@ -373,10 +373,19 @@ def parse_probability(config: Dict[str, Any]) -> Optional[Dict[str, int]]:
 
 
 def probability_hit(config: Dict[str, Any]) -> bool:
+    return probability_hit_with_multiplier(config, 1.0)
+
+
+def probability_hit_with_multiplier(config: Dict[str, Any], multiplier: float) -> bool:
     probability = parse_probability(config)
     if probability is None:
         return True
-    return random.randint(1, probability["denominator"]) <= probability["numerator"]
+    threshold = float(probability["numerator"]) * max(0.0, multiplier)
+    if threshold >= float(probability["denominator"]):
+        return True
+    if threshold <= 0:
+        return False
+    return float(random.randint(1, probability["denominator"])) <= threshold
 
 
 def get_additional_message(effect: Dict[str, Any]) -> str:
@@ -467,6 +476,9 @@ def effect_targets_candidate(
     if configured_id is not None and configured_id != target_id:
         return False
     if configured_type is None and configured_id is None:
+        target_action = get_config_text(config, ["target_action", "action"])
+        if target_action in (None, "", "next", "any", "same"):
+            return True
         return (effect.get("target_type") or "") == target_type
     return True
 
@@ -647,14 +659,21 @@ async def execute_effects(
     effects: List[Dict[str, Any]],
     message: discord.Message,
     template_values: Dict[str, str],
+    pending_effects: Optional[List[Dict[str, Any]]] = None,
 ) -> EffectExecutionResult:
     result = EffectExecutionResult()
+    pending = pending_effects or []
     for effect in effects:
         try:
             config = normalize_json(effect.get("effect_config_json"))
             effect_type = effect.get("effect_type")
             if effect_type == "probability_message":
-                if not probability_hit(config):
+                multiplier = get_probability_multiplier_for_target(
+                    pending,
+                    "special_effect_tag",
+                    int(effect.get("id") or 0),
+                )
+                if not probability_hit_with_multiplier(config, multiplier):
                     continue
                 additional = get_additional_message(effect)
                 timing = effect.get("additional_message_timing") or effect.get("additional_post_timing")
@@ -688,7 +707,12 @@ async def execute_effects(
                 repository.increment(guild_id, counter_key, delta)
                 result.count_changed = True
             elif effect_type == "counter_set":
-                if not probability_hit(config):
+                multiplier = get_probability_multiplier_for_target(
+                    pending,
+                    "special_effect_tag",
+                    int(effect.get("id") or 0),
+                )
+                if not probability_hit_with_multiplier(config, multiplier):
                     continue
                 counter_key = get_counter_key(config)
                 if counter_key is None:
@@ -831,7 +855,7 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
         handled = handled or repeated
     choice_effects = list_effects(connection, guild_id, "mention_reaction_choice", int(choice["id"]))
     effects = merge_effects(choice_effects, limited_effects)
-    effect_result = await execute_effects(connection, guild_id, effects, message, values)
+    effect_result = await execute_effects(connection, guild_id, effects, message, values, pending_effects)
     store_pending_next_effects(guild_id, message, effect_result.pending_effects)
     if effect_result.repeat_count:
         repeated = await repeat_text_image_action(message, text, image_path, emoji, effect_result.repeat_count)
@@ -881,7 +905,7 @@ async def process_db_auto_reaction(message: discord.Message, guild_id: str, conn
         sent = sent or repeated
 
     effects = list_effects(connection, guild_id, "auto_reaction", int(selected.row["id"]))
-    effect_result = await execute_effects(connection, guild_id, effects, message, values)
+    effect_result = await execute_effects(connection, guild_id, effects, message, values, pending_effects)
     store_pending_next_effects(guild_id, message, effect_result.pending_effects)
     if effect_result.repeat_count:
         repeated = await repeat_text_image_action(message, text, image_path, emoji, effect_result.repeat_count)
