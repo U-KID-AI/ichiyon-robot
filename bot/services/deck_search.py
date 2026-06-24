@@ -43,7 +43,7 @@ CLASS_ALIASES = {
     "royal": ("ロイヤル", ["ロイヤル", "royal", "ロイ"]),
     "witch": ("ウィッチ", ["ウィッチ", "witch", "ウイッチ", "土", "スペル"]),
     "dragon": ("ドラゴン", ["ドラゴン", "dragon", "ドラ"]),
-    "nightmare": ("ナイトメア", ["ナイトメア", "nightmare", "Nightmare", "ナイト", "メア", "Nm", "Ｎｍ", "nm"]),
+    "nightmare": ("ナイトメア", ["ナイトメア", "nightmare", "Nightmare", "ナイト", "メア", "ネメ", "Nm", "Ｎｍ", "nm"]),
     "bishop": ("ビショップ", ["ビショップ", "bishop", "ビショ"]),
     "nemesis": ("ネメシス", ["ネメシス", "nemesis", "ネメ"]),
     "neutral": ("ニュートラル", ["ニュートラル", "neutral", "ニュート"]),
@@ -63,6 +63,7 @@ CLASS_SEARCH_TERMS = {
         "Nightmare",
         "nightmare",
         "メア",
+        "ネメ",
         "Nm",
         "nm",
         "Ｎｍ",
@@ -71,7 +72,7 @@ CLASS_SEARCH_TERMS = {
         "NightmareBeyond",
     ],
     "bishop": ["ビショップ", "Bishop", "bishop", "ビショ", "ビショプ"],
-    "nemesis": ["ネメシス", "Nemesis", "nemesis", "ネメ"],
+    "nemesis": ["ネメシス", "Nemesis", "nemesis"],
     "neutral": ["ニュートラル", "Neutral", "neutral", "ニュート"],
 }
 
