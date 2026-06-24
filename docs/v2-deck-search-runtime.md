@@ -31,7 +31,7 @@ X_BEARER_TOKEN=
   "deny_message": "このチャンネルではデッキ検索は使えません。",
   "not_found_message": "おい ないんだが",
   "missing_format_behavior": "ask_format",
-  "x_query_template": "{class_search_query} {required_context_query} has:media",
+  "x_query_template": "({class_label} OR {class_en}) {required_context_query} has:media",
   "required_context_terms": ["ビヨンド", "beyond"],
   "search_mode": "full_archive",
   "lookback_days": 14,
