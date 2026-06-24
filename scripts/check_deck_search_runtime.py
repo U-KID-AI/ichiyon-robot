@@ -723,7 +723,7 @@ async def check_image_fetch_failure(check: Check) -> None:
     stats = DeckSearchStats()
     original_fetch = deck_search.fetch_image_bytes
 
-    async def fake_fetch_image_bytes(url, timeout_seconds):
+    async def fake_fetch_image_bytes(url, timeout_seconds, stats=None):
         return None
 
     try:
@@ -732,6 +732,74 @@ async def check_image_fetch_failure(check: Check) -> None:
     finally:
         deck_search.fetch_image_bytes = original_fetch
     check.add("image fetch failure is safe", result is None and stats.skipped_image_fetch == 1)
+
+
+def check_image_safety_helpers(check: Check) -> None:
+    check.add("jpeg content type is allowed", deck_search.allowed_image_content_type("image/jpeg; charset=binary") is True)
+    check.add("png content type is allowed", deck_search.allowed_image_content_type("image/png") is True)
+    check.add("webp content type is allowed", deck_search.allowed_image_content_type("image/webp") is True)
+    check.add("video content type is skipped", deck_search.allowed_image_content_type("video/mp4") is False)
+    check.add("large image content length is skipped", deck_search.content_length_too_large(str(4 * 1024 * 1024)) is True)
+
+
+async def check_image_scan_cache(check: Check) -> None:
+    media = XMedia(media_key="cache", url="https://example.test/cache.jpg", type="photo")
+    post = XPost(post_id="cache", text="エルフ", created_at="2026-06-20T00:00:00Z", media=[media])
+    original_fetch = deck_search.fetch_image_bytes
+    original_detect = deck_search.detect_qr_codes_async
+    calls = {"fetch": 0, "detect": 0}
+
+    async def fake_fetch_image_bytes(url, timeout_seconds, stats=None):
+        calls["fetch"] += 1
+        return b"image"
+
+    async def fake_detect_qr_codes_async(image_bytes):
+        calls["detect"] += 1
+        return []
+
+    try:
+        deck_search._IMAGE_SCAN_CACHE.clear()
+        deck_search.fetch_image_bytes = fake_fetch_image_bytes
+        deck_search.detect_qr_codes_async = fake_detect_qr_codes_async
+        first_stats = DeckSearchStats()
+        second_stats = DeckSearchStats()
+        first = await deck_search.scan_media_image(post, media, "エルフ", 1, first_stats)
+        second = await deck_search.scan_media_image(post, media, "エルフ", 1, second_stats)
+    finally:
+        deck_search.fetch_image_bytes = original_fetch
+        deck_search.detect_qr_codes_async = original_detect
+        deck_search._IMAGE_SCAN_CACHE.clear()
+    check.add(
+        "negative image scan result is cached",
+        first is None and second is None and calls == {"fetch": 1, "detect": 1} and second_stats.skipped_no_qr == 1,
+        str(calls),
+    )
+
+
+async def check_search_timeout(check: Check) -> None:
+    disabled_before = config.X_SEARCH_ENABLED
+    token_before = config.X_BEARER_TOKEN
+    original_search = deck_search.search_posts
+    original_opencv = deck_search.opencv_available
+
+    async def slow_search_posts(query, max_results, timeout_seconds, search_mode, lookback_days):
+        await asyncio.sleep(6)
+        return []
+
+    try:
+        config.X_SEARCH_ENABLED = True
+        config.X_BEARER_TOKEN = "dummy"
+        deck_search.search_posts = slow_search_posts
+        deck_search.opencv_available = lambda: True
+        cfg = base_config()
+        cfg["total_timeout_seconds"] = 5
+        response = await search_decks("g", "123", "デッキ エルフ", cfg)
+        check.add("search timeout path remains safe", response == "検索に時間がかかりすぎたため中断しました", response)
+    finally:
+        config.X_SEARCH_ENABLED = disabled_before
+        config.X_BEARER_TOKEN = token_before
+        deck_search.search_posts = original_search
+        deck_search.opencv_available = original_opencv
 
 
 def check_post_scoring(check: Check) -> None:
@@ -862,6 +930,9 @@ def main() -> None:
     asyncio.run(check_high_accuracy_mode(check))
     asyncio.run(check_parallel_scan(check))
     asyncio.run(check_image_fetch_failure(check))
+    check_image_safety_helpers(check)
+    asyncio.run(check_image_scan_cache(check))
+    asyncio.run(check_search_timeout(check))
     asyncio.run(check_runtime_path(check))
     asyncio.run(check_mention_priority(check))
     check_search_params(check)

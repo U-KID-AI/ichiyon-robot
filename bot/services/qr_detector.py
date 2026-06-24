@@ -17,7 +17,23 @@ def opencv_available() -> bool:
     return True
 
 
-def detect_qr_codes(image_bytes: bytes) -> List[QRDetection]:
+def shrink_image_for_qr(cv2, image, max_long_edge: int):
+    if max_long_edge <= 0:
+        return image
+    height, width = image.shape[:2]
+    longest = max(height, width)
+    if longest <= max_long_edge:
+        return image
+    scale = float(max_long_edge) / float(longest)
+    new_width = max(1, int(width * scale))
+    new_height = max(1, int(height * scale))
+    try:
+        return cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+    except Exception:
+        return image
+
+
+def detect_qr_codes(image_bytes: bytes, max_long_edge: int = 1200) -> List[QRDetection]:
     try:
         import cv2
         import numpy as np
@@ -30,6 +46,7 @@ def detect_qr_codes(image_bytes: bytes) -> List[QRDetection]:
     image = cv2.imdecode(array, cv2.IMREAD_COLOR)
     if image is None:
         return []
+    image = shrink_image_for_qr(cv2, image, max_long_edge)
 
     detector = cv2.QRCodeDetector()
     candidates = build_qr_candidate_images(cv2, image)
