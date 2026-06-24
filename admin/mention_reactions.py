@@ -22,7 +22,7 @@ from admin.ux import (
 )
 from bot.db import connect, get_connection
 from bot.repositories import MentionReactionRepository, SpecialEffectRepository
-from bot.services.deck_search import DEFAULT_EXCLUDED_KEYWORDS, DEFAULT_X_QUERY_TEMPLATE
+from bot.services.deck_search import DEFAULT_EXCLUDED_KEYWORDS, DEFAULT_REQUIRED_CONTEXT_TERMS, DEFAULT_X_QUERY_TEMPLATE
 
 
 router = APIRouter()
@@ -365,6 +365,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         not_found_message: str = Form(""),
         missing_format_behavior: str = Form("ask_format"),
         x_query_template: str = Form(""),
+        required_context_terms: str = Form(""),
         search_mode: str = Form("full_archive"),
         lookback_days: str = Form("14"),
         excluded_keywords: str = Form(""),
@@ -413,6 +414,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 not_found_message,
                 missing_format_behavior,
                 x_query_template,
+                required_context_terms,
                 search_mode,
                 lookback_days,
                 excluded_keywords,
@@ -1143,6 +1145,7 @@ def build_deck_settings(reaction: Dict[str, Any]) -> Dict[str, Any]:
         "not_found_message": config.get("not_found_message") or "おい ないんだが",
         "missing_format_behavior": config.get("missing_format_behavior") or "ask_format",
         "x_query_template": config.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE,
+        "required_context_terms": "\n".join([str(item) for item in (config.get("required_context_terms") or DEFAULT_REQUIRED_CONTEXT_TERMS)]),
         "search_mode": config.get("search_mode") or "full_archive",
         "lookback_days": int(config.get("lookback_days") or 14),
         "excluded_keywords": "\n".join([str(item) for item in excluded_keywords]),
@@ -1169,6 +1172,7 @@ def build_deck_settings(reaction: Dict[str, Any]) -> Dict[str, Any]:
             "not_found_message": config.get("not_found_message") or "おい ないんだが",
             "missing_format_behavior": config.get("missing_format_behavior") or "ask_format",
             "x_query_template": config.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE,
+            "required_context_terms": config.get("required_context_terms") or DEFAULT_REQUIRED_CONTEXT_TERMS,
             "search_mode": config.get("search_mode") or "full_archive",
             "lookback_days": int(config.get("lookback_days") or 14),
             "excluded_keywords": excluded_keywords,
@@ -1201,6 +1205,7 @@ def build_deck_settings_form(
     not_found_message: str,
     missing_format_behavior: str,
     x_query_template: str,
+    required_context_terms: str,
     search_mode: str,
     lookback_days: str,
     excluded_keywords: str,
@@ -1262,6 +1267,7 @@ def build_deck_settings_form(
     except ValueError:
         search_days = 0
     excluded_keyword_list = split_channel_ids(excluded_keywords)
+    required_context_term_list = split_channel_ids(required_context_terms) or list(DEFAULT_REQUIRED_CONTEXT_TERMS)
 
     settings = {
         "keyword": keyword.strip(),
@@ -1275,6 +1281,7 @@ def build_deck_settings_form(
         "not_found_message": not_found_message.strip() or "おい ないんだが",
         "missing_format_behavior": missing_format_behavior if missing_format_behavior in MISSING_FORMAT_BEHAVIORS else "ask_format",
         "x_query_template": x_query_template.strip() or DEFAULT_X_QUERY_TEMPLATE,
+        "required_context_terms": "\n".join(required_context_term_list),
         "search_mode": search_mode if search_mode in ("recent", "full_archive") else "full_archive",
         "lookback_days": search_days,
         "excluded_keywords": "\n".join(excluded_keyword_list),
@@ -1302,6 +1309,7 @@ def build_deck_settings_form(
         "not_found_message": settings["not_found_message"],
         "missing_format_behavior": settings["missing_format_behavior"],
         "x_query_template": settings["x_query_template"],
+        "required_context_terms": required_context_term_list,
         "search_mode": settings["search_mode"],
         "lookback_days": settings["lookback_days"],
         "excluded_keywords": excluded_keyword_list,

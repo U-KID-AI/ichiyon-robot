@@ -1,6 +1,7 @@
 import asyncio
 import re
 import time
+import unicodedata
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -17,8 +18,22 @@ DEFAULT_ERROR_MESSAGE = "検索でエラー"
 DEFAULT_NOT_FOUND_MESSAGE = "おい ないんだが"
 DEFAULT_ASK_FORMAT_MESSAGE = "クラス名も入れて"
 DEFAULT_FULL_ARCHIVE_UNAVAILABLE_MESSAGE = "過去検索が使えません"
-DEFAULT_X_QUERY_TEMPLATE = "({class_label} OR {class_en}) (シャドバ OR Shadowverse OR シャドウバース OR SV) (デッキ OR deck OR QR OR コード) has:images"
+DEFAULT_X_QUERY_TEMPLATE = "{class_search_query} {required_context_query} has:media"
+LEGACY_X_QUERY_TEMPLATES = [
+    "({class_label} OR {class_en}) (シャドバ OR Shadowverse OR シャドウバース OR SV) (デッキ OR deck OR QR OR コード) has:images",
+    "({class_label} OR {class_en}) (シャドバ OR Shadowverse OR シャドウバース OR SV) (デッキ OR deck OR QR OR コード) has:media",
+    "({class_label} OR {class_en}) (デッキ OR deck OR QR OR コード OR レシピ OR 構築) has:images",
+    "({class_label} OR {class_en}) (デッキ OR deck OR QR OR コード OR レシピ OR 構築) has:media",
+    "({class_label} OR {class_en}) {required_context_query} has:media",
+]
+DEFAULT_REQUIRED_CONTEXT_TERMS = ["ビヨンド", "beyond"]
 DEFAULT_EXCLUDED_KEYWORDS = ["ドラゴンボール", "レジェンズ", "探索コード", "フレンドコード"]
+DECK_TRIGGER_ALIASES = ["デッキ検索", "デッキ", "deck"]
+HIGH_ACCURACY_WORDS = ["高精度"]
+MAX_EXTRA_TERMS = 8
+MAX_EXTRA_TERM_LENGTH = 40
+MAX_EXTRA_QUERY_LENGTH = 120
+MAX_X_QUERY_LENGTH = 480
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 HIGH_SCORE_TERMS = ["デッキ", "deck", "レシピ", "構築", "QR", "コード", "BEYOND", "WB", "シャドバ", "Shadowverse"]
 LOW_SCORE_TERMS = ["キャンペーン", "100万円", "配信", "YouTube", "大会", "勝ったら", "探索コード", "フレンドコード", "ドラゴンボール", "レジェンズ"]
@@ -28,10 +43,42 @@ CLASS_ALIASES = {
     "royal": ("ロイヤル", ["ロイヤル", "royal", "ロイ"]),
     "witch": ("ウィッチ", ["ウィッチ", "witch", "ウイッチ", "土", "スペル"]),
     "dragon": ("ドラゴン", ["ドラゴン", "dragon", "ドラ"]),
-    "nightmare": ("ナイトメア", ["ナイトメア", "nightmare", "ナイト", "nm"]),
+    "nightmare": ("ナイトメア", ["ナイトメア", "nightmare", "Nightmare", "ナイト", "メア", "Nm", "Ｎｍ", "nm"]),
     "bishop": ("ビショップ", ["ビショップ", "bishop", "ビショ"]),
     "nemesis": ("ネメシス", ["ネメシス", "nemesis", "ネメ"]),
     "neutral": ("ニュートラル", ["ニュートラル", "neutral", "ニュート"]),
+}
+
+CLASS_EN_LABELS = {
+    "nightmare": "Nightmare",
+}
+
+CLASS_SEARCH_TERMS = {
+    "elf": ["エルフ", "Elf", "elf", "エル"],
+    "royal": ["ロイヤル", "Royal", "royal", "ロイ"],
+    "witch": ["ウィッチ", "Witch", "witch", "ウィ"],
+    "dragon": ["ドラゴン", "Dragon", "dragon", "ドラ"],
+    "nightmare": [
+        "ナイトメア",
+        "Nightmare",
+        "nightmare",
+        "メア",
+        "Nm",
+        "nm",
+        "Ｎｍ",
+        "ナイトメアビヨンド",
+        "メアビヨンド",
+        "NightmareBeyond",
+    ],
+    "bishop": ["ビショップ", "Bishop", "bishop", "ビショ", "ビショプ"],
+    "nemesis": ["ネメシス", "Nemesis", "nemesis", "ネメ"],
+    "neutral": ["ニュートラル", "Neutral", "neutral", "ニュート"],
+}
+
+FORMAT_ALIASES = {
+    "rotation": ("ローテーション", ["ローテーション", "ローテ", "rotation", "rotate"]),
+    "unlimited": ("アンリミテッド", ["アンリミテッド", "アンリミ", "unlimited", "unlim"]),
+    "2pick": ("2Pick", ["2pick", "2ピック", "ツーピック", "pick"]),
 }
 
 _CACHE = {}
@@ -44,6 +91,9 @@ class DeckSearchRequest:
     class_label: str
     class_en: str
     high_accuracy: bool = False
+    format_key: str = ""
+    format_label: str = ""
+    extra_terms: Optional[List[str]] = None
 
 
 @dataclass
@@ -53,6 +103,7 @@ class DeckSearchResult:
     detected_class: str
     qr_score: int
     created_at: str
+    qr_detected: bool = True
 
 
 @dataclass
@@ -110,7 +161,7 @@ class DeckSearchStats:
 
 
 def normalize_text(value: str) -> str:
-    return value.strip().lower()
+    return unicodedata.normalize("NFKC", value or "").strip().lower()
 
 
 def normalize_command_text(value: str) -> str:
@@ -126,18 +177,111 @@ def detect_class(text: str) -> Optional[Tuple[str, str]]:
     return None
 
 
+def detect_class_token(token: str) -> Optional[Tuple[str, str]]:
+    normalized = normalize_text(token)
+    for key, (label, aliases) in CLASS_ALIASES.items():
+        for alias in aliases:
+            if normalized == normalize_text(alias):
+                return key, label
+    return None
+
+
+def detect_format_token(token: str) -> Optional[Tuple[str, str]]:
+    normalized = normalize_text(token)
+    for key, (label, aliases) in FORMAT_ALIASES.items():
+        for alias in aliases:
+            if normalized == normalize_text(alias):
+                return key, label
+    return None
+
+
+def is_deck_trigger_token(token: str) -> bool:
+    normalized = normalize_text(token)
+    return normalized in [normalize_text(alias) for alias in DECK_TRIGGER_ALIASES]
+
+
+def is_high_accuracy_token(token: str) -> bool:
+    normalized = normalize_text(token)
+    return normalized in [normalize_text(word) for word in HIGH_ACCURACY_WORDS]
+
+
+def sanitize_extra_term(token: str) -> str:
+    value = (token or "").strip()
+    if not value:
+        return ""
+    if value.startswith(("http://", "https://", "www.")):
+        return ""
+    if value.startswith("@") or value.startswith("<@"):
+        return ""
+    value = re.sub(r"[\x00-\x1f\x7f]", "", value)
+    value = value.replace('"', "").replace("'", "")
+    value = value.replace("(", "").replace(")", "")
+    value = value.strip()
+    if not value:
+        return ""
+    return value[:MAX_EXTRA_TERM_LENGTH]
+
+
+def limit_extra_terms(terms: List[str]) -> List[str]:
+    limited = []
+    total_length = 0
+    for term in terms:
+        if len(limited) >= MAX_EXTRA_TERMS:
+            break
+        next_length = total_length + len(term) + (1 if limited else 0)
+        if next_length > MAX_EXTRA_QUERY_LENGTH:
+            remaining = MAX_EXTRA_QUERY_LENGTH - total_length - (1 if limited else 0)
+            if remaining > 0:
+                limited.append(term[:remaining])
+            break
+        limited.append(term)
+        total_length = next_length
+    return limited
+
+
+def parse_deck_search_tokens(text: str) -> Dict[str, Any]:
+    class_match = None
+    format_match = None
+    high_accuracy = False
+    extra_terms = []
+
+    for token in text.split():
+        if is_deck_trigger_token(token):
+            continue
+        if is_high_accuracy_token(token):
+            high_accuracy = True
+            continue
+
+        token_class = detect_class_token(token)
+        if token_class is not None:
+            if class_match is None:
+                class_match = token_class
+            continue
+
+        token_format = detect_format_token(token)
+        if token_format is not None:
+            if format_match is None:
+                format_match = token_format
+            continue
+
+        term = sanitize_extra_term(token)
+        if term:
+            extra_terms.append(term)
+
+    return {
+        "class_match": class_match,
+        "format_match": format_match,
+        "high_accuracy": high_accuracy,
+        "extra_terms": limit_extra_terms(extra_terms),
+    }
+
+
 def parse_deck_search_command(command_text: str, missing_behavior: str = "ask_format") -> Optional[DeckSearchRequest]:
     text = normalize_command_text(command_text)
     text = re.sub(r"^(デッキ検索|デッキ|deck)\s*", "", text, flags=re.IGNORECASE).strip()
-    high_accuracy = False
-    tokens = []
-    for token in text.split():
-        if token == "高精度":
-            high_accuracy = True
-            continue
-        tokens.append(token)
-    text = " ".join(tokens).strip()
-    found = detect_class(text)
+    parsed = parse_deck_search_tokens(text)
+    high_accuracy = bool(parsed["high_accuracy"])
+    found = parsed["class_match"] or detect_class(text)
     if found is None:
         if missing_behavior == "latest":
             return DeckSearchRequest(
@@ -146,15 +290,22 @@ def parse_deck_search_command(command_text: str, missing_behavior: str = "ask_fo
                 class_label="指定なし",
                 class_en="",
                 high_accuracy=high_accuracy,
+                extra_terms=parsed["extra_terms"],
             )
         return None
     class_key, class_label = found
+    format_match = parsed["format_match"]
+    format_key = format_match[0] if format_match is not None else ""
+    format_label = format_match[1] if format_match is not None else ""
     return DeckSearchRequest(
         query=text or class_label,
         class_key=class_key,
         class_label=class_label,
-        class_en=class_key,
+        class_en=CLASS_EN_LABELS.get(class_key, class_key),
         high_accuracy=high_accuracy,
+        format_key=format_key,
+        format_label=format_label,
+        extra_terms=parsed["extra_terms"],
     )
 
 
@@ -182,6 +333,13 @@ def get_config_str(config_json: Dict[str, Any], key: str, default: str) -> str:
     return str(value).strip()
 
 
+def normalize_media_filter(value: str) -> str:
+    normalized = (value or "media").strip().lower()
+    if normalized in ("image", "images", "has:images"):
+        return "images"
+    return "media"
+
+
 def normalize_search_mode(value: str) -> str:
     normalized = (value or "recent").strip().lower()
     if normalized == "full_archive":
@@ -204,21 +362,111 @@ def get_excluded_keywords(config_json: Dict[str, Any]) -> List[str]:
     return keywords
 
 
+def get_required_context_terms(config_json: Dict[str, Any]) -> List[str]:
+    raw = config_json.get("required_context_terms")
+    if raw is None:
+        return list(DEFAULT_REQUIRED_CONTEXT_TERMS)
+    if isinstance(raw, list):
+        return [sanitize_extra_term(str(item)) for item in raw if sanitize_extra_term(str(item))]
+    text = str(raw)
+    terms = []
+    for item in text.replace(",", "\n").splitlines():
+        term = sanitize_extra_term(item)
+        if term:
+            terms.append(term)
+    return terms
+
+
+def build_or_query(terms: List[str]) -> str:
+    safe_terms = [sanitize_extra_term(term) for term in terms]
+    safe_terms = [term for term in safe_terms if term]
+    if not safe_terms:
+        return ""
+    if len(safe_terms) == 1:
+        return safe_terms[0]
+    return "({0})".format(" OR ".join(safe_terms))
+
+
+def get_class_search_terms(request: DeckSearchRequest) -> List[str]:
+    configured = CLASS_SEARCH_TERMS.get(request.class_key)
+    if configured:
+        return list(configured)
+    terms = [request.class_label, request.class_en]
+    return [term for term in terms if term]
+
+
+def get_extra_terms(request: DeckSearchRequest) -> List[str]:
+    return list(request.extra_terms or [])
+
+
+def get_query_terms(request: DeckSearchRequest) -> List[str]:
+    terms = []
+    if request.format_label:
+        terms.append(request.format_label)
+    terms.extend(get_extra_terms(request))
+    return terms
+
+
+def insert_query_terms(query: str, terms: List[str]) -> str:
+    safe_terms = limit_extra_terms([sanitize_extra_term(term) for term in terms])
+    safe_terms = [term for term in safe_terms if term]
+    if not safe_terms:
+        return query[:MAX_X_QUERY_LENGTH].rstrip()
+
+    extra_query = " ".join(safe_terms)
+    match = re.search(r"\s+has:(images|media)\b", query, flags=re.IGNORECASE)
+    if match:
+        query = "{0} {1}{2}".format(query[: match.start()], extra_query, query[match.start() :])
+    else:
+        query = "{0} {1}".format(query, extra_query)
+    return query[:MAX_X_QUERY_LENGTH].rstrip()
+
+
+def apply_media_filter(query: str, media_filter: str) -> str:
+    tag = "has:images" if normalize_media_filter(media_filter) == "images" else "has:media"
+    if re.search(r"\bhas:(images|media)\b", query, flags=re.IGNORECASE):
+        return re.sub(r"\bhas:(images|media)\b", tag, query, flags=re.IGNORECASE)
+    return "{0} {1}".format(query, tag)
+
+
+def normalize_query_template(template: str) -> str:
+    value = (template or "").strip()
+    if not value:
+        return DEFAULT_X_QUERY_TEMPLATE
+    if value in LEGACY_X_QUERY_TEMPLATES:
+        return DEFAULT_X_QUERY_TEMPLATE
+    return value
+
+
 def build_x_query(request: DeckSearchRequest, config_json: Dict[str, Any]) -> str:
-    template = config_json.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE
+    template = normalize_query_template(config_json.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE)
+    required_context_terms = get_required_context_terms(config_json)
+    class_search_terms = get_class_search_terms(request)
+    class_search_query = build_or_query(class_search_terms)
+    required_context_query = build_or_query(required_context_terms)
+    query_terms = get_query_terms(request)
+    extra_query = " ".join(limit_extra_terms([sanitize_extra_term(term) for term in query_terms]))
     query = template.format(
         class_key=request.class_key,
         class_label=request.class_label,
         class_en=request.class_en,
+        class_search_query=class_search_query,
         query=request.query,
+        required_context_query=required_context_query,
+        format_key=request.format_key,
+        format_label=request.format_label,
+        extra_terms=" ".join(get_extra_terms(request)),
+        extra_query=extra_query,
     )
+    query = apply_media_filter(query, get_config_str(config_json, "media_filter", "media"))
+    query = insert_query_terms(query, query_terms)
     if not get_config_bool(config_json, "include_retweets", False):
         query += " -is:retweet"
     if not get_config_bool(config_json, "include_replies", False):
         query += " -is:reply"
     for keyword in get_excluded_keywords(config_json):
         query += " -{0}".format(keyword)
-    return query
+    return query[:MAX_X_QUERY_LENGTH].rstrip()
 
 
 def allowed_in_channel(config_json: Dict[str, Any], channel_id: str) -> bool:
@@ -231,14 +479,21 @@ def allowed_in_channel(config_json: Dict[str, Any], channel_id: str) -> bool:
 def cache_key(guild_id: str, channel_id: str, request: DeckSearchRequest, config_json: Dict[str, Any]) -> str:
     mode = normalize_search_mode(get_config_str(config_json, "search_mode", config.X_SEARCH_MODE))
     lookback_days = get_config_int(config_json, "lookback_days", config.X_SEARCH_LOOKBACK_DAYS, 1, 30)
-    query_template = config_json.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE
+    query_template = normalize_query_template(config_json.get("x_query_template") or DEFAULT_X_QUERY_TEMPLATE)
     excluded_keywords = ",".join(get_excluded_keywords(config_json))
-    return "{0}:{1}:{2}:{3}:{4}:{5}:{6}:{7}:{8}".format(
+    required_context_terms = ",".join(get_required_context_terms(config_json))
+    media_filter = normalize_media_filter(get_config_str(config_json, "media_filter", "media"))
+    extra_terms = ",".join(get_extra_terms(request))
+    return "{0}:{1}:{2}:{3}:{4}:{5}:{6}:{7}:{8}:{9}:{10}:{11}:{12}".format(
         guild_id,
         channel_id,
         request.class_key,
         request.query,
         "high" if request.high_accuracy else "normal",
+        request.format_key,
+        extra_terms,
+        required_context_terms,
+        media_filter,
         mode,
         lookback_days,
         query_template,
@@ -322,6 +577,15 @@ async def detect_qr_codes_async(image_bytes: bytes):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, detect_qr_codes, image_bytes)
 
+def build_fallback_result(post: XPost, media, class_label: str) -> DeckSearchResult:
+    return DeckSearchResult(
+        post=post,
+        image_url=media.url,
+        detected_class=class_label,
+        qr_score=0,
+        created_at=post.created_at,
+        qr_detected=False,
+    )
 
 async def scan_media_image(
     post: XPost,
@@ -330,9 +594,6 @@ async def scan_media_image(
     timeout_seconds: int,
     stats: DeckSearchStats,
 ) -> Optional[DeckSearchResult]:
-    if media.type and media.type != "photo":
-        stats.skipped_non_photo += 1
-        return None
     image_bytes = await fetch_image_bytes(media.url, timeout_seconds)
     if image_bytes is None:
         stats.skipped_image_fetch += 1
@@ -372,6 +633,9 @@ async def scan_posts_concurrently(
 ) -> List[DeckSearchResult]:
     semaphore = asyncio.Semaphore(image_scan_concurrency)
     scan_items = []
+    fallback_results = []
+    fallback_post_ids = set()
+
     for post in sort_posts_for_scan(posts, request):
         if not post.media:
             stats.skipped_no_media += 1
@@ -381,6 +645,9 @@ async def scan_posts_concurrently(
             if len(scan_items) >= image_scan_limit:
                 break
             scan_items.append((post, media))
+            if post.post_id not in fallback_post_ids:
+                fallback_results.append(build_fallback_result(post, media, request.class_label))
+                fallback_post_ids.add(post.post_id)
         if len(scan_items) >= image_scan_limit:
             break
 
@@ -389,8 +656,10 @@ async def scan_posts_concurrently(
             return await scan_media_image(post, media, request.class_label, image_fetch_timeout_seconds, stats)
 
     tasks = [asyncio.ensure_future(run_one(post, media)) for post, media in scan_items]
-    results = []
+    qr_results = []
+    qr_post_ids = set()
     pending = set(tasks)
+
     try:
         while pending:
             done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
@@ -404,22 +673,36 @@ async def scan_posts_concurrently(
                 except Exception as exc:
                     print("[WARN] deck image scan task failed: {0}".format(exc.__class__.__name__))
                     continue
-                if found is not None:
-                    results.append(found)
-                    stats.candidates = len(results)
-                    if stop_after_candidates and len(results) >= max_results:
+
+                if found is not None and found.post.post_id not in qr_post_ids:
+                    qr_results.append(found)
+                    qr_post_ids.add(found.post.post_id)
+                    stats.candidates = len(qr_results)
+
+                    if stop_after_candidates and len(qr_results) >= max_results:
                         stats.stopped_after_candidates = True
                         for pending_task in pending:
                             pending_task.cancel()
                         if pending:
                             await asyncio.gather(*pending, return_exceptions=True)
-                        return results
+                        return qr_results
+
     finally:
         for task in pending:
             if not task.done():
                 task.cancel()
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
+
+    results = list(qr_results)
+    for fallback in fallback_results:
+        if len(results) >= max_results:
+            break
+        if fallback.post.post_id in qr_post_ids:
+            continue
+        results.append(fallback)
+
+    stats.candidates = len(results)
     return results
 
 
@@ -432,10 +715,6 @@ async def scan_post_images(
 ) -> Optional[DeckSearchResult]:
     scanned = 0
     for media in post.media:
-        if media.type and media.type != "photo":
-            if stats is not None:
-                stats.skipped_non_photo += 1
-            continue
         if scanned >= limit:
             break
         scanned += 1
@@ -513,7 +792,18 @@ async def search_decks(guild_id: str, channel_id: str, command_text: str, config
         return format_results(request, cached, max_results, config_json)
 
     query = build_x_query(request, config_json)
-    print("[INFO] deck search query: {0}".format(query))
+    media_filter = normalize_media_filter(get_config_str(config_json, "media_filter", "media"))
+    print(
+        "[INFO] deck search query: class_label={0} class_en={1} format={2} extra_terms={3} required_context_terms={4} media_filter={5} final_query={6}".format(
+            request.class_label,
+            request.class_en,
+            request.format_label or "-",
+            get_extra_terms(request),
+            get_required_context_terms(config_json),
+            media_filter,
+            query,
+        )
+    )
     stats = DeckSearchStats(
         search_mode=search_mode,
         endpoint_type=search_mode,
@@ -572,14 +862,17 @@ def format_results(
         if config_json:
             return get_config_str(config_json, "not_found_message", DEFAULT_NOT_FOUND_MESSAGE)
         return DEFAULT_NOT_FOUND_MESSAGE
+
     lines = ["{0}のデッキ候補".format(request.class_label)]
     for index, result in enumerate(results[:max_results], start=1):
+        status_label = "QR検出済み" if result.qr_detected else "画像候補（QR未検出）"
         lines.append(
-            "{0}. {1}\n{2}\n{3} / QR検出済み".format(
+            "{0}. {1}\n{2}\n{3} / {4}".format(
                 index,
                 summarize_text(result.post.text),
                 result.post.url,
                 result.detected_class,
+                status_label,
             )
         )
     return "\n".join(lines)

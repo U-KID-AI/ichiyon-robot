@@ -11,6 +11,7 @@ if str(ROOT_DIR) not in sys.path:
 from bot.services.runtime_db import execute_effects
 from bot.services.runtime_db import get_next_action_extra_repeats
 from bot.services.runtime_db import get_probability_multiplier_for_target
+from bot.services.runtime_db import probability_hit_with_multiplier
 
 
 class FakeChannel:
@@ -139,11 +140,48 @@ def check_multiplier(check: Check) -> None:
     mismatch = get_probability_multiplier_for_target(effects, "mention_reaction_choice", 11)
     check.add("probability_multiplier ignores mismatch", mismatch == 1.0, "multiplier={0}".format(mismatch))
 
+    broad_next = [
+        {
+            "id": 2,
+            "effect_type": "probability_multiplier",
+            "target_type": "auto_reaction",
+            "effect_config_json": {"multiplier": 32, "label": "raio"},
+        }
+    ]
+    broad_multiplier = get_probability_multiplier_for_target(broad_next, "special_effect_tag", 99)
+    check.add(
+        "probability_multiplier without target applies to next probability",
+        broad_multiplier == 32.0,
+        "multiplier={0}".format(broad_multiplier),
+    )
+    check.add(
+        "raio 32x makes one-in-32 probability certain",
+        probability_hit_with_multiplier({"probability": {"numerator": 1, "denominator": 32}}, broad_multiplier) is True,
+    )
+
+
+async def check_probability_multiplier_effect_execution(check: Check) -> None:
+    message = FakeMessage()
+    values = {"match_1": "しこっち"}
+    raio = effect("probability_multiplier", {"multiplier": 32, "label": "raio"})
+    mini = effect(
+        "probability_message",
+        {"probability": {"numerator": 1, "denominator": 32}},
+        ":yukkuri_itiyon: ｲﾔ〜{match_1:hankaku}ﾈ〜",
+    )
+    result = await execute_effects(None, "guild", [mini], message, values, [raio])
+    check.add(
+        "raio 32x triggers mini-style probability_message",
+        message.channel.sent == [":yukkuri_itiyon: ｲﾔ〜ｼｺｯﾁﾈ〜"] and result.count_changed is False,
+        str(message.channel.sent),
+    )
+
 
 def main() -> None:
     check = Check()
     asyncio.run(check_execute_effects(check))
     check_multiplier(check)
+    asyncio.run(check_probability_multiplier_effect_execution(check))
     check.print_results()
     if not check.ok():
         raise SystemExit(1)

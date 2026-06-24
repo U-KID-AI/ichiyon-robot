@@ -63,6 +63,10 @@ Unicode絵文字とDiscordカスタム絵文字内部表記を想定。
 {"multiplier": 9}
 ```
 
+`target` 未指定の `probability_multiplier` は、次の反応で発生する抽選にも効く。
+たとえばライオを32倍にすると、次の反応に付いた 1/32 の `probability_message` は確定発動扱いになる。
+ミニいちよん相当のテンプレート変換は `{match_1:hankaku}` を正とし、互換用に `{match_1:mini_ichiyon}` も同じ半角カナ変換として扱う。
+
 ### next_action_count
 
 特殊効果が発動した後、同種アクションを追加で繰り返す。

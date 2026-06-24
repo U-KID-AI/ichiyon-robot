@@ -319,12 +319,120 @@ async def check_search_flow(check: Check) -> None:
         "high accuracy accepts full-width spaces",
         high_wide_space is not None and high_wide_space.class_key == "elf" and high_wide_space.high_accuracy is True,
     )
+    bishop_extra = parse_deck_search_command("デッキ ビショップ アンリミテッド ロデオ", "ask_format")
+    bishop_query = build_x_query(bishop_extra, {}) if bishop_extra is not None else ""
+    check.add(
+        "extra term parses after class and format",
+        bishop_extra is not None
+        and bishop_extra.class_key == "bishop"
+        and bishop_extra.format_label == "アンリミテッド"
+        and bishop_extra.extra_terms == ["ロデオ"],
+        str(bishop_extra),
+    )
+    check.add(
+        "format and extra term appear in final query",
+        "アンリミテッド" in bishop_query and "ロデオ" in bishop_query,
+        bishop_query,
+    )
+    elf_extra = parse_deck_search_command("デッキ エルフ リノ セッカ", "ask_format")
+    elf_query = build_x_query(elf_extra, {}) if elf_extra is not None else ""
+    check.add(
+        "multiple extra terms are kept",
+        elf_extra is not None and elf_extra.class_key == "elf" and elf_extra.extra_terms == ["リノ", "セッカ"],
+        str(elf_extra),
+    )
+    check.add("multiple extra terms appear in final query", "リノ セッカ" in elf_query, elf_query)
+    royal_high_extra = parse_deck_search_command("デッキ 高精度 ロイヤル 連携", "ask_format")
+    royal_high_query = build_x_query(royal_high_extra, {}) if royal_high_extra is not None else ""
+    check.add(
+        "high accuracy is not treated as extra term",
+        royal_high_extra is not None
+        and royal_high_extra.class_key == "royal"
+        and royal_high_extra.high_accuracy is True
+        and royal_high_extra.extra_terms == ["連携"],
+        str(royal_high_extra),
+    )
+    check.add(
+        "high accuracy is not included in final query",
+        "高精度" not in royal_high_query and "連携" in royal_high_query,
+        royal_high_query,
+    )
+    nightmare = parse_deck_search_command("デッキ ナイトメア", "ask_format")
+    nightmare_query = build_x_query(nightmare, {}) if nightmare is not None else ""
+    check.add(
+        "nightmare class is parsed",
+        nightmare is not None
+        and nightmare.class_key == "nightmare"
+        and nightmare.class_label == "ナイトメア"
+        and nightmare.class_en == "Nightmare",
+        str(nightmare),
+    )
+    check.add("nightmare appears in final query", "ナイトメア" in nightmare_query and "Nightmare" in nightmare_query, nightmare_query)
+    check.add(
+        "nightmare query includes class search aliases",
+        "メア" in nightmare_query
+        and "ネメ" not in nightmare_query
+        and "ナイトメアビヨンド" in nightmare_query,
+        nightmare_query,
+    )
+    nemesis_alias = parse_deck_search_command("デッキ ネメ", "ask_format")
+    nemesis_query = build_x_query(nemesis_alias, {}) if nemesis_alias is not None else ""
+    check.add(
+        "neme alias belongs to nemesis",
+        nemesis_alias is not None and nemesis_alias.class_key == "nemesis" and "ネメ" in nemesis_query,
+        str(nemesis_alias),
+    )
+    check.add(
+        "nightmare query uses beyond context",
+        "(ビヨンド OR beyond)" in nightmare_query and "has:media" in nightmare_query,
+        nightmare_query,
+    )
+    check.add(
+        "nightmare query does not require deck words",
+        "(デッキ OR deck" not in nightmare_query.split(" -is:")[0]
+        and " QR " not in nightmare_query.split(" -is:")[0]
+        and "コード" not in nightmare_query.split(" -is:")[0]
+        and "レシピ" not in nightmare_query.split(" -is:")[0]
+        and "構築" not in nightmare_query.split(" -is:")[0],
+        nightmare_query,
+    )
+    nightmare_extra = parse_deck_search_command("デッキ ナイトメア ロデオ", "ask_format")
+    nightmare_extra_query = build_x_query(nightmare_extra, {}) if nightmare_extra is not None else ""
+    check.add(
+        "nightmare extra term is kept",
+        nightmare_extra is not None
+        and nightmare_extra.class_key == "nightmare"
+        and nightmare_extra.extra_terms == ["ロデオ"],
+        str(nightmare_extra),
+    )
+    check.add("nightmare extra term appears in final query", "ロデオ" in nightmare_extra_query, nightmare_extra_query)
+    nightmare_high = parse_deck_search_command("デッキ ナイトメア 高精度", "ask_format")
+    check.add(
+        "nightmare high accuracy is parsed",
+        nightmare_high is not None and nightmare_high.class_key == "nightmare" and nightmare_high.high_accuracy is True,
+        str(nightmare_high),
+    )
     check.add("high accuracy without class asks format", parse_deck_search_command("デッキ 高精度", "ask_format") is None)
     query = build_x_query(parsed, {}) if parsed is not None else ""
+    check.add("default query uses media filter", "has:media" in query and "has:images" not in query, query)
+    check.add("default query includes beyond terms", "ビヨンド" in query and "beyond" in query, query)
+    legacy_query = build_x_query(
+        parsed,
+        {"x_query_template": "({class_label} OR {class_en}) (デッキ OR deck OR QR OR コード OR レシピ OR 構築) has:media"},
+    ) if parsed is not None else ""
     check.add(
-        "default query includes shadowverse terms",
-        "シャドバ" in query and "Shadowverse" in query and "シャドウバース" in query and "SV" in query,
-        query,
+        "legacy default query template is normalized",
+        "ビヨンド" in legacy_query and "デッキ OR deck" not in legacy_query and "エル" in legacy_query,
+        legacy_query,
+    )
+    old_context_query = build_x_query(
+        parsed,
+        {"required_context_terms": ["デッキ", "deck", "QR", "コード", "レシピ", "構築"]},
+    ) if parsed is not None else ""
+    check.add(
+        "required context terms can restore old condition",
+        "(デッキ OR deck OR QR OR コード OR レシピ OR 構築)" in old_context_query,
+        old_context_query,
     )
     check.add(
         "default query includes exclusions",
@@ -596,12 +704,19 @@ def check_search_params(check: Check) -> None:
 def check_x_payload(check: Check) -> None:
     payload = {
         "data": [
-            {"id": "1", "text": "deck", "created_at": "2026-06-20T00:00:00Z", "attachments": {"media_keys": ["m1"]}}
+            {"id": "1", "text": "deck", "created_at": "2026-06-20T00:00:00Z", "attachments": {"media_keys": ["m1"]}},
+            {"id": "2", "text": "deck video", "created_at": "2026-06-20T00:00:00Z", "attachments": {"media_keys": ["m2"]}},
         ],
-        "includes": {"media": [{"media_key": "m1", "type": "photo", "url": "https://example.test/a.jpg"}]},
+        "includes": {
+            "media": [
+                {"media_key": "m1", "type": "photo", "url": "https://example.test/a.jpg"},
+                {"media_key": "m2", "type": "video", "preview_image_url": "https://example.test/preview.jpg"},
+            ]
+        },
     }
     posts = parse_search_response(payload)
-    check.add("x payload media parsed", len(posts) == 1 and len(posts[0].media) == 1)
+    check.add("x payload media parsed", len(posts) == 2 and len(posts[0].media) == 1)
+    check.add("x video preview media parsed", posts[1].media[0].url == "https://example.test/preview.jpg")
 
 
 def check_stats(check: Check) -> None:
