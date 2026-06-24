@@ -360,7 +360,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         enabled: Optional[str] = Form(None),
         allowed_channel_ids: str = Form(""),
         max_results: str = Form("3"),
-        x_search_max_results: str = Form("50"),
+        x_search_max_results: str = Form("100"),
         deny_message: str = Form(""),
         not_found_message: str = Form(""),
         missing_format_behavior: str = Form("ask_format"),
@@ -371,14 +371,13 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         excluded_keywords: str = Form(""),
         include_retweets: Optional[str] = Form(None),
         include_replies: Optional[str] = Form(None),
-        image_scan_limit: str = Form("30"),
-        image_scan_concurrency: str = Form("2"),
+        image_scan_limit: str = Form("80"),
+        image_scan_concurrency: str = Form("5"),
         stop_after_candidates: Optional[str] = Form(None),
         image_fetch_timeout_seconds: str = Form("5"),
         high_accuracy_enabled: Optional[str] = Form(None),
-        high_accuracy_x_search_max_results: str = Form("100"),
         high_accuracy_image_scan_limit: str = Form("100"),
-        high_accuracy_image_scan_concurrency: str = Form("2"),
+        high_accuracy_image_scan_concurrency: str = Form("1"),
         high_accuracy_stop_after_candidates: Optional[str] = Form(None),
         request_timeout_seconds: str = Form("10"),
         cache_ttl_seconds: str = Form("300"),
@@ -426,7 +425,6 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 stop_after_candidates,
                 image_fetch_timeout_seconds,
                 high_accuracy_enabled,
-                high_accuracy_x_search_max_results,
                 high_accuracy_image_scan_limit,
                 high_accuracy_image_scan_concurrency,
                 high_accuracy_stop_after_candidates,
@@ -1142,7 +1140,7 @@ def build_deck_settings(reaction: Dict[str, Any]) -> Dict[str, Any]:
         "description": reaction.get("description") or "",
         "allowed_channel_ids": "\n".join(config.get("allowed_channel_ids") or []),
         "max_results": int(config.get("max_results") or 3),
-        "x_search_max_results": int(config.get("x_search_max_results") or 50),
+        "x_search_max_results": int(config.get("x_search_max_results") or 100),
         "deny_message": config.get("deny_message") or "このチャンネルではデッキ検索は使えません。",
         "not_found_message": config.get("not_found_message") or "おい ないんだが",
         "missing_format_behavior": config.get("missing_format_behavior") or "ask_format",
@@ -1153,14 +1151,13 @@ def build_deck_settings(reaction: Dict[str, Any]) -> Dict[str, Any]:
         "excluded_keywords": "\n".join([str(item) for item in excluded_keywords]),
         "include_retweets": bool(config.get("include_retweets", False)),
         "include_replies": bool(config.get("include_replies", False)),
-        "image_scan_limit": int(config.get("image_scan_limit") or 30),
-        "image_scan_concurrency": int(config.get("image_scan_concurrency") or 2),
+        "image_scan_limit": int(config.get("image_scan_limit") or 80),
+        "image_scan_concurrency": int(config.get("image_scan_concurrency") or 5),
         "stop_after_candidates": bool(config.get("stop_after_candidates", True)),
         "image_fetch_timeout_seconds": int(config.get("image_fetch_timeout_seconds") or 5),
         "high_accuracy_enabled": bool(config.get("high_accuracy_enabled", True)),
-        "high_accuracy_x_search_max_results": int(config.get("high_accuracy_x_search_max_results") or 100),
         "high_accuracy_image_scan_limit": int(config.get("high_accuracy_image_scan_limit") or 100),
-        "high_accuracy_image_scan_concurrency": int(config.get("high_accuracy_image_scan_concurrency") or 2),
+        "high_accuracy_image_scan_concurrency": int(config.get("high_accuracy_image_scan_concurrency") or 1),
         "high_accuracy_stop_after_candidates": bool(config.get("high_accuracy_stop_after_candidates", False)),
         "request_timeout_seconds": int(config.get("request_timeout_seconds") or 10),
         "cache_ttl_seconds": int(config.get("cache_ttl_seconds") or 300),
@@ -1170,7 +1167,7 @@ def build_deck_settings(reaction: Dict[str, Any]) -> Dict[str, Any]:
             "search_type": "deck_search",
             "allowed_channel_ids": config.get("allowed_channel_ids") or [],
             "max_results": int(config.get("max_results") or 3),
-            "x_search_max_results": int(config.get("x_search_max_results") or 50),
+            "x_search_max_results": int(config.get("x_search_max_results") or 100),
             "deny_message": config.get("deny_message") or "このチャンネルではデッキ検索は使えません。",
             "not_found_message": config.get("not_found_message") or "おい ないんだが",
             "missing_format_behavior": config.get("missing_format_behavior") or "ask_format",
@@ -1181,14 +1178,13 @@ def build_deck_settings(reaction: Dict[str, Any]) -> Dict[str, Any]:
             "excluded_keywords": excluded_keywords,
             "include_retweets": bool(config.get("include_retweets", False)),
             "include_replies": bool(config.get("include_replies", False)),
-            "image_scan_limit": int(config.get("image_scan_limit") or 30),
-            "image_scan_concurrency": int(config.get("image_scan_concurrency") or 2),
+            "image_scan_limit": int(config.get("image_scan_limit") or 80),
+            "image_scan_concurrency": int(config.get("image_scan_concurrency") or 5),
             "stop_after_candidates": bool(config.get("stop_after_candidates", True)),
             "image_fetch_timeout_seconds": int(config.get("image_fetch_timeout_seconds") or 5),
             "high_accuracy_enabled": bool(config.get("high_accuracy_enabled", True)),
-            "high_accuracy_x_search_max_results": int(config.get("high_accuracy_x_search_max_results") or 100),
             "high_accuracy_image_scan_limit": int(config.get("high_accuracy_image_scan_limit") or 100),
-            "high_accuracy_image_scan_concurrency": int(config.get("high_accuracy_image_scan_concurrency") or 2),
+            "high_accuracy_image_scan_concurrency": int(config.get("high_accuracy_image_scan_concurrency") or 1),
             "high_accuracy_stop_after_candidates": bool(config.get("high_accuracy_stop_after_candidates", False)),
             "request_timeout_seconds": int(config.get("request_timeout_seconds") or 10),
             "cache_ttl_seconds": int(config.get("cache_ttl_seconds") or 300),
@@ -1220,7 +1216,6 @@ def build_deck_settings_form(
     stop_after_candidates: Optional[str],
     image_fetch_timeout_seconds: str,
     high_accuracy_enabled: Optional[str],
-    high_accuracy_x_search_max_results: str,
     high_accuracy_image_scan_limit: str,
     high_accuracy_image_scan_concurrency: str,
     high_accuracy_stop_after_candidates: Optional[str],
@@ -1255,10 +1250,6 @@ def build_deck_settings_form(
         high_accuracy_scan_limit = int(high_accuracy_image_scan_limit)
     except ValueError:
         high_accuracy_scan_limit = 0
-    try:
-        high_accuracy_x_result_count = int(high_accuracy_x_search_max_results)
-    except ValueError:
-        high_accuracy_x_result_count = 0
     try:
         high_accuracy_scan_concurrency = int(high_accuracy_image_scan_concurrency)
     except ValueError:
@@ -1301,7 +1292,6 @@ def build_deck_settings_form(
         "stop_after_candidates": stop_after_candidates == "on",
         "image_fetch_timeout_seconds": fetch_timeout_seconds,
         "high_accuracy_enabled": high_accuracy_enabled == "on",
-        "high_accuracy_x_search_max_results": high_accuracy_x_result_count,
         "high_accuracy_image_scan_limit": high_accuracy_scan_limit,
         "high_accuracy_image_scan_concurrency": high_accuracy_scan_concurrency,
         "high_accuracy_stop_after_candidates": high_accuracy_stop_after_candidates == "on",
@@ -1330,7 +1320,6 @@ def build_deck_settings_form(
         "stop_after_candidates": settings["stop_after_candidates"],
         "image_fetch_timeout_seconds": settings["image_fetch_timeout_seconds"],
         "high_accuracy_enabled": settings["high_accuracy_enabled"],
-        "high_accuracy_x_search_max_results": settings["high_accuracy_x_search_max_results"],
         "high_accuracy_image_scan_limit": settings["high_accuracy_image_scan_limit"],
         "high_accuracy_image_scan_concurrency": settings["high_accuracy_image_scan_concurrency"],
         "high_accuracy_stop_after_candidates": settings["high_accuracy_stop_after_candidates"],
@@ -1349,8 +1338,6 @@ def build_deck_settings_form(
         errors.append("返す件数は1以上。")
     if x_result_count < 10 or x_result_count > 100:
         errors.append("Xから取得する投稿数は10から100まで")
-    if high_accuracy_x_result_count < 10 or high_accuracy_x_result_count > 100:
-        errors.append("高精度のX取得件数は10から100まで")
     if search_days < 1 or search_days > 30:
         errors.append("検索対象日数は1から30まで")
     if scan_limit < 1:
