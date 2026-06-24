@@ -483,7 +483,7 @@ async def check_search_flow(check: Check) -> None:
             )
         ]
 
-    async def fake_scan_media_image(post, media, class_label, timeout_seconds, qr_timeout_seconds, stats):
+    async def fake_scan_media_image(post, media, class_label, timeout_seconds, stats):
         stats.image_downloaded += 1
         stats.qr_detected += 1
         return deck_search.DeckSearchResult(
@@ -575,7 +575,6 @@ async def check_high_accuracy_mode(check: Check) -> None:
         max_results,
         image_scan_limit,
         image_fetch_timeout_seconds,
-        qr_detect_timeout_seconds,
         image_scan_concurrency,
         stop_after_candidates,
         stats,
@@ -638,7 +637,6 @@ async def check_normal_light_settings(check: Check) -> None:
         max_results,
         image_scan_limit,
         image_fetch_timeout_seconds,
-        qr_detect_timeout_seconds,
         image_scan_concurrency,
         stop_after_candidates,
         stats,
@@ -679,7 +677,7 @@ async def check_normal_light_settings(check: Check) -> None:
 async def check_parallel_scan(check: Check) -> None:
     active = {"current": 0, "max": 0, "started": 0}
 
-    async def fake_scan_media_image(post, media, class_label, timeout_seconds, qr_timeout_seconds, stats):
+    async def fake_scan_media_image(post, media, class_label, timeout_seconds, stats):
         active["current"] += 1
         active["started"] += 1
         active["max"] = max(active["max"], active["current"])
@@ -711,13 +709,12 @@ async def check_parallel_scan(check: Check) -> None:
     original_scan = deck_search.scan_media_image
     try:
         deck_search.scan_media_image = fake_scan_media_image
-        results = await deck_search.scan_posts_concurrently(posts, request, 3, 10, 5, 3, 2, True, stats)
+        results = await deck_search.scan_posts_concurrently(posts, request, 3, 10, 5, 2, True, stats)
     finally:
         deck_search.scan_media_image = original_scan
 
     check.add("parallel scan honors concurrency", active["max"] <= 2, str(active))
     check.add("parallel scan stops after candidates", len(results) == 3 and stats.stopped_after_candidates, str(active))
-    check.add("parallel scan records cancelled tasks", stats.cancelled_image_tasks > 0, stats.to_log())
 
 
 async def check_image_fetch_failure(check: Check) -> None:
@@ -731,7 +728,7 @@ async def check_image_fetch_failure(check: Check) -> None:
 
     try:
         deck_search.fetch_image_bytes = fake_fetch_image_bytes
-        result = await deck_search.scan_media_image(post, media, "エルフ", 1, 1, stats)
+        result = await deck_search.scan_media_image(post, media, "エルフ", 1, stats)
     finally:
         deck_search.fetch_image_bytes = original_fetch
     check.add("image fetch failure is safe", result is None and stats.skipped_image_fetch == 1)
@@ -766,8 +763,8 @@ async def check_image_scan_cache(check: Check) -> None:
         deck_search.detect_qr_codes_async = fake_detect_qr_codes_async
         first_stats = DeckSearchStats()
         second_stats = DeckSearchStats()
-        first = await deck_search.scan_media_image(post, media, "エルフ", 1, 1, first_stats)
-        second = await deck_search.scan_media_image(post, media, "エルフ", 1, 1, second_stats)
+        first = await deck_search.scan_media_image(post, media, "エルフ", 1, first_stats)
+        second = await deck_search.scan_media_image(post, media, "エルフ", 1, second_stats)
     finally:
         deck_search.fetch_image_bytes = original_fetch
         deck_search.detect_qr_codes_async = original_detect
@@ -776,48 +773,6 @@ async def check_image_scan_cache(check: Check) -> None:
         "negative image scan result is cached",
         first is None and second is None and calls == {"fetch": 1, "detect": 1} and second_stats.skipped_no_qr == 1,
         str(calls),
-    )
-
-
-async def check_image_scan_timeouts(check: Check) -> None:
-    media = XMedia(media_key="timeout", url="https://example.test/timeout.jpg", type="photo")
-    post = XPost(post_id="timeout", text="エルフ", created_at="2026-06-20T00:00:00Z", media=[media])
-    original_fetch = deck_search.fetch_image_bytes
-    original_detect = deck_search.detect_qr_codes_async
-
-    async def slow_fetch_image_bytes(url, timeout_seconds, stats=None):
-        await asyncio.sleep(2)
-        return b"image"
-
-    async def slow_detect_qr_codes_async(image_bytes):
-        await asyncio.sleep(2)
-        return []
-
-    try:
-        deck_search._IMAGE_SCAN_CACHE.clear()
-        deck_search.fetch_image_bytes = slow_fetch_image_bytes
-        fetch_stats = DeckSearchStats()
-        fetch_result = await deck_search.scan_media_image(post, media, "エルフ", 1, 1, fetch_stats)
-
-        deck_search._IMAGE_SCAN_CACHE.clear()
-        deck_search.fetch_image_bytes = lambda url, timeout_seconds, stats=None: asyncio.sleep(0, result=b"image")
-        deck_search.detect_qr_codes_async = slow_detect_qr_codes_async
-        decode_stats = DeckSearchStats()
-        decode_result = await deck_search.scan_media_image(post, media, "エルフ", 1, 1, decode_stats)
-    finally:
-        deck_search.fetch_image_bytes = original_fetch
-        deck_search.detect_qr_codes_async = original_detect
-        deck_search._IMAGE_SCAN_CACHE.clear()
-
-    check.add(
-        "image fetch timeout is counted",
-        fetch_result is None and fetch_stats.skipped_image_timeout == 1 and fetch_stats.skipped_image_fetch == 1,
-        fetch_stats.to_log(),
-    )
-    check.add(
-        "qr decode timeout is counted",
-        decode_result is None and decode_stats.skipped_decode_timeout == 1,
-        decode_stats.to_log(),
     )
 
 
@@ -977,7 +932,6 @@ def main() -> None:
     asyncio.run(check_image_fetch_failure(check))
     check_image_safety_helpers(check)
     asyncio.run(check_image_scan_cache(check))
-    asyncio.run(check_image_scan_timeouts(check))
     asyncio.run(check_search_timeout(check))
     asyncio.run(check_runtime_path(check))
     asyncio.run(check_mention_priority(check))

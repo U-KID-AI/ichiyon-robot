@@ -7,10 +7,7 @@
 - デバッグ用tweet指定は廃止済み。通常経路へ戻さない。
 - 画像取得前に `Content-Type` を確認し、JPEG/PNG/WebP以外はスキップ。
 - `Content-Length` と実ダウンロード量は3MBを上限にする。
-- HTTPは接続2秒、読み込み3秒、1画像5秒以内を目安に遅いURLを捨てる。
-- HEADは1秒で諦め、GET側の判定へ進む。
 - QR判定前に画像の長辺を1200pxへ縮小する。
-- QR判定も個別タイムアウトで保護する。
 - 通常検索は全体30秒を目安に安全中断する。
 - 同じ画像URLのQR判定結果は短時間キャッシュし、成功/失敗どちらも再処理を避ける。
-- ログには `search_count`、`image_url_count`、`scanned_image_count`、`skipped_by_content_type`、`skipped_by_content_length`、`skip_image_timeout`、`skip_head_timeout`、`skip_download_timeout`、`skip_decode_timeout`、`cancelled_image_tasks`、`qr_detected_count`、`elapsed_seconds`、`timeout` を出す。
+- ログには `search_count`、`image_url_count`、`scanned_image_count`、`skipped_by_content_type`、`skipped_by_content_length`、`qr_detected_count`、`elapsed_seconds`、`timeout` を出す。
