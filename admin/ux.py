@@ -48,6 +48,7 @@ EFFECT_TYPE_LABELS = {
     "ng_behavior": "NGワード動作",
     "extra_choice": "候補追加",
     "destroy": "破壊",
+    "mention_suffix_guard": "さん付け確認",
     "custom": "カスタム",
 }
 

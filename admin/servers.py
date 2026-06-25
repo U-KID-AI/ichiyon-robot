@@ -72,6 +72,16 @@ FEATURES = [
         "off_behavior": "OFFにすると、特殊効果タグを適用しない想定。",
         "notes": "メンション反応本体とモードには付与しない。",
     },
+    {
+        "key": "reaction_thresholds",
+        "label": "リアクション返信",
+        "edit_path": "reaction-thresholds",
+        "required_role": "editor",
+        "overview": "同じリアクションが一定数ついた時の返信を設定。",
+        "settings": "しきい値、返信文、対象チャンネル、対象絵文字、除外条件",
+        "off_behavior": "OFFにすると、リアクション数による返信を行わない。",
+        "notes": "同じメッセージと絵文字の組み合わせでは重複返信しない。",
+    },
 ]
 
 ROLE_LEVELS = {

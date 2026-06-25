@@ -66,6 +66,7 @@ class PresetSeeder:
             "auto_reactions": Stats(),
             "ng_words": Stats(),
             "mention_limited_effects": Stats(),
+            "reaction_threshold_rules": Stats(),
         }
 
     def run(self) -> Dict[str, Stats]:
@@ -77,6 +78,7 @@ class PresetSeeder:
         self.seed_auto_reactions(tags)
         self.seed_ng_words(tags)
         self.seed_limited_effect(tags)
+        self.seed_reaction_threshold_rules()
         self.print_material_summary(tags, modes, reactions)
         return self.stats
 
@@ -722,7 +724,7 @@ class PresetSeeder:
                 "search_type": "deck_search",
                 "allowed_channel_ids": [],
                 "max_results": 3,
-                "x_search_max_results": 100,
+                "x_search_max_results": 50,
                 "deny_message": "このチャンネルではデッキ検索は使えません。",
                 "not_found_message": "おい ないんだが",
                 "missing_format_behavior": "ask_format",
@@ -733,13 +735,14 @@ class PresetSeeder:
                 "excluded_keywords": ["ドラゴンボール", "レジェンズ", "探索コード", "フレンドコード"],
                 "include_retweets": False,
                 "include_replies": False,
-                "image_scan_limit": 80,
-                "image_scan_concurrency": 5,
+                "image_scan_limit": 30,
+                "image_scan_concurrency": 2,
                 "stop_after_candidates": True,
                 "image_fetch_timeout_seconds": 5,
                 "high_accuracy_enabled": True,
                 "high_accuracy_image_scan_limit": 100,
-                "high_accuracy_image_scan_concurrency": 1,
+                "high_accuracy_x_search_max_results": 100,
+                "high_accuracy_image_scan_concurrency": 2,
                 "high_accuracy_stop_after_candidates": False,
                 "request_timeout_seconds": 10,
                 "cache_ttl_seconds": 300,
@@ -1038,6 +1041,79 @@ class PresetSeeder:
             word_id = int(cursor.fetchone()[0])
         self.add("ng_words", "updated" if existing is not None else "inserted")
         return word_id
+
+    def seed_reaction_threshold_rules(self) -> None:
+        self.ensure_reaction_threshold_rule(
+            name="名言リアクション返信",
+            enabled=True,
+            config_json={
+                "enabled": True,
+                "threshold": 2,
+                "reply_source_type": "mention_reaction",
+                "reply_reaction_key": "quote",
+                "reply_message": "リアクションが集まってるな",
+                "allowed_channel_ids": [],
+                "ignored_channel_ids": [],
+                "target_emojis": [],
+                "ignored_emojis": [],
+                "once_per_message_emoji": True,
+            },
+        )
+
+    def ensure_reaction_threshold_rule(
+        self,
+        name: str,
+        enabled: bool,
+        config_json: Dict[str, Any],
+    ) -> int:
+        existing = self.fetch_one(
+            "SELECT * FROM reaction_threshold_rules WHERE guild_id = %s AND name = %s",
+            (self.guild_id, name),
+        )
+        if existing is not None and not self.force:
+            self.add("reaction_threshold_rules", "skipped")
+            return int(existing["id"])
+
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO reaction_threshold_rules (
+                    guild_id,
+                    name,
+                    enabled,
+                    config_json
+                )
+                VALUES (%s, %s, %s, %s::JSONB)
+                ON CONFLICT DO NOTHING
+                RETURNING id
+                """,
+                (self.guild_id, name, enabled, json_dumps(config_json)),
+            )
+            row = cursor.fetchone()
+            if row is not None:
+                rule_id = int(row[0])
+                self.add("reaction_threshold_rules", "inserted")
+                return rule_id
+
+            if existing is not None and self.force:
+                cursor.execute(
+                    """
+                    UPDATE reaction_threshold_rules
+                    SET enabled = %s,
+                        config_json = %s::JSONB,
+                        updated_at = NOW()
+                    WHERE guild_id = %s
+                      AND name = %s
+                    RETURNING id
+                    """,
+                    (enabled, json_dumps(config_json), self.guild_id, name),
+                )
+                rule_id = int(cursor.fetchone()[0])
+                self.add("reaction_threshold_rules", "updated")
+                return rule_id
+
+        self.add("reaction_threshold_rules", "skipped")
+        return int(existing["id"]) if existing is not None else 0
 
     def ensure_assignment(self, tag_id: int, target_type: str, target_id: int) -> int:
         existing = self.fetch_one(

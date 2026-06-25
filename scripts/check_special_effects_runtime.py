@@ -9,6 +9,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from bot.services.runtime_db import execute_effects
+from bot.services.runtime_db import build_effective_weighted_rows
 from bot.services.runtime_db import get_next_action_extra_repeats
 from bot.services.runtime_db import get_probability_multiplier_for_target
 from bot.services.runtime_db import probability_hit_with_multiplier
@@ -157,6 +158,37 @@ def check_multiplier(check: Check) -> None:
     check.add(
         "raio 32x makes one-in-32 probability certain",
         probability_hit_with_multiplier({"probability": {"numerator": 1, "denominator": 32}}, broad_multiplier) is True,
+    )
+
+    choices = [
+        {"id": 10, "appearance_rate": 1},
+        {"id": 11, "appearance_rate": 1},
+    ]
+    single = build_effective_weighted_rows(choices, "mention_reaction_choice", effects)
+    check.add(
+        "probability_multiplier increases target choice weight",
+        [weight for _, weight in single] == [9, 1],
+        str(single),
+    )
+    stacked_effects = effects + [
+        {
+            "id": 3,
+            "effect_type": "probability_multiplier",
+            "target_type": "mention_reaction_choice",
+            "effect_config_json": {"multiplier": 9, "target": {"type": "mention_reaction_choice", "id": 10}},
+        }
+    ]
+    stacked = build_effective_weighted_rows(choices, "mention_reaction_choice", stacked_effects)
+    check.add(
+        "probability_multiplier stacks by multiplication",
+        [weight for _, weight in stacked] == [81, 1],
+        str(stacked),
+    )
+    mismatch_weight = build_effective_weighted_rows(choices, "auto_reaction", stacked_effects)
+    check.add(
+        "probability_multiplier does not affect unrelated target type",
+        [weight for _, weight in mismatch_weight] == [1, 1],
+        str(mismatch_weight),
     )
 
 

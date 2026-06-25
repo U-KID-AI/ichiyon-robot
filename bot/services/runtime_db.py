@@ -48,6 +48,7 @@ class MatchResult:
 class RuntimeAction:
     handled: bool
     count_changed: bool = False
+    pending_effects: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -218,23 +219,66 @@ def normalize_command_text(value: str) -> str:
     return " ".join((value or "").replace("\u3000", " ").split())
 
 
-def choose_weighted_choice(choices: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def choose_weighted_item(weighted_items: List[Tuple[Any, int]]) -> Optional[Any]:
     weighted = []
     total = 0
-    for choice in choices:
-        weight = int(choice.get("appearance_rate") or 1)
+    for item, weight_value in weighted_items:
+        weight = int(weight_value or 1)
         if weight < 1:
             continue
         total += weight
-        weighted.append((choice, total))
+        weighted.append((item, total))
     if total <= 0:
         return None
 
     selected = random.randint(1, total)
-    for choice, threshold in weighted:
+    for item, threshold in weighted:
         if selected <= threshold:
-            return choice
+            return item
     return None
+
+
+def choose_weighted_choice(choices: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    return choose_weighted_item(
+        [
+            (choice, int(choice.get("appearance_rate") or choice.get("weight") or 1))
+            for choice in choices
+        ]
+    )
+
+
+def build_effective_weighted_rows(
+    rows: List[Dict[str, Any]],
+    target_type: str,
+    pending_effects: Optional[List[Dict[str, Any]]] = None,
+    weight_keys: Optional[List[str]] = None,
+) -> List[Tuple[Dict[str, Any], int]]:
+    keys = weight_keys or ["appearance_rate", "weight"]
+    pending = pending_effects or []
+    weighted = []
+    for row in rows:
+        row_id = int(row["id"])
+        multiplier = get_probability_multiplier_for_target(pending, target_type, row_id)
+        base_weight = 1
+        for key in keys:
+            if row.get(key) is not None:
+                base_weight = int(row.get(key) or 1)
+                break
+        weighted.append((row, max(1, int(round(max(1, base_weight) * multiplier)))))
+    return weighted
+
+
+def choose_weighted_row_with_effects(
+    rows: List[Dict[str, Any]],
+    target_type: str,
+    pending_effects: Optional[List[Dict[str, Any]]] = None,
+    weight_keys: Optional[List[str]] = None,
+) -> Optional[Dict[str, Any]]:
+    if not rows:
+        return None
+    weighted = build_effective_weighted_rows(rows, target_type, pending_effects, weight_keys)
+    selected = choose_weighted_item(weighted)
+    return selected if selected is not None else rows[0]
 
 
 def list_effects(connection, guild_id: str, target_type: str, target_id: int) -> List[Dict[str, Any]]:
@@ -437,6 +481,17 @@ def get_config_text(config: Dict[str, Any], keys: List[str]) -> Optional[str]:
     return None
 
 
+def get_config_list(config: Dict[str, Any], keys: List[str]) -> List[str]:
+    for key in keys:
+        value = config.get(key)
+        if value is None:
+            continue
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        return [item.strip() for item in str(value).replace(",", "\n").splitlines() if item.strip()]
+    return []
+
+
 def get_effect_target_id(config: Dict[str, Any]) -> Optional[int]:
     target = config.get("target")
     if isinstance(target, dict):
@@ -494,7 +549,6 @@ def get_probability_multiplier_for_target(
             continue
         config = normalize_json(effect.get("effect_config_json"))
         if not effect_targets_candidate(effect, config, target_type, target_id):
-            print("[WARN] probability_multiplier target mismatch: id={0}".format(effect.get("id")))
             continue
         value = get_config_float(config, ["multiplier", "rate", "factor"], 1.0)
         if value <= 0:
@@ -504,33 +558,112 @@ def get_probability_multiplier_for_target(
     return multiplier
 
 
+def mention_has_required_suffix(message: discord.Message, command_text: str, config: Dict[str, Any]) -> bool:
+    suffix = get_config_text(config, ["required_suffix", "suffix"]) or "さん"
+    normalized_command = normalize_command_text(command_text)
+    if normalized_command == suffix or normalized_command.startswith("{0} ".format(suffix)):
+        return True
+
+    content = getattr(message, "content", "") or ""
+    if re.search(r"<@!?\d+>\s*{0}".format(re.escape(suffix)), content):
+        return True
+
+    for pattern in get_config_list(config, ["accepted_patterns"]):
+        try:
+            if re.search(pattern, content):
+                return True
+        except re.error:
+            if pattern in content:
+                return True
+
+    for name in get_config_list(config, ["bot_display_names", "bot_names"]):
+        if "{0}{1}".format(name, suffix) in content or "{0} {1}".format(name, suffix) in content:
+            return True
+    return False
+
+
+def strip_required_suffix_from_command_text(command_text: str, config: Dict[str, Any]) -> str:
+    suffix = get_config_text(config, ["required_suffix", "suffix"]) or "さん"
+    normalized_command = normalize_command_text(command_text)
+    if normalized_command == suffix:
+        return ""
+    prefix = "{0} ".format(suffix)
+    if normalized_command.startswith(prefix):
+        return normalized_command[len(prefix):].strip()
+    return command_text
+
+
+def mention_suffix_guard_applies(effect: Dict[str, Any], config: Dict[str, Any], message: discord.Message) -> bool:
+    if effect.get("effect_type") != "mention_suffix_guard":
+        return False
+    if config.get("enabled") is False:
+        return False
+    target_user_ids = get_config_list(config, ["target_user_ids", "user_ids"])
+    if target_user_ids and get_message_author_id(message) not in target_user_ids:
+        return False
+    return True
+
+
+def normalize_command_after_mention_suffix_guard(
+    effects: List[Dict[str, Any]],
+    message: discord.Message,
+    command_text: str,
+) -> str:
+    for effect in effects:
+        config = normalize_json(effect.get("effect_config_json"))
+        if not mention_suffix_guard_applies(effect, config, message):
+            continue
+        if mention_has_required_suffix(message, command_text, config):
+            return strip_required_suffix_from_command_text(command_text, config)
+    return command_text
+
+
+async def apply_mention_suffix_guards(
+    connection,
+    guild_id: str,
+    effects: List[Dict[str, Any]],
+    message: discord.Message,
+    command_text: str,
+) -> Optional[RuntimeAction]:
+    for effect in effects:
+        config = normalize_json(effect.get("effect_config_json"))
+        if not mention_suffix_guard_applies(effect, config, message):
+            continue
+        if mention_has_required_suffix(message, command_text, config):
+            return None
+
+        user_id = get_message_author_id(message)
+        effect_id = str(effect.get("id") or effect.get("limited_effect_id") or "suffix_guard")
+        counter_key = "mention_suffix_guard:{0}:{1}".format(effect_id, user_id)
+        warn_every = max(1, get_config_int(config, ["warn_every"], 3))
+        warning_message = get_config_text(config, ["warning_message", "message"]) or "さんを付けろよ"
+        repository = CounterRepository(connection)
+        repository.ensure_counter(guild_id, counter_key, counter_key)
+        state = repository.increment(guild_id, counter_key, 1)
+        try:
+            connection.commit()
+        except Exception:
+            pass
+        current_value = int(state.get("current_value") or 0)
+        if current_value % warn_every == 0:
+            await message.channel.send(render_template(warning_message, build_template_values(message, command_text, {})))
+            return RuntimeAction(True, True)
+        return RuntimeAction(True, True)
+    return None
+
+
 def choose_weighted_choice_with_effects(
     connection,
     guild_id: str,
     choices: List[Dict[str, Any]],
     pending_effects: Optional[List[Dict[str, Any]]] = None,
 ) -> Optional[Dict[str, Any]]:
-    if not choices:
-        return None
-    pending = pending_effects or []
-    weighted = []
-    total = 0
-    for choice in choices:
-        choice_id = int(choice["id"])
-        multiplier = get_probability_multiplier_for_target(pending, "mention_reaction_choice", choice_id)
-        base_weight = max(1, int(choice.get("appearance_rate") or choice.get("weight") or 1))
-        weight = max(1, int(round(base_weight * multiplier)))
-        weighted.append((choice, weight))
-        total += weight
-    if total <= 0:
-        return choices[0]
-    roll = random.randint(1, total)
-    cursor = 0
-    for choice, weight in weighted:
-        cursor += weight
-        if roll <= cursor:
-            return choice
-    return weighted[-1][0]
+    return choose_weighted_row_with_effects(
+        choices,
+        "mention_reaction_choice",
+        pending_effects,
+        ["appearance_rate", "weight"],
+    )
 
 
 def choose_auto_match_with_effects(
@@ -790,6 +923,16 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
 
     repository = MentionReactionRepository(connection)
     limited_effects = list_limited_effects(connection, guild_id, message)
+    suffix_guard_result = await apply_mention_suffix_guards(
+        connection,
+        guild_id,
+        limited_effects,
+        message,
+        command_text,
+    )
+    if suffix_guard_result is not None:
+        return suffix_guard_result
+    command_text = normalize_command_after_mention_suffix_guard(limited_effects, message, command_text)
     pending_effects = pop_pending_next_effects(guild_id, message)
     search_matches = []
     for reaction in repository.list_reactions(guild_id, enabled=True, reaction_kind="search"):
@@ -817,10 +960,10 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
                 effect_result = await execute_effects(connection, guild_id, limited_effects, message, values)
                 count_changed = effect_result.count_changed
                 store_pending_next_effects(guild_id, message, effect_result.pending_effects)
-            return RuntimeAction(True, count_changed)
+            return RuntimeAction(True, count_changed, effect_result.pending_effects if limited_effects else [])
         effect_result = await execute_effects(connection, guild_id, limited_effects, message, values)
         store_pending_next_effects(guild_id, message, effect_result.pending_effects)
-        return RuntimeAction(bool(limited_effects), effect_result.count_changed)
+        return RuntimeAction(bool(limited_effects), effect_result.count_changed, effect_result.pending_effects)
 
     reactions = repository.list_reactions(guild_id, enabled=True, reaction_kind="random_draw")
     matches = []
@@ -860,7 +1003,7 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
     if effect_result.repeat_count:
         repeated = await repeat_text_image_action(message, text, image_path, emoji, effect_result.repeat_count)
         handled = handled or repeated
-    return RuntimeAction(handled or bool(effects), effect_result.count_changed)
+    return RuntimeAction(handled or bool(effects), effect_result.count_changed, effect_result.pending_effects)
 
 
 async def handle_db_mention(message: discord.Message, guild_id: str, connection) -> bool:
@@ -910,7 +1053,7 @@ async def process_db_auto_reaction(message: discord.Message, guild_id: str, conn
     if effect_result.repeat_count:
         repeated = await repeat_text_image_action(message, text, image_path, emoji, effect_result.repeat_count)
         sent = sent or repeated
-    return RuntimeAction(sent or bool(effects), effect_result.count_changed)
+    return RuntimeAction(sent or bool(effects), effect_result.count_changed, effect_result.pending_effects)
 
 
 async def handle_db_auto_reaction(message: discord.Message, guild_id: str, connection) -> bool:
@@ -1068,7 +1211,13 @@ def record_mode_period_trigger(connection, guild_id: str, mode: Dict[str, Any]) 
         )
 
 
-def trigger_condition_met(connection, guild_id: str, mode: Dict[str, Any], condition: Dict[str, Any]) -> bool:
+def trigger_condition_met(
+    connection,
+    guild_id: str,
+    mode: Dict[str, Any],
+    condition: Dict[str, Any],
+    pending_effects: Optional[List[Dict[str, Any]]] = None,
+) -> bool:
     condition_type = condition.get("condition_type")
     config = get_condition_config(condition)
     if condition_type == "counter_threshold":
@@ -1078,13 +1227,23 @@ def trigger_condition_met(connection, guild_id: str, mode: Dict[str, Any], condi
         value = CounterRepository(connection).get_value(guild_id, counter_key, 0)
         return compare_counter(value, config.get("operator", ">="), get_threshold_value(config))
     if condition_type == "probability":
-        return probability_hit(config)
+        multiplier = get_probability_multiplier_for_target(
+            pending_effects or [],
+            "mode_trigger_condition",
+            int(condition.get("id") or 0),
+        )
+        return probability_hit_with_multiplier(config, multiplier)
     if condition_type == "period_not_triggered":
         return period_not_triggered_met(connection, guild_id, mode, condition)
     return False
 
 
-def mode_triggers_met(connection, guild_id: str, mode: Dict[str, Any]) -> bool:
+def mode_triggers_met(
+    connection,
+    guild_id: str,
+    mode: Dict[str, Any],
+    pending_effects: Optional[List[Dict[str, Any]]] = None,
+) -> bool:
     repository = ModeRepository(connection)
     conditions = repository.list_trigger_conditions(guild_id, int(mode["id"]), enabled=True)
     actionable = [
@@ -1096,7 +1255,7 @@ def mode_triggers_met(connection, guild_id: str, mode: Dict[str, Any]) -> bool:
         return False
 
     operator = actionable[0].get("group_operator") or "AND"
-    results = [trigger_condition_met(connection, guild_id, mode, condition) for condition in actionable]
+    results = [trigger_condition_met(connection, guild_id, mode, condition, pending_effects) for condition in actionable]
     if operator == "OR":
         return any(results)
     return all(results)
@@ -1147,7 +1306,12 @@ async def send_mode_exit_message(message: discord.Message, mode: Dict[str, Any])
         await message.channel.send(SHIKOCCHI_RECOVERY_MESSAGE)
 
 
-async def enter_mode_if_needed(message: discord.Message, guild_id: str, connection) -> bool:
+async def enter_mode_if_needed(
+    message: discord.Message,
+    guild_id: str,
+    connection,
+    pending_effects: Optional[List[Dict[str, Any]]] = None,
+) -> bool:
     repository = ModeRepository(connection)
     state = repository.get_mode_state(guild_id)
     if state and state.get("current_mode_id"):
@@ -1155,7 +1319,7 @@ async def enter_mode_if_needed(message: discord.Message, guild_id: str, connecti
 
     for mode in repository.list_enabled_modes(guild_id):
         try:
-            if not mode_triggers_met(connection, guild_id, mode):
+            if not mode_triggers_met(connection, guild_id, mode, pending_effects):
                 continue
             duration = get_duration_seconds_from_exit(connection, guild_id, int(mode["id"]))
             active_until = utc_now() + timedelta(seconds=duration) if duration else None
@@ -1211,9 +1375,11 @@ async def handle_active_mode(message: discord.Message, guild_id: str, connection
     if behavior == "offline":
         return True
     if behavior == "reply":
+        pending_effects = pop_pending_next_effects(guild_id, message)
         choices = repository.list_reply_choices(guild_id, int(mode["id"]), enabled=True)
-        choice = choose_weighted_choice(choices)
+        choice = choose_weighted_row_with_effects(choices, "mode_reply_choice", pending_effects)
         if choice is None:
+            store_pending_next_effects(guild_id, message, pending_effects)
             return True
         values = build_template_values(message, message.content, {})
         await send_text_or_image(
@@ -1301,7 +1467,7 @@ async def handle_db_runtime_message(message: discord.Message) -> bool:
                 effect_result = await execute_effects(connection, guild_id, effects, message, values)
                 store_pending_next_effects(guild_id, message, effect_result.pending_effects)
                 connection.commit()
-                await enter_mode_if_needed(message, guild_id, connection)
+                await enter_mode_if_needed(message, guild_id, connection, effect_result.pending_effects)
                 print("[DEBUG] ignored by DB ng word")
                 return True
 
@@ -1311,7 +1477,7 @@ async def handle_db_runtime_message(message: discord.Message) -> bool:
             else:
                 action = await process_db_auto_reaction(message, guild_id, connection)
 
-            entered = await enter_mode_if_needed(message, guild_id, connection)
+            entered = await enter_mode_if_needed(message, guild_id, connection, action.pending_effects)
             connection.commit()
             return action.handled or entered or expired
     except Exception as exc:

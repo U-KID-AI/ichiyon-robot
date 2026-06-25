@@ -8,6 +8,7 @@ from bot.ng_words import contains_ng_word
 from bot.quotes import draw_quote_message
 from bot.reactions import handle_word_response
 from bot.services.auto_posts import run_db_auto_posts_once
+from bot.services.reaction_thresholds import handle_db_reaction_threshold
 from bot.services.runtime_db import get_message_guild_id, handle_db_runtime_message
 
 
@@ -49,11 +50,6 @@ async def handle_mention_message(message: discord.Message) -> bool:
 async def on_ready():
     print(f"Logged in as {bot.user}")
     print(f"APP_ENV={config.APP_ENV} ENABLE_DEV_COMMANDS={config.ENABLE_DEV_COMMANDS}")
-    print(
-        "NORMAL_BOT_NICKNAME="
-        f"{config.NORMAL_BOT_NICKNAME} BOT_ROLE_NAME={config.BOT_ROLE_NAME} "
-        f"HAYUSU_BOT_NICKNAME={config.HAYUSU_BOT_NICKNAME}"
-    )
 
     await messages.sync_bot_identity_for_all_guilds()
 
@@ -98,6 +94,13 @@ async def db_auto_post_task():
 @db_auto_post_task.before_loop
 async def before_db_auto_post_task():
     await bot.wait_until_ready()
+
+
+@bot.event
+async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
+    if config.DATA_BACKEND != "db":
+        return
+    await handle_db_reaction_threshold(payload, bot)
 
 
 @bot.event
