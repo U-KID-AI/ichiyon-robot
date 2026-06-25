@@ -8,7 +8,7 @@ from fastapi.templating import Jinja2Templates
 from admin.auth import get_current_user
 from admin.servers import can_access_guild, find_server, role_allows
 from bot.db import get_connection
-from bot.repositories import ReactionThresholdRepository
+from bot.repositories import MentionReactionRepository, ReactionThresholdRepository
 
 
 router = APIRouter()
@@ -16,8 +16,10 @@ router = APIRouter()
 
 DEFAULT_CONFIG = {
     "enabled": True,
-    "threshold": 5,
-    "reply_message": "同じリアクションが{threshold}個ついた",
+    "threshold": 2,
+    "reply_source_type": "mention_reaction",
+    "reply_reaction_key": "quote",
+    "reply_message": "リアクションが集まってるな",
     "allowed_channel_ids": [],
     "ignored_channel_ids": [],
     "target_emojis": [],
@@ -26,17 +28,61 @@ DEFAULT_CONFIG = {
 }
 
 
-def parse_config_json(value: str) -> Dict[str, Any]:
-    if not value.strip():
+def split_lines(value: str) -> list:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [item.strip() for item in (value or "").replace(",", "\n").splitlines() if item.strip()]
+
+
+def with_defaults(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if config is None:
         return dict(DEFAULT_CONFIG)
-    parsed = json.loads(value)
-    if not isinstance(parsed, dict):
-        raise ValueError("config must be object")
-    return parsed
+    has_source_type = "reply_source_type" in config
+    merged = dict(DEFAULT_CONFIG)
+    merged.update(config)
+    if not has_source_type or not merged.get("reply_source_type"):
+        merged["reply_source_type"] = "fixed"
+    return merged
 
 
 def config_text(config: Dict[str, Any]) -> str:
-    return json.dumps(config or DEFAULT_CONFIG, ensure_ascii=False, indent=2)
+    return json.dumps(with_defaults(config), ensure_ascii=False, indent=2)
+
+
+def build_rule_config(
+    threshold: str,
+    reply_source_type: str,
+    reply_reaction_key: str,
+    reply_message: str,
+    allowed_channel_ids: str,
+    ignored_channel_ids: str,
+    target_emojis: str,
+    ignored_emojis: str,
+    once_per_message_emoji: Optional[str],
+    extra_config_json: str,
+) -> Dict[str, Any]:
+    config = dict(DEFAULT_CONFIG)
+    if extra_config_json.strip():
+        parsed = json.loads(extra_config_json)
+        if not isinstance(parsed, dict):
+            raise ValueError("extra config must be object")
+        config.update(parsed)
+    config.update(
+        {
+            "threshold": int(threshold),
+            "reply_source_type": reply_source_type if reply_source_type in ("fixed", "mention_reaction") else "fixed",
+            "reply_reaction_key": reply_reaction_key.strip(),
+            "reply_message": reply_message.strip(),
+            "allowed_channel_ids": split_lines(allowed_channel_ids),
+            "ignored_channel_ids": split_lines(ignored_channel_ids),
+            "target_emojis": split_lines(target_emojis),
+            "ignored_emojis": split_lines(ignored_emojis),
+            "once_per_message_emoji": once_per_message_emoji == "on",
+        }
+    )
+    if int(config["threshold"]) < 1:
+        raise ValueError("threshold must be positive")
+    return config
 
 
 def register_reaction_threshold_routes(templates: Jinja2Templates) -> None:
@@ -72,9 +118,34 @@ def register_reaction_threshold_routes(templates: Jinja2Templates) -> None:
         guild_id: str,
         name: str = Form(...),
         enabled: Optional[str] = Form(None),
-        config_json: str = Form(""),
+        threshold: str = Form("2"),
+        reply_source_type: str = Form("mention_reaction"),
+        reply_reaction_key: str = Form("quote"),
+        reply_message: str = Form(""),
+        allowed_channel_ids: str = Form(""),
+        ignored_channel_ids: str = Form(""),
+        target_emojis: str = Form(""),
+        ignored_emojis: str = Form(""),
+        once_per_message_emoji: Optional[str] = Form(None),
+        extra_config_json: str = Form(""),
     ):
-        return await save_rule(request, guild_id, None, name, enabled, config_json)
+        return await save_rule(
+            request,
+            guild_id,
+            None,
+            name,
+            enabled,
+            threshold,
+            reply_source_type,
+            reply_reaction_key,
+            reply_message,
+            allowed_channel_ids,
+            ignored_channel_ids,
+            target_emojis,
+            ignored_emojis,
+            once_per_message_emoji,
+            extra_config_json,
+        )
 
     @router.get("/guilds/{guild_id}/reaction-thresholds/{rule_id}")
     async def edit_rule(request: Request, guild_id: str, rule_id: int):
@@ -89,9 +160,34 @@ def register_reaction_threshold_routes(templates: Jinja2Templates) -> None:
         rule_id: int,
         name: str = Form(...),
         enabled: Optional[str] = Form(None),
-        config_json: str = Form(""),
+        threshold: str = Form("2"),
+        reply_source_type: str = Form("mention_reaction"),
+        reply_reaction_key: str = Form("quote"),
+        reply_message: str = Form(""),
+        allowed_channel_ids: str = Form(""),
+        ignored_channel_ids: str = Form(""),
+        target_emojis: str = Form(""),
+        ignored_emojis: str = Form(""),
+        once_per_message_emoji: Optional[str] = Form(None),
+        extra_config_json: str = Form(""),
     ):
-        return await save_rule(request, guild_id, rule_id, name, enabled, config_json)
+        return await save_rule(
+            request,
+            guild_id,
+            rule_id,
+            name,
+            enabled,
+            threshold,
+            reply_source_type,
+            reply_reaction_key,
+            reply_message,
+            allowed_channel_ids,
+            ignored_channel_ids,
+            target_emojis,
+            ignored_emojis,
+            once_per_message_emoji,
+            extra_config_json,
+        )
 
     @router.post("/guilds/{guild_id}/reaction-thresholds/{rule_id}/delete")
     async def delete_rule(request: Request, guild_id: str, rule_id: int):
@@ -112,6 +208,9 @@ def register_reaction_threshold_routes(templates: Jinja2Templates) -> None:
         if rule_id is not None and rule is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="reaction threshold rule not found")
         data = rule or {"name": "", "enabled": True, "config_json": DEFAULT_CONFIG}
+        config = with_defaults(data.get("config_json") or DEFAULT_CONFIG)
+        with get_connection() as connection:
+            mention_reactions = MentionReactionRepository(connection).list_reactions(guild_id, enabled=True, reaction_kind="random_draw")
         return templates.TemplateResponse(
             request,
             "reaction_threshold_form.html",
@@ -121,7 +220,13 @@ def register_reaction_threshold_routes(templates: Jinja2Templates) -> None:
                 "guild_id": guild_id,
                 "rule_id": rule_id,
                 "rule": data,
-                "config_text": config_text(data.get("config_json") or DEFAULT_CONFIG),
+                "config": config,
+                "allowed_channel_ids": "\n".join(split_lines(config.get("allowed_channel_ids"))),
+                "ignored_channel_ids": "\n".join(split_lines(config.get("ignored_channel_ids"))),
+                "target_emojis": "\n".join(split_lines(config.get("target_emojis"))),
+                "ignored_emojis": "\n".join(split_lines(config.get("ignored_emojis"))),
+                "config_text": config_text(config),
+                "mention_reactions": mention_reactions,
                 "can_edit": can_edit,
                 "error": error,
             },
@@ -144,18 +249,38 @@ def register_reaction_threshold_routes(templates: Jinja2Templates) -> None:
         rule_id: Optional[int],
         name: str,
         enabled: Optional[str],
-        config_json: str,
+        threshold: str,
+        reply_source_type: str,
+        reply_reaction_key: str,
+        reply_message: str,
+        allowed_channel_ids: str,
+        ignored_channel_ids: str,
+        target_emojis: str,
+        ignored_emojis: str,
+        once_per_message_emoji: Optional[str],
+        extra_config_json: str,
     ):
         require_editor(request, guild_id)
         try:
-            parsed = parse_config_json(config_json)
+            parsed = build_rule_config(
+                threshold,
+                reply_source_type,
+                reply_reaction_key,
+                reply_message,
+                allowed_channel_ids,
+                ignored_channel_ids,
+                target_emojis,
+                ignored_emojis,
+                once_per_message_emoji,
+                extra_config_json,
+            )
         except ValueError as exc:
             return await render_form(
                 request,
                 guild_id,
                 rule_id,
                 {"id": rule_id, "name": name, "enabled": enabled == "on", "config_json": DEFAULT_CONFIG},
-                "詳細設定のJSONが不正。",
+                "入力内容が不正。",
             )
         with get_connection() as connection:
             repository = ReactionThresholdRepository(connection)

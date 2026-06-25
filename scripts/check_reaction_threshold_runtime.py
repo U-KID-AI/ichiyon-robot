@@ -68,6 +68,23 @@ class FakeReactionThresholdRepository:
         return True
 
 
+class FakeMentionReactionRepository:
+    reactions: Dict[str, Dict[str, Any]] = {}
+    choices: Dict[int, List[Dict[str, Any]]] = {}
+
+    def __init__(self, connection) -> None:
+        pass
+
+    def get_by_key(self, guild_id: str, reaction_key: str):
+        return self.reactions.get(reaction_key)
+
+    def list_choices(self, guild_id: str, mention_reaction_id: int, enabled: Optional[bool] = None):
+        rows = list(self.choices.get(mention_reaction_id, []))
+        if enabled is None:
+            return rows
+        return [row for row in rows if bool(row.get("enabled", True)) == enabled]
+
+
 class FakeMessage:
     def __init__(self, count: int, emoji: str = "🍒", author_bot: bool = False) -> None:
         self.content = "hello"
@@ -114,13 +131,27 @@ async def run_checks() -> int:
     old = {
         "get_connection": runtime.get_connection,
         "repo": runtime.ReactionThresholdRepository,
+        "mention_repo": runtime.MentionReactionRepository,
         "flags": runtime.FeatureFlagRepository,
     }
     runtime.get_connection = lambda: FakeConnection()
     runtime.ReactionThresholdRepository = FakeReactionThresholdRepository
+    runtime.MentionReactionRepository = FakeMentionReactionRepository
     runtime.FeatureFlagRepository = FakeFeatureFlagRepository
     try:
         FakeReactionThresholdRepository.events = set()
+        FakeMentionReactionRepository.reactions = {
+            "quotes": {"id": 100, "reaction_key": "quotes", "enabled": True},
+            "disabled": {"id": 101, "reaction_key": "disabled", "enabled": False},
+        }
+        FakeMentionReactionRepository.choices = {
+            100: [
+                {"id": 1000, "body": "quote reply", "appearance_rate": 1, "enabled": True},
+            ],
+            101: [
+                {"id": 1001, "body": "disabled reply", "appearance_rate": 1, "enabled": True},
+            ],
+        }
         message = FakeMessage(4)
         handled = await run_case(message, {"threshold": 5, "reply_message": "5つ"})
         check.add("less than threshold does not reply", handled is False and message.replies == [], str(message.replies))
@@ -144,9 +175,49 @@ async def run_checks() -> int:
         message = FakeMessage(5)
         handled = await run_case(message, {"threshold": 5, "reply_message": "ignored", "ignored_channel_ids": ["10"]}, channel_id=10, message_id=31)
         check.add("ignored channel blocks channel", handled is False and message.replies == [], str(message.replies))
+
+        message = FakeMessage(2)
+        handled = await run_case(
+            message,
+            {
+                "threshold": 2,
+                "reply_source_type": "mention_reaction",
+                "reply_reaction_key": "quote",
+                "reply_message": "fallback",
+            },
+            message_id=40,
+        )
+        check.add("mention reaction source replies from quote dataset", handled is True and message.replies == ["quote reply"], str(message.replies))
+
+        message = FakeMessage(2)
+        handled = await run_case(
+            message,
+            {
+                "threshold": 2,
+                "reply_source_type": "mention_reaction",
+                "reply_reaction_key": "missing",
+                "reply_message": "fallback",
+            },
+            message_id=41,
+        )
+        check.add("missing mention reaction source falls back to fixed reply", handled is True and message.replies == ["fallback"], str(message.replies))
+
+        message = FakeMessage(2)
+        handled = await run_case(
+            message,
+            {
+                "threshold": 2,
+                "reply_source_type": "mention_reaction",
+                "reply_reaction_key": "missing",
+                "reply_message": "",
+            },
+            message_id=42,
+        )
+        check.add("missing source without fallback is safe no-op", handled is False and message.replies == [], str(message.replies))
     finally:
         runtime.get_connection = old["get_connection"]
         runtime.ReactionThresholdRepository = old["repo"]
+        runtime.MentionReactionRepository = old["mention_repo"]
         runtime.FeatureFlagRepository = old["flags"]
     return check.finish()
 

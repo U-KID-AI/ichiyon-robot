@@ -24,10 +24,60 @@
       <input type="checkbox" name="enabled" {% if rule.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
       有効
     </label>
-    <label>詳細設定
-      <textarea name="config_json" rows="14" {% if not can_edit %}disabled{% endif %}>{{ config_text }}</textarea>
+    <label>しきい値
+      <input type="number" min="1" name="threshold" value="{{ config.threshold or 2 }}" {% if not can_edit %}disabled{% endif %}>
     </label>
-    <p class="muted">使える項目: enabled / threshold / reply_message / allowed_channel_ids / ignored_channel_ids / target_emojis / ignored_emojis / once_per_message_emoji</p>
+
+    <label>返信元
+      <select name="reply_source_type" {% if not can_edit %}disabled{% endif %}>
+        <option value="fixed" {% if config.reply_source_type == "fixed" %}selected{% endif %}>固定文</option>
+        <option value="mention_reaction" {% if config.reply_source_type == "mention_reaction" %}selected{% endif %}>メンション反応</option>
+      </select>
+    </label>
+
+    <label>メンション反応
+      <select name="reply_reaction_key" {% if not can_edit %}disabled{% endif %}>
+        <option value="">選択なし</option>
+        {% for reaction in mention_reactions %}
+          <option value="{{ reaction.reaction_key }}" {% if config.reply_reaction_key == reaction.reaction_key or (config.reply_reaction_key == "quote" and reaction.reaction_key == "quotes") or (config.reply_reaction_key == "quotes" and reaction.reaction_key == "quote") %}selected{% endif %}>
+            {{ reaction.name }} / {{ reaction.reaction_key }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>固定文・予備文
+      <textarea name="reply_message" rows="3" {% if not can_edit %}disabled{% endif %}>{{ config.reply_message or '' }}</textarea>
+    </label>
+
+    <details>
+      <summary>条件</summary>
+      <label>対象チャンネルID
+        <textarea name="allowed_channel_ids" rows="3" placeholder="1行に1つ" {% if not can_edit %}disabled{% endif %}>{{ allowed_channel_ids }}</textarea>
+      </label>
+      <label>除外チャンネルID
+        <textarea name="ignored_channel_ids" rows="3" placeholder="1行に1つ" {% if not can_edit %}disabled{% endif %}>{{ ignored_channel_ids }}</textarea>
+      </label>
+      <label>対象絵文字
+        <textarea name="target_emojis" rows="3" placeholder="🍒 または <:name:id>" {% if not can_edit %}disabled{% endif %}>{{ target_emojis }}</textarea>
+      </label>
+      <label>除外絵文字
+        <textarea name="ignored_emojis" rows="3" placeholder="1行に1つ" {% if not can_edit %}disabled{% endif %}>{{ ignored_emojis }}</textarea>
+      </label>
+      <label class="check-row">
+        <input type="checkbox" name="once_per_message_emoji" {% if config.once_per_message_emoji %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+        同じメッセージと絵文字では1回だけ
+      </label>
+    </details>
+
+    <details>
+      <summary>詳細設定</summary>
+      <p class="muted">追加のJSON設定。通常は空でOK。</p>
+      <textarea name="extra_config_json" rows="8" {% if not can_edit %}disabled{% endif %}>{{ config_text }}</textarea>
+      <p class="muted">現在の設定:</p>
+      <pre class="code-block">{{ config_text }}</pre>
+    </details>
+
     {% if can_edit %}
       <button type="submit">保存</button>
     {% else %}

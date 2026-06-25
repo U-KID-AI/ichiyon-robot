@@ -51,8 +51,10 @@ DB:
 ```json
 {
   "enabled": true,
-  "threshold": 5,
-  "reply_message": "同じリアクションが{threshold}個ついた",
+  "threshold": 2,
+  "reply_source_type": "mention_reaction",
+  "reply_reaction_key": "quote",
+  "reply_message": "リアクションが集まってるな",
   "allowed_channel_ids": [],
   "ignored_channel_ids": [],
   "target_emojis": [],
@@ -60,6 +62,11 @@ DB:
   "once_per_message_emoji": true
 }
 ```
+
+`reply_source_type=fixed` の時は `reply_message` を返す。
+`reply_source_type=mention_reaction` の時は `reply_reaction_key` のメンション反応候補から重み付きで1件選ぶ。
+`reply_reaction_key=quote` は、環境によって `quotes` キーの名言枠にもフォールバックする。
+返信元が見つからない時は `reply_message` へfallbackし、どちらも空なら何もしない。
 
 `once_per_message_emoji=true` の時、同じ `message_id + emoji + threshold` では二重返信しない。
 
