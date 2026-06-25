@@ -33,8 +33,7 @@ async def handle_developer_command(
         return False
 
     if not is_dev_command_allowed(message):
-        print("dev command blocked")
-        return True
+        return False
 
     if "はゆす終了テスト" in command_text:
         print("[DEBUG] hayusu exit test command detected")

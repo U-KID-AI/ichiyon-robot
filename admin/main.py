@@ -27,6 +27,10 @@ from admin.mention_limited_effects import (
 )
 from admin.modes import register_mode_routes, router as mode_router
 from admin.ng_words_db import register_ng_word_routes, router as ng_word_router
+from admin.reaction_thresholds import (
+    register_reaction_threshold_routes,
+    router as reaction_threshold_router,
+)
 from admin.servers import register_server_routes, router as server_router
 from admin.special_effects import (
     register_special_effect_routes,
@@ -66,6 +70,7 @@ register_auto_reaction_routes(templates)
 register_ng_word_routes(templates)
 register_mode_routes(templates)
 register_auto_post_routes(templates)
+register_reaction_threshold_routes(templates)
 app.include_router(auth_router)
 app.include_router(server_router)
 app.include_router(mention_limited_effect_router)
@@ -75,6 +80,7 @@ app.include_router(auto_reaction_router)
 app.include_router(ng_word_router)
 app.include_router(mode_router)
 app.include_router(auto_post_router)
+app.include_router(reaction_threshold_router)
 
 
 LEGACY_JSON_PATHS = ("/quotes", "/reactions", "/ng-words", "/kuji")

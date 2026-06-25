@@ -1,0 +1,44 @@
+{% extends "layout.html" %}
+{% block content %}
+<section class="page-section">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">リアクション返信</p>
+      <h1>{{ "ルールを編集" if rule_id else "ルールを追加" }}</h1>
+      <p class="muted">同じ絵文字が一定数ついた時に返信。</p>
+    </div>
+    <div class="action-row">
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}/reaction-thresholds">一覧へ戻る</a>
+    </div>
+  </div>
+
+  {% if error %}
+    <div class="alert error">{{ error }}</div>
+  {% endif %}
+
+  <form class="stack-form" method="post">
+    <label>名前
+      <input type="text" name="name" value="{{ rule.name or '' }}" required {% if not can_edit %}disabled{% endif %}>
+    </label>
+    <label class="check-row">
+      <input type="checkbox" name="enabled" {% if rule.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+      有効
+    </label>
+    <label>詳細設定
+      <textarea name="config_json" rows="14" {% if not can_edit %}disabled{% endif %}>{{ config_text }}</textarea>
+    </label>
+    <p class="muted">使える項目: enabled / threshold / reply_message / allowed_channel_ids / ignored_channel_ids / target_emojis / ignored_emojis / once_per_message_emoji</p>
+    {% if can_edit %}
+      <button type="submit">保存</button>
+    {% else %}
+      <p class="muted">閲覧のみ。</p>
+    {% endif %}
+  </form>
+
+  {% if rule_id and can_edit %}
+    <form method="post" action="/guilds/{{ guild_id }}/reaction-thresholds/{{ rule_id }}/delete" data-confirm="このルールを削除する？">
+      <button class="danger" type="submit">削除</button>
+    </form>
+  {% endif %}
+</section>
+{% endblock %}

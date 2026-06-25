@@ -183,19 +183,20 @@ def base_config() -> Dict[str, Any]:
         "search_type": "deck_search",
         "allowed_channel_ids": ["123"],
         "max_results": 3,
-        "x_search_max_results": 100,
+        "x_search_max_results": 50,
         "deny_message": "このチャンネルではデッキ検索は使えません。",
         "not_found_message": "おい ないんだが",
         "missing_format_behavior": "ask_format",
         "cache_ttl_seconds": 0,
         "request_timeout_seconds": 1,
-        "image_scan_limit": 80,
-        "image_scan_concurrency": 5,
+        "image_scan_limit": 30,
+        "image_scan_concurrency": 2,
         "stop_after_candidates": True,
         "image_fetch_timeout_seconds": 5,
         "high_accuracy_enabled": True,
+        "high_accuracy_x_search_max_results": 100,
         "high_accuracy_image_scan_limit": 100,
-        "high_accuracy_image_scan_concurrency": 1,
+        "high_accuracy_image_scan_concurrency": 2,
         "high_accuracy_stop_after_candidates": False,
         "excluded_keywords": ["ドラゴンボール", "レジェンズ", "探索コード", "フレンドコード"],
     }
@@ -558,6 +559,7 @@ async def check_high_accuracy_mode(check: Check) -> None:
     captured = {}
 
     async def fake_search_posts(query, max_results, timeout_seconds, search_mode, lookback_days):
+        captured["x_search_max_results"] = max_results
         return [
             XPost(
                 post_id="ha1",
@@ -594,9 +596,65 @@ async def check_high_accuracy_mode(check: Check) -> None:
         check.add("high accuracy still enters deck search", response == "おい ないんだが", response)
         check.add("high accuracy flag reaches request", captured.get("request_high_accuracy") is True, str(captured))
         check.add("high accuracy disables early stop", captured.get("stop_after_candidates") is False, str(captured))
+        check.add("high accuracy uses configured x result limit", captured.get("x_search_max_results") == 100, str(captured))
         check.add("high accuracy uses configured scan limit", captured.get("image_scan_limit") == 100, str(captured))
-        check.add("high accuracy uses configured concurrency", captured.get("image_scan_concurrency") == 1, str(captured))
+        check.add("high accuracy uses configured concurrency", captured.get("image_scan_concurrency") == 2, str(captured))
         check.add("high accuracy appears in stats", captured.get("stats_high_accuracy") is True, str(captured))
+    finally:
+        deck_search.search_posts = original_search
+        deck_search.scan_posts_concurrently = original_scan_posts
+        deck_search.opencv_available = original_opencv
+        config.X_SEARCH_ENABLED = disabled_before
+        config.X_BEARER_TOKEN = token_before
+
+
+async def check_lightweight_normal_search_settings(check: Check) -> None:
+    captured = {}
+    disabled_before = config.X_SEARCH_ENABLED
+    token_before = config.X_BEARER_TOKEN
+    original_search = deck_search.search_posts
+    original_scan_posts = deck_search.scan_posts_concurrently
+    original_opencv = deck_search.opencv_available
+
+    async def fake_search_posts(query, max_results, timeout_seconds, search_mode, lookback_days):
+        captured["x_search_max_results"] = max_results
+        return [
+            XPost(
+                post_id="normal1",
+                text="deck search QR",
+                created_at="2026-06-20T00:00:00Z",
+                media=[XMedia(media_key="normal1", url="https://example.test/normal.jpg", type="photo")],
+            )
+        ]
+
+    async def fake_scan_posts_concurrently(
+        posts,
+        request,
+        max_results,
+        image_scan_limit,
+        image_fetch_timeout_seconds,
+        image_scan_concurrency,
+        stop_after_candidates,
+        stats,
+    ):
+        captured["request_high_accuracy"] = request.high_accuracy
+        captured["image_scan_limit"] = image_scan_limit
+        captured["image_scan_concurrency"] = image_scan_concurrency
+        captured["stop_after_candidates"] = stop_after_candidates
+        return []
+
+    try:
+        deck_search.search_posts = fake_search_posts
+        deck_search.scan_posts_concurrently = fake_scan_posts_concurrently
+        deck_search.opencv_available = lambda: True
+        config.X_SEARCH_ENABLED = True
+        config.X_BEARER_TOKEN = "dummy"
+        await search_decks("g", "123", "\u30c7\u30c3\u30ad \u30a8\u30eb\u30d5", base_config())
+        check.add("normal search uses lightweight x result limit", captured.get("x_search_max_results") == 50, str(captured))
+        check.add("normal search uses lightweight image scan limit", captured.get("image_scan_limit") == 30, str(captured))
+        check.add("normal search uses lightweight concurrency", captured.get("image_scan_concurrency") == 2, str(captured))
+        check.add("normal search stops after candidates", captured.get("stop_after_candidates") is True, str(captured))
+        check.add("normal search is not high accuracy", captured.get("request_high_accuracy") is False, str(captured))
     finally:
         deck_search.search_posts = original_search
         deck_search.scan_posts_concurrently = original_scan_posts
@@ -761,6 +819,7 @@ def main() -> None:
     asyncio.run(check_search_flow(check))
     asyncio.run(check_full_archive_error(check))
     asyncio.run(check_high_accuracy_mode(check))
+    asyncio.run(check_lightweight_normal_search_settings(check))
     asyncio.run(check_parallel_scan(check))
     asyncio.run(check_image_fetch_failure(check))
     asyncio.run(check_runtime_path(check))
