@@ -561,7 +561,7 @@ def get_probability_multiplier_for_target(
 def mention_has_required_suffix(message: discord.Message, command_text: str, config: Dict[str, Any]) -> bool:
     suffix = get_config_text(config, ["required_suffix", "suffix"]) or "さん"
     normalized_command = normalize_command_text(command_text)
-    if normalized_command.startswith(suffix):
+    if normalized_command == suffix or normalized_command.startswith("{0} ".format(suffix)):
         return True
 
     content = getattr(message, "content", "") or ""
@@ -582,6 +582,17 @@ def mention_has_required_suffix(message: discord.Message, command_text: str, con
     return False
 
 
+def strip_required_suffix_from_command_text(command_text: str, config: Dict[str, Any]) -> str:
+    suffix = get_config_text(config, ["required_suffix", "suffix"]) or "さん"
+    normalized_command = normalize_command_text(command_text)
+    if normalized_command == suffix:
+        return ""
+    prefix = "{0} ".format(suffix)
+    if normalized_command.startswith(prefix):
+        return normalized_command[len(prefix):].strip()
+    return command_text
+
+
 def mention_suffix_guard_applies(effect: Dict[str, Any], config: Dict[str, Any], message: discord.Message) -> bool:
     if effect.get("effect_type") != "mention_suffix_guard":
         return False
@@ -591,6 +602,20 @@ def mention_suffix_guard_applies(effect: Dict[str, Any], config: Dict[str, Any],
     if target_user_ids and get_message_author_id(message) not in target_user_ids:
         return False
     return True
+
+
+def normalize_command_after_mention_suffix_guard(
+    effects: List[Dict[str, Any]],
+    message: discord.Message,
+    command_text: str,
+) -> str:
+    for effect in effects:
+        config = normalize_json(effect.get("effect_config_json"))
+        if not mention_suffix_guard_applies(effect, config, message):
+            continue
+        if mention_has_required_suffix(message, command_text, config):
+            return strip_required_suffix_from_command_text(command_text, config)
+    return command_text
 
 
 async def apply_mention_suffix_guards(
@@ -907,6 +932,7 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
     )
     if suffix_guard_result is not None:
         return suffix_guard_result
+    command_text = normalize_command_after_mention_suffix_guard(limited_effects, message, command_text)
     pending_effects = pop_pending_next_effects(guild_id, message)
     search_matches = []
     for reaction in repository.list_reactions(guild_id, enabled=True, reaction_kind="search"):

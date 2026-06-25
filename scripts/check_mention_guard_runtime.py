@@ -75,19 +75,49 @@ class FakeMentionReactionRepository:
             {
                 "id": 1,
                 "reaction_key": "quote",
+                "keyword": "名言",
+                "match_type": "exact",
+                "reaction_kind": "random_draw",
+                "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+            },
+            {
+                "id": 2,
+                "reaction_key": "omikuji",
+                "keyword": "おみくじ",
+                "match_type": "exact",
+                "reaction_kind": "random_draw",
+                "created_at": datetime(2026, 1, 2, tzinfo=timezone.utc),
+            },
+            {
+                "id": 3,
+                "reaction_key": "kuji",
+                "keyword": "くじ",
+                "match_type": "exact",
+                "reaction_kind": "random_draw",
+                "created_at": datetime(2026, 1, 3, tzinfo=timezone.utc),
+            },
+            {
+                "id": 4,
+                "reaction_key": "fallback",
                 "keyword": "",
                 "match_type": "prefix",
                 "reaction_kind": "random_draw",
-                "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+                "created_at": datetime(2026, 1, 4, tzinfo=timezone.utc),
             }
         ]
 
     def list_choices(self, guild_id: str, mention_reaction_id: int, enabled=None):
+        body_by_id = {
+            1: "名言結果",
+            2: "おみくじ結果",
+            3: "くじ結果",
+            4: "通常反応",
+        }
         return [
             {
                 "id": 10,
                 "name": "quote",
-                "body": "通常反応",
+                "body": body_by_id.get(mention_reaction_id, "通常反応"),
                 "image_path": "",
                 "appearance_rate": 1,
                 "enabled": True,
@@ -141,20 +171,32 @@ async def run_checks() -> int:
         runtime_db.list_limited_effects = lambda connection, guild_id, message: [guard_effect()]
         FakeCounterRepository.values = {}
         for index in range(1, 4):
-            message = FakeMessage("<@999> 名言", 1290338867685363764)
+            message = FakeMessage("<@999> おみくじ", 1290338867685363764)
             action = await runtime_db.process_db_mention(message, "111", FakeConnection())
             if index < 3:
                 check.add("guard blocks mention without suffix {0}".format(index), action.handled and message.channel.sent == [], str(message.channel.sent))
             else:
                 check.add("guard warns every third mention", action.handled and message.channel.sent == ["さんを付けろよ"], str(message.channel.sent))
 
+        message = FakeMessage("<@999> さん おみくじ", 1290338867685363764)
+        action = await runtime_db.process_db_mention(message, "111", FakeConnection())
+        check.add("guard strips suffix before omikuji", action.handled and message.channel.sent == ["おみくじ結果"], str(message.channel.sent))
+
+        message = FakeMessage("<@999>さん おみくじ", 1290338867685363764)
+        action = await runtime_db.process_db_mention(message, "111", FakeConnection())
+        check.add("guard strips suffix without space after mention", action.handled and message.channel.sent == ["おみくじ結果"], str(message.channel.sent))
+
+        message = FakeMessage("<@999> さん くじ", 1290338867685363764)
+        action = await runtime_db.process_db_mention(message, "111", FakeConnection())
+        check.add("guard strips suffix before kuji", action.handled and message.channel.sent == ["くじ結果"], str(message.channel.sent))
+
         message = FakeMessage("<@999> さん 名言", 1290338867685363764)
         action = await runtime_db.process_db_mention(message, "111", FakeConnection())
-        check.add("guard allows mention with suffix", action.handled and message.channel.sent == ["通常反応"], str(message.channel.sent))
+        check.add("guard strips suffix before quote", action.handled and message.channel.sent == ["名言結果"], str(message.channel.sent))
 
-        message = FakeMessage("<@999> 名言", 222)
+        message = FakeMessage("<@999> おみくじ", 222)
         action = await runtime_db.process_db_mention(message, "111", FakeConnection())
-        check.add("guard does not affect other users", action.handled and message.channel.sent == ["通常反応"], str(message.channel.sent))
+        check.add("guard does not affect other users", action.handled and message.channel.sent == ["おみくじ結果"], str(message.channel.sent))
 
         runtime_db.list_limited_effects = lambda connection, guild_id, message: []
         message = FakeMessage("<@999> テスト 名言", 1290338867685363764)
