@@ -5,3 +5,6 @@ uvicorn[standard]
 jinja2
 python-multipart
 Pillow
+psycopg[binary]
+httpx
+itsdangerous

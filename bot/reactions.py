@@ -1,9 +1,23 @@
-from typing import Dict, List
+import random
+from typing import Dict, List, Optional
 
 import discord
 
 from bot.data_store import load_json_file
 from bot.messages import send_text_or_image
+
+
+def normalize_priority(value) -> int:
+    if isinstance(value, int) and value >= 1:
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = int(value)
+        except ValueError:
+            return 1
+        if parsed >= 1:
+            return parsed
+    return 1
 
 
 def load_reactions() -> List[Dict]:
@@ -23,6 +37,7 @@ def load_reactions() -> List[Dict]:
         trigger = reaction.get("trigger")
         response = reaction.get("response", "")
         image_path = reaction.get("image_path", "")
+        priority = normalize_priority(reaction.get("priority", 1))
         match_type = reaction.get("match_type")
         enabled = reaction.get("enabled")
         if (
@@ -33,18 +48,46 @@ def load_reactions() -> List[Dict]:
             and enabled is True
             and (response or image_path)
         ):
-            normalized_reactions.append(reaction)
+            normalized_reactions.append(
+                {
+                    "id": reaction.get("id", ""),
+                    "trigger": trigger,
+                    "response": response,
+                    "image_path": image_path,
+                    "match_type": match_type,
+                    "priority": priority,
+                    "enabled": enabled,
+                }
+            )
 
     return normalized_reactions
 
 
-async def handle_word_response(message: discord.Message) -> bool:
-    for reaction in load_reactions():
-        if reaction["trigger"] in message.content:
-            return await send_text_or_image(
-                message.channel,
-                reaction.get("response", ""),
-                reaction.get("image_path", ""),
-            )
+def select_reaction_for_content(content: str) -> Optional[Dict]:
+    matched_reactions = [
+        reaction
+        for reaction in load_reactions()
+        if reaction["trigger"] in content
+    ]
+    if not matched_reactions:
+        return None
 
-    return False
+    max_priority = max(reaction.get("priority", 1) for reaction in matched_reactions)
+    candidates = [
+        reaction
+        for reaction in matched_reactions
+        if reaction.get("priority", 1) == max_priority
+    ]
+    return random.choice(candidates)
+
+
+async def handle_word_response(message: discord.Message) -> bool:
+    reaction = select_reaction_for_content(message.content)
+    if reaction is None:
+        return False
+
+    return await send_text_or_image(
+        message.channel,
+        reaction.get("response", ""),
+        reaction.get("image_path", ""),
+    )

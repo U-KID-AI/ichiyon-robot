@@ -1,0 +1,171 @@
+{% extends "layout.html" %}
+
+{% block title %}自動反応 - いちよんロボ管理画面{% endblock %}
+{% block heading %}自動反応{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="server-summary page-summary">
+      {% if server.icon_url %}
+        <img class="server-icon" src="{{ server.icon_url }}" alt="">
+      {% else %}
+        <div class="server-icon placeholder"></div>
+      {% endif %}
+      <div>
+        <h2>{{ server.name }}</h2>
+        <p class="empty">特定の言葉に自動で返答。</p>
+        {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
+      </div>
+    </div>
+    <div class="page-actions">
+      <a class="button-link secondary" href="/servers">サーバー選択へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+      {% if can_create %}
+        <a class="button-link" href="/guilds/{{ guild_id }}/auto-reactions/new">+ 自動反応を追加</a>
+      {% else %}
+        <button type="button" disabled>+ 自動反応を追加</button>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>検索・絞り込み</h2>
+    <form class="filter-form" method="get" action="/guilds/{{ guild_id }}/auto-reactions">
+      <label>キーワード<input type="search" name="q" value="{{ filters.q }}" placeholder="呼び出しワード、返答で検索"></label>
+      <label>
+        状態
+        <select name="enabled">
+          <option value="all" {% if filters.enabled == "all" %}selected{% endif %}>すべて</option>
+          <option value="true" {% if filters.enabled == "true" %}selected{% endif %}>有効</option>
+          <option value="false" {% if filters.enabled == "false" %}selected{% endif %}>無効</option>
+        </select>
+      </label>
+      <label>
+        画像
+        <select name="has_image">
+          <option value="all" {% if filters.has_image == "all" %}selected{% endif %}>すべて</option>
+          <option value="true" {% if filters.has_image == "true" %}selected{% endif %}>あり</option>
+          <option value="false" {% if filters.has_image == "false" %}selected{% endif %}>なし</option>
+        </select>
+      </label>
+      <label>
+        特殊効果
+        <select name="has_effects">
+          <option value="all" {% if filters.has_effects == "all" %}selected{% endif %}>すべて</option>
+          <option value="true" {% if filters.has_effects == "true" %}selected{% endif %}>あり</option>
+          <option value="false" {% if filters.has_effects == "false" %}selected{% endif %}>なし</option>
+        </select>
+      </label>
+      <label class="check-row"><input type="checkbox" name="show_test_data" value="true" {% if filters.show_test_data %}checked{% endif %}>検証用データも表示</label>
+      <div class="filter-actions">
+        <button type="submit">絞り込む</button>
+        <a class="button-link secondary" href="/guilds/{{ guild_id }}/auto-reactions">解除</a>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>一覧</h2>
+    {% if reactions %}
+      <div class="table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>状態</th>
+              <th>呼び出しワード</th>
+              <th>返答</th>
+              <th>画像</th>
+              <th>リアクション</th>
+              <th>一致方式</th>
+              <th>優先度</th>
+              <th>特殊効果</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for reaction in reactions %}
+              <tr>
+                <td data-label="状態">{% if reaction.enabled %}<strong class="status enabled">有効</strong>{% else %}<strong class="status disabled">無効</strong>{% endif %}</td>
+                <td data-label="呼び出しワード">{{ reaction.trigger_text }}</td>
+                <td data-label="返答">{{ reaction.response_summary }}</td>
+                <td data-label="画像">{% if reaction.has_image %}あり{% else %}なし{% endif %}</td>
+                <td data-label="リアクション">{{ reaction.emoji_internal or "なし" }}</td>
+                <td data-label="一致方式">{{ reaction.match_type_label }}</td>
+                <td data-label="優先度">{{ reaction.priority }}</td>
+                <td data-label="特殊効果">
+                  {% if reaction.effects %}
+                    <div class="effect-chip-list">
+                      {% for effect in reaction.effects %}
+                        <span class="effect-chip"><span class="color-swatch" style="background: {{ effect.color or '#6B7280' }}"></span>{{ effect.name }}</span>
+                      {% endfor %}
+                    </div>
+                  {% else %}
+                    なし
+                  {% endif %}
+                </td>
+                <td data-label="操作">
+                  <div class="row-actions">
+                    <a class="button-link secondary" href="{{ reaction.edit_url }}">編集</a>
+                    <button class="info-button" type="button" data-modal-target="auto-reaction-info-{{ reaction.id }}" aria-label="{{ reaction.trigger_text }}のInfo">i</button>
+                    <form method="post" action="{{ reaction.toggle_url }}">
+                      <button type="submit" {% if not can_create %}disabled title="権限なし"{% endif %}>{% if reaction.enabled %}OFFにする{% else %}ONにする{% endif %}</button>
+                    </form>
+                    <form method="post" action="{{ reaction.delete_url }}" data-confirm="この自動反応を削除する？">
+                      <button class="danger" type="submit" {% if not reaction.can_delete %}disabled{% endif %}>削除</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% for reaction in reactions %}
+        <div class="modal-backdrop" id="auto-reaction-info-{{ reaction.id }}" hidden>
+          <div class="modal" role="dialog" aria-modal="true" aria-labelledby="auto-reaction-info-title-{{ reaction.id }}">
+            <div class="modal-header">
+              <h2 id="auto-reaction-info-title-{{ reaction.id }}">{{ reaction.trigger_text }}</h2>
+              <button class="modal-close" type="button" data-modal-close aria-label="閉じる">x</button>
+            </div>
+            <dl class="info-list">
+              <dt>呼び出しワード</dt><dd>{{ reaction.trigger_text }}</dd>
+              <dt>返答テキスト</dt><dd>{{ reaction.response_text or "なし" }}</dd>
+              <dt>リアクション絵文字</dt><dd>{{ reaction.emoji_internal or "なし" }}</dd>
+              <dt>画像</dt><dd>{% if reaction.image_path %}<img class="image-preview" src="/{{ reaction.image_path }}" alt="">{% else %}なし{% endif %}</dd>
+              <dt>一致方式</dt><dd>{{ reaction.match_type_label }}</dd>
+              <dt>優先度</dt><dd>{{ reaction.priority }}</dd>
+              <dt>特殊効果</dt>
+              <dd>{% if reaction.effects %}{% for effect in reaction.effects %}{{ effect.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}なし{% endif %}</dd>
+            </dl>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="empty">条件に一致する自動反応はありません。</p>
+    {% endif %}
+  </section>
+
+  <script>
+    document.querySelectorAll("[data-modal-target]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var modal = document.getElementById(button.dataset.modalTarget);
+        if (modal) { modal.hidden = false; }
+      });
+    });
+    document.querySelectorAll("[data-modal-close]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        button.closest(".modal-backdrop").hidden = true;
+      });
+    });
+    document.querySelectorAll(".modal-backdrop").forEach(function (backdrop) {
+      backdrop.addEventListener("click", function (event) {
+        if (event.target === backdrop) { backdrop.hidden = true; }
+      });
+    });
+    document.querySelectorAll("[data-confirm]").forEach(function (form) {
+      form.addEventListener("submit", function (event) {
+        if (!confirm(form.dataset.confirm)) { event.preventDefault(); }
+      });
+    });
+  </script>
+{% endblock %}

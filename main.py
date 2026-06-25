@@ -7,6 +7,9 @@ from bot.kuji import draw_kuji_message
 from bot.ng_words import contains_ng_word
 from bot.quotes import draw_quote_message
 from bot.reactions import handle_word_response
+from bot.services.auto_posts import run_db_auto_posts_once
+from bot.services.reaction_thresholds import handle_db_reaction_threshold
+from bot.services.runtime_db import get_message_guild_id, handle_db_runtime_message
 
 
 intents = discord.Intents.default()
@@ -47,15 +50,13 @@ async def handle_mention_message(message: discord.Message) -> bool:
 async def on_ready():
     print(f"Logged in as {bot.user}")
     print(f"APP_ENV={config.APP_ENV} ENABLE_DEV_COMMANDS={config.ENABLE_DEV_COMMANDS}")
-    print(
-        "NORMAL_BOT_NICKNAME="
-        f"{config.NORMAL_BOT_NICKNAME} BOT_ROLE_NAME={config.BOT_ROLE_NAME} "
-        f"HAYUSU_BOT_NICKNAME={config.HAYUSU_BOT_NICKNAME}"
-    )
 
     await messages.sync_bot_identity_for_all_guilds()
 
-    if not annual_message_task.is_running():
+    if config.DATA_BACKEND == "db":
+        if not db_auto_post_task.is_running():
+            db_auto_post_task.start()
+    elif not annual_message_task.is_running():
         annual_message_task.start()
 
     await hayusu.restore_hayusu_auto_exit()
@@ -82,6 +83,26 @@ async def before_annual_message_task():
     await bot.wait_until_ready()
 
 
+@tasks.loop(minutes=1)
+async def db_auto_post_task():
+    try:
+        await run_db_auto_posts_once(bot)
+    except Exception as e:
+        print(f"[WARN] db_auto_post_task failed: {e}")
+
+
+@db_auto_post_task.before_loop
+async def before_db_auto_post_task():
+    await bot.wait_until_ready()
+
+
+@bot.event
+async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
+    if config.DATA_BACKEND != "db":
+        return
+    await handle_db_reaction_threshold(payload, bot)
+
+
 @bot.event
 async def on_message(message: discord.Message):
     print(f"[DEBUG] on_message: author={message.author} content={message.content!r}")
@@ -92,6 +113,10 @@ async def on_message(message: discord.Message):
 
     command_text = messages.get_mention_command_text(message)
     if await handle_developer_command(message, command_text):
+        return
+
+    if config.DATA_BACKEND == "db" and get_message_guild_id(message) is not None:
+        await handle_db_runtime_message(message)
         return
 
     if contains_ng_word(message.content):

@@ -1,0 +1,47 @@
+{% extends "layout.html" %}
+{% block content %}
+<section class="page-section">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">ver2.0 DB管理画面</p>
+      <h1>リアクション返信</h1>
+      <p class="muted">同じリアクションが一定数ついた時の返信を設定。</p>
+    </div>
+    <div class="action-row">
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+      {% if can_edit %}
+        <a class="button-link" href="/guilds/{{ guild_id }}/reaction-thresholds/new">+ ルールを追加</a>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if rules %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>状態</th>
+            <th>名前</th>
+            <th>しきい値</th>
+            <th>返信</th>
+            <th>編集</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for rule in rules %}
+            <tr>
+              <td>{{ "有効" if rule.enabled else "無効" }}</td>
+              <td>{{ rule.name }}</td>
+              <td>{{ (rule.config_json or {}).get("threshold", 5) }}</td>
+              <td>{{ (rule.config_json or {}).get("reply_message", "") }}</td>
+              <td><a class="button-link secondary" href="/guilds/{{ guild_id }}/reaction-thresholds/{{ rule.id }}">編集</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">まだルールなし。</p>
+  {% endif %}
+</section>
+{% endblock %}

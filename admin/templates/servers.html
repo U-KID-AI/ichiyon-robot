@@ -1,0 +1,31 @@
+{% extends "layout.html" %}
+
+{% block title %}サーバー選択 - いちよんロボ{% endblock %}
+{% block heading %}サーバー選択{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <p class="hint">管理するサーバーを選択。</p>
+    <div class="server-list">
+      {% for server in servers %}
+        <article class="server-item">
+          <div class="server-summary">
+            {% if server.icon_url %}
+              <img class="server-icon" src="{{ server.icon_url }}" alt="">
+            {% else %}
+              <div class="server-icon placeholder"></div>
+            {% endif %}
+            <div>
+              <h2>{{ server.name }}</h2>
+              <p class="empty">サーバーID: {{ server.guild_id }}</p>
+              <strong class="status enabled">{{ server.role }}</strong>
+            </div>
+          </div>
+          <a class="button-link" href="/guilds/{{ server.guild_id }}">管理トップへ</a>
+        </article>
+      {% else %}
+        <p class="empty">管理可能なサーバーがまだありません。</p>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

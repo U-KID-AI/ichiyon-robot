@@ -1,0 +1,133 @@
+{% extends "layout.html" %}
+
+{% block title %}NGワードの特殊効果 - いちよんロボ管理画面{% endblock %}
+{% block heading %}NGワードの特殊効果{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="server-summary page-summary">
+      {% if server.icon_url %}<img class="server-icon" src="{{ server.icon_url }}" alt="">{% else %}<div class="server-icon placeholder"></div>{% endif %}
+      <div>
+        <h2>{{ server.name }}</h2>
+        <p class="empty">特殊効果タグをNGワードに付与。</p>
+        {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
+      </div>
+    </div>
+    <div class="page-actions">
+      <a class="button-link secondary" href="/servers">サーバー選択へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}/ng-words/{{ word.id }}">NGワード編集へ戻る</a>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>対象NGワード</h2>
+    <dl class="info-list"><dt>ワード</dt><dd>{{ word.word }}</dd></dl>
+  </section>
+
+  <section class="panel">
+    <h2>検索・絞り込み</h2>
+    <form class="filter-form" method="get" action="/guilds/{{ guild_id }}/ng-words/{{ word.id }}/effects">
+      <label>キーワード<input type="search" name="q" value="{{ filters.q }}" placeholder="タグ名、説明で検索"></label>
+      <label>
+        効果の種類
+        <select name="effect_type">
+          <option value="all" {% if filters.effect_type == "all" %}selected{% endif %}>すべて</option>
+          {% for item in effect_types %}<option value="{{ item }}" {% if filters.effect_type == item %}selected{% endif %}>{{ effect_type_labels.get(item, item) }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>
+        管理者限定
+        <select name="admin_only">
+          <option value="all" {% if filters.admin_only == "all" %}selected{% endif %}>すべて</option>
+          <option value="true" {% if filters.admin_only == "true" %}selected{% endif %}>あり</option>
+          <option value="false" {% if filters.admin_only == "false" %}selected{% endif %}>なし</option>
+        </select>
+      </label>
+      <label class="check-row">
+        <input type="checkbox" name="include_disabled" value="true" {% if filters.include_disabled %}checked{% endif %}>
+        無効タグを含める
+      </label>
+      <div class="filter-actions">
+        <button type="submit">絞り込む</button>
+        <a class="button-link secondary" href="/guilds/{{ guild_id }}/ng-words/{{ word.id }}/effects">解除</a>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>付与可能タグ</h2>
+    {% if tags %}
+      <div class="table-wrap">
+        <table class="admin-table">
+          <thead><tr><th>付与</th><th>状態</th><th>タグ名</th><th>タグ色</th><th>効果の種類</th><th>管理者限定</th><th>操作</th></tr></thead>
+          <tbody>
+            {% for tag in tags %}
+              <tr>
+                <td data-label="付与">{% if tag.assigned %}<strong class="status enabled">付与済み</strong>{% else %}<strong class="status disabled">未付与</strong>{% endif %}</td>
+                <td data-label="状態">{% if tag.enabled %}<strong class="status enabled">有効</strong>{% else %}<strong class="status disabled">無効</strong>{% endif %}</td>
+                <td data-label="タグ名">{{ tag.name }}</td>
+                <td data-label="タグ色"><span class="color-swatch" style="background: {{ tag.color or '#6B7280' }}"></span>{{ tag.color or "#6B7280" }}</td>
+                <td data-label="効果の種類">{{ tag.effect_type_label }}</td>
+                <td data-label="管理者限定">{% if tag.admin_only %}あり{% else %}なし{% endif %}</td>
+                <td data-label="操作">
+                  <div class="row-actions">
+                    <button class="info-button" type="button" data-modal-target="ng-effect-info-{{ tag.id }}" aria-label="{{ tag.name }}のInfo">i</button>
+                    <form method="post" action="/guilds/{{ guild_id }}/ng-words/{{ word.id }}/effects">
+                      <input type="hidden" name="tag_id" value="{{ tag.id }}">
+                      {% if tag.assigned %}
+                        <input type="hidden" name="action" value="unassign">
+                        <button type="submit" {% if not tag.can_manage %}disabled title="権限なし"{% endif %}>解除</button>
+                      {% else %}
+                        <input type="hidden" name="action" value="assign">
+                        <button type="submit" {% if not tag.can_manage %}disabled title="権限なし"{% endif %}>付与</button>
+                      {% endif %}
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% for tag in tags %}
+        <div class="modal-backdrop" id="ng-effect-info-{{ tag.id }}" hidden>
+          <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ng-effect-info-title-{{ tag.id }}">
+            <div class="modal-header">
+              <h2 id="ng-effect-info-title-{{ tag.id }}">{{ tag.name }}</h2>
+              <button class="modal-close" type="button" data-modal-close aria-label="閉じる">x</button>
+            </div>
+            <dl class="info-list">
+              <dt>タグ名</dt><dd>{{ tag.name }}</dd>
+              <dt>説明</dt><dd>{{ tag.description or "未設定" }}</dd>
+              <dt>効果の種類</dt><dd>{{ tag.effect_type_label }}</dd>
+              <dt>効果設定概要</dt><dd>{{ tag.effect_config_summary }}</dd>
+              <dt>追加投稿</dt><dd>{% if tag.additional_text %}{{ tag.additional_text }}{% else %}なし{% endif %} / {{ tag.additional_post_timing_label }}</dd>
+              <dt>クールタイム</dt><dd>{{ tag.cooldown_seconds }}秒 / {{ tag.cooldown_scope_label }}</dd>
+              <dt>管理者限定</dt><dd>{% if tag.admin_only %}あり{% else %}なし{% endif %}</dd>
+            </dl>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="empty">条件に一致する付与可能タグはありません。</p>
+    {% endif %}
+  </section>
+
+  <script>
+    document.querySelectorAll("[data-modal-target]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var modal = document.getElementById(button.dataset.modalTarget);
+        if (modal) { modal.hidden = false; }
+      });
+    });
+    document.querySelectorAll("[data-modal-close]").forEach(function (button) {
+      button.addEventListener("click", function () { button.closest(".modal-backdrop").hidden = true; });
+    });
+    document.querySelectorAll(".modal-backdrop").forEach(function (backdrop) {
+      backdrop.addEventListener("click", function (event) {
+        if (event.target === backdrop) { backdrop.hidden = true; }
+      });
+    });
+  </script>
+{% endblock %}

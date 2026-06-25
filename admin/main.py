@@ -9,6 +9,33 @@ from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
+
+from admin.auto_reactions import (
+    register_auto_reaction_routes,
+    router as auto_reaction_router,
+)
+from admin.auto_posts import register_auto_post_routes, router as auto_post_router
+from admin.auth import get_session_secret, register_auth_routes, router as auth_router
+from admin.mention_reactions import (
+    register_mention_reaction_routes,
+    router as mention_reaction_router,
+)
+from admin.mention_limited_effects import (
+    register_mention_limited_effect_routes,
+    router as mention_limited_effect_router,
+)
+from admin.modes import register_mode_routes, router as mode_router
+from admin.ng_words_db import register_ng_word_routes, router as ng_word_router
+from admin.reaction_thresholds import (
+    register_reaction_threshold_routes,
+    router as reaction_threshold_router,
+)
+from admin.servers import register_server_routes, router as server_router
+from admin.special_effects import (
+    register_special_effect_routes,
+    router as special_effect_router,
+)
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,9 +52,56 @@ for image_category in ("quotes", "kuji", "reactions"):
     (IMAGE_ROOT / image_category).mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="いちよんロボ 管理画面")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=get_session_secret(),
+    same_site="lax",
+    https_only=False,
+)
 app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent / "static"), name="static")
 app.mount("/assets", StaticFiles(directory=BASE_DIR / "assets"), name="assets")
 templates = Jinja2Templates(directory=Path(__file__).resolve().parent / "templates")
+register_auth_routes(templates)
+register_server_routes(templates)
+register_mention_limited_effect_routes(templates)
+register_mention_reaction_routes(templates)
+register_special_effect_routes(templates)
+register_auto_reaction_routes(templates)
+register_ng_word_routes(templates)
+register_mode_routes(templates)
+register_auto_post_routes(templates)
+register_reaction_threshold_routes(templates)
+app.include_router(auth_router)
+app.include_router(server_router)
+app.include_router(mention_limited_effect_router)
+app.include_router(mention_reaction_router)
+app.include_router(special_effect_router)
+app.include_router(auto_reaction_router)
+app.include_router(ng_word_router)
+app.include_router(mode_router)
+app.include_router(auto_post_router)
+app.include_router(reaction_threshold_router)
+
+
+LEGACY_JSON_PATHS = ("/quotes", "/reactions", "/ng-words", "/kuji")
+
+
+def legacy_json_pages_enabled() -> bool:
+    return os.getenv("ADMIN_ENABLE_LEGACY_JSON_PAGES", "").strip().lower() == "true"
+
+
+def is_legacy_json_path(path: str) -> bool:
+    for legacy_path in LEGACY_JSON_PATHS:
+        if path == legacy_path or path.startswith(legacy_path + "/"):
+            return True
+    return False
+
+
+@app.middleware("http")
+async def redirect_legacy_json_pages(request: Request, call_next):
+    if is_legacy_json_path(request.url.path) and not legacy_json_pages_enabled():
+        return RedirectResponse(url="/servers", status_code=303)
+    return await call_next(request)
 
 
 def load_json_file(path: Path, default):
@@ -105,13 +179,13 @@ async def save_uploaded_image(
 
     suffix = Path(upload.filename).suffix.lower()
     if suffix not in ALLOWED_IMAGE_EXTENSIONS:
-        return None, "対応していない画像形式です。"
+        return None, "対応外の画像形式。"
 
     content = await upload.read()
     if len(content) > MAX_IMAGE_SIZE:
-        return None, "画像サイズは8MB以下にしてください。"
+        return None, "画像サイズは8MB以下。"
     if not content:
-        return None, "画像ファイルが空です。"
+        return None, "画像ファイルが空。"
 
     target_dir = IMAGE_ROOT / category
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -238,6 +312,19 @@ def load_quotes_data() -> dict:
     return normalized_data
 
 
+def normalize_priority(value) -> Tuple[int, bool]:
+    if isinstance(value, int) and value >= 1:
+        return value, False
+    if isinstance(value, str):
+        try:
+            parsed = int(value)
+        except ValueError:
+            return 1, True
+        if parsed >= 1:
+            return parsed, False
+    return 1, True
+
+
 def normalize_reactions_data(data) -> Tuple[Dict, bool]:
     if not isinstance(data, dict):
         return {"reactions": []}, True
@@ -259,6 +346,7 @@ def normalize_reactions_data(data) -> Tuple[Dict, bool]:
         image_path, image_path_changed = normalize_image_path(
             reaction.get("image_path", "")
         )
+        priority, priority_changed = normalize_priority(reaction.get("priority", 1))
         match_type = reaction.get("match_type", "contains")
         enabled = reaction.get("enabled", True)
         if not isinstance(reaction_id, str) or not reaction_id:
@@ -271,6 +359,8 @@ def normalize_reactions_data(data) -> Tuple[Dict, bool]:
             response = ""
             changed = True
         if image_path_changed:
+            changed = True
+        if priority_changed:
             changed = True
         if match_type != "contains":
             match_type = "contains"
@@ -285,6 +375,7 @@ def normalize_reactions_data(data) -> Tuple[Dict, bool]:
                 "trigger": trigger,
                 "response": response,
                 "image_path": image_path,
+                "priority": priority,
                 "match_type": match_type,
                 "enabled": enabled,
             }
@@ -451,8 +542,10 @@ def build_next_id(items: List[Dict], prefix: str) -> str:
 
 
 @app.get("/")
-async def index():
-    return RedirectResponse(url="/quotes", status_code=303)
+async def index(request: Request):
+    if request.session.get("discord_user"):
+        return RedirectResponse(url="/servers", status_code=303)
+    return RedirectResponse(url="/login", status_code=303)
 
 
 @app.get("/quotes")
@@ -560,6 +653,7 @@ async def create_reaction(
     request: Request,
     trigger: str = Form(...),
     response: str = Form(""),
+    priority: str = Form("1"),
     match_type: str = Form("contains"),
     enabled: Optional[str] = Form(None),
     image: Optional[UploadFile] = File(None),
@@ -567,6 +661,7 @@ async def create_reaction(
     data = load_reactions_data()
     trigger = trigger.strip()
     response = response.strip()
+    priority_value, _ = normalize_priority(priority)
     reaction_id = build_next_id(data["reactions"], "reaction")
     image_path, error = await save_uploaded_image(image, reaction_id, "reactions")
     if error is not None:
@@ -582,6 +677,7 @@ async def create_reaction(
                 "trigger": trigger,
                 "response": response,
                 "image_path": image_path or "",
+                "priority": priority_value,
                 "match_type": "contains" if match_type != "contains" else match_type,
                 "enabled": enabled == "on",
             }
@@ -596,12 +692,14 @@ async def update_reaction(
     reaction_id: str,
     trigger: str = Form(...),
     response: str = Form(""),
+    priority: str = Form("1"),
     match_type: str = Form("contains"),
     enabled: Optional[str] = Form(None),
     image: Optional[UploadFile] = File(None),
     delete_image: Optional[str] = Form(None),
 ):
     data = load_reactions_data()
+    priority_value, _ = normalize_priority(priority)
     for reaction in data["reactions"]:
         if reaction["id"] == reaction_id:
             old_image_path = reaction.get("image_path", "")
@@ -623,6 +721,7 @@ async def update_reaction(
                 reaction["image_path"] = ""
             if new_image_path is not None:
                 reaction["image_path"] = new_image_path
+            reaction["priority"] = priority_value
             reaction["match_type"] = "contains" if match_type != "contains" else match_type
             reaction["enabled"] = enabled == "on"
             save_reactions_data(data)
