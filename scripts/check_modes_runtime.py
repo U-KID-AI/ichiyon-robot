@@ -111,6 +111,7 @@ class FakeModeRepository:
     entered: List[int] = []
     cleared: bool = False
     enabled_mode_id: int = 1
+    trigger_history: Dict[str, Dict[str, Any]] = {}
     modes: Dict[int, Dict[str, Any]] = {
         1: {
             "id": 1,
@@ -160,6 +161,16 @@ class FakeModeRepository:
             "appearance_config_json": {"nickname": "mode bot name"},
             "duration_seconds": 60,
         },
+        6: {
+            "id": 6,
+            "mode_key": "shikocchi_monthly",
+            "name": "shikocchi monthly",
+            "enabled": True,
+            "behavior_type": "offline",
+            "enter_message": "monthly entered",
+            "duration_seconds": 60,
+            "cooldown_config_json": {"type": "once_per_period", "period": "monthly", "reset": "day", "day": 4},
+        },
     }
 
     def __init__(self, connection) -> None:
@@ -172,7 +183,7 @@ class FakeModeRepository:
         return [self.modes[self.enabled_mode_id]]
 
     def list_trigger_conditions(self, guild_id: str, mode_id: int, enabled: bool = True) -> List[Dict[str, Any]]:
-        if mode_id in (1, 3, 4, 5):
+        if mode_id in (1, 3, 4, 5, 6):
             return [
                 {
                     "id": mode_id,
@@ -228,10 +239,10 @@ class FakeModeRepository:
         return []
 
     def get_trigger_history(self, guild_id: str, mode_id: int, period_key: str) -> Optional[Dict[str, Any]]:
-        return None
+        return self.trigger_history.get("{0}:{1}:{2}".format(guild_id, mode_id, period_key))
 
     def record_trigger_history(self, guild_id: str, mode_id: int, period_key: str, state_json: Dict[str, Any]) -> None:
-        pass
+        self.trigger_history["{0}:{1}:{2}".format(guild_id, mode_id, period_key)] = state_json
 
 
 class FakeCounterRepository:
@@ -288,6 +299,7 @@ async def run_checks(check: Check) -> None:
         FakeModeRepository.state = {}
         FakeModeRepository.entered = []
         FakeModeRepository.cleared = False
+        FakeModeRepository.trigger_history = {}
         FakeModeRepository.enabled_mode_id = 1
         FakeIdentity.nickname_updates = []
         FakeIdentity.avatar_updates = []
@@ -405,6 +417,46 @@ async def run_checks(check: Check) -> None:
             "exit condition duration is fallback when duration_seconds is empty",
             fallback_entered is True and 60 <= fallback_delta <= 90,
             "entered={0} delta_seconds={1}".format(fallback_entered, fallback_delta),
+        )
+
+        period_before_reset = runtime_db.get_mode_once_per_period_info(
+            FakeModeRepository.modes[6],
+            datetime(2026, 6, 3, 14, 59, tzinfo=timezone.utc),
+        )
+        period_after_reset = runtime_db.get_mode_once_per_period_info(
+            FakeModeRepository.modes[6],
+            datetime(2026, 6, 3, 15, 0, tzinfo=timezone.utc),
+        )
+        check.add(
+            "monthly day cooldown treats days before reset as previous period",
+            period_before_reset is not None
+            and period_before_reset["period_key"] == "cooldown:monthly-day-4:2026-05-04",
+            str(period_before_reset),
+        )
+        check.add(
+            "monthly day cooldown switches period on reset day",
+            period_after_reset is not None
+            and period_after_reset["period_key"] == "cooldown:monthly-day-4:2026-06-04",
+            str(period_after_reset),
+        )
+
+        FakeModeRepository.state = {}
+        FakeModeRepository.entered = []
+        FakeModeRepository.enabled_mode_id = 6
+        monthly_message = FakeMessage("enter monthly")
+        monthly_entered = await runtime_db.enter_mode_if_needed(monthly_message, "guild", connection)
+        check.add(
+            "mode once_per_period cooldown allows first entry",
+            monthly_entered is True and FakeModeRepository.entered == [6],
+            "entered={0} history={1}".format(FakeModeRepository.entered, FakeModeRepository.trigger_history),
+        )
+        FakeModeRepository.state = {}
+        second_monthly_message = FakeMessage("enter monthly again")
+        second_monthly_entered = await runtime_db.enter_mode_if_needed(second_monthly_message, "guild", connection)
+        check.add(
+            "mode once_per_period cooldown blocks second entry in same period",
+            second_monthly_entered is False and FakeModeRepository.entered == [6],
+            "entered={0} sent={1}".format(FakeModeRepository.entered, second_monthly_message.channel.sent),
         )
 
         FakeModeRepository.state = {
