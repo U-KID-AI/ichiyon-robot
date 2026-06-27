@@ -8,8 +8,9 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from bot.services.runtime_db import execute_effects
+from bot.services import runtime_db
 from bot.services.runtime_db import build_effective_weighted_rows
+from bot.services.runtime_db import execute_effects
 from bot.services.runtime_db import get_next_action_extra_repeats
 from bot.services.runtime_db import get_probability_multiplier_for_target
 from bot.services.runtime_db import probability_hit_with_multiplier
@@ -30,6 +31,30 @@ class FakeMessage:
 
     async def add_reaction(self, emoji) -> None:
         self.reactions.append(str(emoji))
+
+
+class FakeCounterRepository:
+    def __init__(self, connection) -> None:
+        self.connection = connection
+
+    def ensure_counter(self, guild_id: str, count_key: str, name: str, *args, **kwargs) -> Dict[str, Any]:
+        counters = self.connection.setdefault("counters", {})
+        counters.setdefault(count_key, {"id": count_key, "count_key": count_key, "initial_value": 0})
+        self.connection.setdefault("values", {}).setdefault(count_key, counters[count_key]["initial_value"])
+        return counters[count_key]
+
+    def get_value(self, guild_id: str, count_key: str, default: int = 0) -> int:
+        return int(self.connection.setdefault("values", {}).get(count_key, default))
+
+    def increment(self, guild_id: str, count_key: str, amount: int = 1, *args, **kwargs) -> Dict[str, Any]:
+        values = self.connection.setdefault("values", {})
+        values[count_key] = int(values.get(count_key, 0)) + amount
+        return {"current_value": values[count_key]}
+
+    def set_value(self, guild_id: str, count_key: str, value: int, *args, **kwargs) -> Dict[str, Any]:
+        values = self.connection.setdefault("values", {})
+        values[count_key] = int(value)
+        return {"current_value": values[count_key]}
 
 
 class Check:
@@ -209,11 +234,113 @@ async def check_probability_multiplier_effect_execution(check: Check) -> None:
     )
 
 
+async def check_additional_text_placeholders(check: Check) -> None:
+    original_repository = runtime_db.CounterRepository
+    runtime_db.CounterRepository = FakeCounterRepository
+    try:
+        connection = {"values": {"narita_count": 7}}
+        values = {
+            "match_1": "縺励％縺｣縺｡",
+            "user_name": "User",
+            "user_mention": "<@1>",
+            "message_text": "hello",
+        }
+
+        counter_message = FakeMessage()
+        await execute_effects(
+            connection,
+            "guild",
+            [
+                effect(
+                    "message",
+                    {},
+                    "narita={counter:narita_count} missing={counter:missing_count} match={match_1:hankaku}",
+                )
+            ],
+            counter_message,
+            values,
+        )
+        sent_text = counter_message.channel.sent[0] if counter_message.channel.sent else ""
+        check.add(
+            "additional_text resolves counter placeholders",
+            "narita=7" in sent_text and "missing=0" in sent_text,
+            sent_text,
+        )
+        check.add(
+            "additional_text keeps existing match transforms",
+            "match=" in sent_text and "{match_1" not in sent_text,
+            sent_text,
+        )
+
+        raio_message = FakeMessage()
+        await execute_effects(
+            connection,
+            "guild",
+            [
+                effect(
+                    "probability_multiplier",
+                    {"multiplier": 9, "label": "raio"},
+                    "label={effect_label} one={effect_multiplier} total={effective_multiplier}",
+                )
+            ],
+            raio_message,
+            values,
+        )
+        raio_text = raio_message.channel.sent[0] if raio_message.channel.sent else ""
+        check.add(
+            "probability_multiplier additional_text shows multiplier",
+            "one=9" in raio_text and "total=9" in raio_text and "label=raio" in raio_text,
+            raio_text,
+        )
+
+        stacked_pending = [
+            effect("probability_multiplier", {"multiplier": 9, "label": "raio"}),
+            effect("probability_multiplier", {"multiplier": 9, "label": "raio"}),
+            effect("probability_multiplier", {"multiplier": 9, "label": "raio"}),
+        ]
+        shikocchi_message = FakeMessage()
+        result = await execute_effects(
+            connection,
+            "guild",
+            [
+                effect(
+                    "counter_set",
+                    {
+                        "counter_key": "shikocchi_count",
+                        "value": 1,
+                        "probability": {"numerator": 1, "denominator": 444},
+                    },
+                    "base={base_probability} now={effective_probability} percent={probability_percent} total={effective_multiplier}",
+                )
+            ],
+            shikocchi_message,
+            values,
+            stacked_pending,
+        )
+        shikocchi_text = shikocchi_message.channel.sent[0] if shikocchi_message.channel.sent else ""
+        check.add(
+            "stacked multiplier appears in probability placeholders",
+            "base=1/444" in shikocchi_text
+            and "now=1/1" in shikocchi_text
+            and "percent=100%" in shikocchi_text
+            and "total=729" in shikocchi_text,
+            shikocchi_text,
+        )
+        check.add(
+            "raio stacked three times makes shikocchi certain",
+            result.count_changed is True and connection["values"].get("shikocchi_count") == 1,
+            "count_changed={0} value={1}".format(result.count_changed, connection["values"].get("shikocchi_count")),
+        )
+    finally:
+        runtime_db.CounterRepository = original_repository
+
+
 def main() -> None:
     check = Check()
     asyncio.run(check_execute_effects(check))
     check_multiplier(check)
     asyncio.run(check_probability_multiplier_effect_execution(check))
+    asyncio.run(check_additional_text_placeholders(check))
     check.print_results()
     if not check.ok():
         raise SystemExit(1)

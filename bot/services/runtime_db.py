@@ -440,6 +440,103 @@ def get_additional_message(effect: Dict[str, Any]) -> str:
     )
 
 
+def format_effect_number(value: float) -> str:
+    if abs(value - round(value)) < 0.000001:
+        return str(int(round(value)))
+    return ("{0:.4f}".format(value)).rstrip("0").rstrip(".")
+
+
+def format_probability_percent(value: float) -> str:
+    percent = max(0.0, min(1.0, value)) * 100.0
+    if abs(percent - round(percent)) < 0.000001:
+        return "{0}%".format(int(round(percent)))
+    return ("{0:.2f}%".format(percent)).rstrip("0").rstrip(".")
+
+
+def build_probability_template_values(config: Dict[str, Any], multiplier: float) -> Dict[str, str]:
+    probability = parse_probability(config)
+    if probability is None:
+        return {
+            "base_probability": "1/1",
+            "effective_probability": "1/1",
+            "probability_percent": "100%",
+        }
+
+    numerator = float(probability["numerator"])
+    denominator = float(probability["denominator"])
+    effective_numerator = numerator * max(0.0, multiplier)
+    effective_ratio = effective_numerator / denominator
+    if effective_ratio >= 1.0:
+        effective_probability = "1/1"
+    else:
+        effective_probability = "{0}/{1}".format(
+            format_effect_number(effective_numerator),
+            probability["denominator"],
+        )
+    return {
+        "base_probability": "{0}/{1}".format(probability["numerator"], probability["denominator"]),
+        "effective_probability": effective_probability,
+        "probability_percent": format_probability_percent(effective_ratio),
+    }
+
+
+def get_effect_name(effect: Dict[str, Any]) -> str:
+    return str(effect.get("name") or effect.get("tag_name") or "")
+
+
+def build_effect_template_values(
+    connection,
+    guild_id: str,
+    effect: Dict[str, Any],
+    config: Dict[str, Any],
+    template_values: Dict[str, str],
+    effect_multiplier: float = 1.0,
+    effective_multiplier: float = 1.0,
+    target_name: Optional[str] = None,
+) -> Dict[str, str]:
+    values = dict(template_values)
+    values.update(build_probability_template_values(config, effective_multiplier))
+    values.update(
+        {
+            "effect_multiplier": format_effect_number(effect_multiplier),
+            "effective_multiplier": format_effect_number(effective_multiplier),
+            "effect_label": get_config_text(config, ["label", "effect_label", "name"]) or "",
+            "effect_name": get_effect_name(effect),
+            "target_name": target_name or values.get("target_name", ""),
+        }
+    )
+    return values
+
+
+def get_counter_template_value(connection, guild_id: str, counter_key: str) -> str:
+    if connection is None:
+        return "0"
+    try:
+        value = CounterRepository(connection).get_value(guild_id, counter_key, 0)
+    except Exception as exc:
+        print("[WARN] Failed to resolve counter placeholder {0}: {1}".format(counter_key, exc))
+        return "0"
+    return str(value)
+
+
+def render_effect_template(
+    text: Optional[str],
+    values: Dict[str, str],
+    connection,
+    guild_id: str,
+) -> str:
+    rendered = render_template(text, values)
+    pattern = re.compile(r"\{counter:([^}]+)\}")
+
+    def replace_counter(match: re.Match) -> str:
+        counter_key = match.group(1).strip()
+        if not counter_key:
+            return "0"
+        return get_counter_template_value(connection, guild_id, counter_key)
+
+    return pattern.sub(replace_counter, rendered)
+
+
 def get_counter_key(config: Dict[str, Any]) -> Optional[str]:
     value = config.get("counter_key") or config.get("count_key") or config.get("key")
     if value is None:
@@ -556,6 +653,50 @@ def get_probability_multiplier_for_target(
             continue
         multiplier *= value
     return multiplier
+
+
+def get_probability_multiplier_display_target(
+    effect: Dict[str, Any],
+    config: Dict[str, Any],
+) -> Tuple[str, int]:
+    target_type = get_effect_target_type(config)
+    target_id = get_effect_target_id(config)
+    if target_type is not None and target_id is not None:
+        return target_type, target_id
+    return "special_effect_tag", int(effect.get("id") or 0)
+
+
+async def send_effect_additional_message(
+    connection,
+    guild_id: str,
+    effect: Dict[str, Any],
+    config: Dict[str, Any],
+    message: discord.Message,
+    template_values: Dict[str, str],
+    additional: Optional[str],
+    effect_multiplier: float = 1.0,
+    effective_multiplier: float = 1.0,
+) -> bool:
+    if not additional:
+        return False
+    rendered = render_effect_template(
+        additional,
+        build_effect_template_values(
+            connection,
+            guild_id,
+            effect,
+            config,
+            template_values,
+            effect_multiplier,
+            effective_multiplier,
+        ),
+        connection,
+        guild_id,
+    )
+    if not rendered:
+        return False
+    await message.channel.send(rendered)
+    return True
 
 
 def mention_has_required_suffix(message: discord.Message, command_text: str, config: Dict[str, Any]) -> bool:
@@ -746,7 +887,12 @@ async def execute_destroy_effect(
         print(
             "[INFO] destroy effect log_only: id={0} reason={1}".format(
                 effect.get("id"),
-                render_template(reason, template_values),
+                render_effect_template(
+                    reason,
+                    build_effect_template_values(connection, guild_id, effect, config, template_values),
+                    connection,
+                    guild_id,
+                ),
             )
         )
         return result
@@ -756,7 +902,14 @@ async def execute_destroy_effect(
         if not text:
             print("[WARN] destroy send_message skipped without message: id={0}".format(effect.get("id")))
             return result
-        await message.channel.send(render_template(text, template_values))
+        await message.channel.send(
+            render_effect_template(
+                text,
+                build_effect_template_values(connection, guild_id, effect, config, template_values),
+                connection,
+                guild_id,
+            )
+        )
         print("[INFO] destroy effect send_message executed: id={0}".format(effect.get("id")))
         return result
 
@@ -811,7 +964,17 @@ async def execute_effects(
                 additional = get_additional_message(effect)
                 timing = effect.get("additional_message_timing") or effect.get("additional_post_timing")
                 if additional and timing in (None, "", "effect_success", "tag_triggered"):
-                    await message.channel.send(render_template(additional, template_values))
+                    await send_effect_additional_message(
+                        connection,
+                        guild_id,
+                        effect,
+                        config,
+                        message,
+                        template_values,
+                        additional,
+                        multiplier,
+                        multiplier,
+                    )
             elif effect_type == "message":
                 additional = get_additional_message(effect) or get_config_text(
                     config,
@@ -819,7 +982,15 @@ async def execute_effects(
                 )
                 timing = effect.get("additional_message_timing") or effect.get("additional_post_timing")
                 if additional and timing in (None, "", "effect_success", "tag_triggered"):
-                    await message.channel.send(render_template(additional, template_values))
+                    await send_effect_additional_message(
+                        connection,
+                        guild_id,
+                        effect,
+                        config,
+                        message,
+                        template_values,
+                        additional,
+                    )
             elif effect_type == "reaction":
                 emoji = get_config_text(config, ["emoji", "reaction", "emoji_internal"])
                 if not emoji:
@@ -839,6 +1010,18 @@ async def execute_effects(
                 repository.ensure_counter(guild_id, counter_key, counter_key)
                 repository.increment(guild_id, counter_key, delta)
                 result.count_changed = True
+                additional = get_additional_message(effect)
+                timing = effect.get("additional_message_timing") or effect.get("additional_post_timing")
+                if additional and timing in (None, "", "effect_success", "tag_triggered"):
+                    await send_effect_additional_message(
+                        connection,
+                        guild_id,
+                        effect,
+                        config,
+                        message,
+                        template_values,
+                        additional,
+                    )
             elif effect_type == "counter_set":
                 multiplier = get_probability_multiplier_for_target(
                     pending,
@@ -856,12 +1039,46 @@ async def execute_effects(
                 repository.ensure_counter(guild_id, counter_key, counter_key)
                 repository.set_value(guild_id, counter_key, value)
                 result.count_changed = True
+                additional = get_additional_message(effect)
+                timing = effect.get("additional_message_timing") or effect.get("additional_post_timing")
+                if additional and timing in (None, "", "effect_success", "tag_triggered"):
+                    await send_effect_additional_message(
+                        connection,
+                        guild_id,
+                        effect,
+                        config,
+                        message,
+                        template_values,
+                        additional,
+                        multiplier,
+                        multiplier,
+                    )
             elif effect_type == "probability_multiplier":
                 multiplier = get_config_float(config, ["multiplier", "rate", "factor"], 1.0)
                 if multiplier <= 0:
                     print("[WARN] probability_multiplier skipped invalid multiplier: id={0}".format(effect.get("id")))
                 else:
                     result.pending_effects.append(effect)
+                    display_target_type, display_target_id = get_probability_multiplier_display_target(effect, config)
+                    effective_multiplier = get_probability_multiplier_for_target(
+                        pending + [effect],
+                        display_target_type,
+                        display_target_id,
+                    )
+                    additional = get_additional_message(effect)
+                    timing = effect.get("additional_message_timing") or effect.get("additional_post_timing")
+                    if additional and timing in (None, "", "effect_success", "tag_triggered"):
+                        await send_effect_additional_message(
+                            connection,
+                            guild_id,
+                            effect,
+                            config,
+                            message,
+                            template_values,
+                            additional,
+                            multiplier,
+                            effective_multiplier,
+                        )
                     print("[INFO] probability_multiplier queued for next action: id={0}".format(effect.get("id")))
             elif effect_type == "next_action_count":
                 target_action = get_config_text(config, ["target_action", "action"]) or "next"
