@@ -57,6 +57,40 @@ class FakeCounterRepository:
         return {"current_value": values[count_key]}
 
 
+class FakeModeRepository:
+    mode: Dict[str, Any] = {
+        "id": 44,
+        "mode_key": "shikocchi",
+        "enabled": True,
+        "cooldown_config_json": {"type": "none"},
+    }
+    history: Dict[str, Dict[str, Any]] = {}
+
+    def __init__(self, connection) -> None:
+        self.connection = connection
+
+    def list_enabled_modes(self, guild_id: str) -> List[Dict[str, Any]]:
+        return [self.mode]
+
+    def list_trigger_conditions(self, guild_id: str, mode_id: int, enabled: bool = True) -> List[Dict[str, Any]]:
+        return [
+            {
+                "id": 440,
+                "mode_id": mode_id,
+                "condition_type": "counter_threshold",
+                "condition_config_json": {
+                    "counter_key": "shikocchi_count",
+                    "operator": ">=",
+                    "threshold": 1,
+                },
+                "group_operator": "AND",
+            }
+        ]
+
+    def get_trigger_history(self, guild_id: str, mode_id: int, period_key: str):
+        return self.history.get("{0}:{1}:{2}".format(guild_id, mode_id, period_key))
+
+
 class Check:
     def __init__(self) -> None:
         self.results = []
@@ -369,12 +403,100 @@ async def check_additional_text_placeholders(check: Check) -> None:
         runtime_db.CounterRepository = original_repository
 
 
+async def check_shikocchi_monthly_limit(check: Check) -> None:
+    original_counter_repository = runtime_db.CounterRepository
+    original_mode_repository = runtime_db.ModeRepository
+    runtime_db.CounterRepository = FakeCounterRepository
+    runtime_db.ModeRepository = FakeModeRepository
+    try:
+        values = {"match_1": "shikocchi"}
+        shikocchi_effect = effect(
+            "counter_set",
+            {
+                "counter_key": "shikocchi_count",
+                "value": 1,
+                "probability": {"numerator": 1, "denominator": 444},
+            },
+        )
+        stacked_pending = [
+            effect("probability_multiplier", {"multiplier": 9, "label": "raio"}),
+            effect("probability_multiplier", {"multiplier": 9, "label": "raio"}),
+            effect("probability_multiplier", {"multiplier": 9, "label": "raio"}),
+        ]
+
+        FakeModeRepository.mode = {
+            "id": 44,
+            "mode_key": "shikocchi",
+            "enabled": True,
+            "cooldown_config_json": {"type": "none"},
+        }
+        FakeModeRepository.history = {}
+        unrestricted_connection = {"values": {}}
+        unrestricted = await execute_effects(
+            unrestricted_connection,
+            "guild",
+            [shikocchi_effect],
+            FakeMessage(),
+            values,
+            stacked_pending,
+        )
+        check.add(
+            "shikocchi counter_set works without monthly cooldown",
+            unrestricted.count_changed is True and unrestricted_connection["values"].get("shikocchi_count") == 1,
+            str(unrestricted_connection.get("values")),
+        )
+
+        FakeModeRepository.mode = {
+            "id": 44,
+            "mode_key": "shikocchi",
+            "enabled": True,
+            "cooldown_config_json": {"type": "once_per_period", "period": "monthly", "reset": "day", "day": 4},
+        }
+        FakeModeRepository.history = {}
+        first_connection = {"values": {}}
+        first = await execute_effects(
+            first_connection,
+            "guild",
+            [shikocchi_effect],
+            FakeMessage(),
+            values,
+            stacked_pending,
+        )
+        check.add(
+            "shikocchi counter_set works before monthly cooldown is used",
+            first.count_changed is True and first_connection["values"].get("shikocchi_count") == 1,
+            str(first_connection.get("values")),
+        )
+
+        period_info = runtime_db.get_mode_once_per_period_info(FakeModeRepository.mode)
+        period_key = period_info["period_key"] if period_info else ""
+        FakeModeRepository.history = {"guild:44:{0}".format(period_key): {"used": True}}
+        blocked_connection = {"values": {}}
+        blocked = await execute_effects(
+            blocked_connection,
+            "guild",
+            [shikocchi_effect],
+            FakeMessage(),
+            values,
+            stacked_pending,
+        )
+        check.add(
+            "shikocchi monthly cooldown blocks counter_set even with multiplier",
+            blocked.count_changed is False and blocked_connection.get("values", {}).get("shikocchi_count") is None,
+            "count_changed={0} values={1}".format(blocked.count_changed, blocked_connection.get("values")),
+        )
+    finally:
+        runtime_db.CounterRepository = original_counter_repository
+        runtime_db.ModeRepository = original_mode_repository
+
+
 def main() -> None:
     check = Check()
     asyncio.run(check_execute_effects(check))
     check_multiplier(check)
     asyncio.run(check_probability_multiplier_effect_execution(check))
     asyncio.run(check_additional_text_placeholders(check))
+    asyncio.run(check_shikocchi_monthly_limit(check))
     check.print_results()
     if not check.ok():
         raise SystemExit(1)

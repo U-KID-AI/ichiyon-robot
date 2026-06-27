@@ -1036,6 +1036,9 @@ async def execute_effects(
                         additional,
                     )
             elif effect_type == "counter_set":
+                if is_shikocchi_counter_set_effect(effect) and not shikocchi_mode_allows_trigger(connection, guild_id):
+                    print("[INFO] shikocchi counter_set skipped by mode cooldown: id={0}".format(effect.get("id")))
+                    continue
                 multiplier = get_probability_multiplier_for_target(
                     pending,
                     "special_effect_tag",
@@ -1434,6 +1437,32 @@ def period_not_triggered_met(
     return history is None
 
 
+def get_mode_once_per_period_info(
+    mode: Dict[str, Any],
+    now: Optional[datetime] = None,
+) -> Optional[Dict[str, Any]]:
+    cooldown = normalize_json(mode.get("cooldown_config_json"))
+    if cooldown.get("type") != "once_per_period":
+        return None
+    period_info = build_mode_period_info(cooldown, None, now)
+    return {
+        "period_start": period_info["period_start"],
+        "period_key": "cooldown:{0}".format(period_info["period_key"]),
+    }
+
+
+def mode_cooldown_allows_trigger(connection, guild_id: str, mode: Dict[str, Any]) -> bool:
+    period_info = get_mode_once_per_period_info(mode)
+    if period_info is None:
+        return True
+    history = ModeRepository(connection).get_trigger_history(
+        guild_id,
+        int(mode["id"]),
+        str(period_info["period_key"]),
+    )
+    return history is None
+
+
 def record_mode_period_trigger(connection, guild_id: str, mode: Dict[str, Any]) -> None:
     repository = ModeRepository(connection)
     mode_id = int(mode["id"])
@@ -1450,6 +1479,37 @@ def record_mode_period_trigger(connection, guild_id: str, mode: Dict[str, Any]) 
                 "period_start": period_info["period_start"].isoformat(),
             },
         )
+    cooldown_period_info = get_mode_once_per_period_info(mode)
+    if cooldown_period_info is not None:
+        repository.record_trigger_history(
+            guild_id,
+            mode_id,
+            str(cooldown_period_info["period_key"]),
+            {
+                "mode_key": mode.get("mode_key"),
+                "period_start": cooldown_period_info["period_start"].isoformat(),
+                "source": "cooldown_config_json",
+            },
+        )
+
+
+def shikocchi_mode_allows_trigger(connection, guild_id: str) -> bool:
+    try:
+        repository = ModeRepository(connection)
+        found_shikocchi_trigger = False
+        for mode in repository.list_enabled_modes(guild_id):
+            for condition in repository.list_trigger_conditions(guild_id, int(mode["id"]), enabled=True):
+                if condition.get("condition_type") != "counter_threshold":
+                    continue
+                if get_counter_key(get_condition_config(condition)) != "shikocchi_count":
+                    continue
+                found_shikocchi_trigger = True
+                if mode_cooldown_allows_trigger(connection, guild_id, mode):
+                    return True
+        return not found_shikocchi_trigger
+    except Exception as exc:
+        print("[WARN] shikocchi mode cooldown check skipped: {0}".format(exc))
+        return True
 
 
 def trigger_condition_met(
@@ -1498,8 +1558,12 @@ def mode_triggers_met(
     operator = actionable[0].get("group_operator") or "AND"
     results = [trigger_condition_met(connection, guild_id, mode, condition, pending_effects) for condition in actionable]
     if operator == "OR":
-        return any(results)
-    return all(results)
+        trigger_allowed = any(results)
+    else:
+        trigger_allowed = all(results)
+    if not trigger_allowed:
+        return False
+    return mode_cooldown_allows_trigger(connection, guild_id, mode)
 
 
 def reset_counter_thresholds(connection, guild_id: str, mode_id: int) -> None:
