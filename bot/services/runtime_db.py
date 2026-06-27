@@ -666,6 +666,10 @@ def get_probability_multiplier_display_target(
     return "special_effect_tag", int(effect.get("id") or 0)
 
 
+def get_pending_probability_multipliers(effects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [effect for effect in effects if effect.get("effect_type") == "probability_multiplier"]
+
+
 async def send_effect_additional_message(
     connection,
     guild_id: str,
@@ -949,6 +953,7 @@ async def execute_effects(
 ) -> EffectExecutionResult:
     result = EffectExecutionResult()
     pending = pending_effects or []
+    carried_probability_multipliers = False
     for effect in effects:
         try:
             config = normalize_json(effect.get("effect_config_json"))
@@ -1058,10 +1063,13 @@ async def execute_effects(
                 if multiplier <= 0:
                     print("[WARN] probability_multiplier skipped invalid multiplier: id={0}".format(effect.get("id")))
                 else:
+                    if not carried_probability_multipliers:
+                        result.pending_effects.extend(get_pending_probability_multipliers(pending))
+                        carried_probability_multipliers = True
                     result.pending_effects.append(effect)
                     display_target_type, display_target_id = get_probability_multiplier_display_target(effect, config)
                     effective_multiplier = get_probability_multiplier_for_target(
-                        pending + [effect],
+                        result.pending_effects,
                         display_target_type,
                         display_target_id,
                     )

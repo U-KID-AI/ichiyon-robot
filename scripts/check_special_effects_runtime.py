@@ -293,6 +293,40 @@ async def check_additional_text_placeholders(check: Check) -> None:
             raio_text,
         )
 
+        pending = []
+        totals = []
+        for _ in range(4):
+            step_message = FakeMessage()
+            step_result = await execute_effects(
+                connection,
+                "guild",
+                [
+                    effect(
+                        "probability_multiplier",
+                        {"multiplier": 9, "label": "raio"},
+                        "total={effective_multiplier}",
+                    )
+                ],
+                step_message,
+                values,
+                pending,
+            )
+            pending = step_result.pending_effects
+            totals.append(step_message.channel.sent[0] if step_message.channel.sent else "")
+        check.add(
+            "probability_multiplier stacks through four activations",
+            totals == ["total=9", "total=81", "total=729", "total=6561"],
+            str(totals),
+        )
+        check.add(
+            "probability_multiplier pending keeps duplicate labels",
+            len(pending) == 4 and get_probability_multiplier_for_target(pending, "special_effect_tag", 999) == 6561.0,
+            "pending={0} multiplier={1}".format(
+                len(pending),
+                get_probability_multiplier_for_target(pending, "special_effect_tag", 999),
+            ),
+        )
+
         stacked_pending = [
             effect("probability_multiplier", {"multiplier": 9, "label": "raio"}),
             effect("probability_multiplier", {"multiplier": 9, "label": "raio"}),
