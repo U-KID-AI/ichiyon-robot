@@ -141,6 +141,7 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
         enabled: Optional[str] = Form(None),
         admin_only: Optional[str] = Form(None),
         is_deletable: Optional[str] = Form(None),
+        mode_nickname: str = Form(""),
         mode_icon_path: str = Form(""),
         mode_icon_upload: Optional[UploadFile] = File(None),
         delete_mode_icon: Optional[str] = Form(None),
@@ -209,6 +210,7 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
         enabled: Optional[str] = Form(None),
         admin_only: Optional[str] = Form(None),
         is_deletable: Optional[str] = Form(None),
+        mode_nickname: str = Form(""),
         mode_icon_path: str = Form(""),
         mode_icon_upload: Optional[UploadFile] = File(None),
         delete_mode_icon: Optional[str] = Form(None),
@@ -483,6 +485,7 @@ def build_mode_view(
             "name": mode.get("name") or "",
             "description": mode.get("description") or "",
             "behavior_type": mode.get("behavior_type") or "reply",
+            "mode_nickname": get_mode_nickname_from_config(mode),
             "mode_icon_path": mode.get("mode_icon_path") or "",
             "enter_message": mode.get("enter_message") or "",
             "exit_message": mode.get("exit_message") or "",
@@ -608,6 +611,7 @@ def default_mode_form() -> Dict[str, Any]:
         "enabled": True,
         "admin_only": False,
         "is_deletable": True,
+        "mode_nickname": "",
         "mode_icon_path": "",
         "enter_message": "",
         "exit_message": "",
@@ -644,6 +648,7 @@ def build_mode_form(values: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str], 
     form["is_deletable"] = values.get("is_deletable") == "on"
     for key in (
         "mode_icon_path",
+        "mode_nickname",
         "enter_message",
         "exit_message",
         "enter_gif_path",
@@ -673,6 +678,38 @@ def build_mode_form(values: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str], 
     if not form["name"]:
         errors.append("モード名を入力。")
     return form, errors, cooldown
+
+
+def normalize_json_dict(value) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def get_mode_nickname_from_config(mode: Dict[str, Any]) -> str:
+    appearance = normalize_json_dict(mode.get("appearance_config_json"))
+    for key in ("nickname", "bot_nickname", "display_name"):
+        value = appearance.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
+def build_appearance_config(existing: Optional[Dict[str, Any]], mode_nickname: str) -> Dict[str, Any]:
+    appearance = normalize_json_dict((existing or {}).get("appearance_config_json"))
+    nickname = mode_nickname.strip()
+    if nickname:
+        appearance["nickname"] = nickname
+    else:
+        appearance.pop("nickname", None)
+    return appearance
 
 
 def build_cooldown(values: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
@@ -767,6 +804,7 @@ async def save_mode(
             )
 
         if mode_id is None:
+            appearance_config = build_appearance_config(existing, form["mode_nickname"])
             created = repository.create_mode(
                 guild_id,
                 form["mode_key"],
@@ -783,6 +821,7 @@ async def save_mode(
                 split_csv(form["reaction_channel_ids"]),
                 split_csv(form["ignore_channel_ids"]),
                 cooldown,
+                appearance_config,
                 form["enabled"],
                 form["admin_only"],
                 form["is_deletable"],
@@ -790,6 +829,7 @@ async def save_mode(
             connection.commit()
             return RedirectResponse(url="/guilds/{0}/modes/{1}".format(guild_id, created["id"]), status_code=303)
 
+        appearance_config = build_appearance_config(existing, form["mode_nickname"])
         repository.update_mode(
             guild_id,
             mode_id,
@@ -807,6 +847,7 @@ async def save_mode(
             split_csv(form["reaction_channel_ids"]),
             split_csv(form["ignore_channel_ids"]),
             cooldown,
+            appearance_config,
             form["enabled"],
             form["admin_only"],
             form["is_deletable"],

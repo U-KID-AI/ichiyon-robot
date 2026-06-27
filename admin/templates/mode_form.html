@@ -35,6 +35,7 @@
         <label>モード名<input type="text" name="name" value="{{ mode_data.name }}" {% if not can_edit %}disabled{% endif %}></label>
         <label>モードキー<input type="text" name="mode_key" value="{{ mode_data.mode_key }}" {% if not can_edit %}disabled{% endif %}></label>
       </div>
+      <label>モード中Bot名<input type="text" name="mode_nickname" value="{{ mode_data.mode_nickname }}" placeholder="未設定ならモード名" {% if not can_edit %}disabled{% endif %}></label>
       <label>説明<textarea name="description" {% if not can_edit %}disabled{% endif %}>{{ mode_data.description }}</textarea></label>
       <div class="form-grid">
         <label>
