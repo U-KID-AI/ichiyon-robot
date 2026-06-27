@@ -1,0 +1,10 @@
+.git
+.venv
+.venv38
+__pycache__
+*.pyc
+.env
+data/backups
+*.key
+*.pem
+*.log

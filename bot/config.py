@@ -75,7 +75,7 @@ def get_default_hayusu_bot_nickname(app_env: str) -> str:
     return "はゆすロボ"
 
 
-TOKEN = os.getenv("DISCORD_TOKEN")
+TOKEN = os.getenv("DISCORD_TOKEN") or os.getenv("DISCORD_BOT_TOKEN")
 APP_ENV = get_app_env()
 DATA_BACKEND = get_data_backend()
 ENABLE_DEV_COMMANDS = get_env_bool("ENABLE_DEV_COMMANDS", False)

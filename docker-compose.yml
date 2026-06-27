@@ -1,14 +1,14 @@
 services:
-  postgres:
+  db:
     image: postgres:16
-    container_name: ichiyon-robot-postgres
+    container_name: ichiyon-robot-db
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-ichiyon_robot}
       POSTGRES_USER: ${POSTGRES_USER:-ichiyon_robot}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ichiyon_robot_password}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -16,6 +16,61 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  admin:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ichiyon-robot-admin
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      ICHIYON_DATA_BACKEND: ${ICHIYON_DATA_BACKEND:-db}
+      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://ichiyon_robot:ichiyon_robot_password@db:5432/ichiyon_robot}
+      ADMIN_BASE_URL: ${ADMIN_BASE_URL:-http://localhost:8080}
+      ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET:-local_development_session_secret_change_me}
+      DISCORD_OAUTH_CLIENT_ID: ${DISCORD_OAUTH_CLIENT_ID:-}
+      DISCORD_OAUTH_CLIENT_SECRET: ${DISCORD_OAUTH_CLIENT_SECRET:-}
+      DISCORD_OAUTH_REDIRECT_URI: ${DISCORD_OAUTH_REDIRECT_URI:-http://localhost:8080/auth/discord/callback}
+      X_SEARCH_ENABLED: ${X_SEARCH_ENABLED:-false}
+      X_BEARER_TOKEN: ${X_BEARER_TOKEN:-}
+    command: >
+      sh -c "uvicorn admin.main:app --host $${ADMIN_HOST:-0.0.0.0} --port $${ADMIN_PORT:-8080}"
+    ports:
+      - "${ADMIN_PORT:-8080}:${ADMIN_PORT:-8080}"
+    volumes:
+      - .:/app
+
+  bot:
+    profiles:
+      - bot
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ichiyon-robot-bot
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      ENABLE_DEV_COMMANDS: ${ENABLE_DEV_COMMANDS:-true}
+      ICHIYON_DATA_BACKEND: ${ICHIYON_DATA_BACKEND:-db}
+      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://ichiyon_robot:ichiyon_robot_password@db:5432/ichiyon_robot}
+      DISCORD_TOKEN: ${DISCORD_TOKEN:-${DISCORD_BOT_TOKEN:-}}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      X_SEARCH_ENABLED: ${X_SEARCH_ENABLED:-false}
+      X_BEARER_TOKEN: ${X_BEARER_TOKEN:-}
+      X_SEARCH_MODE: ${X_SEARCH_MODE:-recent}
+      X_SEARCH_LOOKBACK_DAYS: ${X_SEARCH_LOOKBACK_DAYS:-14}
+      STARTUP_CHANNEL_ID: ${STARTUP_CHANNEL_ID:-0}
+      SCHEDULE_CHANNEL_ID: ${SCHEDULE_CHANNEL_ID:-0}
+    command: python main.py
+    volumes:
+      - .:/app
 
 volumes:
   postgres_data:
