@@ -13,7 +13,7 @@ stg の `db` / `admin` / `bot` を Docker Compose で起動するための手順
 
 stg では既存 PostgreSQL を必ず dump してから、Compose の `db` へ restore します。これで `db` / `admin` / `bot` を Compose 管理へ寄せられます。既存 systemd unit は削除せず、Docker 起動確認後に停止・無効化します。
 
-DB は `127.0.0.1:${POSTGRES_PORT:-5432}` だけに bind します。外部公開しません。
+DB は `127.0.0.1:${POSTGRES_PORT:-5433}` だけに bind します。外部公開しません。`docker-compose.stg.yml` は base 側の `db.ports` を置き換えるため、最終 config に DB port は1つだけ出ます。
 
 ## 事前確認
 
@@ -30,7 +30,7 @@ git status --short
 ```bash
 systemctl status ichiyon-bot-stg --no-pager
 systemctl status ichiyon-admin-stg --no-pager
-ss -ltnp | grep -E ':5432|:8080'
+ss -ltnp | grep -E ':5432|:5433|:8080'
 ```
 
 ## stg 用 .env
@@ -76,7 +76,7 @@ docker compose -f docker-compose.yml -f docker-compose.stg.yml config
 
 ## Compose DB 起動と restore
 
-既存 PostgreSQL が 5432 を使っている場合は、先に `.env` の `POSTGRES_PORT` を一時的に `5433` などへ変更して restore します。最終的に systemd 停止後、5432 へ戻しても構いません。
+stg の Compose DB は既定で `127.0.0.1:5433` に公開します。既存 PostgreSQL が 5432 を使っていても衝突しません。
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.stg.yml up -d db
@@ -182,7 +182,7 @@ pg_restore --clean --if-exists --no-owner --dbname "$DATABASE_URL" "$LATEST_DUMP
 ポート確認:
 
 ```bash
-ss -ltnp | grep -E ':5432|:8080'
+ss -ltnp | grep -E ':5432|:5433|:8080'
 sudo iptables -S
 ```
 
