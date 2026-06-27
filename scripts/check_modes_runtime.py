@@ -135,7 +135,7 @@ class FakeModeRepository:
             "name": "しこっちモード",
             "enabled": True,
             "behavior_type": "offline",
-            "enter_message": "しこっちきた",
+            "enter_message": "しこっち、きた",
             "exit_message": "ended",
             "mode_icon_path": "assets/avatar_shikocchi.png",
             "appearance_config_json": {"nickname": "しこっち"},
@@ -332,7 +332,7 @@ async def run_checks(check: Check) -> None:
         shikocchi_entered = await runtime_db.enter_mode_if_needed(shikocchi_enter_message, "guild", connection)
         check.add(
             "shikocchi mode enters with single message",
-            shikocchi_entered is True and shikocchi_enter_message.channel.sent == ["しこっちきた"],
+            shikocchi_entered is True and shikocchi_enter_message.channel.sent == ["しこっち、きた"],
             str(shikocchi_enter_message.channel.sent),
         )
         shikocchi_active_until = FakeModeRepository.state.get("active_until")

@@ -13,6 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from bot import messages
 from bot.services import runtime_db
+from bot.services.runtime_db import EffectExecutionResult
 
 
 class Check:
@@ -109,6 +110,7 @@ def configure_runtime() -> Dict[str, Any]:
     old = {
         "mention_repo": runtime_db.MentionReactionRepository,
         "auto_repo": runtime_db.AutoReactionRepository,
+        "execute_effects": runtime_db.execute_effects,
         "feature_enabled": runtime_db.feature_enabled,
         "list_effects": runtime_db.list_effects,
         "list_limited_effects": runtime_db.list_limited_effects,
@@ -128,6 +130,7 @@ def configure_runtime() -> Dict[str, Any]:
 def restore_runtime(old: Dict[str, Any]) -> None:
     runtime_db.MentionReactionRepository = old["mention_repo"]
     runtime_db.AutoReactionRepository = old["auto_repo"]
+    runtime_db.execute_effects = old["execute_effects"]
     runtime_db.feature_enabled = old["feature_enabled"]
     runtime_db.list_effects = old["list_effects"]
     runtime_db.list_limited_effects = old["list_limited_effects"]
@@ -207,6 +210,38 @@ async def run_checks() -> int:
             no_exception = False
         check.add("reaction permission error does not crash mention action", no_exception, "")
         check.add("mention reaction-only permission error safely unhandled", no_exception and not action.handled, "")
+
+        shikocchi_effect = {
+            "id": 99,
+            "effect_type": "counter_set",
+            "effect_config_json": {"counter_key": "shikocchi_count"},
+        }
+        runtime_db.list_effects = lambda connection, guild_id, target_type, target_id: [shikocchi_effect]
+
+        async def fake_shikocchi_failed(connection, guild_id, effects, message, values, pending_effects=None):
+            return EffectExecutionResult(count_changed=False)
+
+        runtime_db.execute_effects = fake_shikocchi_failed
+        FakeAutoReactionRepository.rows = [make_auto_row("しこっちきたあああああ", "")]
+        message = FakeMessage("ping")
+        action = await runtime_db.process_db_auto_reaction(message, "111", None)
+        check.add(
+            "shikocchi roll failure keeps normal auto reply",
+            action.handled and message.channel.sent[0]["content"] == "しこっちきたあああああ",
+            str(message.channel.sent),
+        )
+
+        async def fake_shikocchi_success(connection, guild_id, effects, message, values, pending_effects=None):
+            return EffectExecutionResult(count_changed=True)
+
+        runtime_db.execute_effects = fake_shikocchi_success
+        message = FakeMessage("ping")
+        action = await runtime_db.process_db_auto_reaction(message, "111", None)
+        check.add(
+            "shikocchi roll success suppresses normal auto reply",
+            action.handled and message.channel.sent == [],
+            str(message.channel.sent),
+        )
     finally:
         restore_runtime(old)
     return check.finish()
