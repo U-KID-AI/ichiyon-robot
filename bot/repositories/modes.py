@@ -359,6 +359,20 @@ class ModeRepository:
                 (guild_id, json_dumps(state_json or {})),
             )
 
+    def list_expired_mode_states(self) -> List[Dict[str, Any]]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM mode_states
+                WHERE current_mode_id IS NOT NULL
+                  AND active_until IS NOT NULL
+                  AND active_until <= NOW()
+                ORDER BY active_until ASC
+                """
+            )
+            return fetch_all(cursor)
+
     def get_trigger_history(
         self,
         guild_id: str,

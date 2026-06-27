@@ -372,6 +372,7 @@ class PresetSeeder:
                 enter_message="",
                 exit_message="",
                 cooldown_config={"type": "once_per_period", "period": "monthly", "reset": "month_start"},
+                duration_seconds=180,
                 enabled=True,
             ),
             "narita": self.ensure_mode(
@@ -382,6 +383,7 @@ class PresetSeeder:
                 enter_message="",
                 exit_message="",
                 cooldown_config={"type": "once_per_period", "period": "monthly", "reset": {"day": 22}},
+                duration_seconds=None,
                 enabled=True,
             ),
             "shikocchi": self.ensure_mode(
@@ -389,9 +391,10 @@ class PresetSeeder:
                 name="しこっちモード",
                 description="shikocchi_countが1以上になった時に突入するオフラインモード。",
                 behavior_type="offline",
-                enter_message="しこっち、きた。",
+                enter_message="しこっち、きた",
                 exit_message="",
                 cooldown_config={"type": "none"},
+                duration_seconds=14 * 60,
                 enabled=True,
             ),
         }
@@ -453,6 +456,7 @@ class PresetSeeder:
         enter_message: str,
         exit_message: str,
         cooldown_config: Dict[str, Any],
+        duration_seconds: Optional[int],
         enabled: bool,
     ) -> int:
         existing = self.fetch_one(
@@ -468,13 +472,13 @@ class PresetSeeder:
                 """
                 INSERT INTO modes (
                     guild_id, mode_key, name, description, behavior_type,
-                    mode_icon_path, enter_message, exit_message, enter_gif_path, exit_gif_path,
+                    duration_seconds, mode_icon_path, enter_message, exit_message, enter_gif_path, exit_gif_path,
                     enter_notify_channel_id, exit_notify_channel_id, reaction_channel_ids,
                     ignore_channel_ids, cooldown_config_json, enabled, admin_only, is_deletable
                 )
                 VALUES (
                     %s, %s, %s, %s, %s,
-                    '', %s, %s, '', '',
+                    %s, '', %s, %s, '', '',
                     '', '', '[]'::JSONB,
                     '[]'::JSONB, %s::JSONB, %s, FALSE, TRUE
                 )
@@ -482,6 +486,7 @@ class PresetSeeder:
                 SET name = EXCLUDED.name,
                     description = EXCLUDED.description,
                     behavior_type = EXCLUDED.behavior_type,
+                    duration_seconds = EXCLUDED.duration_seconds,
                     enter_message = EXCLUDED.enter_message,
                     exit_message = EXCLUDED.exit_message,
                     cooldown_config_json = EXCLUDED.cooldown_config_json,
@@ -495,6 +500,7 @@ class PresetSeeder:
                     name,
                     description,
                     behavior_type,
+                    duration_seconds,
                     enter_message,
                     exit_message,
                     json_dumps(cooldown_config),
@@ -872,7 +878,7 @@ class PresetSeeder:
     def seed_auto_reactions(self, tags: Dict[str, int]) -> None:
         shikocchi_id = self.ensure_auto_reaction(
             "しこっち",
-            "しこっちきたぁぁぁ",
+            "しこっちきたあああああ",
             "",
             "",
             "contains",

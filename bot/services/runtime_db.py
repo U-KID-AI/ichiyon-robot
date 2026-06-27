@@ -7,8 +7,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import discord
 
+from bot import config
 from bot.db import get_connection
-from bot.messages import get_mention_command_text, send_text_or_image
+from bot.messages import get_bot, get_mention_command_text, send_text_or_image
+from bot.messages import update_bot_avatar, update_bot_nickname
 from bot.ng_words import normalize_ng_match_text
 from bot.repositories import (
     AutoReactionRepository,
@@ -384,6 +386,12 @@ def get_next_action_extra_repeats(effects: List[Dict[str, Any]], action_type: st
     return max(0, repeat_total - 1)
 
 
+def is_shikocchi_counter_set_effect(effect: Dict[str, Any]) -> bool:
+    if effect.get("effect_type") != "counter_set":
+        return False
+    return get_counter_key(normalize_json(effect.get("effect_config_json"))) == "shikocchi_count"
+
+
 def normalize_json(value) -> Dict[str, Any]:
     if isinstance(value, dict):
         return value
@@ -438,6 +446,103 @@ def get_additional_message(effect: Dict[str, Any]) -> str:
         or effect.get("additional_text")
         or ""
     )
+
+
+def format_effect_number(value: float) -> str:
+    if abs(value - round(value)) < 0.000001:
+        return str(int(round(value)))
+    return ("{0:.4f}".format(value)).rstrip("0").rstrip(".")
+
+
+def format_probability_percent(value: float) -> str:
+    percent = max(0.0, min(1.0, value)) * 100.0
+    if abs(percent - round(percent)) < 0.000001:
+        return "{0}%".format(int(round(percent)))
+    return ("{0:.2f}%".format(percent)).rstrip("0").rstrip(".")
+
+
+def build_probability_template_values(config: Dict[str, Any], multiplier: float) -> Dict[str, str]:
+    probability = parse_probability(config)
+    if probability is None:
+        return {
+            "base_probability": "1/1",
+            "effective_probability": "1/1",
+            "probability_percent": "100%",
+        }
+
+    numerator = float(probability["numerator"])
+    denominator = float(probability["denominator"])
+    effective_numerator = numerator * max(0.0, multiplier)
+    effective_ratio = effective_numerator / denominator
+    if effective_ratio >= 1.0:
+        effective_probability = "1/1"
+    else:
+        effective_probability = "{0}/{1}".format(
+            format_effect_number(effective_numerator),
+            probability["denominator"],
+        )
+    return {
+        "base_probability": "{0}/{1}".format(probability["numerator"], probability["denominator"]),
+        "effective_probability": effective_probability,
+        "probability_percent": format_probability_percent(effective_ratio),
+    }
+
+
+def get_effect_name(effect: Dict[str, Any]) -> str:
+    return str(effect.get("name") or effect.get("tag_name") or "")
+
+
+def build_effect_template_values(
+    connection,
+    guild_id: str,
+    effect: Dict[str, Any],
+    config: Dict[str, Any],
+    template_values: Dict[str, str],
+    effect_multiplier: float = 1.0,
+    effective_multiplier: float = 1.0,
+    target_name: Optional[str] = None,
+) -> Dict[str, str]:
+    values = dict(template_values)
+    values.update(build_probability_template_values(config, effective_multiplier))
+    values.update(
+        {
+            "effect_multiplier": format_effect_number(effect_multiplier),
+            "effective_multiplier": format_effect_number(effective_multiplier),
+            "effect_label": get_config_text(config, ["label", "effect_label", "name"]) or "",
+            "effect_name": get_effect_name(effect),
+            "target_name": target_name or values.get("target_name", ""),
+        }
+    )
+    return values
+
+
+def get_counter_template_value(connection, guild_id: str, counter_key: str) -> str:
+    if connection is None:
+        return "0"
+    try:
+        value = CounterRepository(connection).get_value(guild_id, counter_key, 0)
+    except Exception as exc:
+        print("[WARN] Failed to resolve counter placeholder {0}: {1}".format(counter_key, exc))
+        return "0"
+    return str(value)
+
+
+def render_effect_template(
+    text: Optional[str],
+    values: Dict[str, str],
+    connection,
+    guild_id: str,
+) -> str:
+    rendered = render_template(text, values)
+    pattern = re.compile(r"\{counter:([^}]+)\}")
+
+    def replace_counter(match: re.Match) -> str:
+        counter_key = match.group(1).strip()
+        if not counter_key:
+            return "0"
+        return get_counter_template_value(connection, guild_id, counter_key)
+
+    return pattern.sub(replace_counter, rendered)
 
 
 def get_counter_key(config: Dict[str, Any]) -> Optional[str]:
@@ -556,6 +661,54 @@ def get_probability_multiplier_for_target(
             continue
         multiplier *= value
     return multiplier
+
+
+def get_probability_multiplier_display_target(
+    effect: Dict[str, Any],
+    config: Dict[str, Any],
+) -> Tuple[str, int]:
+    target_type = get_effect_target_type(config)
+    target_id = get_effect_target_id(config)
+    if target_type is not None and target_id is not None:
+        return target_type, target_id
+    return "special_effect_tag", int(effect.get("id") or 0)
+
+
+def get_pending_probability_multipliers(effects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [effect for effect in effects if effect.get("effect_type") == "probability_multiplier"]
+
+
+async def send_effect_additional_message(
+    connection,
+    guild_id: str,
+    effect: Dict[str, Any],
+    config: Dict[str, Any],
+    message: discord.Message,
+    template_values: Dict[str, str],
+    additional: Optional[str],
+    effect_multiplier: float = 1.0,
+    effective_multiplier: float = 1.0,
+) -> bool:
+    if not additional:
+        return False
+    rendered = render_effect_template(
+        additional,
+        build_effect_template_values(
+            connection,
+            guild_id,
+            effect,
+            config,
+            template_values,
+            effect_multiplier,
+            effective_multiplier,
+        ),
+        connection,
+        guild_id,
+    )
+    if not rendered:
+        return False
+    await message.channel.send(rendered)
+    return True
 
 
 def mention_has_required_suffix(message: discord.Message, command_text: str, config: Dict[str, Any]) -> bool:
@@ -746,7 +899,12 @@ async def execute_destroy_effect(
         print(
             "[INFO] destroy effect log_only: id={0} reason={1}".format(
                 effect.get("id"),
-                render_template(reason, template_values),
+                render_effect_template(
+                    reason,
+                    build_effect_template_values(connection, guild_id, effect, config, template_values),
+                    connection,
+                    guild_id,
+                ),
             )
         )
         return result
@@ -756,7 +914,14 @@ async def execute_destroy_effect(
         if not text:
             print("[WARN] destroy send_message skipped without message: id={0}".format(effect.get("id")))
             return result
-        await message.channel.send(render_template(text, template_values))
+        await message.channel.send(
+            render_effect_template(
+                text,
+                build_effect_template_values(connection, guild_id, effect, config, template_values),
+                connection,
+                guild_id,
+            )
+        )
         print("[INFO] destroy effect send_message executed: id={0}".format(effect.get("id")))
         return result
 
@@ -796,6 +961,7 @@ async def execute_effects(
 ) -> EffectExecutionResult:
     result = EffectExecutionResult()
     pending = pending_effects or []
+    carried_probability_multipliers = False
     for effect in effects:
         try:
             config = normalize_json(effect.get("effect_config_json"))
@@ -811,7 +977,17 @@ async def execute_effects(
                 additional = get_additional_message(effect)
                 timing = effect.get("additional_message_timing") or effect.get("additional_post_timing")
                 if additional and timing in (None, "", "effect_success", "tag_triggered"):
-                    await message.channel.send(render_template(additional, template_values))
+                    await send_effect_additional_message(
+                        connection,
+                        guild_id,
+                        effect,
+                        config,
+                        message,
+                        template_values,
+                        additional,
+                        multiplier,
+                        multiplier,
+                    )
             elif effect_type == "message":
                 additional = get_additional_message(effect) or get_config_text(
                     config,
@@ -819,7 +995,15 @@ async def execute_effects(
                 )
                 timing = effect.get("additional_message_timing") or effect.get("additional_post_timing")
                 if additional and timing in (None, "", "effect_success", "tag_triggered"):
-                    await message.channel.send(render_template(additional, template_values))
+                    await send_effect_additional_message(
+                        connection,
+                        guild_id,
+                        effect,
+                        config,
+                        message,
+                        template_values,
+                        additional,
+                    )
             elif effect_type == "reaction":
                 emoji = get_config_text(config, ["emoji", "reaction", "emoji_internal"])
                 if not emoji:
@@ -839,6 +1023,18 @@ async def execute_effects(
                 repository.ensure_counter(guild_id, counter_key, counter_key)
                 repository.increment(guild_id, counter_key, delta)
                 result.count_changed = True
+                additional = get_additional_message(effect)
+                timing = effect.get("additional_message_timing") or effect.get("additional_post_timing")
+                if additional and timing in (None, "", "effect_success", "tag_triggered"):
+                    await send_effect_additional_message(
+                        connection,
+                        guild_id,
+                        effect,
+                        config,
+                        message,
+                        template_values,
+                        additional,
+                    )
             elif effect_type == "counter_set":
                 multiplier = get_probability_multiplier_for_target(
                     pending,
@@ -856,12 +1052,49 @@ async def execute_effects(
                 repository.ensure_counter(guild_id, counter_key, counter_key)
                 repository.set_value(guild_id, counter_key, value)
                 result.count_changed = True
+                additional = get_additional_message(effect)
+                timing = effect.get("additional_message_timing") or effect.get("additional_post_timing")
+                if additional and timing in (None, "", "effect_success", "tag_triggered"):
+                    await send_effect_additional_message(
+                        connection,
+                        guild_id,
+                        effect,
+                        config,
+                        message,
+                        template_values,
+                        additional,
+                        multiplier,
+                        multiplier,
+                    )
             elif effect_type == "probability_multiplier":
                 multiplier = get_config_float(config, ["multiplier", "rate", "factor"], 1.0)
                 if multiplier <= 0:
                     print("[WARN] probability_multiplier skipped invalid multiplier: id={0}".format(effect.get("id")))
                 else:
+                    if not carried_probability_multipliers:
+                        result.pending_effects.extend(get_pending_probability_multipliers(pending))
+                        carried_probability_multipliers = True
                     result.pending_effects.append(effect)
+                    display_target_type, display_target_id = get_probability_multiplier_display_target(effect, config)
+                    effective_multiplier = get_probability_multiplier_for_target(
+                        result.pending_effects,
+                        display_target_type,
+                        display_target_id,
+                    )
+                    additional = get_additional_message(effect)
+                    timing = effect.get("additional_message_timing") or effect.get("additional_post_timing")
+                    if additional and timing in (None, "", "effect_success", "tag_triggered"):
+                        await send_effect_additional_message(
+                            connection,
+                            guild_id,
+                            effect,
+                            config,
+                            message,
+                            template_values,
+                            additional,
+                            multiplier,
+                            effective_multiplier,
+                        )
                     print("[INFO] probability_multiplier queued for next action: id={0}".format(effect.get("id")))
             elif effect_type == "next_action_count":
                 target_action = get_config_text(config, ["target_action", "action"]) or "next"
@@ -1036,6 +1269,14 @@ async def process_db_auto_reaction(message: discord.Message, guild_id: str, conn
     values = build_template_values(message, message.content, selected.groups)
     text = render_template(selected.row.get("response_text"), values)
     image_path = selected.row.get("image_path") or ""
+    effects = list_effects(connection, guild_id, "auto_reaction", int(selected.row["id"]))
+    effect_result = None
+    if any(is_shikocchi_counter_set_effect(effect) for effect in effects):
+        effect_result = await execute_effects(connection, guild_id, effects, message, values, pending_effects)
+        store_pending_next_effects(guild_id, message, effect_result.pending_effects)
+        if effect_result.count_changed:
+            return RuntimeAction(True, True, effect_result.pending_effects)
+
     sent = await send_text_or_image(message.channel, text, image_path)
 
     emoji = selected.row.get("emoji_internal") or ""
@@ -1047,9 +1288,9 @@ async def process_db_auto_reaction(message: discord.Message, guild_id: str, conn
         repeated = await repeat_text_image_action(message, text, image_path, emoji, pending_repeats)
         sent = sent or repeated
 
-    effects = list_effects(connection, guild_id, "auto_reaction", int(selected.row["id"]))
-    effect_result = await execute_effects(connection, guild_id, effects, message, values, pending_effects)
-    store_pending_next_effects(guild_id, message, effect_result.pending_effects)
+    if effect_result is None:
+        effect_result = await execute_effects(connection, guild_id, effects, message, values, pending_effects)
+        store_pending_next_effects(guild_id, message, effect_result.pending_effects)
     if effect_result.repeat_count:
         repeated = await repeat_text_image_action(message, text, image_path, emoji, effect_result.repeat_count)
         sent = sent or repeated
@@ -1288,6 +1529,55 @@ def get_duration_seconds_from_exit(connection, guild_id: str, mode_id: int) -> O
     return None
 
 
+def get_mode_duration_seconds(connection, guild_id: str, mode: Dict[str, Any]) -> Optional[int]:
+    try:
+        duration_seconds = int(mode.get("duration_seconds") or 0)
+    except (TypeError, ValueError):
+        duration_seconds = 0
+    if duration_seconds > 0:
+        return duration_seconds
+    return get_duration_seconds_from_exit(connection, guild_id, int(mode["id"]))
+
+
+def get_mode_nickname(mode: Dict[str, Any]) -> str:
+    appearance = normalize_json(mode.get("appearance_config_json"))
+    configured = get_config_text(appearance, ["nickname", "bot_nickname", "display_name"])
+    if configured:
+        return configured
+    mode_key = (mode.get("mode_key") or "").lower()
+    if "shikocchi" in mode_key:
+        return "しこっち"
+    return str(mode.get("name") or "")
+
+
+async def update_bot_status(status: discord.Status) -> None:
+    try:
+        await get_bot().change_presence(status=status)
+    except Exception as exc:
+        print("[WARN] Failed to change bot status: {0}".format(exc))
+
+
+async def apply_mode_identity(message: discord.Message, mode: Dict[str, Any]) -> None:
+    nickname = get_mode_nickname(mode)
+    if nickname:
+        await update_bot_nickname(message.channel, nickname)
+    icon_path = mode.get("mode_icon_path") or ""
+    if icon_path:
+        await update_bot_avatar(icon_path)
+    if (mode.get("behavior_type") or "") == "offline":
+        await update_bot_status(discord.Status.invisible)
+
+
+async def apply_normal_identity_to_channel(channel: discord.abc.Messageable) -> None:
+    await update_bot_nickname(channel, config.NORMAL_BOT_NICKNAME)
+    await update_bot_avatar(config.NORMAL_AVATAR)
+    await update_bot_status(discord.Status.online)
+
+
+async def apply_normal_identity(message: discord.Message) -> None:
+    await apply_normal_identity_to_channel(message.channel)
+
+
 async def send_mode_enter_message(message: discord.Message, mode: Dict[str, Any]) -> None:
     enter_text = mode.get("enter_message") or mode.get("enter_text") or ""
     enter_image = mode.get("enter_gif_path") or ""
@@ -1296,14 +1586,18 @@ async def send_mode_enter_message(message: discord.Message, mode: Dict[str, Any]
 
 
 async def send_mode_exit_message(message: discord.Message, mode: Dict[str, Any]) -> None:
+    await send_mode_exit_message_to_channel(message.channel, mode)
+
+
+async def send_mode_exit_message_to_channel(channel: discord.abc.Messageable, mode: Dict[str, Any]) -> None:
     exit_text = mode.get("exit_message") or mode.get("exit_text") or ""
     exit_image = mode.get("exit_gif_path") or ""
     if exit_text or exit_image:
-        await send_text_or_image(message.channel, exit_text, exit_image)
+        await send_text_or_image(channel, exit_text, exit_image)
     mode_key = (mode.get("mode_key") or "").lower()
     mode_name = (mode.get("name") or "").lower()
     if "shikocchi" in mode_key or "しこっち" in mode_name:
-        await message.channel.send(SHIKOCCHI_RECOVERY_MESSAGE)
+        await channel.send(SHIKOCCHI_RECOVERY_MESSAGE)
 
 
 async def enter_mode_if_needed(
@@ -1321,18 +1615,23 @@ async def enter_mode_if_needed(
         try:
             if not mode_triggers_met(connection, guild_id, mode, pending_effects):
                 continue
-            duration = get_duration_seconds_from_exit(connection, guild_id, int(mode["id"]))
+            duration = get_mode_duration_seconds(connection, guild_id, mode)
             active_until = utc_now() + timedelta(seconds=duration) if duration else None
             repository.enter_mode(
                 guild_id,
                 int(mode["id"]),
                 active_until,
-                {"entered_by": "runtime_mvp", "mode_key": mode.get("mode_key")},
+                {
+                    "entered_by": "runtime_mvp",
+                    "mode_key": mode.get("mode_key"),
+                    "channel_id": str(getattr(message.channel, "id", "") or ""),
+                },
             )
             record_mode_period_trigger(connection, guild_id, mode)
             reset_counter_thresholds(connection, guild_id, int(mode["id"]))
             connection.commit()
             await send_mode_enter_message(message, mode)
+            await apply_mode_identity(message, mode)
             return True
         except Exception as exc:
             print("[WARN] Failed to evaluate/enter mode {0}: {1}".format(mode.get("id"), exc))
@@ -1353,11 +1652,104 @@ async def expire_mode_if_needed(message: discord.Message, guild_id: str, connect
         return False
 
     mode = repository.get_by_id(guild_id, int(state["current_mode_id"]))
-    repository.clear_mode_state(guild_id, {"ended_by": "duration", "ended_at": utc_now().isoformat()})
+    return await expire_mode_state(
+        connection,
+        guild_id,
+        state,
+        mode,
+        message.channel,
+        {"ended_by": "duration", "ended_at": utc_now().isoformat()},
+    )
+
+
+async def expire_mode_state(
+    connection,
+    guild_id: str,
+    state: Dict[str, Any],
+    mode: Optional[Dict[str, Any]],
+    channel: Optional[discord.abc.Messageable],
+    state_json: Optional[Dict[str, Any]] = None,
+) -> bool:
+    repository = ModeRepository(connection)
+    current_mode_id = state.get("current_mode_id")
+    if not current_mode_id:
+        return False
+    latest_state = repository.get_mode_state(guild_id)
+    if not latest_state or latest_state.get("current_mode_id") != current_mode_id:
+        return False
+    repository.clear_mode_state(guild_id, state_json or {"ended_by": "duration", "ended_at": utc_now().isoformat()})
     connection.commit()
-    if mode is not None:
-        await send_mode_exit_message(message, mode)
+    if mode is not None and channel is not None:
+        await send_mode_exit_message_to_channel(channel, mode)
+    if channel is not None:
+        await apply_normal_identity_to_channel(channel)
     return True
+
+
+def get_state_json_value(state: Dict[str, Any], key: str) -> Optional[str]:
+    value = state.get("state_json")
+    if not isinstance(value, dict):
+        return None
+    item = value.get(key)
+    if item is None:
+        return None
+    text = str(item).strip()
+    return text or None
+
+
+def resolve_mode_exit_channel(bot: discord.Client, guild_id: str, state: Dict[str, Any], mode: Dict[str, Any]):
+    channel_ids = [
+        mode.get("exit_notify_channel_id"),
+        get_state_json_value(state, "channel_id"),
+        mode.get("enter_notify_channel_id"),
+    ]
+    for channel_id in channel_ids:
+        if not channel_id:
+            continue
+        try:
+            channel = bot.get_channel(int(channel_id))
+        except (TypeError, ValueError):
+            channel = None
+        if channel is not None and hasattr(channel, "send"):
+            return channel
+
+    try:
+        guild = bot.get_guild(int(guild_id))
+    except (TypeError, ValueError):
+        guild = None
+    if guild is not None and getattr(guild, "system_channel", None) is not None:
+        return guild.system_channel
+    return None
+
+
+async def expire_db_modes_once(bot: discord.Client) -> int:
+    expired_count = 0
+    with get_connection() as connection:
+        repository = ModeRepository(connection)
+        for state in repository.list_expired_mode_states():
+            guild_id = str(state.get("guild_id") or "")
+            mode_id = state.get("current_mode_id")
+            if not guild_id or not mode_id:
+                continue
+            mode = repository.get_by_id(guild_id, int(mode_id))
+            channel = resolve_mode_exit_channel(bot, guild_id, state, mode or {})
+            try:
+                if await expire_mode_state(
+                    connection,
+                    guild_id,
+                    state,
+                    mode,
+                    channel,
+                    {"ended_by": "duration_task", "ended_at": utc_now().isoformat()},
+                ):
+                    expired_count += 1
+            except Exception as exc:
+                print("[WARN] Failed to expire DB mode for guild {0}: {1}".format(guild_id, exc))
+                try:
+                    connection.rollback()
+                except Exception:
+                    pass
+    return expired_count
 
 
 async def handle_active_mode(message: discord.Message, guild_id: str, connection) -> bool:
