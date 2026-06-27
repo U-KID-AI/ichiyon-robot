@@ -1558,10 +1558,14 @@ async def apply_mode_identity(message: discord.Message, mode: Dict[str, Any]) ->
         await update_bot_status(discord.Status.invisible)
 
 
-async def apply_normal_identity(message: discord.Message) -> None:
-    await update_bot_nickname(message.channel, config.NORMAL_BOT_NICKNAME)
+async def apply_normal_identity_to_channel(channel: discord.abc.Messageable) -> None:
+    await update_bot_nickname(channel, config.NORMAL_BOT_NICKNAME)
     await update_bot_avatar(config.NORMAL_AVATAR)
     await update_bot_status(discord.Status.online)
+
+
+async def apply_normal_identity(message: discord.Message) -> None:
+    await apply_normal_identity_to_channel(message.channel)
 
 
 async def send_mode_enter_message(message: discord.Message, mode: Dict[str, Any]) -> None:
@@ -1572,14 +1576,18 @@ async def send_mode_enter_message(message: discord.Message, mode: Dict[str, Any]
 
 
 async def send_mode_exit_message(message: discord.Message, mode: Dict[str, Any]) -> None:
+    await send_mode_exit_message_to_channel(message.channel, mode)
+
+
+async def send_mode_exit_message_to_channel(channel: discord.abc.Messageable, mode: Dict[str, Any]) -> None:
     exit_text = mode.get("exit_message") or mode.get("exit_text") or ""
     exit_image = mode.get("exit_gif_path") or ""
     if exit_text or exit_image:
-        await send_text_or_image(message.channel, exit_text, exit_image)
+        await send_text_or_image(channel, exit_text, exit_image)
     mode_key = (mode.get("mode_key") or "").lower()
     mode_name = (mode.get("name") or "").lower()
     if "shikocchi" in mode_key or "しこっち" in mode_name:
-        await message.channel.send(SHIKOCCHI_RECOVERY_MESSAGE)
+        await channel.send(SHIKOCCHI_RECOVERY_MESSAGE)
 
 
 async def enter_mode_if_needed(
@@ -1603,7 +1611,11 @@ async def enter_mode_if_needed(
                 guild_id,
                 int(mode["id"]),
                 active_until,
-                {"entered_by": "runtime_mvp", "mode_key": mode.get("mode_key")},
+                {
+                    "entered_by": "runtime_mvp",
+                    "mode_key": mode.get("mode_key"),
+                    "channel_id": str(getattr(message.channel, "id", "") or ""),
+                },
             )
             record_mode_period_trigger(connection, guild_id, mode)
             reset_counter_thresholds(connection, guild_id, int(mode["id"]))
@@ -1630,12 +1642,104 @@ async def expire_mode_if_needed(message: discord.Message, guild_id: str, connect
         return False
 
     mode = repository.get_by_id(guild_id, int(state["current_mode_id"]))
-    repository.clear_mode_state(guild_id, {"ended_by": "duration", "ended_at": utc_now().isoformat()})
+    return await expire_mode_state(
+        connection,
+        guild_id,
+        state,
+        mode,
+        message.channel,
+        {"ended_by": "duration", "ended_at": utc_now().isoformat()},
+    )
+
+
+async def expire_mode_state(
+    connection,
+    guild_id: str,
+    state: Dict[str, Any],
+    mode: Optional[Dict[str, Any]],
+    channel: Optional[discord.abc.Messageable],
+    state_json: Optional[Dict[str, Any]] = None,
+) -> bool:
+    repository = ModeRepository(connection)
+    current_mode_id = state.get("current_mode_id")
+    if not current_mode_id:
+        return False
+    latest_state = repository.get_mode_state(guild_id)
+    if not latest_state or latest_state.get("current_mode_id") != current_mode_id:
+        return False
+    repository.clear_mode_state(guild_id, state_json or {"ended_by": "duration", "ended_at": utc_now().isoformat()})
     connection.commit()
-    if mode is not None:
-        await send_mode_exit_message(message, mode)
-        await apply_normal_identity(message)
+    if mode is not None and channel is not None:
+        await send_mode_exit_message_to_channel(channel, mode)
+    if channel is not None:
+        await apply_normal_identity_to_channel(channel)
     return True
+
+
+def get_state_json_value(state: Dict[str, Any], key: str) -> Optional[str]:
+    value = state.get("state_json")
+    if not isinstance(value, dict):
+        return None
+    item = value.get(key)
+    if item is None:
+        return None
+    text = str(item).strip()
+    return text or None
+
+
+def resolve_mode_exit_channel(bot: discord.Client, guild_id: str, state: Dict[str, Any], mode: Dict[str, Any]):
+    channel_ids = [
+        mode.get("exit_notify_channel_id"),
+        get_state_json_value(state, "channel_id"),
+        mode.get("enter_notify_channel_id"),
+    ]
+    for channel_id in channel_ids:
+        if not channel_id:
+            continue
+        try:
+            channel = bot.get_channel(int(channel_id))
+        except (TypeError, ValueError):
+            channel = None
+        if channel is not None and hasattr(channel, "send"):
+            return channel
+
+    try:
+        guild = bot.get_guild(int(guild_id))
+    except (TypeError, ValueError):
+        guild = None
+    if guild is not None and getattr(guild, "system_channel", None) is not None:
+        return guild.system_channel
+    return None
+
+
+async def expire_db_modes_once(bot: discord.Client) -> int:
+    expired_count = 0
+    with get_connection() as connection:
+        repository = ModeRepository(connection)
+        for state in repository.list_expired_mode_states():
+            guild_id = str(state.get("guild_id") or "")
+            mode_id = state.get("current_mode_id")
+            if not guild_id or not mode_id:
+                continue
+            mode = repository.get_by_id(guild_id, int(mode_id))
+            channel = resolve_mode_exit_channel(bot, guild_id, state, mode or {})
+            try:
+                if await expire_mode_state(
+                    connection,
+                    guild_id,
+                    state,
+                    mode,
+                    channel,
+                    {"ended_by": "duration_task", "ended_at": utc_now().isoformat()},
+                ):
+                    expired_count += 1
+            except Exception as exc:
+                print("[WARN] Failed to expire DB mode for guild {0}: {1}".format(guild_id, exc))
+                try:
+                    connection.rollback()
+                except Exception:
+                    pass
+    return expired_count
 
 
 async def handle_active_mode(message: discord.Message, guild_id: str, connection) -> bool:

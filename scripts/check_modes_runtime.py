@@ -15,6 +15,7 @@ from bot.services.runtime_db import SHIKOCCHI_RECOVERY_MESSAGE
 
 class FakeChannel:
     def __init__(self) -> None:
+        self.id = 12345
         self.sent = []
         self.guild = FakeGuild()
 
@@ -33,10 +34,18 @@ class FakeBot:
     def __init__(self) -> None:
         self.user = FakeBotUser()
         self.statuses = []
+        self.channels: Dict[int, FakeChannel] = {}
+        self.guilds: Dict[int, Any] = {}
 
     async def change_presence(self, status=None) -> None:
         self.statuses.append(str(status))
         FakeIdentity.status_updates.append(str(status))
+
+    def get_channel(self, channel_id: int):
+        return self.channels.get(channel_id)
+
+    def get_guild(self, guild_id: int):
+        return self.guilds.get(guild_id)
 
 
 class FakeMember:
@@ -84,6 +93,17 @@ class FakeConnection:
 
     def rollback(self) -> None:
         pass
+
+
+class FakeConnectionContext:
+    def __init__(self, connection: FakeConnection) -> None:
+        self.connection = connection
+
+    def __enter__(self) -> FakeConnection:
+        return self.connection
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
 
 
 class FakeModeRepository:
@@ -159,7 +179,12 @@ class FakeModeRepository:
         state_json: Optional[Dict[str, Any]] = None,
     ) -> None:
         type(self).entered.append(mode_id)
-        type(self).state = {"guild_id": guild_id, "current_mode_id": mode_id, "active_until": active_until}
+        type(self).state = {
+            "guild_id": guild_id,
+            "current_mode_id": mode_id,
+            "active_until": active_until,
+            "state_json": state_json or {},
+        }
 
     def get_by_id(self, guild_id: str, mode_id: int) -> Optional[Dict[str, Any]]:
         return self.modes.get(mode_id)
@@ -170,6 +195,13 @@ class FakeModeRepository:
     def clear_mode_state(self, guild_id: str, state_json: Optional[Dict[str, Any]] = None) -> None:
         type(self).cleared = True
         type(self).state = {}
+
+    def list_expired_mode_states(self) -> List[Dict[str, Any]]:
+        state = self.state or {}
+        active_until = state.get("active_until")
+        if state.get("current_mode_id") and active_until is not None and active_until <= datetime.now(timezone.utc):
+            return [state]
+        return []
 
     def get_trigger_history(self, guild_id: str, mode_id: int, period_key: str) -> Optional[Dict[str, Any]]:
         return None
@@ -214,6 +246,7 @@ async def run_checks(check: Check) -> None:
     original_update_bot_nickname = runtime_db.update_bot_nickname
     original_update_bot_avatar = runtime_db.update_bot_avatar
     original_get_bot = runtime_db.get_bot
+    original_get_connection = runtime_db.get_connection
     try:
         runtime_db.ModeRepository = FakeModeRepository
         runtime_db.CounterRepository = FakeCounterRepository
@@ -236,6 +269,7 @@ async def run_checks(check: Check) -> None:
         FakeIdentity.avatar_updates = []
         FakeIdentity.status_updates = []
         connection = FakeConnection()
+        runtime_db.get_connection = lambda: FakeConnectionContext(connection)
 
         enter_message = FakeMessage("enter")
         entered = await runtime_db.enter_mode_if_needed(enter_message, "guild", connection)
@@ -322,12 +356,68 @@ async def run_checks(check: Check) -> None:
                 FakeIdentity.status_updates,
             ),
         )
+
+        FakeModeRepository.state = {
+            "guild_id": "guild",
+            "current_mode_id": 3,
+            "active_until": datetime.now(timezone.utc) + timedelta(seconds=60),
+            "state_json": {"channel_id": "12345"},
+        }
+        FakeModeRepository.cleared = False
+        not_expired_channel = FakeChannel()
+        fake_bot.channels[12345] = not_expired_channel
+        not_expired_count = await runtime_db.expire_db_modes_once(fake_bot)
+        check.add(
+            "periodic expiry keeps active mode before deadline",
+            not_expired_count == 0 and FakeModeRepository.cleared is False and not_expired_channel.sent == [],
+            "count={0} sent={1}".format(not_expired_count, not_expired_channel.sent),
+        )
+
+        FakeModeRepository.state = {
+            "guild_id": "guild",
+            "current_mode_id": 3,
+            "active_until": datetime.now(timezone.utc) - timedelta(seconds=1),
+            "state_json": {"channel_id": "12345"},
+        }
+        FakeModeRepository.cleared = False
+        FakeIdentity.nickname_updates = []
+        FakeIdentity.avatar_updates = []
+        FakeIdentity.status_updates = []
+        expired_channel = FakeChannel()
+        fake_bot.channels[12345] = expired_channel
+        expired_count = await runtime_db.expire_db_modes_once(fake_bot)
+        check.add(
+            "periodic expiry clears mode without mention",
+            expired_count == 1
+            and FakeModeRepository.cleared is True
+            and expired_channel.sent == ["ended", SHIKOCCHI_RECOVERY_MESSAGE],
+            "count={0} sent={1}".format(expired_count, expired_channel.sent),
+        )
+        check.add(
+            "periodic expiry restores normal identity",
+            runtime_db.config.NORMAL_BOT_NICKNAME in FakeIdentity.nickname_updates
+            and runtime_db.config.NORMAL_AVATAR in FakeIdentity.avatar_updates
+            and "online" in "".join(FakeIdentity.status_updates),
+            "nick={0} avatar={1} status={2}".format(
+                FakeIdentity.nickname_updates,
+                FakeIdentity.avatar_updates,
+                FakeIdentity.status_updates,
+            ),
+        )
+
+        second_count = await runtime_db.expire_db_modes_once(fake_bot)
+        check.add(
+            "periodic expiry does not run twice",
+            second_count == 0 and expired_channel.sent == ["ended", SHIKOCCHI_RECOVERY_MESSAGE],
+            "count={0} sent={1}".format(second_count, expired_channel.sent),
+        )
     finally:
         runtime_db.ModeRepository = original_mode_repository
         runtime_db.CounterRepository = original_counter_repository
         runtime_db.update_bot_nickname = original_update_bot_nickname
         runtime_db.update_bot_avatar = original_update_bot_avatar
         runtime_db.get_bot = original_get_bot
+        runtime_db.get_connection = original_get_connection
 
 
 def main() -> None:
