@@ -389,7 +389,7 @@ class PresetSeeder:
                 name="しこっちモード",
                 description="shikocchi_countが1以上になった時に突入するオフラインモード。",
                 behavior_type="offline",
-                enter_message="しこっち、きた。",
+                enter_message="しこっちきた",
                 exit_message="",
                 cooldown_config={"type": "none"},
                 enabled=True,
@@ -872,7 +872,7 @@ class PresetSeeder:
     def seed_auto_reactions(self, tags: Dict[str, int]) -> None:
         shikocchi_id = self.ensure_auto_reaction(
             "しこっち",
-            "しこっちきたぁぁぁ",
+            "",
             "",
             "",
             "contains",

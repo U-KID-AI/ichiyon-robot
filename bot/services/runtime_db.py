@@ -7,8 +7,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import discord
 
+from bot import config
 from bot.db import get_connection
-from bot.messages import get_mention_command_text, send_text_or_image
+from bot.messages import get_bot, get_mention_command_text, send_text_or_image
+from bot.messages import update_bot_avatar, update_bot_nickname
 from bot.ng_words import normalize_ng_match_text
 from bot.repositories import (
     AutoReactionRepository,
@@ -382,6 +384,12 @@ def get_next_action_extra_repeats(effects: List[Dict[str, Any]], action_type: st
             continue
         repeat_total = max(repeat_total, min(count, MAX_NEXT_ACTION_COUNT))
     return max(0, repeat_total - 1)
+
+
+def is_shikocchi_counter_set_effect(effect: Dict[str, Any]) -> bool:
+    if effect.get("effect_type") != "counter_set":
+        return False
+    return get_counter_key(normalize_json(effect.get("effect_config_json"))) == "shikocchi_count"
 
 
 def normalize_json(value) -> Dict[str, Any]:
@@ -1261,6 +1269,14 @@ async def process_db_auto_reaction(message: discord.Message, guild_id: str, conn
     values = build_template_values(message, message.content, selected.groups)
     text = render_template(selected.row.get("response_text"), values)
     image_path = selected.row.get("image_path") or ""
+    effects = list_effects(connection, guild_id, "auto_reaction", int(selected.row["id"]))
+    effect_result = None
+    if any(is_shikocchi_counter_set_effect(effect) for effect in effects):
+        effect_result = await execute_effects(connection, guild_id, effects, message, values, pending_effects)
+        store_pending_next_effects(guild_id, message, effect_result.pending_effects)
+        if effect_result.count_changed:
+            return RuntimeAction(True, True, effect_result.pending_effects)
+
     sent = await send_text_or_image(message.channel, text, image_path)
 
     emoji = selected.row.get("emoji_internal") or ""
@@ -1272,9 +1288,9 @@ async def process_db_auto_reaction(message: discord.Message, guild_id: str, conn
         repeated = await repeat_text_image_action(message, text, image_path, emoji, pending_repeats)
         sent = sent or repeated
 
-    effects = list_effects(connection, guild_id, "auto_reaction", int(selected.row["id"]))
-    effect_result = await execute_effects(connection, guild_id, effects, message, values, pending_effects)
-    store_pending_next_effects(guild_id, message, effect_result.pending_effects)
+    if effect_result is None:
+        effect_result = await execute_effects(connection, guild_id, effects, message, values, pending_effects)
+        store_pending_next_effects(guild_id, message, effect_result.pending_effects)
     if effect_result.repeat_count:
         repeated = await repeat_text_image_action(message, text, image_path, emoji, effect_result.repeat_count)
         sent = sent or repeated
@@ -1513,6 +1529,41 @@ def get_duration_seconds_from_exit(connection, guild_id: str, mode_id: int) -> O
     return None
 
 
+def get_mode_nickname(mode: Dict[str, Any]) -> str:
+    appearance = normalize_json(mode.get("appearance_config_json"))
+    configured = get_config_text(appearance, ["nickname", "bot_nickname", "display_name"])
+    if configured:
+        return configured
+    mode_key = (mode.get("mode_key") or "").lower()
+    if "shikocchi" in mode_key:
+        return "しこっち"
+    return str(mode.get("name") or "")
+
+
+async def update_bot_status(status: discord.Status) -> None:
+    try:
+        await get_bot().change_presence(status=status)
+    except Exception as exc:
+        print("[WARN] Failed to change bot status: {0}".format(exc))
+
+
+async def apply_mode_identity(message: discord.Message, mode: Dict[str, Any]) -> None:
+    nickname = get_mode_nickname(mode)
+    if nickname:
+        await update_bot_nickname(message.channel, nickname)
+    icon_path = mode.get("mode_icon_path") or ""
+    if icon_path:
+        await update_bot_avatar(icon_path)
+    if (mode.get("behavior_type") or "") == "offline":
+        await update_bot_status(discord.Status.invisible)
+
+
+async def apply_normal_identity(message: discord.Message) -> None:
+    await update_bot_nickname(message.channel, config.NORMAL_BOT_NICKNAME)
+    await update_bot_avatar(config.NORMAL_AVATAR)
+    await update_bot_status(discord.Status.online)
+
+
 async def send_mode_enter_message(message: discord.Message, mode: Dict[str, Any]) -> None:
     enter_text = mode.get("enter_message") or mode.get("enter_text") or ""
     enter_image = mode.get("enter_gif_path") or ""
@@ -1558,6 +1609,7 @@ async def enter_mode_if_needed(
             reset_counter_thresholds(connection, guild_id, int(mode["id"]))
             connection.commit()
             await send_mode_enter_message(message, mode)
+            await apply_mode_identity(message, mode)
             return True
         except Exception as exc:
             print("[WARN] Failed to evaluate/enter mode {0}: {1}".format(mode.get("id"), exc))
@@ -1582,6 +1634,7 @@ async def expire_mode_if_needed(message: discord.Message, guild_id: str, connect
     connection.commit()
     if mode is not None:
         await send_mode_exit_message(message, mode)
+        await apply_normal_identity(message)
     return True
 
 
