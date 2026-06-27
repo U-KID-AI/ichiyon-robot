@@ -1,6 +1,6 @@
-# stg Docker Compose 切替手順
+# stg Docker Compose 運用手順
 
-stg の `db` / `admin` / `bot` を Docker Compose で起動するための手順です。本番は対象外です。
+stg の通常運用は Docker Compose で `db` / `admin` / `bot` をまとめて起動します。本番はまだ対象外です。既存 systemd unit は削除せず、ロールバック用に残します。
 
 対象:
 
@@ -9,11 +9,36 @@ stg の `db` / `admin` / `bot` を Docker Compose で起動するための手順
 - branch: `feature/docker-dev-environment`
 - admin URL: `http://141.147.145.113:8080/login`
 
-## 方針
+## 構成
 
-stg では既存 PostgreSQL を必ず dump してから、Compose の `db` へ restore します。これで `db` / `admin` / `bot` を Compose 管理へ寄せられます。既存 systemd unit は削除せず、Docker 起動確認後に停止・無効化します。
+- `db`: PostgreSQL 16
+- `admin`: `uvicorn admin.main:app`
+- `bot`: `python main.py`
 
-DB は `127.0.0.1:${POSTGRES_PORT:-5433}` だけに bind します。外部公開しません。`docker-compose.stg.yml` は base 側の `db.ports` を置き換えるため、最終 config に DB port は1つだけ出ます。
+stg の DB は `127.0.0.1:${POSTGRES_PORT:-5433}:5432` だけに bind します。外部公開しません。`docker-compose.stg.yml` は base 側の `db.ports` を置き換えるため、最終 config に DB port は1つだけ出ます。
+
+コンテナ内のアプリは `DATABASE_URL=postgresql://...@db:5432/...` を使います。`localhost:5432` 前提の systemd 用接続文字列は通常運用では使いません。
+
+## Docker 未導入の場合
+
+Docker がない場合だけ実行します。
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl gnupg
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo usermod -aG docker ubuntu
+```
+
+グループ反映のため、SSHを入り直します。
 
 ## 事前確認
 
@@ -23,6 +48,8 @@ git fetch origin
 git switch feature/docker-dev-environment
 git pull origin feature/docker-dev-environment
 git status --short
+docker --version
+docker compose version
 ```
 
 既存 unit とポートを確認します。
@@ -37,7 +64,10 @@ ss -ltnp | grep -E ':5432|:5433|:8080'
 
 `.env.stg.example` を元に、サーバー上だけで `.env` を作ります。
 
+初回切替時は、既存 systemd 運用で使っている `.env` をすぐに上書きしません。先に「1. 既存DBをcustom dump」を実行します。dump が取れてから、以下で Docker Compose 用の `.env` に差し替えます。
+
 ```bash
+cp .env .env.systemd.backup
 cp .env.stg.example .env
 chmod 600 .env
 nano .env
@@ -45,60 +75,100 @@ nano .env
 
 `.env` には stg の実値を入れます。Token、Client Secret、X Bearer Token、DB password は Git に入れません。
 
-## DB バックアップ
+重要:
+
+- `APP_ENV=staging`
+- `ENABLE_DEV_COMMANDS=false`
+- `POSTGRES_PORT=5433`
+- `DATABASE_URL=postgresql://...@db:5432/...`
+- `DISCORD_TOKEN` に stg Bot Token を入れる
+- `ADMIN_BASE_URL=http://141.147.145.113:8080`
+
+## 正しい切替順
+
+1. 既存DBをcustom dump
+2. Docker DB volume作り直し
+3. Docker DB起動
+4. `pg_restore`
+5. `migrate`
+6. `guilds` / `modes` 件数確認
+7. `admin` 起動
+8. `bot` 起動
+9. check系実行
+10. systemd disable
+
+restore 前に migration は流しません。
+
+## 1. 既存DBをcustom dump
 
 バックアップ先を作ります。
 
 ```bash
-mkdir -p /home/ubuntu/ichiyon-db-backups
+sudo mkdir -p /home/ubuntu/ichiyon-db-backups
+sudo chown ubuntu:ubuntu /home/ubuntu/ichiyon-db-backups
 chmod 700 /home/ubuntu/ichiyon-db-backups
 ```
 
-既存 stg の `DATABASE_URL` が systemd の EnvironmentFile にある場合は、それを使って dump します。値は表示しません。
+既存 systemd 運用で使っていた DB 接続文字列を `LEGACY_DATABASE_URL` に入れて dump します。値は表示しません。
 
 ```bash
 set -a
 . /home/ubuntu/ichiyon-robot/.env
 set +a
-pg_dump "$DATABASE_URL" --format=custom --file="/home/ubuntu/ichiyon-db-backups/ichiyon_stg_$(date +%Y%m%d_%H%M%S).dump"
+LEGACY_DATABASE_URL="$DATABASE_URL"
+pg_dump "$LEGACY_DATABASE_URL" --format=custom --file="/tmp/ichiyon_stg_$(date +%Y%m%d_%H%M%S).dump"
+sudo mv /tmp/ichiyon_stg_*.dump /home/ubuntu/ichiyon-db-backups/
 ls -lh /home/ubuntu/ichiyon-db-backups
 ```
 
-`DATABASE_URL` が Docker 用に書き換わっている場合は、既存 systemd の EnvironmentFile から旧 DB 接続文字列を確認して、同じ形式で `pg_dump` します。秘密値は画面共有しません。
+このあと `.env` を Docker Compose 用に編集します。`DATABASE_URL` は `db:5432` にします。
 
-## Compose 設定確認
+## 2. Docker DB volume作り直し
+
+dump が取れていることを確認してから実行します。
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.stg.yml config
+docker compose -f docker-compose.yml -f docker-compose.stg.yml --profile bot down
+docker volume rm ichiyon-robot_postgres_data || true
+docker volume rm ichiyonrobot_postgres_data || true
 ```
 
-`config` は環境変数の値も出ます。出力を共有する場合は秘密値を伏せます。
+volume名が違う場合は以下で確認します。
 
-## Compose DB 起動と restore
+```bash
+docker volume ls | grep postgres_data
+```
 
-stg の Compose DB は既定で `127.0.0.1:5433` に公開します。既存 PostgreSQL が 5432 を使っていても衝突しません。
+## 3. Docker DB起動
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.stg.yml up -d db
 docker compose -f docker-compose.yml -f docker-compose.stg.yml ps
 ```
 
-dump を restore します。
+## 4. pg_restore
 
 ```bash
 LATEST_DUMP="$(ls -t /home/ubuntu/ichiyon-db-backups/ichiyon_stg_*.dump | head -n 1)"
 docker compose -f docker-compose.yml -f docker-compose.stg.yml exec -T db pg_restore --clean --if-exists --no-owner --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" < "$LATEST_DUMP"
 ```
 
-migration を最新化します。
+## 5. migrate
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.stg.yml run --rm admin python scripts/migrate.py
 ```
 
-## admin / bot 起動
+## 6. 件数確認
 
-admin を起動します。
+```bash
+docker compose -f docker-compose.yml -f docker-compose.stg.yml exec db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select count(*) as guilds from guilds;"
+docker compose -f docker-compose.yml -f docker-compose.stg.yml exec db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select count(*) as modes from modes;"
+```
+
+目安として、切替時点では `guilds=3` / `modes=12` を確認済みです。
+
+## 7. admin起動
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.stg.yml up -d admin
@@ -107,28 +177,23 @@ docker compose -f docker-compose.yml -f docker-compose.stg.yml logs admin --tail
 
 `http://141.147.145.113:8080/login` を開きます。
 
-admin が確認できたら、既存 stg systemd を停止・無効化します。削除はしません。
-
-```bash
-sudo systemctl stop ichiyon-admin-stg
-sudo systemctl disable ichiyon-admin-stg
-sudo systemctl stop ichiyon-bot-stg
-sudo systemctl disable ichiyon-bot-stg
-```
-
-bot を Compose で起動します。
+## 8. bot起動
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.stg.yml --profile bot up -d bot
 docker compose -f docker-compose.yml -f docker-compose.stg.yml logs bot --tail=100
 ```
 
-## 確認
+ログで以下を確認します。
+
+- Discord にログインしている
+- `APP_ENV=staging ENABLE_DEV_COMMANDS=False`
+- `APP_ENV must be production or development` の警告が出ない
+
+## 9. check系実行
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.stg.yml ps
-docker compose -f docker-compose.yml -f docker-compose.stg.yml logs admin --tail=100
-docker compose -f docker-compose.yml -f docker-compose.stg.yml logs bot --tail=100
 docker compose -f docker-compose.yml -f docker-compose.stg.yml exec admin python -m compileall bot admin scripts
 docker compose -f docker-compose.yml -f docker-compose.stg.yml exec admin python scripts/check_modes_runtime.py
 docker compose -f docker-compose.yml -f docker-compose.stg.yml exec admin python scripts/check_special_effects_runtime.py
@@ -151,6 +216,40 @@ Discord で確認する項目:
 - Bot がログインしている
 - ライオからしこっち周りが動く
 - デッキ検索が落ちずに返る
+
+## 10. systemd disable
+
+Docker版の admin / bot が確認できてから、既存 stg systemd を停止・無効化します。削除はしません。
+
+```bash
+sudo systemctl stop ichiyon-admin-stg
+sudo systemctl disable ichiyon-admin-stg
+sudo systemctl stop ichiyon-bot-stg
+sudo systemctl disable ichiyon-bot-stg
+```
+
+## 通常運用
+
+起動:
+
+```bash
+cd /home/ubuntu/ichiyon-robot
+docker compose -f docker-compose.yml -f docker-compose.stg.yml up -d db admin
+docker compose -f docker-compose.yml -f docker-compose.stg.yml --profile bot up -d bot
+```
+
+ログ:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.stg.yml logs admin --tail=100
+docker compose -f docker-compose.yml -f docker-compose.stg.yml logs bot --tail=100
+```
+
+停止:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.stg.yml --profile bot down
+```
 
 ## ロールバック
 
@@ -176,7 +275,7 @@ DB を dump から戻す場合:
 
 ```bash
 LATEST_DUMP="$(ls -t /home/ubuntu/ichiyon-db-backups/ichiyon_stg_*.dump | head -n 1)"
-pg_restore --clean --if-exists --no-owner --dbname "$DATABASE_URL" "$LATEST_DUMP"
+pg_restore --clean --if-exists --no-owner --dbname "$LEGACY_DATABASE_URL" "$LATEST_DUMP"
 ```
 
 ポート確認:
@@ -188,13 +287,14 @@ sudo iptables -S
 
 戻すファイル:
 
-- `.env`: Docker 用に変更した場合は、systemd 運用時の値へ戻す
-- `docker-compose.yml` / `docker-compose.stg.yml`: Git の `feature/docker-dev-environment` を使う
+- `.env`: systemd 運用時の値へ戻す
 - systemd unit: 削除していないため `enable` / `start` で復旧
+- DB: `/home/ubuntu/ichiyon-db-backups/*.dump` から復旧
 
 ## 注意
 
 - `.env` 実値はコミットしません。
 - systemd unit は削除しません。
+- systemd は通常運用ではなくロールバック用です。
 - 本番はこの手順の対象外です。
 - dump が取れていない状態で DB 切替を進めません。

@@ -61,7 +61,6 @@ services:
       ICHIYON_DATA_BACKEND: ${ICHIYON_DATA_BACKEND:-db}
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://ichiyon_robot:ichiyon_robot_password@db:5432/ichiyon_robot}
       DISCORD_TOKEN: ${DISCORD_TOKEN:-${DISCORD_BOT_TOKEN:-}}
-      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
       X_SEARCH_ENABLED: ${X_SEARCH_ENABLED:-false}
       X_BEARER_TOKEN: ${X_BEARER_TOKEN:-}
       X_SEARCH_MODE: ${X_SEARCH_MODE:-recent}

@@ -34,10 +34,10 @@ def get_env_bool(name: str, default: bool = False) -> bool:
 
 def get_app_env() -> str:
     value = os.getenv("APP_ENV", "production").strip().lower()
-    if value in ("production", "development"):
+    if value in ("production", "development", "staging"):
         return value
 
-    print("[WARN] APP_ENV must be production or development")
+    print("[WARN] APP_ENV must be production, staging, or development")
     return "production"
 
 

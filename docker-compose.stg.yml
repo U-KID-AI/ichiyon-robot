@@ -9,6 +9,7 @@ services:
     environment:
       APP_ENV: ${APP_ENV:-staging}
       ENABLE_DEV_COMMANDS: ${ENABLE_DEV_COMMANDS:-false}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://ichiyon_robot:ichiyon_robot_password@db:5432/ichiyon_robot}
       ADMIN_BASE_URL: ${ADMIN_BASE_URL:-http://141.147.145.113:8080}
       DISCORD_OAUTH_REDIRECT_URI: ${DISCORD_OAUTH_REDIRECT_URI:-http://141.147.145.113:8080/auth/discord/callback}
     ports:
@@ -19,3 +20,4 @@ services:
     environment:
       APP_ENV: ${APP_ENV:-staging}
       ENABLE_DEV_COMMANDS: ${ENABLE_DEV_COMMANDS:-false}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://ichiyon_robot:ichiyon_robot_password@db:5432/ichiyon_robot}
