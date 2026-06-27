@@ -1529,6 +1529,16 @@ def get_duration_seconds_from_exit(connection, guild_id: str, mode_id: int) -> O
     return None
 
 
+def get_mode_duration_seconds(connection, guild_id: str, mode: Dict[str, Any]) -> Optional[int]:
+    try:
+        duration_seconds = int(mode.get("duration_seconds") or 0)
+    except (TypeError, ValueError):
+        duration_seconds = 0
+    if duration_seconds > 0:
+        return duration_seconds
+    return get_duration_seconds_from_exit(connection, guild_id, int(mode["id"]))
+
+
 def get_mode_nickname(mode: Dict[str, Any]) -> str:
     appearance = normalize_json(mode.get("appearance_config_json"))
     configured = get_config_text(appearance, ["nickname", "bot_nickname", "display_name"])
@@ -1605,7 +1615,7 @@ async def enter_mode_if_needed(
         try:
             if not mode_triggers_met(connection, guild_id, mode, pending_effects):
                 continue
-            duration = get_duration_seconds_from_exit(connection, guild_id, int(mode["id"]))
+            duration = get_mode_duration_seconds(connection, guild_id, mode)
             active_until = utc_now() + timedelta(seconds=duration) if duration else None
             repository.enter_mode(
                 guild_id,

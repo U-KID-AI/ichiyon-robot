@@ -119,6 +119,7 @@ class FakeModeRepository:
             "enabled": True,
             "behavior_type": "reply",
             "enter_message": "entered",
+            "duration_seconds": 60,
         },
         2: {
             "id": 2,
@@ -126,6 +127,7 @@ class FakeModeRepository:
             "name": "offline",
             "enabled": True,
             "behavior_type": "offline",
+            "duration_seconds": None,
         },
         3: {
             "id": 3,
@@ -137,6 +139,16 @@ class FakeModeRepository:
             "exit_message": "ended",
             "mode_icon_path": "assets/avatar_shikocchi.png",
             "appearance_config_json": {"nickname": "しこっち"},
+            "duration_seconds": 60,
+        },
+        4: {
+            "id": 4,
+            "mode_key": "fallback_duration",
+            "name": "fallback",
+            "enabled": True,
+            "behavior_type": "reply",
+            "enter_message": "fallback entered",
+            "duration_seconds": None,
         },
     }
 
@@ -150,7 +162,7 @@ class FakeModeRepository:
         return [self.modes[self.enabled_mode_id]]
 
     def list_trigger_conditions(self, guild_id: str, mode_id: int, enabled: bool = True) -> List[Dict[str, Any]]:
-        if mode_id in (1, 3):
+        if mode_id in (1, 3, 4):
             return [
                 {
                     "id": mode_id,
@@ -168,7 +180,9 @@ class FakeModeRepository:
 
     def list_exit_conditions(self, guild_id: str, mode_id: int, enabled: bool = True) -> List[Dict[str, Any]]:
         if mode_id == 1:
-            return [{"condition_type": "duration", "condition_config_json": {"seconds": 60}}]
+            return [{"condition_type": "duration", "condition_config_json": {"seconds": 840}}]
+        if mode_id == 4:
+            return [{"condition_type": "duration", "condition_config_json": {"seconds": 75}}]
         return []
 
     def enter_mode(
@@ -278,6 +292,13 @@ async def run_checks(check: Check) -> None:
             entered is True and FakeModeRepository.entered == [1] and enter_message.channel.sent == ["entered"],
             "entered={0} sent={1}".format(FakeModeRepository.entered, enter_message.channel.sent),
         )
+        active_until = FakeModeRepository.state.get("active_until")
+        delta_seconds = (active_until - datetime.now(timezone.utc)).total_seconds() if active_until else 0
+        check.add(
+            "mode duration_seconds overrides exit condition duration",
+            45 <= delta_seconds <= 75,
+            "delta_seconds={0}".format(delta_seconds),
+        )
         check.add(
             "reply mode applies mode nickname",
             FakeIdentity.nickname_updates == ["reply"],
@@ -314,6 +335,17 @@ async def run_checks(check: Check) -> None:
             shikocchi_entered is True and shikocchi_enter_message.channel.sent == ["しこっちきた"],
             str(shikocchi_enter_message.channel.sent),
         )
+        shikocchi_active_until = FakeModeRepository.state.get("active_until")
+        shikocchi_delta = (
+            (shikocchi_active_until - datetime.now(timezone.utc)).total_seconds()
+            if shikocchi_active_until
+            else 0
+        )
+        check.add(
+            "shikocchi duration_seconds controls active_until",
+            45 <= shikocchi_delta <= 75,
+            "delta_seconds={0}".format(shikocchi_delta),
+        )
         check.add(
             "shikocchi mode does not send legacy text",
             "しこっちきたぁぁぁ" not in shikocchi_enter_message.channel.sent,
@@ -329,6 +361,23 @@ async def run_checks(check: Check) -> None:
                 FakeIdentity.avatar_updates,
                 FakeIdentity.status_updates,
             ),
+        )
+
+        FakeModeRepository.state = {}
+        FakeModeRepository.entered = []
+        FakeModeRepository.enabled_mode_id = 4
+        fallback_message = FakeMessage("enter fallback")
+        fallback_entered = await runtime_db.enter_mode_if_needed(fallback_message, "guild", connection)
+        fallback_active_until = FakeModeRepository.state.get("active_until")
+        fallback_delta = (
+            (fallback_active_until - datetime.now(timezone.utc)).total_seconds()
+            if fallback_active_until
+            else 0
+        )
+        check.add(
+            "exit condition duration is fallback when duration_seconds is empty",
+            fallback_entered is True and 60 <= fallback_delta <= 90,
+            "entered={0} delta_seconds={1}".format(fallback_entered, fallback_delta),
         )
 
         FakeModeRepository.state = {
