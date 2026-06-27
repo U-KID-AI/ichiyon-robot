@@ -367,6 +367,7 @@ class PresetSeeder:
             "hayusu": self.ensure_mode(
                 mode_key="hayusu",
                 name="はゆすモード",
+                mode_nickname="",
                 description="1/112抽選で突入する返答モード。",
                 behavior_type="reply",
                 enter_message="",
@@ -378,6 +379,7 @@ class PresetSeeder:
             "narita": self.ensure_mode(
                 mode_key="narita",
                 name="成田モード",
+                mode_nickname="",
                 description="narita_countが22以上になった時に突入する返答モード。",
                 behavior_type="reply",
                 enter_message="",
@@ -389,6 +391,7 @@ class PresetSeeder:
             "shikocchi": self.ensure_mode(
                 mode_key="shikocchi",
                 name="しこっちモード",
+                mode_nickname="しこっち",
                 description="shikocchi_countが1以上になった時に突入するオフラインモード。",
                 behavior_type="offline",
                 enter_message="しこっち、きた",
@@ -451,6 +454,7 @@ class PresetSeeder:
         self,
         mode_key: str,
         name: str,
+        mode_nickname: str,
         description: str,
         behavior_type: str,
         enter_message: str,
@@ -468,19 +472,20 @@ class PresetSeeder:
             return int(existing["id"])
 
         with self.connection.cursor() as cursor:
+            appearance_config = {"nickname": mode_nickname} if mode_nickname else {}
             cursor.execute(
                 """
                 INSERT INTO modes (
                     guild_id, mode_key, name, description, behavior_type,
                     duration_seconds, mode_icon_path, enter_message, exit_message, enter_gif_path, exit_gif_path,
                     enter_notify_channel_id, exit_notify_channel_id, reaction_channel_ids,
-                    ignore_channel_ids, cooldown_config_json, enabled, admin_only, is_deletable
+                    ignore_channel_ids, cooldown_config_json, appearance_config_json, enabled, admin_only, is_deletable
                 )
                 VALUES (
                     %s, %s, %s, %s, %s,
                     %s, '', %s, %s, '', '',
                     '', '', '[]'::JSONB,
-                    '[]'::JSONB, %s::JSONB, %s, FALSE, TRUE
+                    '[]'::JSONB, %s::JSONB, %s::JSONB, %s, FALSE, TRUE
                 )
                 ON CONFLICT (guild_id, mode_key) DO UPDATE
                 SET name = EXCLUDED.name,
@@ -490,6 +495,7 @@ class PresetSeeder:
                     enter_message = EXCLUDED.enter_message,
                     exit_message = EXCLUDED.exit_message,
                     cooldown_config_json = EXCLUDED.cooldown_config_json,
+                    appearance_config_json = EXCLUDED.appearance_config_json,
                     enabled = EXCLUDED.enabled,
                     updated_at = NOW()
                 RETURNING id
@@ -504,6 +510,7 @@ class PresetSeeder:
                     enter_message,
                     exit_message,
                     json_dumps(cooldown_config),
+                    json_dumps(appearance_config),
                     enabled,
                 ),
             )

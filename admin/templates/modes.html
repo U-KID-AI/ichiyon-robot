@@ -61,12 +61,13 @@
     {% if modes %}
       <div class="table-wrap">
         <table class="admin-table">
-          <thead><tr><th>状態</th><th>モード名</th><th>キー</th><th>動き</th><th>管理者限定</th><th>クールタイム</th><th>発動条件</th><th>返答候補</th><th>操作</th></tr></thead>
+          <thead><tr><th>状態</th><th>モード名</th><th>Bot名</th><th>キー</th><th>動き</th><th>管理者限定</th><th>クールタイム</th><th>発動条件</th><th>返答候補</th><th>操作</th></tr></thead>
           <tbody>
             {% for item in modes %}
               <tr>
                 <td data-label="状態">{% if item.enabled %}<strong class="status enabled">有効</strong>{% else %}<strong class="status disabled">無効</strong>{% endif %}</td>
                 <td data-label="モード名">{{ item.name }}</td>
+                <td data-label="Bot名">{{ item.mode_nickname or item.name }}</td>
                 <td data-label="キー"><code>{{ item.mode_key }}</code></td>
                 <td data-label="動き">{{ item.behavior_type_label }}</td>
                 <td data-label="管理者限定">{% if item.admin_only %}あり{% else %}なし{% endif %}</td>
@@ -99,6 +100,8 @@
             </div>
             <dl class="info-list">
               <dt>説明</dt><dd>{{ item.description or "-" }}</dd>
+              <dt>モード中Bot名</dt><dd>{{ item.mode_nickname or item.name }}</dd>
+              <dt>突入メッセージ</dt><dd>{{ item.enter_message or "-" }}</dd>
               <dt>モード中の動き</dt><dd>{{ item.behavior_type_label }}</dd>
               <dt>クールタイム</dt><dd>{{ item.cooldown_summary }}</dd>
               <dt>発動条件</dt><dd>{{ item.trigger_count }}</dd>

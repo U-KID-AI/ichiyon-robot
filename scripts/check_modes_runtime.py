@@ -150,6 +150,16 @@ class FakeModeRepository:
             "enter_message": "fallback entered",
             "duration_seconds": None,
         },
+        5: {
+            "id": 5,
+            "mode_key": "nickname_override",
+            "name": "management name",
+            "enabled": True,
+            "behavior_type": "reply",
+            "enter_message": "nickname entered",
+            "appearance_config_json": {"nickname": "mode bot name"},
+            "duration_seconds": 60,
+        },
     }
 
     def __init__(self, connection) -> None:
@@ -162,7 +172,7 @@ class FakeModeRepository:
         return [self.modes[self.enabled_mode_id]]
 
     def list_trigger_conditions(self, guild_id: str, mode_id: int, enabled: bool = True) -> List[Dict[str, Any]]:
-        if mode_id in (1, 3, 4):
+        if mode_id in (1, 3, 4, 5):
             return [
                 {
                     "id": mode_id,
@@ -303,6 +313,23 @@ async def run_checks(check: Check) -> None:
             "reply mode applies mode nickname",
             FakeIdentity.nickname_updates == ["reply"],
             str(FakeIdentity.nickname_updates),
+        )
+
+        FakeModeRepository.state = {}
+        FakeModeRepository.entered = []
+        FakeModeRepository.enabled_mode_id = 5
+        FakeIdentity.nickname_updates = []
+        nickname_message = FakeMessage("enter nickname")
+        nickname_entered = await runtime_db.enter_mode_if_needed(nickname_message, "guild", connection)
+        check.add(
+            "mode appearance nickname overrides management name",
+            nickname_entered is True and FakeIdentity.nickname_updates == ["mode bot name"],
+            "entered={0} nick={1}".format(nickname_entered, FakeIdentity.nickname_updates),
+        )
+        check.add(
+            "mode nickname is separate from enter message",
+            nickname_message.channel.sent == ["nickname entered"],
+            str(nickname_message.channel.sent),
         )
 
         reply_message = FakeMessage("reply")

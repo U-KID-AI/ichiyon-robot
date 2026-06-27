@@ -101,6 +101,7 @@ class ModeRepository:
         reaction_channel_ids: List[str],
         ignore_channel_ids: List[str],
         cooldown_config: Dict[str, Any],
+        appearance_config: Dict[str, Any],
         enabled: bool,
         admin_only: bool,
         is_deletable: bool,
@@ -112,9 +113,9 @@ class ModeRepository:
                     guild_id, mode_key, name, description, behavior_type,
                     mode_icon_path, enter_message, exit_message, enter_gif_path, exit_gif_path,
                     enter_notify_channel_id, exit_notify_channel_id, reaction_channel_ids,
-                    ignore_channel_ids, cooldown_config_json, enabled, admin_only, is_deletable
+                    ignore_channel_ids, cooldown_config_json, appearance_config_json, enabled, admin_only, is_deletable
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::JSONB, %s::JSONB, %s::JSONB, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::JSONB, %s::JSONB, %s::JSONB, %s::JSONB, %s, %s, %s)
                 RETURNING *
                 """,
                 (
@@ -133,6 +134,7 @@ class ModeRepository:
                     json_dumps_list(reaction_channel_ids),
                     json_dumps_list(ignore_channel_ids),
                     json_dumps(cooldown_config),
+                    json_dumps(appearance_config),
                     enabled,
                     admin_only,
                     is_deletable,
@@ -158,6 +160,7 @@ class ModeRepository:
         reaction_channel_ids: List[str],
         ignore_channel_ids: List[str],
         cooldown_config: Dict[str, Any],
+        appearance_config: Dict[str, Any],
         enabled: bool,
         admin_only: bool,
         is_deletable: bool,
@@ -180,6 +183,7 @@ class ModeRepository:
                     reaction_channel_ids = %s::JSONB,
                     ignore_channel_ids = %s::JSONB,
                     cooldown_config_json = %s::JSONB,
+                    appearance_config_json = %s::JSONB,
                     enabled = %s,
                     admin_only = %s,
                     is_deletable = %s,
@@ -202,6 +206,7 @@ class ModeRepository:
                     json_dumps_list(reaction_channel_ids),
                     json_dumps_list(ignore_channel_ids),
                     json_dumps(cooldown_config),
+                    json_dumps(appearance_config),
                     enabled,
                     admin_only,
                     is_deletable,
