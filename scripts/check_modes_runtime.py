@@ -171,6 +171,16 @@ class FakeModeRepository:
             "duration_seconds": 60,
             "cooldown_config_json": {"type": "once_per_period", "period": "monthly", "reset": "day", "day": 4},
         },
+        7: {
+            "id": 7,
+            "mode_key": "narita",
+            "name": "narita",
+            "enabled": True,
+            "behavior_type": "reply",
+            "enter_message": "narita entered",
+            "duration_seconds": 60,
+            "cooldown_config_json": {"type": "once_per_period", "period": "monthly", "reset": {"day": 22}},
+        },
     }
 
     def __init__(self, connection) -> None:
@@ -183,16 +193,22 @@ class FakeModeRepository:
         return [self.modes[self.enabled_mode_id]]
 
     def list_trigger_conditions(self, guild_id: str, mode_id: int, enabled: bool = True) -> List[Dict[str, Any]]:
-        if mode_id in (1, 3, 4, 5, 6):
+        if mode_id in (1, 3, 4, 5, 6, 7):
             return [
                 {
                     "id": mode_id,
                     "mode_id": mode_id,
                     "condition_type": "counter_threshold",
                     "condition_config_json": {
-                        "counter_key": "shikocchi_count" if mode_id == 3 else "mode_count",
+                        "counter_key": (
+                            "shikocchi_count"
+                            if mode_id == 3
+                            else "narita_count"
+                            if mode_id == 7
+                            else "mode_count"
+                        ),
                         "operator": ">=",
-                        "threshold": 1,
+                        "threshold": 22 if mode_id == 7 else 1,
                     },
                     "group_operator": "AND",
                 }
@@ -246,14 +262,47 @@ class FakeModeRepository:
 
 
 class FakeCounterRepository:
+    states: Dict[str, Dict[str, Any]] = {}
+    values: Dict[str, int] = {}
+
     def __init__(self, connection) -> None:
         self.connection = connection
 
+    @classmethod
+    def key(cls, guild_id: str, counter_key: str) -> str:
+        return "{0}:{1}".format(guild_id, counter_key)
+
+    def get_state(self, guild_id: str, counter_key: str) -> Optional[Dict[str, Any]]:
+        return self.states.get(self.key(guild_id, counter_key))
+
     def get_value(self, guild_id: str, counter_key: str, default: int = 0) -> int:
+        key = self.key(guild_id, counter_key)
+        if key in self.values:
+            return self.values[key]
+        state = self.states.get(key)
+        if state is not None:
+            return int(state.get("current_value") or 0)
         return 1
 
+    def set_value(
+        self,
+        guild_id: str,
+        counter_key: str,
+        value: int,
+        period_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        key = self.key(guild_id, counter_key)
+        self.values[key] = value
+        self.states[key] = {
+            "guild_id": guild_id,
+            "count_key": counter_key,
+            "current_value": value,
+            "period_key": period_key,
+        }
+        return self.states[key]
+
     def reset(self, guild_id: str, counter_key: str) -> None:
-        pass
+        self.set_value(guild_id, counter_key, 0)
 
 
 class Check:
@@ -301,6 +350,8 @@ async def run_checks(check: Check) -> None:
         FakeModeRepository.cleared = False
         FakeModeRepository.trigger_history = {}
         FakeModeRepository.enabled_mode_id = 1
+        FakeCounterRepository.states = {}
+        FakeCounterRepository.values = {}
         FakeIdentity.nickname_updates = []
         FakeIdentity.avatar_updates = []
         FakeIdentity.status_updates = []
@@ -330,6 +381,8 @@ async def run_checks(check: Check) -> None:
         FakeModeRepository.state = {}
         FakeModeRepository.entered = []
         FakeModeRepository.enabled_mode_id = 5
+        FakeCounterRepository.states = {}
+        FakeCounterRepository.values = {}
         FakeIdentity.nickname_updates = []
         nickname_message = FakeMessage("enter nickname")
         nickname_entered = await runtime_db.enter_mode_if_needed(nickname_message, "guild", connection)
@@ -364,6 +417,8 @@ async def run_checks(check: Check) -> None:
         FakeModeRepository.state = {}
         FakeModeRepository.entered = []
         FakeModeRepository.enabled_mode_id = 3
+        FakeCounterRepository.states = {}
+        FakeCounterRepository.values = {}
         FakeIdentity.nickname_updates = []
         FakeIdentity.avatar_updates = []
         FakeIdentity.status_updates = []
@@ -405,6 +460,8 @@ async def run_checks(check: Check) -> None:
         FakeModeRepository.state = {}
         FakeModeRepository.entered = []
         FakeModeRepository.enabled_mode_id = 4
+        FakeCounterRepository.states = {}
+        FakeCounterRepository.values = {}
         fallback_message = FakeMessage("enter fallback")
         fallback_entered = await runtime_db.enter_mode_if_needed(fallback_message, "guild", connection)
         fallback_active_until = FakeModeRepository.state.get("active_until")
@@ -443,6 +500,23 @@ async def run_checks(check: Check) -> None:
         FakeModeRepository.state = {}
         FakeModeRepository.entered = []
         FakeModeRepository.enabled_mode_id = 6
+        FakeCounterRepository.states = {}
+        FakeCounterRepository.values = {}
+        monthly_conditions = FakeModeRepository(None).list_trigger_conditions("guild", 6, enabled=True)
+        monthly_counter_period = runtime_db.get_mode_counter_period_info(
+            FakeModeRepository.modes[6],
+            monthly_conditions,
+        )
+        monthly_counter_period_key = str(monthly_counter_period["period_key"]) if monthly_counter_period else ""
+        FakeCounterRepository.states = {
+            "guild:mode_count": {
+                "guild_id": "guild",
+                "count_key": "mode_count",
+                "current_value": 1,
+                "period_key": monthly_counter_period_key,
+            }
+        }
+        FakeCounterRepository.values = {"guild:mode_count": 1}
         monthly_message = FakeMessage("enter monthly")
         monthly_entered = await runtime_db.enter_mode_if_needed(monthly_message, "guild", connection)
         check.add(
@@ -457,6 +531,117 @@ async def run_checks(check: Check) -> None:
             "mode once_per_period cooldown blocks second entry in same period",
             second_monthly_entered is False and FakeModeRepository.entered == [6],
             "entered={0} sent={1}".format(FakeModeRepository.entered, second_monthly_message.channel.sent),
+        )
+
+        narita_conditions = FakeModeRepository(None).list_trigger_conditions("guild", 7, enabled=True)
+        narita_period_before_reset = runtime_db.get_mode_counter_period_info(
+            FakeModeRepository.modes[7],
+            narita_conditions,
+            datetime(2026, 6, 21, 14, 59, tzinfo=timezone.utc),
+        )
+        narita_period_after_reset = runtime_db.get_mode_counter_period_info(
+            FakeModeRepository.modes[7],
+            narita_conditions,
+            datetime(2026, 6, 21, 15, 0, tzinfo=timezone.utc),
+        )
+        check.add(
+            "narita counter period uses day 22 reset before boundary",
+            narita_period_before_reset is not None
+            and narita_period_before_reset["period_key"] == "counter:monthly-day-22:2026-05-22",
+            str(narita_period_before_reset),
+        )
+        check.add(
+            "narita counter period switches on day 22",
+            narita_period_after_reset is not None
+            and narita_period_after_reset["period_key"] == "counter:monthly-day-22:2026-06-22",
+            str(narita_period_after_reset),
+        )
+        current_narita_period = runtime_db.get_mode_counter_period_info(
+            FakeModeRepository.modes[7],
+            narita_conditions,
+        )
+        current_narita_period_key = str(current_narita_period["period_key"]) if current_narita_period else ""
+        stale_narita_period_key = "counter:stale-period"
+        FakeCounterRepository.states = {
+            "guild:narita_count": {
+                "guild_id": "guild",
+                "count_key": "narita_count",
+                "current_value": 25,
+                "period_key": stale_narita_period_key,
+            }
+        }
+        FakeCounterRepository.values = {"guild:narita_count": 25}
+        runtime_db.reset_counter_thresholds_on_period_change(
+            connection,
+            "guild",
+            FakeModeRepository.modes[7],
+            narita_conditions,
+            datetime(2026, 6, 21, 15, 0, tzinfo=timezone.utc),
+        )
+        narita_state = FakeCounterRepository.states.get("guild:narita_count") or {}
+        check.add(
+            "narita count resets when monthly period changes",
+            narita_state.get("current_value") == 0
+            and narita_state.get("period_key") == "counter:monthly-day-22:2026-06-22",
+            str(narita_state),
+        )
+        before_same_period = dict(narita_state)
+        FakeCounterRepository.values["guild:narita_count"] = 13
+        FakeCounterRepository.states["guild:narita_count"]["current_value"] = 13
+        runtime_db.reset_counter_thresholds_on_period_change(
+            connection,
+            "guild",
+            FakeModeRepository.modes[7],
+            narita_conditions,
+            datetime(2026, 6, 22, 1, 0, tzinfo=timezone.utc),
+        )
+        same_period_state = FakeCounterRepository.states.get("guild:narita_count") or {}
+        check.add(
+            "narita count is not reset twice in same period",
+            same_period_state.get("current_value") == 13
+            and same_period_state.get("period_key") == before_same_period.get("period_key"),
+            str(same_period_state),
+        )
+        FakeCounterRepository.states = {
+            "guild:narita_count": {
+                "guild_id": "guild",
+                "count_key": "narita_count",
+                "current_value": 25,
+                "period_key": stale_narita_period_key,
+            }
+        }
+        FakeCounterRepository.values = {"guild:narita_count": 25}
+        narita_trigger_after_period_change = runtime_db.mode_triggers_met(
+            connection,
+            "guild",
+            FakeModeRepository.modes[7],
+        )
+        narita_reset_state = FakeCounterRepository.states.get("guild:narita_count") or {}
+        check.add(
+            "narita stale count does not trigger after period reset",
+            narita_trigger_after_period_change is False
+            and narita_reset_state.get("current_value") == 0
+            and narita_reset_state.get("period_key") == current_narita_period_key,
+            "trigger={0} state={1}".format(narita_trigger_after_period_change, narita_reset_state),
+        )
+        FakeCounterRepository.states = {
+            "guild:narita_count": {
+                "guild_id": "guild",
+                "count_key": "narita_count",
+                "current_value": 25,
+                "period_key": current_narita_period_key,
+            }
+        }
+        FakeCounterRepository.values = {"guild:narita_count": 25}
+        narita_trigger_current_period = runtime_db.mode_triggers_met(
+            connection,
+            "guild",
+            FakeModeRepository.modes[7],
+        )
+        check.add(
+            "narita current period count can trigger",
+            narita_trigger_current_period is True,
+            "trigger={0}".format(narita_trigger_current_period),
         )
 
         FakeModeRepository.state = {

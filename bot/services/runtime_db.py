@@ -1021,7 +1021,7 @@ async def execute_effects(
                 delta = get_config_int(config, ["delta", "amount", "value"], 1)
                 repository = CounterRepository(connection)
                 repository.ensure_counter(guild_id, counter_key, counter_key)
-                repository.increment(guild_id, counter_key, delta)
+                repository.increment(guild_id, counter_key, delta, get_counter_period_key(connection, guild_id, counter_key))
                 result.count_changed = True
                 additional = get_additional_message(effect)
                 timing = effect.get("additional_message_timing") or effect.get("additional_post_timing")
@@ -1053,7 +1053,7 @@ async def execute_effects(
                 value = get_config_int(config, ["set_value", "value", "count"], 1)
                 repository = CounterRepository(connection)
                 repository.ensure_counter(guild_id, counter_key, counter_key)
-                repository.set_value(guild_id, counter_key, value)
+                repository.set_value(guild_id, counter_key, value, get_counter_period_key(connection, guild_id, counter_key))
                 result.count_changed = True
                 additional = get_additional_message(effect)
                 timing = effect.get("additional_message_timing") or effect.get("additional_post_timing")
@@ -1422,6 +1422,44 @@ def build_mode_period_info(
     return {"period_start": period_start, "period_key": period_key}
 
 
+def get_counter_period_key(
+    connection,
+    guild_id: str,
+    counter_key: str,
+    now: Optional[datetime] = None,
+) -> Optional[str]:
+    try:
+        counter = CounterRepository(connection).get_counter(guild_id, counter_key)
+    except Exception:
+        return None
+    if counter is None:
+        return None
+
+    reset_type = str(counter.get("reset_type") or "").lower()
+    if reset_type in ("monthly_day", "monthly-day", "once_per_month_day"):
+        period_info = build_mode_period_info(
+            {
+                "period": "monthly",
+                "reset": "day",
+                "day": counter.get("reset_day"),
+            },
+            None,
+            now,
+        )
+        return "counter:{0}".format(period_info["period_key"])
+    if reset_type in ("monthly", "month_start"):
+        period_info = build_mode_period_info(
+            {
+                "period": "monthly",
+                "reset": "month_start",
+            },
+            None,
+            now,
+        )
+        return "counter:{0}".format(period_info["period_key"])
+    return None
+
+
 def period_not_triggered_met(
     connection,
     guild_id: str,
@@ -1449,6 +1487,68 @@ def get_mode_once_per_period_info(
         "period_start": period_info["period_start"],
         "period_key": "cooldown:{0}".format(period_info["period_key"]),
     }
+
+
+def get_mode_counter_period_info(
+    mode: Dict[str, Any],
+    conditions: List[Dict[str, Any]],
+    now: Optional[datetime] = None,
+) -> Optional[Dict[str, Any]]:
+    cooldown = normalize_json(mode.get("cooldown_config_json"))
+    if cooldown.get("type") == "once_per_period":
+        period_info = build_mode_period_info(cooldown, None, now)
+        return {
+            "period_start": period_info["period_start"],
+            "period_key": "counter:{0}".format(period_info["period_key"]),
+            "source": "cooldown_config_json",
+        }
+
+    for condition in conditions:
+        if condition.get("condition_type") != "period_not_triggered":
+            continue
+        period_info = build_mode_period_info(get_condition_config(condition), mode, now)
+        return {
+            "period_start": period_info["period_start"],
+            "period_key": "counter:{0}".format(period_info["period_key"]),
+            "source": "period_not_triggered",
+        }
+    return None
+
+
+def reset_counter_thresholds_on_period_change(
+    connection,
+    guild_id: str,
+    mode: Dict[str, Any],
+    conditions: List[Dict[str, Any]],
+    now: Optional[datetime] = None,
+) -> None:
+    period_info = get_mode_counter_period_info(mode, conditions, now)
+    if period_info is None:
+        return
+
+    counter_repository = CounterRepository(connection)
+    period_key = str(period_info["period_key"])
+    for condition in conditions:
+        if condition.get("condition_type") != "counter_threshold":
+            continue
+        counter_key = get_counter_key(get_condition_config(condition))
+        if counter_key is None:
+            continue
+        try:
+            state = counter_repository.get_state(guild_id, counter_key)
+            current_period_key = str(state.get("period_key") or "") if state is not None else ""
+            if current_period_key == period_key:
+                continue
+            counter_repository.set_value(guild_id, counter_key, 0, period_key)
+            print(
+                "[INFO] Reset mode trigger counter for new period: mode_key={0} counter_key={1} period_key={2}".format(
+                    mode.get("mode_key"),
+                    counter_key,
+                    period_key,
+                )
+            )
+        except Exception as exc:
+            print("[WARN] Failed to reset period counter {0}: {1}".format(counter_key, exc))
 
 
 def mode_cooldown_allows_trigger(connection, guild_id: str, mode: Dict[str, Any]) -> bool:
@@ -1554,6 +1654,8 @@ def mode_triggers_met(
     ]
     if not actionable:
         return False
+
+    reset_counter_thresholds_on_period_change(connection, guild_id, mode, actionable)
 
     operator = actionable[0].get("group_operator") or "AND"
     results = [trigger_condition_met(connection, guild_id, mode, condition, pending_effects) for condition in actionable]
