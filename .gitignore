@@ -1,4 +1,7 @@
 .env
+.env.before-docker-*
+.env.broken-*
+.env.systemd.backup
 .venv38/
 __pycache__/
 *.pyc

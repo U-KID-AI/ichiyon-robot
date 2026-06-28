@@ -1,0 +1,13 @@
+services:
+  db:
+    container_name: ichiyon-robot-prod-db
+    ports: !override
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+
+  admin:
+    container_name: ichiyon-robot-prod-admin
+    ports: !override
+      - "${ADMIN_PORT:-8000}:8080"
+
+  bot:
+    container_name: ichiyon-robot-prod-bot
