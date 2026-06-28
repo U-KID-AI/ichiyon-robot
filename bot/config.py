@@ -34,10 +34,10 @@ def get_env_bool(name: str, default: bool = False) -> bool:
 
 def get_app_env() -> str:
     value = os.getenv("APP_ENV", "production").strip().lower()
-    if value in ("production", "development"):
+    if value in ("production", "development", "staging"):
         return value
 
-    print("[WARN] APP_ENV must be production or development")
+    print("[WARN] APP_ENV must be production, staging, or development")
     return "production"
 
 
@@ -75,7 +75,7 @@ def get_default_hayusu_bot_nickname(app_env: str) -> str:
     return "はゆすロボ"
 
 
-TOKEN = os.getenv("DISCORD_TOKEN")
+TOKEN = os.getenv("DISCORD_TOKEN") or os.getenv("DISCORD_BOT_TOKEN")
 APP_ENV = get_app_env()
 DATA_BACKEND = get_data_backend()
 ENABLE_DEV_COMMANDS = get_env_bool("ENABLE_DEV_COMMANDS", False)

@@ -1,0 +1,23 @@
+services:
+  db:
+    container_name: ichiyon-robot-stg-db
+    ports: !override
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+
+  admin:
+    container_name: ichiyon-robot-stg-admin
+    environment:
+      APP_ENV: ${APP_ENV:-staging}
+      ENABLE_DEV_COMMANDS: ${ENABLE_DEV_COMMANDS:-false}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://ichiyon_robot:ichiyon_robot_password@db:5432/ichiyon_robot}
+      ADMIN_BASE_URL: ${ADMIN_BASE_URL:-http://141.147.145.113:8080}
+      DISCORD_OAUTH_REDIRECT_URI: ${DISCORD_OAUTH_REDIRECT_URI:-http://141.147.145.113:8080/auth/discord/callback}
+    ports:
+      - "${ADMIN_PORT:-8080}:${ADMIN_PORT:-8080}"
+
+  bot:
+    container_name: ichiyon-robot-stg-bot
+    environment:
+      APP_ENV: ${APP_ENV:-staging}
+      ENABLE_DEV_COMMANDS: ${ENABLE_DEV_COMMANDS:-false}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://ichiyon_robot:ichiyon_robot_password@db:5432/ichiyon_robot}
