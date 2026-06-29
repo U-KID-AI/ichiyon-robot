@@ -8,3 +8,5 @@ Pillow
 psycopg[binary]
 httpx
 itsdangerous
+numpy==1.24.4
+opencv-python-headless==4.10.0.84

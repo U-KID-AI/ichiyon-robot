@@ -112,6 +112,7 @@ docker compose --env-file .env.example config
 
 ```powershell
 docker compose exec admin python -m compileall bot admin scripts
+docker compose exec admin python -c "import cv2; print(cv2.__version__)"
 docker compose exec admin python scripts/check_modes_runtime.py
 docker compose exec admin python scripts/check_special_effects_runtime.py
 docker compose exec admin python scripts/check_deck_search_runtime.py

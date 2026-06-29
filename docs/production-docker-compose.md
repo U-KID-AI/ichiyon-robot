@@ -180,6 +180,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml logs bot --tail=
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
 docker compose -f docker-compose.yml -f docker-compose.prod.yml exec admin python -m compileall bot admin scripts
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec bot python -c "import cv2; print(cv2.__version__)"
 docker compose -f docker-compose.yml -f docker-compose.prod.yml exec admin python scripts/check_modes_runtime.py
 docker compose -f docker-compose.yml -f docker-compose.prod.yml exec admin python scripts/check_special_effects_runtime.py
 docker compose -f docker-compose.yml -f docker-compose.prod.yml exec admin python scripts/check_deck_search_runtime.py
@@ -204,6 +205,7 @@ sudo systemctl disable ichiyon-bot
 
 ```bash
 cd /home/ubuntu/ichiyon-robot
+docker compose -f docker-compose.yml -f docker-compose.prod.yml build bot admin
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d db admin
 docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile bot up -d bot
 ```
