@@ -693,7 +693,29 @@ def get_probability_multiplier_for_target(
             print("[WARN] probability_multiplier skipped invalid multiplier: id={0}".format(effect.get("id")))
             continue
         multiplier *= value
+        max_multiplier = get_probability_multiplier_limit(effect, config)
+        if max_multiplier is not None and multiplier > max_multiplier:
+            multiplier = max_multiplier
     return multiplier
+
+
+def get_probability_multiplier_limit(effect: Dict[str, Any], config: Dict[str, Any]) -> Optional[float]:
+    raw_value = effect.get("max_multiplier")
+    if raw_value in (None, ""):
+        raw_value = config.get("max_multiplier")
+    if raw_value in (None, ""):
+        raw_value = config.get("max_effective_multiplier")
+    if raw_value in (None, ""):
+        return None
+    try:
+        max_multiplier = float(raw_value)
+    except (TypeError, ValueError):
+        print("[WARN] probability_multiplier ignored invalid max_multiplier: id={0}".format(effect.get("id")))
+        return None
+    if max_multiplier <= 0:
+        print("[WARN] probability_multiplier ignored non-positive max_multiplier: id={0}".format(effect.get("id")))
+        return None
+    return max_multiplier
 
 
 def get_probability_multiplier_display_target(

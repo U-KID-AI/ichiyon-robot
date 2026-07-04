@@ -83,6 +83,8 @@ class SpecialEffectRepository:
         expires_value: Optional[int],
         cooldown_seconds: int,
         cooldown_scope: str,
+        max_multiplier: Optional[float] = None,
+        multiplier_updated_by: str = "",
     ) -> Dict[str, Any]:
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -104,9 +106,11 @@ class SpecialEffectRepository:
                     expires_type,
                     expires_value,
                     cooldown_seconds,
-                    cooldown_scope
+                    cooldown_scope,
+                    max_multiplier,
+                    multiplier_updated_by
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::JSONB, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::JSONB, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING *
                 """,
                 (
@@ -127,6 +131,8 @@ class SpecialEffectRepository:
                     expires_value,
                     cooldown_seconds,
                     cooldown_scope,
+                    max_multiplier,
+                    multiplier_updated_by,
                 ),
             )
             return fetch_one(cursor)
@@ -151,6 +157,8 @@ class SpecialEffectRepository:
         expires_value: Optional[int],
         cooldown_seconds: int,
         cooldown_scope: str,
+        max_multiplier: Optional[float] = None,
+        multiplier_updated_by: str = "",
     ) -> Optional[Dict[str, Any]]:
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -172,6 +180,8 @@ class SpecialEffectRepository:
                     expires_value = %s,
                     cooldown_seconds = %s,
                     cooldown_scope = %s,
+                    max_multiplier = %s,
+                    multiplier_updated_by = %s,
                     updated_at = NOW()
                 WHERE guild_id = %s AND id = %s
                 RETURNING *
@@ -193,6 +203,8 @@ class SpecialEffectRepository:
                     expires_value,
                     cooldown_seconds,
                     cooldown_scope,
+                    max_multiplier,
+                    multiplier_updated_by,
                     guild_id,
                     tag_id,
                 ),
@@ -275,6 +287,8 @@ class SpecialEffectRepository:
             source.get("expires_value"),
             int(source.get("cooldown_seconds") or 0),
             str(source.get("cooldown_scope") or "none"),
+            source.get("max_multiplier"),
+            str(source.get("multiplier_updated_by") or ""),
         )
 
     def delete_tag(self, guild_id: str, tag_id: int) -> bool:

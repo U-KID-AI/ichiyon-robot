@@ -543,3 +543,42 @@ Phase 3 以降:
 - 一般管理者は許可Bot/許可サーバーのみ表示。
 - bot_id権限スコープ。
 - 特殊効果の倍率上限設定。
+
+## 2026-07-04 特殊効果の倍率上限設定
+
+今回追加したもの:
+
+- `special_effect_tags.max_multiplier` を追加。
+- `special_effect_tags.multiplier_updated_by` を追加。
+- 特殊効果タグの管理画面で「最大倍率」を表示/編集できるようにした。
+- `probability_multiplier` の累積倍率計算時に、対象タグの `max_multiplier` が設定されていればその値で丸める。
+- `max_multiplier` 未設定時は既存通り制限なし。
+- 後方互換として `effect_config_json.max_multiplier` / `effect_config_json.max_effective_multiplier` も読む。
+
+適用仕様:
+
+- 倍率は従来通り複数の `probability_multiplier` を乗算する。
+- `max_multiplier` が空なら、9倍を4回発火した場合は `9 * 9 * 9 * 9 = 6561`。
+- `max_multiplier=729` の場合、同じ条件では `729` で止まる。
+- 0以下や不正な最大倍率は保存時にエラー。
+- 既存DB値が上限を超えていても一括UPDATEはしない。次回の実行時計算で丸める。
+- `probability_multiplier` 以外の効果では実行時に参照しない。
+
+コピーとの関係:
+
+- 特殊効果タグをコピーすると、設定値としての `max_multiplier` はコピーする。
+- 実行時の現在倍率、pending状態、発動履歴はコピーしない。
+- コピー後は従来通り `enabled=false`。
+
+migration:
+
+- `migrations/024_add_special_effect_multiplier_limits.sql` を追加。
+- 追加カラムのみで、既存データのUPDATE/DELETEや既存カラム削除はない。
+- 本番DBへの適用は別作業。
+
+未実装:
+
+- bot_id単位の特殊効果権限スコープ。
+- 開発者だけのBot横断表示。
+- 一般管理者は許可Bot/許可サーバーのみ表示する制御。
+- 倍率上限の一括編集UI。
