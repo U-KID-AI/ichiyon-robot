@@ -180,6 +180,22 @@ class AutoReactionRepository:
             )
             return fetch_one(cursor)
 
+    def bulk_set_enabled(self, guild_id: str, reaction_ids: List[int], enabled: bool) -> int:
+        if not reaction_ids:
+            return 0
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE reactions
+                SET enabled = %s,
+                    updated_at = NOW()
+                WHERE guild_id = %s
+                  AND id = ANY(%s)
+                """,
+                (enabled, guild_id, reaction_ids),
+            )
+            return cursor.rowcount
+
     def toggle_enabled(
         self,
         guild_id: str,
@@ -189,6 +205,45 @@ class AutoReactionRepository:
         if reaction is None:
             return None
         return self.set_enabled(guild_id, reaction_id, not bool(reaction["enabled"]))
+
+    def copy_reaction(self, guild_id: str, reaction_id: int) -> Optional[Dict[str, Any]]:
+        source = self.get_by_id(guild_id, reaction_id)
+        if source is None:
+            return None
+        copied = self.create_reaction(
+            guild_id,
+            "{0} コピー".format(str(source.get("trigger_text") or "").strip()),
+            source.get("response_text") or None,
+            source.get("image_path") or None,
+            source.get("emoji_internal") or None,
+            str(source.get("match_type") or "contains"),
+            int(source.get("priority") or 0),
+            False,
+        )
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO special_effect_assignments (
+                    guild_id,
+                    special_effect_tag_id,
+                    target_type,
+                    target_id,
+                    enabled
+                )
+                SELECT guild_id,
+                       special_effect_tag_id,
+                       target_type,
+                       %s,
+                       enabled
+                FROM special_effect_assignments
+                WHERE guild_id = %s
+                  AND target_type = 'auto_reaction'
+                  AND target_id = %s
+                ON CONFLICT (special_effect_tag_id, target_type, target_id) DO NOTHING
+                """,
+                (copied["id"], guild_id, reaction_id),
+            )
+        return copied
 
     def delete_reaction(self, guild_id: str, reaction_id: int) -> bool:
         with self.connection.cursor() as cursor:

@@ -146,6 +146,36 @@ class MentionLimitedEffectRepository:
             )
             return fetch_one(cursor)
 
+    def set_enabled(self, guild_id: str, entry_id: int, enabled: bool) -> Optional[Dict[str, Any]]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE mention_limited_effects
+                SET enabled = %s,
+                    updated_at = NOW()
+                WHERE guild_id = %s AND id = %s
+                RETURNING *
+                """,
+                (enabled, guild_id, entry_id),
+            )
+            return fetch_one(cursor)
+
+    def bulk_set_enabled(self, guild_id: str, entry_ids: List[int], enabled: bool) -> int:
+        if not entry_ids:
+            return 0
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE mention_limited_effects
+                SET enabled = %s,
+                    updated_at = NOW()
+                WHERE guild_id = %s
+                  AND id = ANY(%s)
+                """,
+                (enabled, guild_id, entry_ids),
+            )
+            return cursor.rowcount
+
     def delete_entry(self, guild_id: str, entry_id: int) -> bool:
         with self.connection.cursor() as cursor:
             cursor.execute(

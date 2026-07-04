@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict, List, Optional
 
 from bot.repositories.base import fetch_all, fetch_one, json_dumps
@@ -86,6 +87,55 @@ class ReactionThresholdRepository:
                 (name, enabled, json_dumps(config_json), guild_id, rule_id),
             )
             return fetch_one(cursor)
+
+    def set_enabled(self, guild_id: str, rule_id: int, enabled: bool) -> Optional[Dict[str, Any]]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE reaction_threshold_rules
+                SET enabled = %s,
+                    updated_at = NOW()
+                WHERE guild_id = %s AND id = %s
+                RETURNING *
+                """,
+                (enabled, guild_id, rule_id),
+            )
+            return fetch_one(cursor)
+
+    def bulk_set_enabled(self, guild_id: str, rule_ids: List[int], enabled: bool) -> int:
+        if not rule_ids:
+            return 0
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE reaction_threshold_rules
+                SET enabled = %s,
+                    updated_at = NOW()
+                WHERE guild_id = %s
+                  AND id = ANY(%s)
+                """,
+                (enabled, guild_id, rule_ids),
+            )
+            return cursor.rowcount
+
+    def copy_rule(self, guild_id: str, rule_id: int) -> Optional[Dict[str, Any]]:
+        source = self.get_by_id(guild_id, rule_id)
+        if source is None:
+            return None
+        config = source.get("config_json") or {}
+        if isinstance(config, str):
+            try:
+                config = json.loads(config)
+            except ValueError:
+                config = {}
+        if not isinstance(config, dict):
+            config = {}
+        return self.create_rule(
+            guild_id,
+            "{0} コピー".format(str(source.get("name") or "リアクション返信").strip()),
+            False,
+            config,
+        )
 
     def delete_rule(self, guild_id: str, rule_id: int) -> bool:
         with self.connection.cursor() as cursor:

@@ -1,5 +1,6 @@
 import json
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import RedirectResponse
@@ -52,6 +53,8 @@ def register_auto_reaction_routes(templates: Jinja2Templates) -> None:
         has_image: str = Query("all"),
         has_effects: str = Query("all"),
         show_test_data: str = Query("false"),
+        message: str = Query(""),
+        error: str = Query(""),
     ):
         user = get_current_user(request)
         if user is None:
@@ -72,7 +75,38 @@ def register_auto_reaction_routes(templates: Jinja2Templates) -> None:
                 "filters": filters,
                 "reactions": reactions,
                 "can_create": role_allows(server["role"], "editor"),
+                "message": message,
+                "error": error,
             },
+        )
+
+    @router.post("/guilds/{guild_id}/auto-reactions/bulk-enabled")
+    async def bulk_set_auto_reactions_enabled(
+        request: Request,
+        guild_id: str,
+        action: str = Form(""),
+        reaction_ids: List[int] = Form([]),
+    ):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
+        server = find_server(guild_id, user["user_id"])
+        if not role_allows(server["role"], "editor"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="auto reaction bulk update denied")
+        if not reaction_ids:
+            return RedirectResponse(url="/guilds/{0}/auto-reactions?error={1}".format(guild_id, quote("項目を選択してね")), status_code=303)
+        if action not in ("on", "off"):
+            return RedirectResponse(url="/guilds/{0}/auto-reactions?error={1}".format(guild_id, quote("操作を選んでね")), status_code=303)
+        with get_connection() as connection:
+            repository = AutoReactionRepository(connection)
+            updated_count = repository.bulk_set_enabled(guild_id, reaction_ids, action == "on")
+            connection.commit()
+        failed_count = max(0, len(reaction_ids) - updated_count)
+        return RedirectResponse(
+            url="/guilds/{0}/auto-reactions?message={1}".format(guild_id, quote("成功{0}件 / 失敗{1}件".format(updated_count, failed_count))),
+            status_code=303,
         )
 
     @router.post("/guilds/{guild_id}/auto-reactions/{reaction_id}/toggle")
@@ -95,6 +129,24 @@ def register_auto_reaction_routes(templates: Jinja2Templates) -> None:
             connection.commit()
 
         return RedirectResponse(url="/guilds/{0}/auto-reactions".format(guild_id), status_code=303)
+
+    @router.post("/guilds/{guild_id}/auto-reactions/{reaction_id}/copy")
+    async def copy_auto_reaction(request: Request, guild_id: str, reaction_id: int):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
+        server = find_server(guild_id, user["user_id"])
+        if not role_allows(server["role"], "editor"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="auto reaction copy denied")
+        with get_connection() as connection:
+            repository = AutoReactionRepository(connection)
+            copied = repository.copy_reaction(guild_id, reaction_id)
+            if copied is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="auto reaction not found")
+            connection.commit()
+        return RedirectResponse(url="/guilds/{0}/auto-reactions/{1}".format(guild_id, copied["id"]), status_code=303)
 
     @router.post("/guilds/{guild_id}/auto-reactions/{reaction_id}/delete")
     async def delete_auto_reaction(request: Request, guild_id: str, reaction_id: int):
@@ -405,6 +457,7 @@ def build_reaction_view(connection, guild_id: str, reaction: Dict[str, Any], rol
     row["effects"] = list_effects_for_target(connection, guild_id, int(row["id"]), role)
     row["edit_url"] = "/guilds/{0}/auto-reactions/{1}".format(guild_id, row["id"])
     row["toggle_url"] = "/guilds/{0}/auto-reactions/{1}/toggle".format(guild_id, row["id"])
+    row["copy_url"] = "/guilds/{0}/auto-reactions/{1}/copy".format(guild_id, row["id"])
     row["delete_url"] = "/guilds/{0}/auto-reactions/{1}/delete".format(guild_id, row["id"])
     row["effects_url"] = "/guilds/{0}/auto-reactions/{1}/effects".format(guild_id, row["id"])
     row["match_type_label"] = MATCH_TYPE_LABELS.get(row["match_type"], row["match_type"])

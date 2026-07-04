@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict, List, Optional
 
 from bot.repositories.base import fetch_all, fetch_one, json_dumps, normalize_reaction_kind
@@ -334,6 +335,22 @@ class MentionReactionRepository:
             )
             return fetch_one(cursor)
 
+    def bulk_set_enabled(self, guild_id: str, reaction_ids: List[int], enabled: bool) -> int:
+        if not reaction_ids:
+            return 0
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE mention_reactions
+                SET enabled = %s,
+                    updated_at = NOW()
+                WHERE guild_id = %s
+                  AND id = ANY(%s)
+                """,
+                (enabled, guild_id, reaction_ids),
+            )
+            return cursor.rowcount
+
     def toggle_enabled(
         self,
         guild_id: str,
@@ -343,6 +360,125 @@ class MentionReactionRepository:
         if reaction is None:
             return None
         return self.set_enabled(guild_id, reaction_id, not bool(reaction["enabled"]))
+
+    def copy_reaction(self, guild_id: str, reaction_id: int) -> Optional[Dict[str, Any]]:
+        source = self.get_by_id(guild_id, reaction_id)
+        if source is None:
+            return None
+        source_key = str(source.get("reaction_key") or "mention_reaction").strip()
+        base_key = "{0}_copy_{1}".format(source_key, reaction_id)
+        copied_key = base_key
+        suffix = 2
+        while self.get_by_key(guild_id, copied_key) is not None:
+            copied_key = "{0}_{1}".format(base_key, suffix)
+            suffix += 1
+        source_name = str(source.get("name") or "メンション反応").strip()
+        source_keyword = str(source.get("keyword") or "").strip()
+        config = source.get("config_json") or {}
+        if isinstance(config, str):
+            try:
+                config = json.loads(config)
+            except ValueError:
+                config = {}
+        if not isinstance(config, dict):
+            config = {}
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO mention_reactions (
+                    guild_id,
+                    reaction_key,
+                    keyword,
+                    match_type,
+                    reaction_kind,
+                    name,
+                    description,
+                    admin_only,
+                    is_system,
+                    is_deletable,
+                    config_json,
+                    enabled
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, FALSE, TRUE, %s::JSONB, FALSE)
+                RETURNING *
+                """,
+                (
+                    guild_id,
+                    copied_key,
+                    source_keyword,
+                    str(source.get("match_type") or "exact"),
+                    normalize_reaction_kind(source.get("reaction_kind")),
+                    "{0} コピー".format(source_name),
+                    str(source.get("description") or ""),
+                    bool(source.get("admin_only")),
+                    json_dumps(config),
+                ),
+            )
+            copied = fetch_one(cursor)
+            cursor.execute(
+                """
+                INSERT INTO mention_reaction_choices (
+                    guild_id,
+                    mention_reaction_id,
+                    name,
+                    body,
+                    image_path,
+                    appearance_rate,
+                    enabled,
+                    result_label,
+                    emoji_internal
+                )
+                SELECT guild_id,
+                       %s,
+                       name,
+                       body,
+                       image_path,
+                       appearance_rate,
+                       enabled,
+                       result_label,
+                       emoji_internal
+                FROM mention_reaction_choices
+                WHERE guild_id = %s AND mention_reaction_id = %s
+                ORDER BY sort_order ASC, id ASC
+                RETURNING id
+                """,
+                (copied["id"], guild_id, reaction_id),
+            )
+            copied_choice_ids = [row[0] for row in cursor.fetchall()]
+            cursor.execute(
+                """
+                SELECT id
+                FROM mention_reaction_choices
+                WHERE guild_id = %s AND mention_reaction_id = %s
+                ORDER BY sort_order ASC, id ASC
+                """,
+                (guild_id, reaction_id),
+            )
+            source_choice_ids = [row[0] for row in cursor.fetchall()]
+            for source_choice_id, copied_choice_id in zip(source_choice_ids, copied_choice_ids):
+                cursor.execute(
+                    """
+                    INSERT INTO special_effect_assignments (
+                        guild_id,
+                        special_effect_tag_id,
+                        target_type,
+                        target_id,
+                        enabled
+                    )
+                    SELECT guild_id,
+                           special_effect_tag_id,
+                           target_type,
+                           %s,
+                           enabled
+                    FROM special_effect_assignments
+                    WHERE guild_id = %s
+                      AND target_type = 'mention_reaction_choice'
+                      AND target_id = %s
+                    ON CONFLICT (special_effect_tag_id, target_type, target_id) DO NOTHING
+                    """,
+                    (copied_choice_id, guild_id, source_choice_id),
+                )
+            return copied
 
     def get_by_key(self, guild_id: str, reaction_key: str) -> Optional[Dict[str, Any]]:
         with self.connection.cursor() as cursor:

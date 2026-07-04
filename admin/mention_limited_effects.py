@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
@@ -23,6 +24,8 @@ def register_mention_limited_effect_routes(templates: Jinja2Templates) -> None:
         q: Optional[str] = Query(None),
         enabled: str = Query("all"),
         show_test_data: str = Query("false"),
+        message: str = Query(""),
+        error: str = Query(""),
     ):
         user = get_current_user(request)
         if user is None:
@@ -43,7 +46,42 @@ def register_mention_limited_effect_routes(templates: Jinja2Templates) -> None:
                 "filters": filters,
                 "entries": entries,
                 "can_create": role_allows(server["role"], "editor"),
+                "message": message,
+                "error": error,
             },
+        )
+
+    @router.post("/guilds/{guild_id}/mention-reactions/limited/bulk-enabled")
+    async def bulk_set_limited_effects_enabled(
+        request: Request,
+        guild_id: str,
+        action: str = Form(""),
+        entry_ids: List[int] = Form([]),
+    ):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
+        server = find_server(guild_id, user["user_id"])
+        if not entry_ids:
+            return RedirectResponse(url="/guilds/{0}/mention-reactions/limited?error={1}".format(guild_id, quote("項目を選択してね")), status_code=303)
+        if action not in ("on", "off"):
+            return RedirectResponse(url="/guilds/{0}/mention-reactions/limited?error={1}".format(guild_id, quote("操作を選んでね")), status_code=303)
+        updated_count = 0
+        with get_connection() as connection:
+            repository = MentionLimitedEffectRepository(connection)
+            for entry_id in entry_ids:
+                entry = repository.get_by_id(guild_id, entry_id)
+                if entry is None or not can_manage_entry(server["role"], entry):
+                    continue
+                if repository.set_enabled(guild_id, entry_id, action == "on") is not None:
+                    updated_count += 1
+            connection.commit()
+        failed_count = max(0, len(entry_ids) - updated_count)
+        return RedirectResponse(
+            url="/guilds/{0}/mention-reactions/limited?message={1}".format(guild_id, quote("成功{0}件 / 失敗{1}件".format(updated_count, failed_count))),
+            status_code=303,
         )
 
     @router.get("/guilds/{guild_id}/mention-reactions/limited/new")
