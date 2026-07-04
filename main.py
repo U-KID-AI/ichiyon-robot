@@ -10,6 +10,7 @@ from bot.reactions import handle_word_response
 from bot.services.auto_posts import run_db_auto_posts_once
 from bot.services.reaction_thresholds import handle_db_reaction_threshold
 from bot.services.runtime_db import expire_db_modes_once, get_message_guild_id, handle_db_runtime_message
+from bot.services.x_update_notifications import run_x_update_notifications_once
 
 
 intents = discord.Intents.default()
@@ -94,6 +95,7 @@ async def db_auto_post_task():
     try:
         await expire_db_modes_once(bot)
         await run_db_auto_posts_once(bot)
+        await run_x_update_notifications_once(bot)
     except Exception as e:
         print(f"[WARN] db_auto_post_task failed: {e}")
 

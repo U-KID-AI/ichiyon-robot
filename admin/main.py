@@ -36,6 +36,7 @@ from admin.special_effects import (
     register_special_effect_routes,
     router as special_effect_router,
 )
+from admin.x_updates import register_x_update_routes, router as x_update_router
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -71,6 +72,7 @@ register_ng_word_routes(templates)
 register_mode_routes(templates)
 register_auto_post_routes(templates)
 register_reaction_threshold_routes(templates)
+register_x_update_routes(templates)
 app.include_router(auth_router)
 app.include_router(server_router)
 app.include_router(mention_limited_effect_router)
@@ -81,6 +83,7 @@ app.include_router(ng_word_router)
 app.include_router(mode_router)
 app.include_router(auto_post_router)
 app.include_router(reaction_threshold_router)
+app.include_router(x_update_router)
 
 
 LEGACY_JSON_PATHS = ("/quotes", "/reactions", "/ng-words", "/kuji")

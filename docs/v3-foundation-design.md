@@ -393,3 +393,48 @@ services:
 - X APIを叩く確認はしていない。
 - `fetch_since_date` を古くしすぎると取得範囲が増えるため、費用とレート制限に注意する。
 - migration未適用の環境では、通常のデッキ検索は既存設定へフォールバックする。ただし取得開始日の保存はmigration適用後に使う。
+
+## 2026-07-04 X更新通知 第一段階
+
+今回入れたもの:
+
+- `x_update_watches` テーブル案を migration として追加。
+- `x_update_post_history` テーブル案を migration として追加。
+- `bot_id` / `guild_id` / `channel_id` 単位でX更新通知を管理する。
+- 設定項目:
+  - `x_username`
+  - `x_user_id`
+  - `display_name`
+  - `enabled`
+  - `include_replies`
+  - `include_reposts`
+  - `include_quotes`
+  - `check_interval_seconds`
+  - `last_seen_post_id`
+  - `last_posted_post_id`
+  - `last_checked_at`
+  - `last_success_at`
+  - `last_error`
+  - `post_template`
+- 初回チェック時は最新Post IDだけ保存し、Discordへ過去投稿を流さない。
+- 通常チェック時は `last_seen_post_id` を `since_id` として使い、前回以降の新着だけ取得する。
+- 投稿履歴は `UNIQUE(watch_id, post_id)` で重複投稿を防ぐ。
+- 通常投稿のみ初期ON。返信/リポスト/引用は初期OFF。
+- `post_template` で通知文を変更できる。
+- DB backend の1分ループからX更新通知を実行する。
+- 管理画面に一覧/作成/編集/ON/OFF/削除を追加。
+
+まだ本番/stgへ入れていないもの:
+
+- 本番/stg DBへの migration 適用。
+- 実データでのX更新通知設定作成。
+- X API実通信確認。
+- bot_id横断の開発者管理画面。
+- X APIレート制限に応じた監視数の自動調整。
+
+注意:
+
+- X APIを叩くテストはしていない。チェックはモックのみ。
+- usernameからuser_idへの解決は初回または未解決時だけ行う。
+- `last_seen_post_id` を更新するため、返信/リポスト/引用がOFFでも同じ投稿を毎回取り直さない。
+- `x_updates` feature flag がOFFの場合、そのguildでは実行しない。

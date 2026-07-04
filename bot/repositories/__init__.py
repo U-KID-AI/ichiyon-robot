@@ -11,6 +11,7 @@ from bot.repositories.ng_words import NgWordRepository
 from bot.repositories.permissions import PermissionRepository
 from bot.repositories.reaction_thresholds import ReactionThresholdRepository
 from bot.repositories.special_effects import SpecialEffectRepository
+from bot.repositories.x_update_notifications import XUpdateWatchRepository
 
 
 __all__ = [
@@ -27,4 +28,5 @@ __all__ = [
     "PermissionRepository",
     "ReactionThresholdRepository",
     "SpecialEffectRepository",
+    "XUpdateWatchRepository",
 ]
