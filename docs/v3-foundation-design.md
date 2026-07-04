@@ -582,3 +582,43 @@ migration:
 - 開発者だけのBot横断表示。
 - 一般管理者は許可Bot/許可サーバーのみ表示する制御。
 - 倍率上限の一括編集UI。
+
+## 2026-07-04 Botインスタンス基盤 追加導入
+
+今回入れたもの:
+
+- `BOT_INSTANCE_ID` を `ichiyon` / `irsia` の切り替えキーとして使う。
+- `ichiyon` は `ICHIYON_DISCORD_TOKEN` を優先し、既存互換として `DISCORD_TOKEN` / `DISCORD_BOT_TOKEN` も読む。
+- `irsia` は `IRSIA_DISCORD_TOKEN` を読む。
+- 起動ログには `bot_instance_id`、表示名、採用した環境変数名だけを出す。トークン値は出さない。
+- 管理画面ヘッダーに現在のBotインスタンスを表示する。
+- `bot_instances` / `bot_permissions` のmigrationを追加する。
+- 主要設定テーブルへ後方互換の `bot_id DEFAULT 'ichiyon'` を追加するmigrationを用意する。
+- `docker-compose.yml` に `bot-irsia` profileを追加する。既存の `db` / `admin` / `bot` は維持する。
+
+migration:
+
+- `migrations/025_add_bot_instance_foundation.sql`
+- 新規テーブル:
+  - `bot_instances`
+  - `bot_permissions`
+- 主要設定テーブルへの追加カラム:
+  - `bot_id TEXT NOT NULL DEFAULT 'ichiyon'`
+- 既存データの `UPDATE` / `DELETE` / テーブル削除 / カラム削除は含めない。
+- 本番DBへの適用は別作業。
+
+今回まだやらないこと:
+
+- 既存Repositoryの全クエリへの `bot_id` 絞り込み全面適用。
+- 既存UNIQUE制約を `(bot_id, guild_id, ...)` へ組み替える作業。
+- 管理画面のBot横断表示。
+- 一般管理者のBot単位権限制御。
+- イルシア本番/stg Botの実起動。
+- X APIやDiscordへの実通信確認。
+
+段階移行メモ:
+
+1. まず今回のmigrationをstgでdump/restore後に適用し、既存行が `ichiyon` として見えることを確認する。
+2. 次にRepository単位で `bot_id` 条件を追加する。
+3. UNIQUE制約の移行は、重複データと管理画面コピー機能の挙動を確認してから別migrationで行う。
+4. イルシアは `BOT_INSTANCE_ID=irsia` と `IRSIA_DISCORD_TOKEN` を持つ別Compose service/profileで起動する。

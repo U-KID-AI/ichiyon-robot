@@ -9,11 +9,14 @@
   <body>
     <header class="topbar">
       <div>
-        <p class="eyebrow">ver2.0 DB管理画面</p>
+        <p class="eyebrow">ver3.0 DB管理画面</p>
         <h1>{% block heading %}管理画面{% endblock %}</h1>
-        {% if server is defined and server %}
-          <p class="topbar-server">{{ server.name }}</p>
-        {% endif %}
+        <p class="topbar-server">
+          Bot: {{ current_bot_instance.display_name }} / {{ current_bot_instance.bot_id }}
+          {% if server is defined and server %}
+            ・ {{ server.name }}
+          {% endif %}
+        </p>
       </div>
       <nav>
         <a href="/servers">サーバー選択</a>

@@ -1,6 +1,6 @@
-import os
+﻿import os
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, Tuple
 
 from dotenv import load_dotenv
 
@@ -12,6 +12,7 @@ class BotInstance:
     bot_id: str
     display_name: str
     description: str
+    token_env_keys: Tuple[str, ...]
 
 
 BOT_INSTANCES: Dict[str, BotInstance] = {
@@ -19,11 +20,13 @@ BOT_INSTANCES: Dict[str, BotInstance] = {
         bot_id="ichiyon",
         display_name="いちよんロボ",
         description="既存のいちよんロボ",
+        token_env_keys=("ICHIYON_DISCORD_TOKEN", "DISCORD_TOKEN", "DISCORD_BOT_TOKEN"),
     ),
     "irsia": BotInstance(
         bot_id="irsia",
         display_name="イルシア",
-        description="v3.0で追加する新Botインスタンス",
+        description="v3.0で追加するBotインスタンス",
+        token_env_keys=("IRSIA_DISCORD_TOKEN",),
     ),
 }
 
@@ -89,28 +92,19 @@ def get_env_str(name: str, default: str) -> str:
     return value.strip()
 
 
-def get_default_normal_bot_nickname(app_env: str) -> str:
-    if app_env == "development":
-        return "いちよんロボ-dev"
-    return "いちよんロボ"
+def get_discord_token_and_env_key(instance: BotInstance) -> Tuple[str, str]:
+    for env_key in instance.token_env_keys:
+        value = os.getenv(env_key)
+        if value is not None and value.strip():
+            return value.strip(), env_key
+    return "", instance.token_env_keys[0]
 
 
-def get_default_bot_role_name(app_env: str) -> str:
-    if app_env == "development":
-        return "いちよんロボ-dev-role"
-    return "いちよんロボ-role"
-
-
-def get_default_hayusu_bot_nickname(app_env: str) -> str:
-    if app_env == "development":
-        return "はゆすロボ-dev"
-    return "はゆすロボ"
-
-
-TOKEN = os.getenv("DISCORD_TOKEN") or os.getenv("DISCORD_BOT_TOKEN")
 APP_ENV = get_app_env()
 BOT_INSTANCE_ID = get_bot_instance_id()
 BOT_INSTANCE = BOT_INSTANCES[BOT_INSTANCE_ID]
+TOKEN_ENV_KEYS = BOT_INSTANCE.token_env_keys
+TOKEN, TOKEN_ENV_KEY = get_discord_token_and_env_key(BOT_INSTANCE)
 DATA_BACKEND = get_data_backend()
 ENABLE_DEV_COMMANDS = get_env_bool("ENABLE_DEV_COMMANDS", False)
 DEVELOPER_USER_ID = get_env_int("DEVELOPER_USER_ID")
@@ -122,6 +116,30 @@ if X_SEARCH_MODE not in ("recent", "full_archive"):
     print("[WARN] X_SEARCH_MODE must be recent or full_archive")
     X_SEARCH_MODE = "recent"
 X_SEARCH_LOOKBACK_DAYS = get_env_int("X_SEARCH_LOOKBACK_DAYS", 14)
+
+
+def get_default_normal_bot_nickname(app_env: str) -> str:
+    if BOT_INSTANCE_ID == "irsia":
+        return "イルシア-dev" if app_env == "development" else "イルシア"
+    if app_env == "development":
+        return "いちよんロボ-dev"
+    return "いちよんロボ"
+
+
+def get_default_bot_role_name(app_env: str) -> str:
+    if BOT_INSTANCE_ID == "irsia":
+        return "イルシア-dev-role" if app_env == "development" else "イルシア-role"
+    if app_env == "development":
+        return "いちよんロボ-dev-role"
+    return "いちよんロボ-role"
+
+
+def get_default_hayusu_bot_nickname(app_env: str) -> str:
+    if app_env == "development":
+        return "はゆすロボ-dev"
+    return "はゆすロボ"
+
+
 NORMAL_BOT_NICKNAME = get_env_str(
     "NORMAL_BOT_NICKNAME",
     get_default_normal_bot_nickname(APP_ENV),

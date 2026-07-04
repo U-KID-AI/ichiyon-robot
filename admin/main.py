@@ -11,6 +11,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
+from bot import config as bot_config
+
 from admin.auto_reactions import (
     register_auto_reaction_routes,
     router as auto_reaction_router,
@@ -62,6 +64,8 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent / "static"), name="static")
 app.mount("/assets", StaticFiles(directory=BASE_DIR / "assets"), name="assets")
 templates = Jinja2Templates(directory=Path(__file__).resolve().parent / "templates")
+templates.env.globals["current_bot_instance"] = bot_config.BOT_INSTANCE
+templates.env.globals["current_bot_instance_id"] = bot_config.BOT_INSTANCE_ID
 register_auth_routes(templates)
 register_server_routes(templates)
 register_mention_limited_effect_routes(templates)

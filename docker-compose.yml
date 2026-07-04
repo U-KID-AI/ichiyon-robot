@@ -62,6 +62,8 @@ services:
       ENABLE_DEV_COMMANDS: ${ENABLE_DEV_COMMANDS:-true}
       ICHIYON_DATA_BACKEND: ${ICHIYON_DATA_BACKEND:-db}
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://ichiyon_robot:ichiyon_robot_password@db:5432/ichiyon_robot}
+      ICHIYON_DISCORD_TOKEN: ${ICHIYON_DISCORD_TOKEN:-}
+      IRSIA_DISCORD_TOKEN: ${IRSIA_DISCORD_TOKEN:-}
       DISCORD_TOKEN: ${DISCORD_TOKEN:-${DISCORD_BOT_TOKEN:-}}
       X_SEARCH_ENABLED: ${X_SEARCH_ENABLED:-false}
       X_BEARER_TOKEN: ${X_BEARER_TOKEN:-}
@@ -69,6 +71,36 @@ services:
       X_SEARCH_LOOKBACK_DAYS: ${X_SEARCH_LOOKBACK_DAYS:-14}
       STARTUP_CHANNEL_ID: ${STARTUP_CHANNEL_ID:-0}
       SCHEDULE_CHANNEL_ID: ${SCHEDULE_CHANNEL_ID:-0}
+    command: python main.py
+    volumes:
+      - .:/app
+
+  bot-irsia:
+    profiles:
+      - irsia
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ichiyon-robot-irsia-bot
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      BOT_INSTANCE_ID: irsia
+      ENABLE_DEV_COMMANDS: ${ENABLE_DEV_COMMANDS:-true}
+      ICHIYON_DATA_BACKEND: ${ICHIYON_DATA_BACKEND:-db}
+      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://ichiyon_robot:ichiyon_robot_password@db:5432/ichiyon_robot}
+      IRSIA_DISCORD_TOKEN: ${IRSIA_DISCORD_TOKEN:-}
+      X_SEARCH_ENABLED: ${X_SEARCH_ENABLED:-false}
+      X_BEARER_TOKEN: ${X_BEARER_TOKEN:-}
+      X_SEARCH_MODE: ${X_SEARCH_MODE:-recent}
+      X_SEARCH_LOOKBACK_DAYS: ${X_SEARCH_LOOKBACK_DAYS:-14}
+      STARTUP_CHANNEL_ID: ${IRSIA_STARTUP_CHANNEL_ID:-0}
+      SCHEDULE_CHANNEL_ID: ${IRSIA_SCHEDULE_CHANNEL_ID:-0}
+      NORMAL_BOT_NICKNAME: ${IRSIA_NORMAL_BOT_NICKNAME:-イルシア}
+      BOT_ROLE_NAME: ${IRSIA_BOT_ROLE_NAME:-イルシア-role}
     command: python main.py
     volumes:
       - .:/app

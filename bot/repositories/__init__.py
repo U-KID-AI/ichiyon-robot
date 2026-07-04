@@ -1,5 +1,6 @@
 from bot.repositories.auto_reactions import AutoReactionRepository
 from bot.repositories.auto_posts import AutoPostRepository
+from bot.repositories.bot_instances import BotInstanceRepository, BotPermissionRepository
 from bot.repositories.counters import CounterRepository
 from bot.repositories.deck_search_settings import DeckSearchSettingsRepository
 from bot.repositories.feature_flags import FeatureFlagRepository
@@ -17,6 +18,8 @@ from bot.repositories.x_update_notifications import XUpdateWatchRepository
 __all__ = [
     "AutoReactionRepository",
     "AutoPostRepository",
+    "BotInstanceRepository",
+    "BotPermissionRepository",
     "CounterRepository",
     "DeckSearchSettingsRepository",
     "FeatureFlagRepository",
