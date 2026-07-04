@@ -1,6 +1,7 @@
 from bot.repositories.auto_reactions import AutoReactionRepository
 from bot.repositories.auto_posts import AutoPostRepository
 from bot.repositories.counters import CounterRepository
+from bot.repositories.deck_search_settings import DeckSearchSettingsRepository
 from bot.repositories.feature_flags import FeatureFlagRepository
 from bot.repositories.guilds import GuildRepository
 from bot.repositories.mention_reactions import MentionReactionRepository
@@ -16,6 +17,7 @@ __all__ = [
     "AutoReactionRepository",
     "AutoPostRepository",
     "CounterRepository",
+    "DeckSearchSettingsRepository",
     "FeatureFlagRepository",
     "GuildRepository",
     "MentionReactionRepository",

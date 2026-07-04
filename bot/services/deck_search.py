@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
 from bot import config
+from bot.services.deck_search_settings import fetch_since_start_time
 from bot.services.qr_detector import detect_qr_codes, opencv_available
 from bot.services.x_search import XPost, XSearchDisabled, XSearchError, search_posts
 
@@ -484,7 +485,8 @@ def cache_key(guild_id: str, channel_id: str, request: DeckSearchRequest, config
     required_context_terms = ",".join(get_required_context_terms(config_json))
     media_filter = normalize_media_filter(get_config_str(config_json, "media_filter", "media"))
     extra_terms = ",".join(get_extra_terms(request))
-    return "{0}:{1}:{2}:{3}:{4}:{5}:{6}:{7}:{8}:{9}:{10}:{11}:{12}".format(
+    fetch_since_date = get_config_str(config_json, "fetch_since_date", "")
+    return "{0}:{1}:{2}:{3}:{4}:{5}:{6}:{7}:{8}:{9}:{10}:{11}:{12}:{13}".format(
         guild_id,
         channel_id,
         request.class_key,
@@ -498,6 +500,7 @@ def cache_key(guild_id: str, channel_id: str, request: DeckSearchRequest, config
         lookback_days,
         query_template,
         excluded_keywords,
+        fetch_since_date,
     )
 
 
@@ -780,6 +783,8 @@ async def search_decks(guild_id: str, channel_id: str, command_text: str, config
     search_limit = get_config_int(config_json, "x_search_max_results", config.X_SEARCH_MAX_RESULTS, 10, 100)
     search_mode = normalize_search_mode(get_config_str(config_json, "search_mode", config.X_SEARCH_MODE))
     lookback_days = get_config_int(config_json, "lookback_days", config.X_SEARCH_LOOKBACK_DAYS, 1, 30)
+    fetch_since_date = get_config_str(config_json, "fetch_since_date", "")
+    search_start_time = fetch_since_start_time(fetch_since_date)
     high_accuracy_enabled = get_config_bool(config_json, "high_accuracy_enabled", True)
     high_accuracy = bool(request.high_accuracy and high_accuracy_enabled)
     if high_accuracy:
@@ -795,13 +800,14 @@ async def search_decks(guild_id: str, channel_id: str, command_text: str, config
     query = build_x_query(request, config_json)
     media_filter = normalize_media_filter(get_config_str(config_json, "media_filter", "media"))
     print(
-        "[INFO] deck search query: class_label={0} class_en={1} format={2} extra_terms={3} required_context_terms={4} media_filter={5} final_query={6}".format(
+        "[INFO] deck search query: class_label={0} class_en={1} format={2} extra_terms={3} required_context_terms={4} media_filter={5} fetch_since_date={6} final_query={7}".format(
             request.class_label,
             request.class_en,
             request.format_label or "-",
             get_extra_terms(request),
             get_required_context_terms(config_json),
             media_filter,
+            fetch_since_date or "-",
             query,
         )
     )
@@ -814,7 +820,17 @@ async def search_decks(guild_id: str, channel_id: str, command_text: str, config
     )
     try:
         x_started_ms = monotonic_ms()
-        posts = await search_posts(query, search_limit, timeout_seconds, search_mode, lookback_days)
+        if search_start_time:
+            posts = await search_posts(
+                query,
+                search_limit,
+                timeout_seconds,
+                search_mode,
+                lookback_days,
+                search_start_time,
+            )
+        else:
+            posts = await search_posts(query, search_limit, timeout_seconds, search_mode, lookback_days)
         stats.x_api_ms = elapsed_ms(x_started_ms)
     except XSearchDisabled:
         return DEFAULT_DISABLED_MESSAGE

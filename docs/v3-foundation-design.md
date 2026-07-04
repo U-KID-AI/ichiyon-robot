@@ -362,3 +362,34 @@ services:
 2. 既存テーブルへ `bot_id` を後方互換で足すmigration案を作る。
 3. Repositoryへ `BOT_INSTANCE_ID` を渡す方式を決める。
 4. stg dump/restore前提でmigration検証する。
+
+## 2026-07-04 デッキ検索 取得開始日設定 第一段階
+
+今回入れたもの:
+
+- `deck_search_settings` テーブル案を migration として追加。
+- `bot_id` / `guild_id` 単位で `fetch_since_date`、`max_lookback_days`、`updated_by`、`updated_at` を持つ。
+- Discordコマンドを追加。
+  - `デッキ 取得日更新 6/27から`
+  - `デッキ 取得日確認`
+  - `デッキ 取得日リセット`
+- 年なし日付は現在年で補完する。
+- `YYYY/MM/DD`、`YYYY-MM-DD`、`M/D` を受け付ける。
+- 更新/リセットは開発者または `guild_admin` のみ。
+- 取得開始日は初期値30日前まで。古すぎる日付と未来日は拒否する。
+- `fetch_since_date` がある時はX検索の `start_time` に変換する。
+- 未設定時は既存の `lookback_days` を使う。
+- デッキ検索設定画面に「取得開始日」「最大遡り日数」を追加。
+
+まだ本番/stgへ入れていないもの:
+
+- 本番/stg DBへの migration 適用。
+- 実データでの `deck_search_settings` 作成。
+- 管理画面の権限表示の細分化。
+- bot_id を他の主要テーブルへ広げる作業。
+
+注意:
+
+- X APIを叩く確認はしていない。
+- `fetch_since_date` を古くしすぎると取得範囲が増えるため、費用とレート制限に注意する。
+- migration未適用の環境では、通常のデッキ検索は既存設定へフォールバックする。ただし取得開始日の保存はmigration適用後に使う。

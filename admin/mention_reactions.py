@@ -20,9 +20,17 @@ from admin.ux import (
     parse_show_test_data,
     save_uploaded_image,
 )
+from bot import config as bot_config
 from bot.db import connect, get_connection
-from bot.repositories import MentionReactionRepository, SpecialEffectRepository
+from bot.repositories import DeckSearchSettingsRepository, MentionReactionRepository, SpecialEffectRepository
 from bot.services.deck_search import DEFAULT_EXCLUDED_KEYWORDS, DEFAULT_REQUIRED_CONTEXT_TERMS, DEFAULT_X_QUERY_TEMPLATE
+from bot.services.deck_search_settings import (
+    DEFAULT_MAX_LOOKBACK_DAYS,
+    parse_fetch_since_date,
+    settings_fetch_since_date,
+    settings_max_lookback_days,
+    validate_fetch_since_date,
+)
 
 
 router = APIRouter()
@@ -325,6 +333,9 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
             choices = attach_choice_effects(connection, guild_id, choices, server["role"])
             reaction_view = build_reaction_view(reaction)
             deck_settings = build_deck_settings(reaction_view) if is_deck_search_reaction(reaction_view) else None
+            if deck_settings is not None:
+                runtime_settings = DeckSearchSettingsRepository(connection).get(bot_config.BOT_INSTANCE_ID, guild_id)
+                deck_settings = merge_deck_runtime_settings(deck_settings, runtime_settings)
 
         return templates.TemplateResponse(
             request,
@@ -384,6 +395,8 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         cache_ttl_seconds: str = Form("300"),
         result_format: str = Form("default"),
         class_filter_required: Optional[str] = Form(None),
+        fetch_since_date: str = Form(""),
+        max_lookback_days: str = Form("30"),
         description: str = Form(""),
     ):
         user = get_current_user(request)
@@ -434,6 +447,8 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 cache_ttl_seconds,
                 result_format,
                 class_filter_required,
+                fetch_since_date,
+                max_lookback_days,
                 description,
             )
             if not errors and repository.keyword_exists(guild_id, deck_settings["keyword"], reaction_id):
@@ -484,6 +499,13 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 deck_settings["description"],
                 deck_settings["enabled"],
                 deck_settings["config_json"],
+            )
+            DeckSearchSettingsRepository(connection).upsert(
+                bot_config.BOT_INSTANCE_ID,
+                guild_id,
+                deck_settings["fetch_since_date_value"],
+                deck_settings["max_lookback_days"],
+                user["user_id"],
             )
             connection.commit()
 
@@ -1198,6 +1220,14 @@ def build_deck_settings(reaction: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def merge_deck_runtime_settings(settings: Dict[str, Any], runtime_settings: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    merged = dict(settings)
+    fetch_since = settings_fetch_since_date(runtime_settings)
+    merged["fetch_since_date"] = fetch_since.isoformat() if fetch_since else ""
+    merged["max_lookback_days"] = settings_max_lookback_days(runtime_settings)
+    return merged
+
+
 def build_deck_settings_form(
     keyword: str,
     match_type: str,
@@ -1228,6 +1258,8 @@ def build_deck_settings_form(
     cache_ttl_seconds: str,
     result_format: str,
     class_filter_required: Optional[str],
+    fetch_since_date: str,
+    max_lookback_days: str,
     description: str,
 ) -> Tuple[Dict[str, Any], List[str]]:
     channel_ids = split_channel_ids(allowed_channel_ids)
@@ -1275,6 +1307,16 @@ def build_deck_settings_form(
         search_days = int(lookback_days)
     except ValueError:
         search_days = 0
+    try:
+        max_days = int(max_lookback_days)
+    except ValueError:
+        max_days = DEFAULT_MAX_LOOKBACK_DAYS
+    parsed_fetch_since_date = None
+    if fetch_since_date.strip():
+        try:
+            parsed_fetch_since_date = parse_fetch_since_date(fetch_since_date)
+        except ValueError:
+            parsed_fetch_since_date = None
     excluded_keyword_list = split_channel_ids(excluded_keywords)
     required_context_term_list = split_channel_ids(required_context_terms) or list(DEFAULT_REQUIRED_CONTEXT_TERMS)
 
@@ -1309,6 +1351,9 @@ def build_deck_settings_form(
         "cache_ttl_seconds": ttl_seconds,
         "result_format": result_format.strip() or "default",
         "class_filter_required": class_filter_required == "on",
+        "fetch_since_date": fetch_since_date.strip(),
+        "fetch_since_date_value": parsed_fetch_since_date,
+        "max_lookback_days": max_days,
     }
     settings["config_json"] = {
         "search_type": "deck_search",
@@ -1353,6 +1398,14 @@ def build_deck_settings_form(
         errors.append("高精度のX取得数は10から100まで")
     if search_days < 1 or search_days > 30:
         errors.append("検索対象日数は1から30まで")
+    if max_days < 1:
+        errors.append("最大遡り日数は1以上")
+    if fetch_since_date.strip() and parsed_fetch_since_date is None:
+        errors.append("取得開始日の日付が不正")
+    if parsed_fetch_since_date is not None:
+        date_error = validate_fetch_since_date(parsed_fetch_since_date, max_days)
+        if date_error:
+            errors.append(date_error)
     if scan_limit < 1:
         errors.append("image_scan_limit must be 1 or more")
     if scan_concurrency < 1 or scan_concurrency > 10:

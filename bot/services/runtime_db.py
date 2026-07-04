@@ -15,14 +15,24 @@ from bot.ng_words import normalize_ng_match_text
 from bot.repositories import (
     AutoReactionRepository,
     CounterRepository,
+    DeckSearchSettingsRepository,
     FeatureFlagRepository,
     MentionReactionRepository,
     MentionLimitedEffectRepository,
     ModeRepository,
     NgWordRepository,
+    PermissionRepository,
     SpecialEffectRepository,
 )
 from bot.services.deck_search import search_decks
+from bot.services.deck_search_settings import (
+    apply_deck_search_settings,
+    format_fetch_since_date,
+    parse_deck_fetch_since_command,
+    settings_fetch_since_date,
+    settings_max_lookback_days,
+    validate_fetch_since_date,
+)
 
 
 FEATURE_MENTION_REACTIONS = "mention_reactions"
@@ -73,6 +83,29 @@ def get_message_guild_id(message: discord.Message) -> Optional[str]:
 def feature_enabled(connection, guild_id: str, feature_key: str) -> bool:
     repository = FeatureFlagRepository(connection)
     return repository.is_enabled(guild_id, feature_key, default=True)
+
+
+def can_update_deck_fetch_since(connection, guild_id: str, message: discord.Message) -> bool:
+    user_id = get_message_author_id(message)
+    if user_id and config.DEVELOPER_USER_ID and user_id == str(config.DEVELOPER_USER_ID):
+        return True
+    repository = PermissionRepository(connection)
+    if repository.has_global_admin(user_id):
+        return True
+    permission = repository.get_guild_permission(guild_id, user_id)
+    return bool(permission and permission.get("role") == "guild_admin")
+
+
+def load_deck_search_settings(connection, guild_id: str) -> Optional[Dict[str, Any]]:
+    try:
+        return DeckSearchSettingsRepository(connection).get(config.BOT_INSTANCE_ID, guild_id)
+    except Exception as exc:
+        try:
+            connection.rollback()
+        except Exception:
+            pass
+        print("[WARN] deck search settings unavailable: {0}".format(type(exc).__name__))
+        return None
 
 
 def build_template_values(message: discord.Message, message_text: str, groups: Dict[str, str]) -> Dict[str, str]:
@@ -771,6 +804,79 @@ def normalize_command_after_mention_suffix_guard(
     return command_text
 
 
+async def handle_deck_fetch_since_command(
+    connection,
+    guild_id: str,
+    message: discord.Message,
+    command_text: str,
+) -> Optional[RuntimeAction]:
+    try:
+        parsed = parse_deck_fetch_since_command(command_text)
+    except ValueError:
+        await message.channel.send("日付が読み取れません。例: デッキ 取得日更新 6/27から")
+        return RuntimeAction(True)
+    if parsed is None:
+        return None
+
+    repository = DeckSearchSettingsRepository(connection)
+    settings = load_deck_search_settings(connection, guild_id)
+    max_lookback_days = settings_max_lookback_days(settings)
+
+    if parsed.action == "show":
+        current = settings_fetch_since_date(settings)
+        await message.channel.send(
+            "デッキ検索の取得開始日: {0}".format(format_fetch_since_date(current))
+        )
+        return RuntimeAction(True)
+
+    if not can_update_deck_fetch_since(connection, guild_id, message):
+        await message.channel.send("取得開始日の変更は管理者だけ。")
+        return RuntimeAction(True)
+
+    updated_by = get_message_author_id(message)
+    if parsed.action == "reset":
+        try:
+            repository.clear_fetch_since_date(config.BOT_INSTANCE_ID, guild_id, updated_by, max_lookback_days)
+            connection.commit()
+        except Exception:
+            try:
+                connection.rollback()
+            except Exception:
+                pass
+            await message.channel.send("取得開始日を保存できませんでした。")
+            return RuntimeAction(True)
+        await message.channel.send("デッキ検索の取得開始日をリセットしました。")
+        return RuntimeAction(True)
+
+    if parsed.action == "update" and parsed.fetch_since_date is not None:
+        error = validate_fetch_since_date(parsed.fetch_since_date, max_lookback_days)
+        if error:
+            await message.channel.send(error)
+            return RuntimeAction(True)
+        try:
+            repository.upsert(
+                config.BOT_INSTANCE_ID,
+                guild_id,
+                parsed.fetch_since_date,
+                max_lookback_days,
+                updated_by,
+            )
+            connection.commit()
+        except Exception:
+            try:
+                connection.rollback()
+            except Exception:
+                pass
+            await message.channel.send("取得開始日を保存できませんでした。")
+            return RuntimeAction(True)
+        await message.channel.send(
+            "デッキ検索の取得開始日: {0}".format(parsed.fetch_since_date.isoformat())
+        )
+        return RuntimeAction(True)
+
+    return None
+
+
 async def apply_mention_suffix_guards(
     connection,
     guild_id: str,
@@ -1169,6 +1275,9 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
     if suffix_guard_result is not None:
         return suffix_guard_result
     command_text = normalize_command_after_mention_suffix_guard(limited_effects, message, command_text)
+    deck_settings_action = await handle_deck_fetch_since_command(connection, guild_id, message, command_text)
+    if deck_settings_action is not None:
+        return deck_settings_action
     pending_effects = pop_pending_next_effects(guild_id, message)
     search_matches = []
     for reaction in repository.list_reactions(guild_id, enabled=True, reaction_kind="search"):
@@ -1184,6 +1293,8 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
         values = build_template_values(message, command_text, selected_search.groups)
         config_json = normalize_json(selected_search.row.get("config_json"))
         if config_json.get("search_type") == "deck_search":
+            deck_settings = load_deck_search_settings(connection, guild_id)
+            config_json = apply_deck_search_settings(config_json, deck_settings)
             response = await search_decks(
                 guild_id,
                 str(getattr(message.channel, "id", "")),

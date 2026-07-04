@@ -78,7 +78,13 @@ def get_search_endpoint(search_mode: str) -> str:
     return RECENT_SEARCH_URL
 
 
-def build_search_params(query: str, max_results: int, search_mode: str, lookback_days: int) -> Dict[str, Any]:
+def build_search_params(
+    query: str,
+    max_results: int,
+    search_mode: str,
+    lookback_days: int,
+    start_time: Optional[str] = None,
+) -> Dict[str, Any]:
     endpoint_type = normalize_search_mode(search_mode)
     params = {
         "query": query,
@@ -87,8 +93,13 @@ def build_search_params(query: str, max_results: int, search_mode: str, lookback
         "expansions": "attachments.media_keys",
         "media.fields": "url,preview_image_url,type",
     }
+    if start_time:
+        params["start_time"] = start_time
     if endpoint_type == "full_archive":
-        params.update(build_search_time_range(lookback_days))
+        time_range = build_search_time_range(lookback_days)
+        if start_time:
+            time_range["start_time"] = start_time
+        params.update(time_range)
     return params
 
 
@@ -138,6 +149,7 @@ async def search_posts(
     timeout_seconds: int,
     search_mode: str = "recent",
     lookback_days: int = 14,
+    start_time: Optional[str] = None,
 ) -> List[XPost]:
     if not config.X_SEARCH_ENABLED:
         raise XSearchDisabled()
@@ -147,7 +159,7 @@ async def search_posts(
 
     endpoint_type = normalize_search_mode(search_mode)
     url = get_search_endpoint(endpoint_type)
-    params = build_search_params(query, max_results, endpoint_type, lookback_days)
+    params = build_search_params(query, max_results, endpoint_type, lookback_days, start_time)
     headers = {"Authorization": "Bearer {0}".format(bearer_token)}
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:

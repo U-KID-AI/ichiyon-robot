@@ -1,6 +1,6 @@
 import asyncio
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
@@ -14,6 +14,13 @@ from bot.services import deck_search
 from bot.services import runtime_db
 from bot.services.deck_search import DeckSearchStats, build_x_query
 from bot.services.deck_search import parse_deck_search_command, search_decks
+from bot.services.deck_search_settings import (
+    apply_deck_search_settings,
+    fetch_since_start_time,
+    parse_deck_fetch_since_command,
+    parse_fetch_since_date,
+    validate_fetch_since_date,
+)
 from bot.services.qr_detector import detect_qr_codes, opencv_available
 from bot.services.x_search import (
     XMedia,
@@ -663,6 +670,37 @@ async def check_lightweight_normal_search_settings(check: Check) -> None:
         config.X_BEARER_TOKEN = token_before
 
 
+async def check_fetch_since_search_flow(check: Check) -> None:
+    captured = {}
+    disabled_before = config.X_SEARCH_ENABLED
+    token_before = config.X_BEARER_TOKEN
+    original_search = deck_search.search_posts
+    original_opencv = deck_search.opencv_available
+
+    async def fake_search_posts(query, max_results, timeout_seconds, search_mode, lookback_days, start_time=None):
+        captured["start_time"] = start_time
+        return []
+
+    try:
+        deck_search.search_posts = fake_search_posts
+        deck_search.opencv_available = lambda: True
+        config.X_SEARCH_ENABLED = True
+        config.X_BEARER_TOKEN = "dummy"
+        deck_config = base_config()
+        deck_config["fetch_since_date"] = "2026-06-27"
+        await search_decks("g", "123", "\u30c7\u30c3\u30ad \u30a8\u30eb\u30d5", deck_config)
+        check.add(
+            "fetch since reaches deck search API call",
+            captured.get("start_time") == "2026-06-26T15:00:00Z",
+            str(captured),
+        )
+    finally:
+        deck_search.search_posts = original_search
+        deck_search.opencv_available = original_opencv
+        config.X_SEARCH_ENABLED = disabled_before
+        config.X_BEARER_TOKEN = token_before
+
+
 async def check_parallel_scan(check: Check) -> None:
     active = {"current": 0, "max": 0, "started": 0}
 
@@ -736,6 +774,8 @@ def check_search_params(check: Check) -> None:
     full_endpoint = get_search_endpoint("full_archive")
     recent_params = build_search_params("query", 10, "recent", 14)
     archive_params = build_search_params("query", 10, "full_archive", 14)
+    fetch_since_start = fetch_since_start_time("2026-06-27")
+    fetch_since_params = build_search_params("query", 10, "full_archive", 14, fetch_since_start)
     time_range = build_search_time_range(14, datetime(2026, 6, 20, 12, 0, 0, tzinfo=timezone.utc))
     check.add("recent endpoint path", recent_endpoint.endswith("/2/tweets/search/recent"), recent_endpoint)
     check.add("full archive endpoint path", full_endpoint.endswith("/2/tweets/search/all"), full_endpoint)
@@ -757,6 +797,45 @@ def check_search_params(check: Check) -> None:
         and "sort_order" not in archive_params,
         str(archive_params),
     )
+    check.add(
+        "fetch since date sets start_time",
+        fetch_since_params.get("start_time") == "2026-06-26T15:00:00Z",
+        str(fetch_since_params),
+    )
+
+
+def check_fetch_since_helpers(check: Check) -> None:
+    fixed_now = datetime(2026, 7, 4, 3, 0, 0, tzinfo=timezone.utc)
+    short_date = parse_fetch_since_date("6/27から", fixed_now)
+    slash_date = parse_fetch_since_date("2026/6/27", fixed_now)
+    dash_date = parse_fetch_since_date("2026-06-27", fixed_now)
+    check.add("fetch since short date uses current year", short_date == date(2026, 6, 27), str(short_date))
+    check.add("fetch since slash date parses", slash_date == date(2026, 6, 27), str(slash_date))
+    check.add("fetch since dash date parses", dash_date == date(2026, 6, 27), str(dash_date))
+    try:
+        parse_fetch_since_date("99/99", fixed_now)
+        invalid_ok = False
+    except ValueError:
+        invalid_ok = True
+    check.add("fetch since invalid date is rejected", invalid_ok)
+    check.add(
+        "fetch since old date is rejected",
+        validate_fetch_since_date(date(2026, 5, 1), 30, fixed_now) is not None,
+    )
+    update_command = parse_deck_fetch_since_command("デッキ 取得日更新 6/27から", fixed_now)
+    show_command = parse_deck_fetch_since_command("デッキ 取得日確認", fixed_now)
+    reset_command = parse_deck_fetch_since_command("デッキ 取得日リセット", fixed_now)
+    check.add(
+        "fetch since update command parses",
+        update_command is not None
+        and update_command.action == "update"
+        and update_command.fetch_since_date == date(2026, 6, 27),
+        str(update_command),
+    )
+    check.add("fetch since show command parses", show_command is not None and show_command.action == "show", str(show_command))
+    check.add("fetch since reset command parses", reset_command is not None and reset_command.action == "reset", str(reset_command))
+    merged = apply_deck_search_settings(base_config(), {"fetch_since_date": date(2026, 6, 27), "max_lookback_days": 30})
+    check.add("fetch since settings merge into deck config", merged.get("fetch_since_date") == "2026-06-27", str(merged))
 
 
 def check_x_payload(check: Check) -> None:
@@ -820,11 +899,13 @@ def main() -> None:
     asyncio.run(check_full_archive_error(check))
     asyncio.run(check_high_accuracy_mode(check))
     asyncio.run(check_lightweight_normal_search_settings(check))
+    asyncio.run(check_fetch_since_search_flow(check))
     asyncio.run(check_parallel_scan(check))
     asyncio.run(check_image_fetch_failure(check))
     asyncio.run(check_runtime_path(check))
     asyncio.run(check_mention_priority(check))
     check_search_params(check)
+    check_fetch_since_helpers(check)
     check_post_scoring(check)
     check_x_payload(check)
     check_stats(check)
