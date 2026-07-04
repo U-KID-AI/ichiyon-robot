@@ -1,6 +1,7 @@
 import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
@@ -59,6 +60,8 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         enabled: str = Query("all"),
         admin_only: str = Query("all"),
         show_test_data: str = Query("false"),
+        message: str = Query(""),
+        error: str = Query(""),
     ):
         user = get_current_user(request)
         if user is None:
@@ -81,7 +84,55 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
                 "effect_types": EFFECT_TYPES,
                 "effect_type_labels": EFFECT_TYPE_LABELS,
                 "can_create": role_allows(server["role"], "editor"),
+                "message": message,
+                "error": error,
             },
+        )
+
+    @router.post("/guilds/{guild_id}/special-effects/bulk-enabled")
+    async def bulk_set_special_effects_enabled(
+        request: Request,
+        guild_id: str,
+        action: str = Form(""),
+        tag_ids: List[int] = Form([]),
+    ):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
+        server = find_server(guild_id, user["user_id"])
+        if not role_allows(server["role"], "editor"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="special effect bulk update denied")
+        # TODO(v3): bot_id権限を導入したら、guild権限だけでなくBot単位の操作権限も確認する。
+        if not tag_ids:
+            return RedirectResponse(
+                url="/guilds/{0}/special-effects?error={1}".format(guild_id, quote("項目を選択してね")),
+                status_code=303,
+            )
+        if action not in ("on", "off"):
+            return RedirectResponse(
+                url="/guilds/{0}/special-effects?error={1}".format(guild_id, quote("操作を選んでね")),
+                status_code=303,
+            )
+
+        updated_count = 0
+        with get_connection() as connection:
+            repository = SpecialEffectRepository(connection)
+            for tag_id in tag_ids:
+                tag = repository.get_by_id(guild_id, tag_id)
+                if tag is None or not can_edit_tag(server["role"], tag):
+                    continue
+                if repository.set_enabled(guild_id, tag_id, action == "on") is not None:
+                    updated_count += 1
+            connection.commit()
+        failed_count = max(0, len(tag_ids) - updated_count)
+        return RedirectResponse(
+            url="/guilds/{0}/special-effects?message={1}".format(
+                guild_id,
+                quote("成功{0}件 / 失敗{1}件".format(updated_count, failed_count)),
+            ),
+            status_code=303,
         )
 
     @router.post("/guilds/{guild_id}/special-effects/{tag_id}/toggle")
@@ -104,6 +155,32 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
             connection.commit()
 
         return RedirectResponse(url="/guilds/{0}/special-effects".format(guild_id), status_code=303)
+
+    @router.post("/guilds/{guild_id}/special-effects/{tag_id}/copy")
+    async def copy_special_effect(request: Request, guild_id: str, tag_id: int):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
+
+        server = find_server(guild_id, user["user_id"])
+        with get_connection() as connection:
+            repository = SpecialEffectRepository(connection)
+            tag = repository.get_by_id(guild_id, tag_id)
+            if tag is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="special effect tag not found")
+            if not can_edit_tag(server["role"], tag):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="special effect copy denied")
+            copied = repository.copy_tag(guild_id, tag_id)
+            if copied is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="special effect tag not found")
+            connection.commit()
+
+        return RedirectResponse(
+            url="/guilds/{0}/special-effects/{1}".format(guild_id, copied["id"]),
+            status_code=303,
+        )
 
     @router.post("/guilds/{guild_id}/special-effects/{tag_id}/delete")
     async def delete_special_effect(request: Request, guild_id: str, tag_id: int):
@@ -378,6 +455,7 @@ def list_tag_rows(guild_id: str, role: str, filters: Dict[str, Any]) -> List[Dic
         row["cooldown_scope_label"] = COOLDOWN_SCOPE_LABELS.get(row["cooldown_scope"], row["cooldown_scope"])
         row["edit_url"] = "/guilds/{0}/special-effects/{1}".format(guild_id, tag["id"])
         row["toggle_url"] = "/guilds/{0}/special-effects/{1}/toggle".format(guild_id, tag["id"])
+        row["copy_url"] = "/guilds/{0}/special-effects/{1}/copy".format(guild_id, tag["id"])
         row["delete_url"] = "/guilds/{0}/special-effects/{1}/delete".format(guild_id, tag["id"])
         rows.append(row)
     return rows

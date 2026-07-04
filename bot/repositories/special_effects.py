@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict, List, Optional
 
 from bot.repositories.base import fetch_all, fetch_one, json_dumps, normalize_effect_target_type
@@ -217,6 +218,22 @@ class SpecialEffectRepository:
             )
             return fetch_one(cursor)
 
+    def bulk_set_enabled(self, guild_id: str, tag_ids: List[int], enabled: bool) -> int:
+        if not tag_ids:
+            return 0
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE special_effect_tags
+                SET enabled = %s,
+                    updated_at = NOW()
+                WHERE guild_id = %s
+                  AND id = ANY(%s)
+                """,
+                (enabled, guild_id, tag_ids),
+            )
+            return cursor.rowcount
+
     def toggle_enabled(
         self,
         guild_id: str,
@@ -226,6 +243,39 @@ class SpecialEffectRepository:
         if tag is None:
             return None
         return self.set_enabled(guild_id, tag_id, not bool(tag["enabled"]))
+
+    def copy_tag(self, guild_id: str, tag_id: int) -> Optional[Dict[str, Any]]:
+        source = self.get_by_id(guild_id, tag_id)
+        if source is None:
+            return None
+        source_name = str(source.get("name") or "特殊効果タグ").strip()
+        effect_config = source.get("effect_config_json") or {}
+        if isinstance(effect_config, str):
+            try:
+                effect_config = json.loads(effect_config)
+            except ValueError:
+                effect_config = {}
+        if not isinstance(effect_config, dict):
+            effect_config = {}
+        return self.create_tag(
+            guild_id,
+            "{0} コピー".format(source_name),
+            str(source.get("description") or ""),
+            str(source.get("color") or "#6B7280"),
+            bool(source.get("admin_only")),
+            False,
+            int(source.get("priority") or 0),
+            str(source.get("target_type") or "mention_reaction_choice"),
+            str(source.get("trigger_timing") or "choice_selected"),
+            str(source.get("effect_type") or "message"),
+            effect_config,
+            str(source.get("additional_text") or ""),
+            str(source.get("additional_post_timing") or "none"),
+            str(source.get("expires_type") or "permanent"),
+            source.get("expires_value"),
+            int(source.get("cooldown_seconds") or 0),
+            str(source.get("cooldown_scope") or "none"),
+        )
 
     def delete_tag(self, guild_id: str, tag_id: int) -> bool:
         with self.connection.cursor() as cursor:
