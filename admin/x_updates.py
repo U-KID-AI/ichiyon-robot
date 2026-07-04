@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
@@ -24,6 +25,8 @@ def register_x_update_routes(templates: Jinja2Templates) -> None:
         q: Optional[str] = Query(None),
         enabled: str = Query("all"),
         show_test_data: str = Query("false"),
+        message: str = Query(""),
+        error: str = Query(""),
     ):
         user = get_current_user(request)
         if user is None:
@@ -43,7 +46,47 @@ def register_x_update_routes(templates: Jinja2Templates) -> None:
                 "filters": filters,
                 "watches": watches,
                 "can_create": role_allows(server["role"], "guild_admin"),
+                "message": message,
+                "error": error,
             },
+        )
+
+    @router.post("/guilds/{guild_id}/x-updates/bulk-enabled")
+    async def bulk_set_x_updates_enabled(
+        request: Request,
+        guild_id: str,
+        action: str = Form(""),
+        watch_ids: List[int] = Form([]),
+    ):
+        user, server = require_guild_admin(request, guild_id)
+        # TODO(v3): bot_id単位の権限が入ったら、guild権限だけでなくbot権限も確認する。
+        if not watch_ids:
+            return RedirectResponse(
+                url="/guilds/{0}/x-updates?error={1}".format(guild_id, quote("項目を選択してください")),
+                status_code=303,
+            )
+        if action not in ("on", "off"):
+            return RedirectResponse(
+                url="/guilds/{0}/x-updates?error={1}".format(guild_id, quote("操作を選択してください")),
+                status_code=303,
+            )
+        enabled_value = action == "on"
+        with get_connection() as connection:
+            repository = XUpdateWatchRepository(connection)
+            updated_count = repository.bulk_set_enabled(
+                bot_config.BOT_INSTANCE_ID,
+                guild_id,
+                watch_ids,
+                enabled_value,
+            )
+            connection.commit()
+        failed_count = max(0, len(watch_ids) - updated_count)
+        return RedirectResponse(
+            url="/guilds/{0}/x-updates?message={1}".format(
+                guild_id,
+                quote("成功{0}件 / 失敗{1}件".format(updated_count, failed_count)),
+            ),
+            status_code=303,
         )
 
     @router.post("/guilds/{guild_id}/x-updates/{watch_id}/toggle")
@@ -56,6 +99,21 @@ def register_x_update_routes(templates: Jinja2Templates) -> None:
             repository.toggle_enabled(bot_config.BOT_INSTANCE_ID, guild_id, watch_id)
             connection.commit()
         return RedirectResponse(url="/guilds/{0}/x-updates".format(guild_id), status_code=303)
+
+    @router.post("/guilds/{guild_id}/x-updates/{watch_id}/copy")
+    async def copy_x_update(request: Request, guild_id: str, watch_id: int):
+        user, server = require_guild_admin(request, guild_id)
+        # TODO(v3): bot_id単位の権限が入ったら、コピー対象のbot_id操作権限も確認する。
+        with get_connection() as connection:
+            repository = XUpdateWatchRepository(connection)
+            copied = repository.copy_watch(bot_config.BOT_INSTANCE_ID, guild_id, watch_id)
+            if copied is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="x update watch not found")
+            connection.commit()
+        return RedirectResponse(
+            url="/guilds/{0}/x-updates/{1}".format(guild_id, copied["id"]),
+            status_code=303,
+        )
 
     @router.post("/guilds/{guild_id}/x-updates/{watch_id}/delete")
     async def delete_x_update(request: Request, guild_id: str, watch_id: int):

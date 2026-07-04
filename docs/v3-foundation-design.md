@@ -438,3 +438,37 @@ services:
 - usernameからuser_idへの解決は初回または未解決時だけ行う。
 - `last_seen_post_id` を更新するため、返信/リポスト/引用がOFFでも同じ投稿を毎回取り直さない。
 - `x_updates` feature flag がOFFの場合、そのguildでは実行しない。
+
+## 2026-07-04 管理画面改善 Phase 1
+
+今回入れたもの:
+
+- X更新通知設定だけを対象にした。
+- 一覧と編集画面からコピー作成できる。
+- コピー後は必ず `enabled=false`。
+- コピー後の `display_name` には `コピー` を付ける。
+- コピーしないもの:
+  - `id`
+  - `created_at`
+  - `updated_at`
+  - `last_seen_post_id`
+  - `last_posted_post_id`
+  - `last_checked_at`
+  - `last_success_at`
+  - `last_error`
+  - 投稿履歴
+  - `posted_message_id`
+- コピー後は初回同期扱いになるため、過去投稿をDiscordへ流さない。
+- コピーを許可するため、同一 `bot_id` / `guild_id` / `channel_id` / `x_username` の複数設定を許可する。
+- 一覧で複数選択して一括ON/OFFできる。
+- 一括ON/OFFは `enabled` を変えるだけで、X APIを即時実行しない。
+- 一括ON/OFFは `guild_admin` 以上。
+- bot_id権限導入後に、bot単位の操作権限も確認するTODOを残した。
+
+Phase 2以降:
+
+- 自動投稿へのコピー/一括ON/OFF横展開。
+- メンション反応へのコピー/一括ON/OFF横展開。
+- 特殊効果設定へのコピー/一括ON/OFF横展開。
+- 開発者だけBot横断表示。
+- 一般管理者は許可Bot/許可サーバーのみ表示。

@@ -26,6 +26,12 @@
   </section>
 
   <section class="panel">
+    {% if message %}
+      <p class="notice">{{ message }}</p>
+    {% endif %}
+    {% if error %}
+      <p class="error-text">{{ error }}</p>
+    {% endif %}
     <form class="filter-form" method="get">
       <label>検索<input type="search" name="q" value="{{ filters.q }}" placeholder="ユーザー名・表示名"></label>
       <label>状態
@@ -42,10 +48,16 @@
 
   <section class="panel">
     {% if watches %}
+      <form id="bulk-x-updates" method="post" action="/guilds/{{ guild_id }}/x-updates/bulk-enabled"></form>
+      <div class="actions-row">
+        <button form="bulk-x-updates" type="submit" name="action" value="on" onclick="return confirm('選択した通知をONにする？');">選択をON</button>
+        <button form="bulk-x-updates" type="submit" name="action" value="off" onclick="return confirm('選択した通知をOFFにする？');">選択をOFF</button>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
+              <th>選択</th>
               <th>状態</th>
               <th>Xアカウント</th>
               <th>通知先</th>
@@ -58,6 +70,7 @@
           <tbody>
             {% for watch in watches %}
               <tr>
+                <td><input form="bulk-x-updates" type="checkbox" name="watch_ids" value="{{ watch.id }}"></td>
                 <td>{% if watch.enabled %}<strong class="status enabled">ON</strong>{% else %}<strong class="status disabled">OFF</strong>{% endif %}</td>
                 <td>
                   <strong>@{{ watch.x_username }}</strong>
@@ -75,6 +88,9 @@
                 <td>{{ watch.last_posted_post_id or '-' }}</td>
                 <td class="actions-cell">
                   <a class="button-link secondary" href="{{ watch.edit_url }}">編集</a>
+                  <form method="post" action="/guilds/{{ guild_id }}/x-updates/{{ watch.id }}/copy" onsubmit="return confirm('この通知をコピーする？ コピー後はOFF。');">
+                    <button type="submit">コピー</button>
+                  </form>
                   <form method="post" action="{{ watch.toggle_url }}">
                     <button type="submit">{% if watch.enabled %}OFF{% else %}ON{% endif %}</button>
                   </form>

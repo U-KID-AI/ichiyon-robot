@@ -185,6 +185,47 @@ class XUpdateWatchRepository:
             )
             return fetch_one(cursor)
 
+    def bulk_set_enabled(self, bot_id: str, guild_id: str, watch_ids: List[int], enabled: bool) -> int:
+        if not watch_ids:
+            return 0
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE x_update_watches
+                SET enabled = %s,
+                    updated_at = NOW()
+                WHERE bot_id = %s
+                  AND guild_id = %s
+                  AND id = ANY(%s)
+                """,
+                (enabled, bot_id, guild_id, watch_ids),
+            )
+            return cursor.rowcount
+
+    def copy_watch(self, bot_id: str, guild_id: str, watch_id: int) -> Optional[Dict[str, Any]]:
+        source = self.get_by_id(bot_id, guild_id, watch_id)
+        if source is None:
+            return None
+        display_name = str(source.get("display_name") or source.get("x_username") or "").strip()
+        if display_name:
+            copied_display_name = "{0} コピー".format(display_name)
+        else:
+            copied_display_name = "コピー"
+        return self.create_watch(
+            bot_id,
+            guild_id,
+            str(source.get("channel_id") or ""),
+            str(source.get("x_username") or ""),
+            str(source.get("x_user_id") or "") or None,
+            copied_display_name,
+            False,
+            bool(source.get("include_replies")),
+            bool(source.get("include_reposts")),
+            bool(source.get("include_quotes")),
+            int(source.get("check_interval_seconds") or 900),
+            source.get("post_template") or None,
+        )
+
     def delete_watch(self, bot_id: str, guild_id: str, watch_id: int) -> bool:
         with self.connection.cursor() as cursor:
             cursor.execute(
