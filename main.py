@@ -49,7 +49,13 @@ async def handle_mention_message(message: discord.Message) -> bool:
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
-    print(f"APP_ENV={config.APP_ENV} ENABLE_DEV_COMMANDS={config.ENABLE_DEV_COMMANDS}")
+    print(
+        "APP_ENV={0} ENABLE_DEV_COMMANDS={1} bot_instance_id={2}".format(
+            config.APP_ENV,
+            config.ENABLE_DEV_COMMANDS,
+            config.BOT_INSTANCE_ID,
+        )
+    )
 
     await messages.sync_bot_identity_for_all_guilds()
 

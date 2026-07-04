@@ -1,8 +1,31 @@
 import os
+from dataclasses import dataclass
+from typing import Dict
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+@dataclass(frozen=True)
+class BotInstance:
+    bot_id: str
+    display_name: str
+    description: str
+
+
+BOT_INSTANCES: Dict[str, BotInstance] = {
+    "ichiyon": BotInstance(
+        bot_id="ichiyon",
+        display_name="いちよんロボ",
+        description="既存のいちよんロボ",
+    ),
+    "irsia": BotInstance(
+        bot_id="irsia",
+        display_name="イルシア",
+        description="v3.0で追加する新Botインスタンス",
+    ),
+}
 
 
 def get_env_int(name: str, default: int = 0) -> int:
@@ -50,6 +73,15 @@ def get_data_backend() -> str:
     return "json"
 
 
+def get_bot_instance_id() -> str:
+    value = os.getenv("BOT_INSTANCE_ID", "ichiyon").strip().lower()
+    if value in BOT_INSTANCES:
+        return value
+
+    print("[WARN] BOT_INSTANCE_ID must be ichiyon or irsia; fallback to ichiyon")
+    return "ichiyon"
+
+
 def get_env_str(name: str, default: str) -> str:
     value = os.getenv(name)
     if value is None or not value.strip():
@@ -77,6 +109,8 @@ def get_default_hayusu_bot_nickname(app_env: str) -> str:
 
 TOKEN = os.getenv("DISCORD_TOKEN") or os.getenv("DISCORD_BOT_TOKEN")
 APP_ENV = get_app_env()
+BOT_INSTANCE_ID = get_bot_instance_id()
+BOT_INSTANCE = BOT_INSTANCES[BOT_INSTANCE_ID]
 DATA_BACKEND = get_data_backend()
 ENABLE_DEV_COMMANDS = get_env_bool("ENABLE_DEV_COMMANDS", False)
 DEVELOPER_USER_ID = get_env_int("DEVELOPER_USER_ID")

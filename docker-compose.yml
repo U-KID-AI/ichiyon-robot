@@ -28,6 +28,7 @@ services:
         condition: service_healthy
     environment:
       APP_ENV: ${APP_ENV:-development}
+      BOT_INSTANCE_ID: ${BOT_INSTANCE_ID:-ichiyon}
       ICHIYON_DATA_BACKEND: ${ICHIYON_DATA_BACKEND:-db}
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://ichiyon_robot:ichiyon_robot_password@db:5432/ichiyon_robot}
       ADMIN_BASE_URL: ${ADMIN_BASE_URL:-http://localhost:8080}
@@ -57,6 +58,7 @@ services:
         condition: service_healthy
     environment:
       APP_ENV: ${APP_ENV:-development}
+      BOT_INSTANCE_ID: ${BOT_INSTANCE_ID:-ichiyon}
       ENABLE_DEV_COMMANDS: ${ENABLE_DEV_COMMANDS:-true}
       ICHIYON_DATA_BACKEND: ${ICHIYON_DATA_BACKEND:-db}
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://ichiyon_robot:ichiyon_robot_password@db:5432/ichiyon_robot}
