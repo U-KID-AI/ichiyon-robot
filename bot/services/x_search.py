@@ -9,6 +9,8 @@ from bot import config
 
 RECENT_SEARCH_URL = "https://api.x.com/2/tweets/search/recent"
 FULL_ARCHIVE_SEARCH_URL = "https://api.x.com/2/tweets/search/all"
+USER_BY_USERNAME_URL = "https://api.x.com/2/users/by/username/{username}"
+USER_TWEETS_URL = "https://api.x.com/2/users/{user_id}/tweets"
 
 
 @dataclass
@@ -26,10 +28,18 @@ class XPost:
     text: str
     created_at: str
     media: List[XMedia]
+    referenced_types: Optional[List[str]] = None
 
     @property
     def url(self) -> str:
         return "https://x.com/i/web/status/{0}".format(self.post_id)
+
+
+@dataclass
+class XUser:
+    user_id: str
+    username: str
+    name: str
 
 
 class XSearchDisabled(Exception):
@@ -143,6 +153,51 @@ def parse_search_response(payload: Dict[str, Any]) -> List[XPost]:
     return posts
 
 
+def get_bearer_token() -> str:
+    if not config.X_SEARCH_ENABLED:
+        raise XSearchDisabled()
+    bearer_token = config.X_BEARER_TOKEN.strip()
+    if not bearer_token:
+        raise XSearchDisabled()
+    return bearer_token
+
+
+def parse_user_response(payload: Dict[str, Any]) -> Optional[XUser]:
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return None
+    user_id = str(data.get("id") or "").strip()
+    username = str(data.get("username") or "").strip()
+    if not user_id or not username:
+        return None
+    return XUser(
+        user_id=user_id,
+        username=username,
+        name=str(data.get("name") or username),
+    )
+
+
+def parse_user_tweets_response(payload: Dict[str, Any]) -> List[XPost]:
+    posts = []
+    for item in payload.get("data") or []:
+        referenced_types = []
+        for referenced in item.get("referenced_tweets") or []:
+            ref_type = referenced.get("type")
+            if ref_type:
+                referenced_types.append(str(ref_type))
+        posts.append(
+            XPost(
+                post_id=str(item.get("id") or ""),
+                text=str(item.get("text") or ""),
+                created_at=str(item.get("created_at") or ""),
+                media=[],
+                referenced_types=referenced_types,
+            )
+        )
+    posts.sort(key=lambda post: int(post.post_id) if post.post_id.isdigit() else 0)
+    return posts
+
+
 async def search_posts(
     query: str,
     max_results: int,
@@ -151,11 +206,7 @@ async def search_posts(
     lookback_days: int = 14,
     start_time: Optional[str] = None,
 ) -> List[XPost]:
-    if not config.X_SEARCH_ENABLED:
-        raise XSearchDisabled()
-    bearer_token = config.X_BEARER_TOKEN.strip()
-    if not bearer_token:
-        raise XSearchDisabled()
+    bearer_token = get_bearer_token()
 
     endpoint_type = normalize_search_mode(search_mode)
     url = get_search_endpoint(endpoint_type)
@@ -182,6 +233,64 @@ async def search_posts(
     except ValueError as exc:
         raise XSearchError("invalid json", endpoint_type=endpoint_type) from exc
     return parse_search_response(payload)
+
+
+async def lookup_user_by_username(username: str, timeout_seconds: int = 10) -> XUser:
+    bearer_token = get_bearer_token()
+    normalized_username = username.strip().lstrip("@")
+    url = USER_BY_USERNAME_URL.format(username=normalized_username)
+    params = {"user.fields": "name,username"}
+    headers = {"Authorization": "Bearer {0}".format(bearer_token)}
+    try:
+        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+            response = await client.get(url, params=params, headers=headers)
+    except httpx.TimeoutException as exc:
+        raise XSearchError("timeout", endpoint_type="user_lookup") from exc
+    except httpx.HTTPError as exc:
+        raise XSearchError("request failed", endpoint_type="user_lookup") from exc
+    if response.status_code >= 400:
+        print("[WARN] X user lookup failed: status={0}".format(response.status_code))
+        raise XSearchError("api status {0}".format(response.status_code), response.status_code, "user_lookup")
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise XSearchError("invalid json", endpoint_type="user_lookup") from exc
+    user = parse_user_response(payload)
+    if user is None:
+        raise XSearchError("user not found", endpoint_type="user_lookup")
+    return user
+
+
+async def get_user_posts(
+    user_id: str,
+    since_id: Optional[str],
+    max_results: int,
+    timeout_seconds: int = 10,
+) -> List[XPost]:
+    bearer_token = get_bearer_token()
+    params: Dict[str, Any] = {
+        "max_results": clamp_x_max_results(max_results),
+        "tweet.fields": "created_at,referenced_tweets",
+    }
+    if since_id:
+        params["since_id"] = since_id
+    headers = {"Authorization": "Bearer {0}".format(bearer_token)}
+    url = USER_TWEETS_URL.format(user_id=user_id)
+    try:
+        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+            response = await client.get(url, params=params, headers=headers)
+    except httpx.TimeoutException as exc:
+        raise XSearchError("timeout", endpoint_type="user_tweets") from exc
+    except httpx.HTTPError as exc:
+        raise XSearchError("request failed", endpoint_type="user_tweets") from exc
+    if response.status_code >= 400:
+        print("[WARN] X user tweets failed: status={0}".format(response.status_code))
+        raise XSearchError("api status {0}".format(response.status_code), response.status_code, "user_tweets")
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise XSearchError("invalid json", endpoint_type="user_tweets") from exc
+    return parse_user_tweets_response(payload)
 
 
 async def search_recent_posts(query: str, max_results: int, timeout_seconds: int) -> List[XPost]:

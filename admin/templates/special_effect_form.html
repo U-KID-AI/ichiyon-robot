@@ -1,4 +1,4 @@
-{% extends "layout.html" %}
+﻿{% extends "layout.html" %}
 
 {% block title %}{% if mode == "new" %}特殊効果タグを追加{% else %}{{ tag.name }}{% endif %} - いちよんロボ管理画面{% endblock %}
 {% block heading %}{% if mode == "new" %}特殊効果タグを追加{% else %}{{ tag.name }}{% endif %}{% endblock %}
@@ -40,8 +40,7 @@
       <label class="check-row"><input type="checkbox" name="enabled" {% if tag.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>有効</label>
       <label class="check-row"><input type="checkbox" name="admin_only" {% if tag.admin_only %}checked{% endif %} {% if not can_edit or not can_set_admin_only %}disabled{% endif %}>管理者限定</label>
 
-      <label>
-        効果の種類
+      <label>効果の種類
         <select name="effect_type" {% if not can_edit %}disabled{% endif %}>
           {% for item in effect_types %}
             <option value="{{ item }}" {% if tag.effect_type == item %}selected{% endif %}>{{ effect_type_labels.get(item, item) }}</option>
@@ -49,6 +48,8 @@
         </select>
       </label>
       <label>追加投稿テキスト<textarea name="additional_text" {% if not can_edit %}disabled{% endif %}>{{ tag.additional_text }}</textarea></label>
+      <label>最大倍率<input type="number" min="0" step="any" name="max_multiplier" value="{{ tag.max_multiplier }}" placeholder="空なら制限なし" {% if not can_edit %}disabled{% endif %}></label>
+      <p class="hint">確率倍率系だけに使用。空なら今まで通り制限なし。</p>
 
       <section class="subpanel">
         <h3>使えるテンプレート</h3>
@@ -58,6 +59,8 @@
           <li><code>{user_name}</code> ユーザー名</li>
           <li><code>{user_mention}</code> ユーザーへのメンション</li>
           <li><code>{match_1:hankaku}</code> ひらがなをカタカナ化。全角カタカナを半角化。</li>
+          <li><code>{effective_multiplier}</code> 現在の累積倍率</li>
+          <li><code>{probability_percent}</code> 倍率適用後の確率</li>
         </ul>
       </section>
 
@@ -65,32 +68,28 @@
         <summary>詳細設定</summary>
         <div class="form-grid">
           <label>優先度<input type="number" name="priority" value="{{ tag.priority }}" {% if not can_edit %}disabled{% endif %}></label>
-          <label>
-            付与できる対象
+          <label>付与できる対象
             <select name="target_type" {% if not can_edit %}disabled{% endif %}>
               <option value="mention_reaction_choice" {% if tag.target_type == "mention_reaction_choice" %}selected{% endif %}>メンション反応の抽選候補</option>
               <option value="auto_reaction" {% if tag.target_type == "auto_reaction" %}selected{% endif %}>自動反応</option>
               <option value="ng_word" {% if tag.target_type == "ng_word" %}selected{% endif %}>NGワード</option>
             </select>
           </label>
-          <label>
-            発動タイミング
+          <label>発動タイミング
             <select name="trigger_timing" {% if not can_edit %}disabled{% endif %}>
               <option value="choice_selected" {% if tag.trigger_timing == "choice_selected" %}selected{% endif %}>抽選候補が選ばれた時</option>
               <option value="auto_reaction_triggered" {% if tag.trigger_timing == "auto_reaction_triggered" %}selected{% endif %}>自動反応が動いた時</option>
               <option value="ng_word_detected" {% if tag.trigger_timing == "ng_word_detected" %}selected{% endif %}>NGワードを検知した時</option>
             </select>
           </label>
-          <label>
-            追加投稿タイミング
+          <label>追加投稿タイミング
             <select name="additional_post_timing" {% if not can_edit %}disabled{% endif %}>
               {% for item in additional_post_timings %}
                 <option value="{{ item }}" {% if tag.additional_post_timing == item %}selected{% endif %}>{{ additional_post_timing_labels.get(item, item) }}</option>
               {% endfor %}
             </select>
           </label>
-          <label>
-            有効期限タイプ
+          <label>有効期限タイプ
             <select name="expires_type" {% if not can_edit %}disabled{% endif %}>
               {% for item in expires_types %}
                 <option value="{{ item }}" {% if tag.expires_type == item %}selected{% endif %}>{{ expires_type_labels.get(item, item) }}</option>
@@ -99,8 +98,7 @@
           </label>
           <label>有効期限値<input type="number" min="0" name="expires_value" value="{{ tag.expires_value }}" {% if not can_edit %}disabled{% endif %}></label>
           <label>クールタイム秒数<input type="number" min="0" name="cooldown_seconds" value="{{ tag.cooldown_seconds }}" {% if not can_edit %}disabled{% endif %}></label>
-          <label>
-            クールタイム単位
+          <label>クールタイム単位
             <select name="cooldown_scope" {% if not can_edit %}disabled{% endif %}>
               {% for item in cooldown_scopes %}
                 <option value="{{ item }}" {% if tag.cooldown_scope == item %}selected{% endif %}>{{ cooldown_scope_labels.get(item, item) }}</option>
@@ -127,9 +125,10 @@
   <section class="panel">
     <h2>プリセット例</h2>
     <ul class="config-list">
-      <li>ミニいちよん: 効果の種類=確率で追加投稿、確率 1/32、追加投稿 <code>:yukkuri_itiyon: ｲﾔ〜{match_1:hankaku}ﾈ〜</code></li>
-      <li>しこっち抽選: カウンター設定、確率 1/444、<code>shikocchi_count=1</code></li>
-      <li>成田カウント加算: カウンター加算、<code>narita_count +1</code></li>
+      <li>ミニいちよん: 効果の種類は確率追加投稿、確率 1/32。</li>
+      <li>しこっち抽選: カウンター設定、確率 1/444、<code>shikocchi_count=1</code>。</li>
+      <li>成田カウント加算: カウンター加算、<code>narita_count +1</code>。</li>
+      <li>ライオ: 効果の種類は確率倍率。最大倍率を入れると累積倍率をそこで止める。</li>
     </ul>
   </section>
 

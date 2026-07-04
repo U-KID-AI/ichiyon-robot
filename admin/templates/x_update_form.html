@@ -1,0 +1,72 @@
+{% extends "layout.html" %}
+
+{% block title %}{% if mode == 'new' %}X更新通知を作成{% else %}X更新通知を編集{% endif %} - いちよんロボ{% endblock %}
+{% block heading %}{% if mode == 'new' %}X更新通知を作成{% else %}X更新通知を編集{% endif %}{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="actions-row">
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}/x-updates">一覧へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+    </div>
+  </section>
+
+  {% if errors %}
+    <section class="panel error-panel">
+      <ul>
+        {% for error in errors %}
+          <li>{{ error }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  <form method="post">
+    <section class="panel">
+      <h2>基本</h2>
+      <div class="form-grid">
+        <label>Xユーザー名<input name="x_username" value="{{ watch.x_username }}" placeholder="example" {% if not can_edit %}disabled{% endif %}></label>
+        <label>表示名/メモ<input name="display_name" value="{{ watch.display_name }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>通知チャンネルID<input name="channel_id" value="{{ watch.channel_id }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>確認間隔秒<input type="number" min="60" name="check_interval_seconds" value="{{ watch.check_interval_seconds }}" {% if not can_edit %}disabled{% endif %}></label>
+      </div>
+      <label class="checkbox-label"><input type="checkbox" name="enabled" {% if watch.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>有効</label>
+    </section>
+
+    <section class="panel">
+      <h2>投稿対象</h2>
+      <p class="empty">通常投稿は常に対象。返信/リポスト/引用は必要な時だけON。</p>
+      <label class="checkbox-label"><input type="checkbox" name="include_replies" {% if watch.include_replies %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>返信も通知</label>
+      <label class="checkbox-label"><input type="checkbox" name="include_reposts" {% if watch.include_reposts %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>リポストも通知</label>
+      <label class="checkbox-label"><input type="checkbox" name="include_quotes" {% if watch.include_quotes %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>引用も通知</label>
+    </section>
+
+    <section class="panel">
+      <h2>投稿文</h2>
+      <textarea name="post_template" rows="4" {% if not can_edit %}disabled{% endif %}>{{ watch.post_template }}</textarea>
+      <p class="empty">使える変数: {account_name} {username} {post_text} {post_url} {created_at}</p>
+    </section>
+
+    <details class="panel">
+      <summary>状態</summary>
+      <div class="form-grid">
+        <label>XユーザーID<input name="x_user_id" value="{{ watch.x_user_id }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>最終確認<input value="{{ watch.last_checked_at or '' }}" disabled></label>
+        <label>最終成功<input value="{{ watch.last_success_at or '' }}" disabled></label>
+        <label>最後に見たPost ID<input value="{{ watch.last_seen_post_id }}" disabled></label>
+        <label>最後に投稿したPost ID<input value="{{ watch.last_posted_post_id }}" disabled></label>
+      </div>
+      {% if watch.last_error %}
+        <p class="error-text">{{ watch.last_error }}</p>
+      {% endif %}
+    </details>
+
+    <section class="panel actions-row">
+      {% if can_edit %}
+        <button type="submit">保存</button>
+      {% else %}
+        <p class="empty">閲覧のみ。</p>
+      {% endif %}
+    </section>
+  </form>
+{% endblock %}

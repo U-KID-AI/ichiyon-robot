@@ -1,5 +1,6 @@
 import json
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
@@ -48,6 +49,8 @@ def register_ng_word_routes(templates: Jinja2Templates) -> None:
         enabled: str = Query("all"),
         has_effects: str = Query("all"),
         show_test_data: str = Query("false"),
+        message: str = Query(""),
+        error: str = Query(""),
     ):
         user = get_current_user(request)
         if user is None:
@@ -68,7 +71,38 @@ def register_ng_word_routes(templates: Jinja2Templates) -> None:
                 "filters": filters,
                 "words": words,
                 "can_create": role_allows(server["role"], "editor"),
+                "message": message,
+                "error": error,
             },
+        )
+
+    @router.post("/guilds/{guild_id}/ng-words/bulk-enabled")
+    async def bulk_set_ng_words_enabled(
+        request: Request,
+        guild_id: str,
+        action: str = Form(""),
+        word_ids: List[int] = Form([]),
+    ):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
+        server = find_server(guild_id, user["user_id"])
+        if not role_allows(server["role"], "editor"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ng word bulk update denied")
+        if not word_ids:
+            return RedirectResponse(url="/guilds/{0}/ng-words?error={1}".format(guild_id, quote("項目を選択してね")), status_code=303)
+        if action not in ("on", "off"):
+            return RedirectResponse(url="/guilds/{0}/ng-words?error={1}".format(guild_id, quote("操作を選んでね")), status_code=303)
+        with get_connection() as connection:
+            repository = NgWordRepository(connection)
+            updated_count = repository.bulk_set_enabled(guild_id, word_ids, action == "on")
+            connection.commit()
+        failed_count = max(0, len(word_ids) - updated_count)
+        return RedirectResponse(
+            url="/guilds/{0}/ng-words?message={1}".format(guild_id, quote("成功{0}件 / 失敗{1}件".format(updated_count, failed_count))),
+            status_code=303,
         )
 
     @router.post("/guilds/{guild_id}/ng-words/{word_id}/toggle")
@@ -90,6 +124,24 @@ def register_ng_word_routes(templates: Jinja2Templates) -> None:
             connection.commit()
 
         return RedirectResponse(url="/guilds/{0}/ng-words".format(guild_id), status_code=303)
+
+    @router.post("/guilds/{guild_id}/ng-words/{word_id}/copy")
+    async def copy_ng_word(request: Request, guild_id: str, word_id: int):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
+        server = find_server(guild_id, user["user_id"])
+        if not role_allows(server["role"], "editor"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ng word copy denied")
+        with get_connection() as connection:
+            repository = NgWordRepository(connection)
+            copied = repository.copy_word(guild_id, word_id)
+            if copied is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ng word not found")
+            connection.commit()
+        return RedirectResponse(url="/guilds/{0}/ng-words/{1}".format(guild_id, copied["id"]), status_code=303)
 
     @router.post("/guilds/{guild_id}/ng-words/{word_id}/delete")
     async def delete_ng_word(request: Request, guild_id: str, word_id: int):
@@ -332,6 +384,7 @@ def build_word_view(connection, guild_id: str, word: Dict[str, Any], role: str) 
     row["effects"] = list_effects_for_target(connection, guild_id, int(row["id"]), role)
     row["edit_url"] = "/guilds/{0}/ng-words/{1}".format(guild_id, row["id"])
     row["toggle_url"] = "/guilds/{0}/ng-words/{1}/toggle".format(guild_id, row["id"])
+    row["copy_url"] = "/guilds/{0}/ng-words/{1}/copy".format(guild_id, row["id"])
     row["delete_url"] = "/guilds/{0}/ng-words/{1}/delete".format(guild_id, row["id"])
     row["effects_url"] = "/guilds/{0}/ng-words/{1}/effects".format(guild_id, row["id"])
     row["can_delete"] = role_allows(role, "editor")

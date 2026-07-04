@@ -1,4 +1,4 @@
-{% extends "layout.html" %}
+﻿{% extends "layout.html" %}
 
 {% block title %}特殊効果タグ - いちよんロボ管理画面{% endblock %}
 {% block heading %}特殊効果タグ{% endblock %}
@@ -18,15 +18,16 @@
       <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
       {% if can_create %}<a class="button-link" href="/guilds/{{ guild_id }}/special-effects/new">+ 特殊効果タグを追加</a>{% else %}<button type="button" disabled>+ 特殊効果タグを追加</button>{% endif %}
     </div>
-    <p class="hint">付与先は抽選候補・自動反応・NGワードだけ。</p>
+    <p class="hint">付与先はメンション候補、自動反応、NGワード。</p>
   </section>
 
   <section class="panel">
     <h2>検索・絞り込み</h2>
+    {% if message %}<p class="notice success">{{ message }}</p>{% endif %}
+    {% if error %}<p class="notice error">{{ error }}</p>{% endif %}
     <form class="filter-form" method="get" action="/guilds/{{ guild_id }}/special-effects">
       <label>キーワード<input type="search" name="q" value="{{ filters.q }}" placeholder="タグ名、説明で検索"></label>
-      <label>
-        効果の種類
+      <label>効果の種類
         <select name="effect_type">
           <option value="all" {% if filters.effect_type == "all" %}selected{% endif %}>すべて</option>
           {% for item in effect_types %}
@@ -34,16 +35,14 @@
           {% endfor %}
         </select>
       </label>
-      <label>
-        状態
+      <label>状態
         <select name="enabled">
           <option value="all" {% if filters.enabled == "all" %}selected{% endif %}>すべて</option>
           <option value="true" {% if filters.enabled == "true" %}selected{% endif %}>有効</option>
           <option value="false" {% if filters.enabled == "false" %}selected{% endif %}>無効</option>
         </select>
       </label>
-      <label>
-        管理者限定
+      <label>管理者限定
         <select name="admin_only">
           <option value="all" {% if filters.admin_only == "all" %}selected{% endif %}>すべて</option>
           <option value="true" {% if filters.admin_only == "true" %}selected{% endif %}>あり</option>
@@ -61,18 +60,25 @@
   <section class="panel">
     <h2>一覧</h2>
     {% if tags %}
+      <form id="bulk-special-effects" method="post" action="/guilds/{{ guild_id }}/special-effects/bulk-enabled"></form>
+      <div class="actions-row">
+        <button form="bulk-special-effects" type="submit" name="action" value="on" {% if not can_create %}disabled{% endif %} onclick="return confirm('選択した特殊効果タグをONにする？');">選択をON</button>
+        <button form="bulk-special-effects" type="submit" name="action" value="off" {% if not can_create %}disabled{% endif %} onclick="return confirm('選択した特殊効果タグをOFFにする？');">選択をOFF</button>
+      </div>
       <div class="table-wrap">
         <table class="admin-table">
           <thead>
-            <tr><th>状態</th><th>タグ名</th><th>色</th><th>効果の種類</th><th>管理者限定</th><th>追加投稿</th><th>クールタイム</th><th>操作</th></tr>
+            <tr><th>選択</th><th>状態</th><th>タグ名</th><th>色</th><th>効果の種類</th><th>最大倍率</th><th>管理者限定</th><th>追加投稿</th><th>クールタイム</th><th>操作</th></tr>
           </thead>
           <tbody>
             {% for tag in tags %}
               <tr>
+                <td data-label="選択"><input form="bulk-special-effects" type="checkbox" name="tag_ids" value="{{ tag.id }}" {% if not tag.can_toggle %}disabled{% endif %}></td>
                 <td data-label="状態">{% if tag.enabled %}<strong class="status enabled">有効</strong>{% else %}<strong class="status disabled">無効</strong>{% endif %}</td>
                 <td data-label="タグ名">{{ tag.name }}</td>
                 <td data-label="色"><span class="color-swatch" style="background: {{ tag.color }}"></span>{{ tag.color }}</td>
                 <td data-label="効果の種類">{{ tag.effect_type_label }}</td>
+                <td data-label="最大倍率">{{ tag.max_multiplier_label }}</td>
                 <td data-label="管理者限定">{% if tag.admin_only %}あり{% else %}なし{% endif %}</td>
                 <td data-label="追加投稿">{% if tag.has_additional_text %}あり{% else %}なし{% endif %}</td>
                 <td data-label="クールタイム">{{ tag.cooldown_seconds }}秒 / {{ tag.cooldown_scope_label }}</td>
@@ -80,6 +86,9 @@
                   <div class="row-actions">
                     <a class="button-link secondary" href="{{ tag.edit_url }}">編集</a>
                     <button class="info-button" type="button" data-modal-target="special-effect-info-{{ tag.id }}" aria-label="{{ tag.name }}のInfo">i</button>
+                    <form method="post" action="{{ tag.copy_url }}" onsubmit="return confirm('この特殊効果タグをコピーする？ コピー後はOFF。');">
+                      <button type="submit" {% if not tag.can_toggle %}disabled{% endif %}>コピー</button>
+                    </form>
                     <form method="post" action="{{ tag.toggle_url }}">
                       <button type="submit" {% if not tag.can_toggle %}disabled title="権限なし"{% endif %}>{% if tag.enabled %}OFFにする{% else %}ONにする{% endif %}</button>
                     </form>
@@ -105,17 +114,18 @@
               <dt>説明</dt><dd>{{ tag.description or "説明なし" }}</dd>
               <dt>効果の種類</dt><dd>{{ tag.effect_type_label }}</dd>
               <dt>詳細設定</dt><dd>{{ tag.effect_config_summary }}</dd>
+              <dt>最大倍率</dt><dd>{{ tag.max_multiplier_label }}</dd>
               <dt>追加投稿</dt><dd>{% if tag.additional_text %}{{ tag.additional_text }}{% else %}なし{% endif %} / {{ tag.additional_post_timing_label }}</dd>
               <dt>有効期限</dt><dd>{{ tag.expires_type_label }}{% if tag.expires_value %}: {{ tag.expires_value }}{% endif %}</dd>
               <dt>クールタイム</dt><dd>{{ tag.cooldown_seconds }}秒 / {{ tag.cooldown_scope_label }}</dd>
-              <dt>管理者限定</dt><dd>{% if tag.admin_only %}管理者限定。{% else %}通常タグ。{% endif %}</dd>
+              <dt>管理者限定</dt><dd>{% if tag.admin_only %}管理者限定{% else %}通常タグ{% endif %}</dd>
               <dt>付与可能対象</dt><dd>{{ tag.target_type_label }}</dd>
             </dl>
           </div>
         </div>
       {% endfor %}
     {% else %}
-      <p class="empty">条件に一致する特殊効果タグはありません。</p>
+      <p class="empty">条件に一致する特殊効果タグなし。</p>
     {% endif %}
   </section>
 

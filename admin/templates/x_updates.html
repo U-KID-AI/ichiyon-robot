@@ -1,0 +1,110 @@
+{% extends "layout.html" %}
+
+{% block title %}X更新通知 - いちよんロボ{% endblock %}
+{% block heading %}X更新通知{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="server-summary page-summary">
+      {% if server.icon_url %}
+        <img class="server-icon" src="{{ server.icon_url }}" alt="">
+      {% else %}
+        <div class="server-icon placeholder"></div>
+      {% endif %}
+      <div>
+        <h2>{{ server.name }}</h2>
+        <p class="empty">登録したXアカウントの新規投稿をDiscordへ通知。</p>
+      </div>
+    </div>
+    <div class="actions-row">
+      <a class="button-link secondary" href="/servers">サーバー選択へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+      {% if can_create %}
+        <a class="button-link" href="/guilds/{{ guild_id }}/x-updates/new">新規作成</a>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="panel">
+    {% if message %}
+      <p class="notice">{{ message }}</p>
+    {% endif %}
+    {% if error %}
+      <p class="error-text">{{ error }}</p>
+    {% endif %}
+    <form class="filter-form" method="get">
+      <label>検索<input type="search" name="q" value="{{ filters.q }}" placeholder="ユーザー名・表示名"></label>
+      <label>状態
+        <select name="enabled">
+          <option value="all" {% if filters.enabled == 'all' %}selected{% endif %}>すべて</option>
+          <option value="true" {% if filters.enabled == 'true' %}selected{% endif %}>有効</option>
+          <option value="false" {% if filters.enabled == 'false' %}selected{% endif %}>無効</option>
+        </select>
+      </label>
+      <label class="checkbox-label"><input type="checkbox" name="show_test_data" value="true" {% if filters.show_test_data %}checked{% endif %}>検証用データも表示</label>
+      <button type="submit">絞り込み</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    {% if watches %}
+      <form id="bulk-x-updates" method="post" action="/guilds/{{ guild_id }}/x-updates/bulk-enabled"></form>
+      <div class="actions-row">
+        <button form="bulk-x-updates" type="submit" name="action" value="on" onclick="return confirm('選択した通知をONにする？');">選択をON</button>
+        <button form="bulk-x-updates" type="submit" name="action" value="off" onclick="return confirm('選択した通知をOFFにする？');">選択をOFF</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>選択</th>
+              <th>状態</th>
+              <th>Xアカウント</th>
+              <th>通知先</th>
+              <th>対象</th>
+              <th>最終確認</th>
+              <th>最終投稿</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for watch in watches %}
+              <tr>
+                <td><input form="bulk-x-updates" type="checkbox" name="watch_ids" value="{{ watch.id }}"></td>
+                <td>{% if watch.enabled %}<strong class="status enabled">ON</strong>{% else %}<strong class="status disabled">OFF</strong>{% endif %}</td>
+                <td>
+                  <strong>@{{ watch.x_username }}</strong>
+                  {% if watch.display_name %}<div class="empty">{{ watch.display_name }}</div>{% endif %}
+                  {% if watch.last_error %}<div class="error-text">{{ watch.last_error }}</div>{% endif %}
+                </td>
+                <td><code>{{ watch.channel_id }}</code></td>
+                <td>
+                  通常投稿
+                  {% if watch.include_replies %} / 返信{% endif %}
+                  {% if watch.include_reposts %} / リポスト{% endif %}
+                  {% if watch.include_quotes %} / 引用{% endif %}
+                </td>
+                <td>{{ watch.last_checked_at or '-' }}</td>
+                <td>{{ watch.last_posted_post_id or '-' }}</td>
+                <td class="actions-cell">
+                  <a class="button-link secondary" href="{{ watch.edit_url }}">編集</a>
+                  <form method="post" action="/guilds/{{ guild_id }}/x-updates/{{ watch.id }}/copy" onsubmit="return confirm('この通知をコピーする？ コピー後はOFF。');">
+                    <button type="submit">コピー</button>
+                  </form>
+                  <form method="post" action="{{ watch.toggle_url }}">
+                    <button type="submit">{% if watch.enabled %}OFF{% else %}ON{% endif %}</button>
+                  </form>
+                  <form method="post" action="{{ watch.delete_url }}" onsubmit="return confirm('この通知を削除する？');">
+                    <button class="danger" type="submit">削除</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="empty">X更新通知は未登録。</p>
+    {% endif %}
+  </section>
+{% endblock %}

@@ -1,4 +1,4 @@
-{% extends "layout.html" %}
+﻿{% extends "layout.html" %}
 {% block content %}
 <section class="page-section">
   <div class="page-heading">
@@ -15,33 +15,57 @@
     </div>
   </div>
 
+  {% if message %}<p class="notice success">{{ message }}</p>{% endif %}
+  {% if error %}<p class="notice error">{{ error }}</p>{% endif %}
+
   {% if rules %}
+    {% if can_edit %}
+      <form id="bulk-reaction-thresholds" method="post" action="/guilds/{{ guild_id }}/reaction-thresholds/bulk-enabled" onsubmit="return confirm('選択したルールをまとめて変更する？');"></form>
+      <div class="bulk-actions">
+        <button form="bulk-reaction-thresholds" type="submit" name="action" value="on">選択をON</button>
+        <button form="bulk-reaction-thresholds" type="submit" name="action" value="off" class="secondary">選択をOFF</button>
+      </div>
+    {% endif %}
     <div class="table-wrap">
-      <table>
+      <table class="admin-table">
         <thead>
           <tr>
+            <th>選択</th>
             <th>状態</th>
             <th>名前</th>
             <th>しきい値</th>
             <th>返信</th>
-            <th>編集</th>
+            <th>操作</th>
           </tr>
         </thead>
         <tbody>
           {% for rule in rules %}
             <tr>
-              <td>{{ "有効" if rule.enabled else "無効" }}</td>
-              <td>{{ rule.name }}</td>
-              <td>{{ (rule.config_json or {}).get("threshold", 5) }}</td>
-              <td>{{ (rule.config_json or {}).get("reply_message", "") }}</td>
-              <td><a class="button-link secondary" href="/guilds/{{ guild_id }}/reaction-thresholds/{{ rule.id }}">編集</a></td>
+              <td data-label="選択"><input form="bulk-reaction-thresholds" type="checkbox" name="rule_ids" value="{{ rule.id }}" {% if not can_edit %}disabled{% endif %}></td>
+              <td data-label="状態">{{ "有効" if rule.enabled else "無効" }}</td>
+              <td data-label="名前">{{ rule.name }}</td>
+              <td data-label="しきい値">{{ (rule.config_json or {}).get("threshold", 5) }}</td>
+              <td data-label="返信">{{ (rule.config_json or {}).get("reply_message", "") }}</td>
+              <td data-label="操作">
+                <div class="row-actions">
+                  <a class="button-link secondary" href="/guilds/{{ guild_id }}/reaction-thresholds/{{ rule.id }}">編集</a>
+                  {% if can_edit %}
+                    <form method="post" action="/guilds/{{ guild_id }}/reaction-thresholds/{{ rule.id }}/copy" onsubmit="return confirm('このルールをコピーする？ コピー後はOFF。');">
+                      <button type="submit">コピー</button>
+                    </form>
+                    <form method="post" action="/guilds/{{ guild_id }}/reaction-thresholds/{{ rule.id }}/toggle">
+                      <button type="submit">{% if rule.enabled %}OFFにする{% else %}ONにする{% endif %}</button>
+                    </form>
+                  {% endif %}
+                </div>
+              </td>
             </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
   {% else %}
-    <p class="empty">まだルールなし。</p>
+    <p class="empty">ルールはまだなし。</p>
   {% endif %}
 </section>
 {% endblock %}

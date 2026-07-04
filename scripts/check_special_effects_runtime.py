@@ -243,6 +243,80 @@ def check_multiplier(check: Check) -> None:
         [weight for _, weight in stacked] == [81, 1],
         str(stacked),
     )
+    capped_effects = [
+        {
+            "id": 4,
+            "effect_type": "probability_multiplier",
+            "target_type": "mention_reaction_choice",
+            "max_multiplier": 729,
+            "effect_config_json": {"multiplier": 9, "target": {"type": "mention_reaction_choice", "id": 10}},
+        },
+        {
+            "id": 4,
+            "effect_type": "probability_multiplier",
+            "target_type": "mention_reaction_choice",
+            "max_multiplier": 729,
+            "effect_config_json": {"multiplier": 9, "target": {"type": "mention_reaction_choice", "id": 10}},
+        },
+        {
+            "id": 4,
+            "effect_type": "probability_multiplier",
+            "target_type": "mention_reaction_choice",
+            "max_multiplier": 729,
+            "effect_config_json": {"multiplier": 9, "target": {"type": "mention_reaction_choice", "id": 10}},
+        },
+        {
+            "id": 4,
+            "effect_type": "probability_multiplier",
+            "target_type": "mention_reaction_choice",
+            "max_multiplier": 729,
+            "effect_config_json": {"multiplier": 9, "target": {"type": "mention_reaction_choice", "id": 10}},
+        },
+    ]
+    capped_multiplier = get_probability_multiplier_for_target(capped_effects, "mention_reaction_choice", 10)
+    check.add(
+        "probability_multiplier max_multiplier caps stacked value",
+        capped_multiplier == 729.0,
+        "multiplier={0}".format(capped_multiplier),
+    )
+    config_capped_effects = [
+        {
+            "id": 5,
+            "effect_type": "probability_multiplier",
+            "target_type": "mention_reaction_choice",
+            "effect_config_json": {
+                "multiplier": 9,
+                "max_multiplier": 81,
+                "target": {"type": "mention_reaction_choice", "id": 10},
+            },
+        },
+        {
+            "id": 5,
+            "effect_type": "probability_multiplier",
+            "target_type": "mention_reaction_choice",
+            "effect_config_json": {
+                "multiplier": 9,
+                "max_multiplier": 81,
+                "target": {"type": "mention_reaction_choice", "id": 10},
+            },
+        },
+        {
+            "id": 5,
+            "effect_type": "probability_multiplier",
+            "target_type": "mention_reaction_choice",
+            "effect_config_json": {
+                "multiplier": 9,
+                "max_multiplier": 81,
+                "target": {"type": "mention_reaction_choice", "id": 10},
+            },
+        },
+    ]
+    config_capped_multiplier = get_probability_multiplier_for_target(config_capped_effects, "mention_reaction_choice", 10)
+    check.add(
+        "probability_multiplier config max_multiplier is supported",
+        config_capped_multiplier == 81.0,
+        "multiplier={0}".format(config_capped_multiplier),
+    )
     mismatch_weight = build_effective_weighted_rows(choices, "auto_reaction", stacked_effects)
     check.add(
         "probability_multiplier does not affect unrelated target type",

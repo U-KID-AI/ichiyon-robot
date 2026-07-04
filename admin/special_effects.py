@@ -1,6 +1,7 @@
 import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
@@ -59,6 +60,8 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         enabled: str = Query("all"),
         admin_only: str = Query("all"),
         show_test_data: str = Query("false"),
+        message: str = Query(""),
+        error: str = Query(""),
     ):
         user = get_current_user(request)
         if user is None:
@@ -81,7 +84,55 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
                 "effect_types": EFFECT_TYPES,
                 "effect_type_labels": EFFECT_TYPE_LABELS,
                 "can_create": role_allows(server["role"], "editor"),
+                "message": message,
+                "error": error,
             },
+        )
+
+    @router.post("/guilds/{guild_id}/special-effects/bulk-enabled")
+    async def bulk_set_special_effects_enabled(
+        request: Request,
+        guild_id: str,
+        action: str = Form(""),
+        tag_ids: List[int] = Form([]),
+    ):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
+        server = find_server(guild_id, user["user_id"])
+        if not role_allows(server["role"], "editor"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="special effect bulk update denied")
+        # TODO(v3): bot_id権限を導入したら、guild権限だけでなくBot単位の操作権限も確認する。
+        if not tag_ids:
+            return RedirectResponse(
+                url="/guilds/{0}/special-effects?error={1}".format(guild_id, quote("項目を選択してね")),
+                status_code=303,
+            )
+        if action not in ("on", "off"):
+            return RedirectResponse(
+                url="/guilds/{0}/special-effects?error={1}".format(guild_id, quote("操作を選んでね")),
+                status_code=303,
+            )
+
+        updated_count = 0
+        with get_connection() as connection:
+            repository = SpecialEffectRepository(connection)
+            for tag_id in tag_ids:
+                tag = repository.get_by_id(guild_id, tag_id)
+                if tag is None or not can_edit_tag(server["role"], tag):
+                    continue
+                if repository.set_enabled(guild_id, tag_id, action == "on") is not None:
+                    updated_count += 1
+            connection.commit()
+        failed_count = max(0, len(tag_ids) - updated_count)
+        return RedirectResponse(
+            url="/guilds/{0}/special-effects?message={1}".format(
+                guild_id,
+                quote("成功{0}件 / 失敗{1}件".format(updated_count, failed_count)),
+            ),
+            status_code=303,
         )
 
     @router.post("/guilds/{guild_id}/special-effects/{tag_id}/toggle")
@@ -104,6 +155,32 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
             connection.commit()
 
         return RedirectResponse(url="/guilds/{0}/special-effects".format(guild_id), status_code=303)
+
+    @router.post("/guilds/{guild_id}/special-effects/{tag_id}/copy")
+    async def copy_special_effect(request: Request, guild_id: str, tag_id: int):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
+
+        server = find_server(guild_id, user["user_id"])
+        with get_connection() as connection:
+            repository = SpecialEffectRepository(connection)
+            tag = repository.get_by_id(guild_id, tag_id)
+            if tag is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="special effect tag not found")
+            if not can_edit_tag(server["role"], tag):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="special effect copy denied")
+            copied = repository.copy_tag(guild_id, tag_id)
+            if copied is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="special effect tag not found")
+            connection.commit()
+
+        return RedirectResponse(
+            url="/guilds/{0}/special-effects/{1}".format(guild_id, copied["id"]),
+            status_code=303,
+        )
 
     @router.post("/guilds/{guild_id}/special-effects/{tag_id}/delete")
     async def delete_special_effect(request: Request, guild_id: str, tag_id: int):
@@ -169,6 +246,7 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         expires_value: str = Form(""),
         cooldown_seconds: str = Form("0"),
         cooldown_scope: str = Form("none"),
+        max_multiplier: str = Form(""),
     ):
         user = get_current_user(request)
         if user is None:
@@ -197,6 +275,7 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
             expires_value,
             cooldown_seconds,
             cooldown_scope,
+            max_multiplier,
         )
         if form["admin_only"] and not role_allows(server["role"], "guild_admin"):
             errors.append("管理者限定タグはサーバー管理者以上だけ作成可。")
@@ -216,7 +295,7 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
 
         with get_connection() as connection:
             repository = SpecialEffectRepository(connection)
-            tag = save_new_tag(repository, guild_id, form)
+            tag = save_new_tag(repository, guild_id, form, user["user_id"])
             connection.commit()
 
         return RedirectResponse(
@@ -273,6 +352,7 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         expires_value: str = Form(""),
         cooldown_seconds: str = Form("0"),
         cooldown_scope: str = Form("none"),
+        max_multiplier: str = Form(""),
     ):
         user = get_current_user(request)
         if user is None:
@@ -306,6 +386,7 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
                 expires_value,
                 cooldown_seconds,
                 cooldown_scope,
+                max_multiplier,
             )
             if form["admin_only"] != bool(tag["admin_only"]) and not role_allows(server["role"], "guild_admin"):
                 errors.append("管理者限定の変更はサーバー管理者以上だけ。")
@@ -325,7 +406,7 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
                     status_code=400,
                 )
 
-            save_existing_tag(repository, guild_id, tag_id, form)
+            save_existing_tag(repository, guild_id, tag_id, form, user["user_id"])
             connection.commit()
 
         return RedirectResponse(url="/guilds/{0}/special-effects/{1}".format(guild_id, tag_id), status_code=303)
@@ -378,6 +459,7 @@ def list_tag_rows(guild_id: str, role: str, filters: Dict[str, Any]) -> List[Dic
         row["cooldown_scope_label"] = COOLDOWN_SCOPE_LABELS.get(row["cooldown_scope"], row["cooldown_scope"])
         row["edit_url"] = "/guilds/{0}/special-effects/{1}".format(guild_id, tag["id"])
         row["toggle_url"] = "/guilds/{0}/special-effects/{1}/toggle".format(guild_id, tag["id"])
+        row["copy_url"] = "/guilds/{0}/special-effects/{1}/copy".format(guild_id, tag["id"])
         row["delete_url"] = "/guilds/{0}/special-effects/{1}/delete".format(guild_id, tag["id"])
         rows.append(row)
     return rows
@@ -421,6 +503,8 @@ def default_form() -> Dict[str, Any]:
         "expires_value": "",
         "cooldown_seconds": 0,
         "cooldown_scope": "none",
+        "max_multiplier": "",
+        "max_multiplier_label": "制限なし",
     }
 
 
@@ -451,6 +535,8 @@ def build_form_from_tag(tag: Dict[str, Any]) -> Dict[str, Any]:
             "expires_value": "" if tag.get("expires_value") is None else str(tag.get("expires_value")),
             "cooldown_seconds": int(tag.get("cooldown_seconds") or 0),
             "cooldown_scope": tag.get("cooldown_scope") or "none",
+            "max_multiplier": "" if tag.get("max_multiplier") is None else str(tag.get("max_multiplier")),
+            "max_multiplier_label": format_max_multiplier(tag.get("max_multiplier")),
         }
     )
     return form
@@ -473,6 +559,7 @@ def build_form(
     expires_value: str,
     cooldown_seconds: str,
     cooldown_scope: str,
+    max_multiplier: str,
 ) -> Tuple[Dict[str, Any], List[str]]:
     errors = []
     form = default_form()
@@ -491,6 +578,7 @@ def build_form(
             "additional_post_timing": additional_post_timing,
             "expires_type": expires_type,
             "cooldown_scope": cooldown_scope,
+            "max_multiplier": max_multiplier.strip(),
         }
     )
     form["priority"] = parse_int(priority, 0)
@@ -519,6 +607,19 @@ def build_form(
         errors.append("クールタイム単位を選択。")
     if form["cooldown_scope"] == "none":
         form["cooldown_seconds"] = 0
+    if form["max_multiplier"]:
+        try:
+            parsed_multiplier = float(form["max_multiplier"])
+        except ValueError:
+            parsed_multiplier = 0.0
+        if parsed_multiplier <= 0:
+            errors.append("最大倍率は0より大きい数値。")
+        else:
+            form["max_multiplier"] = parsed_multiplier
+            form["max_multiplier_label"] = format_max_multiplier(parsed_multiplier)
+    else:
+        form["max_multiplier"] = None
+        form["max_multiplier_label"] = "制限なし"
 
     try:
         parsed_json = json.loads(form["effect_config_json"])
@@ -550,7 +651,26 @@ def compact_json(value: str) -> str:
     return json.dumps(parsed, ensure_ascii=False, sort_keys=True)
 
 
-def save_new_tag(repository: SpecialEffectRepository, guild_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
+def format_max_multiplier(value: Any) -> str:
+    if value in (None, ""):
+        return "制限なし"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "制限なし"
+    if number <= 0:
+        return "制限なし"
+    if number.is_integer():
+        return "{0}倍".format(int(number))
+    return "{0:g}倍".format(number)
+
+
+def save_new_tag(
+    repository: SpecialEffectRepository,
+    guild_id: str,
+    form: Dict[str, Any],
+    updated_by: str,
+) -> Dict[str, Any]:
     return repository.create_tag(
         guild_id,
         form["name"],
@@ -569,10 +689,18 @@ def save_new_tag(repository: SpecialEffectRepository, guild_id: str, form: Dict[
         None if form["expires_value"] == "" else form["expires_value"],
         form["cooldown_seconds"],
         form["cooldown_scope"],
+        form["max_multiplier"],
+        updated_by,
     )
 
 
-def save_existing_tag(repository: SpecialEffectRepository, guild_id: str, tag_id: int, form: Dict[str, Any]):
+def save_existing_tag(
+    repository: SpecialEffectRepository,
+    guild_id: str,
+    tag_id: int,
+    form: Dict[str, Any],
+    updated_by: str,
+):
     return repository.update_tag(
         guild_id,
         tag_id,
@@ -592,6 +720,8 @@ def save_existing_tag(repository: SpecialEffectRepository, guild_id: str, tag_id
         None if form["expires_value"] == "" else form["expires_value"],
         form["cooldown_seconds"],
         form["cooldown_scope"],
+        form["max_multiplier"],
+        updated_by,
     )
 
 

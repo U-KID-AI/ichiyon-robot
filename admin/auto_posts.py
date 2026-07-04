@@ -1,6 +1,7 @@
 import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import RedirectResponse
@@ -31,6 +32,8 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
         has_image: str = Query("all"),
         channel_id: str = Query(""),
         show_test_data: str = Query("false"),
+        message: str = Query(""),
+        error: str = Query(""),
     ):
         user = get_current_user(request)
         if user is None:
@@ -51,7 +54,48 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
                 "filters": filters,
                 "posts": posts,
                 "can_create": role_allows(server["role"], "editor"),
+                "message": message,
+                "error": error,
             },
+        )
+
+    @router.post("/guilds/{guild_id}/auto-posts/bulk-enabled")
+    async def bulk_set_auto_posts_enabled(
+        request: Request,
+        guild_id: str,
+        action: str = Form(""),
+        post_ids: List[int] = Form([]),
+    ):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
+        server = find_server(guild_id, user["user_id"])
+        if not role_allows(server["role"], "editor"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="auto post bulk update denied")
+        # TODO(v3): bot_id権限を導入したら、guild権限だけでなくBot単位の操作権限も確認する。
+        if not post_ids:
+            return RedirectResponse(
+                url="/guilds/{0}/auto-posts?error={1}".format(guild_id, quote("項目を選択してね")),
+                status_code=303,
+            )
+        if action not in ("on", "off"):
+            return RedirectResponse(
+                url="/guilds/{0}/auto-posts?error={1}".format(guild_id, quote("操作を選んでね")),
+                status_code=303,
+            )
+        with get_connection() as connection:
+            repository = AutoPostRepository(connection)
+            updated_count = repository.bulk_set_enabled(guild_id, post_ids, action == "on")
+            connection.commit()
+        failed_count = max(0, len(post_ids) - updated_count)
+        return RedirectResponse(
+            url="/guilds/{0}/auto-posts?message={1}".format(
+                guild_id,
+                quote("成功{0}件 / 失敗{1}件".format(updated_count, failed_count)),
+            ),
+            status_code=303,
         )
 
     @router.post("/guilds/{guild_id}/auto-posts/{post_id}/toggle")
@@ -73,6 +117,29 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
             connection.commit()
 
         return RedirectResponse(url="/guilds/{0}/auto-posts".format(guild_id), status_code=303)
+
+    @router.post("/guilds/{guild_id}/auto-posts/{post_id}/copy")
+    async def copy_auto_post(request: Request, guild_id: str, post_id: int):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
+        server = find_server(guild_id, user["user_id"])
+        if not role_allows(server["role"], "editor"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="auto post copy denied")
+
+        with get_connection() as connection:
+            repository = AutoPostRepository(connection)
+            copied = repository.copy_post(guild_id, post_id)
+            if copied is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="auto post not found")
+            connection.commit()
+
+        return RedirectResponse(
+            url="/guilds/{0}/auto-posts/{1}".format(guild_id, copied["id"]),
+            status_code=303,
+        )
 
     @router.post("/guilds/{guild_id}/auto-posts/{post_id}/delete")
     async def delete_auto_post(request: Request, guild_id: str, post_id: int):
@@ -231,6 +298,7 @@ def build_post_view(post: Dict[str, Any], guild_id: str) -> Dict[str, Any]:
     row["next_run_at"] = ""
     row["edit_url"] = "/guilds/{0}/auto-posts/{1}".format(guild_id, row["id"])
     row["toggle_url"] = "/guilds/{0}/auto-posts/{1}/toggle".format(guild_id, row["id"])
+    row["copy_url"] = "/guilds/{0}/auto-posts/{1}/copy".format(guild_id, row["id"])
     row["delete_url"] = "/guilds/{0}/auto-posts/{1}/delete".format(guild_id, row["id"])
     return row
 

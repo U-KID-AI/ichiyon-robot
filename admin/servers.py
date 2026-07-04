@@ -63,6 +63,16 @@ FEATURES = [
         "notes": "投稿済み管理は後続Phaseで扱う。",
     },
     {
+        "key": "x_updates",
+        "label": "X更新通知",
+        "edit_path": "x-updates",
+        "required_role": "guild_admin",
+        "overview": "登録したXアカウントの新規投稿をDiscordへ通知。",
+        "settings": "Xユーザー名、通知チャンネル、返信/リポスト/引用、確認間隔、投稿文",
+        "off_behavior": "OFFにすると、このサーバーではX更新通知を実行しない。",
+        "notes": "初回は最新投稿IDだけ保存し、過去投稿は流さない。",
+    },
+    {
         "key": "special_effect_tags",
         "label": "特殊効果タグ",
         "edit_path": "special-effects",

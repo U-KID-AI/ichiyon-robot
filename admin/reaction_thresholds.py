@@ -1,7 +1,8 @@
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
-from fastapi import APIRouter, Form, HTTPException, Request, status
+from fastapi import APIRouter, Form, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -87,7 +88,12 @@ def build_rule_config(
 
 def register_reaction_threshold_routes(templates: Jinja2Templates) -> None:
     @router.get("/guilds/{guild_id}/reaction-thresholds")
-    async def list_rules(request: Request, guild_id: str):
+    async def list_rules(
+        request: Request,
+        guild_id: str,
+        message: str = Query(""),
+        error: str = Query(""),
+    ):
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
@@ -105,7 +111,31 @@ def register_reaction_threshold_routes(templates: Jinja2Templates) -> None:
                 "guild_id": guild_id,
                 "rules": rules,
                 "can_edit": role_allows(server["role"], "editor"),
+                "message": message,
+                "error": error,
             },
+        )
+
+    @router.post("/guilds/{guild_id}/reaction-thresholds/bulk-enabled")
+    async def bulk_set_rules_enabled(
+        request: Request,
+        guild_id: str,
+        action: str = Form(""),
+        rule_ids: List[int] = Form([]),
+    ):
+        require_editor(request, guild_id)
+        if not rule_ids:
+            return RedirectResponse(url="/guilds/{0}/reaction-thresholds?error={1}".format(guild_id, quote("項目を選択してね")), status_code=303)
+        if action not in ("on", "off"):
+            return RedirectResponse(url="/guilds/{0}/reaction-thresholds?error={1}".format(guild_id, quote("操作を選んでね")), status_code=303)
+        with get_connection() as connection:
+            repository = ReactionThresholdRepository(connection)
+            updated_count = repository.bulk_set_enabled(guild_id, rule_ids, action == "on")
+            connection.commit()
+        failed_count = max(0, len(rule_ids) - updated_count)
+        return RedirectResponse(
+            url="/guilds/{0}/reaction-thresholds?message={1}".format(guild_id, quote("成功{0}件 / 失敗{1}件".format(updated_count, failed_count))),
+            status_code=303,
         )
 
     @router.get("/guilds/{guild_id}/reaction-thresholds/new")
@@ -196,6 +226,29 @@ def register_reaction_threshold_routes(templates: Jinja2Templates) -> None:
             ReactionThresholdRepository(connection).delete_rule(guild_id, rule_id)
             connection.commit()
         return RedirectResponse(url="/guilds/{0}/reaction-thresholds".format(guild_id), status_code=303)
+
+    @router.post("/guilds/{guild_id}/reaction-thresholds/{rule_id}/toggle")
+    async def toggle_rule(request: Request, guild_id: str, rule_id: int):
+        require_editor(request, guild_id)
+        with get_connection() as connection:
+            repository = ReactionThresholdRepository(connection)
+            rule = repository.get_by_id(guild_id, rule_id)
+            if rule is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="reaction threshold rule not found")
+            repository.set_enabled(guild_id, rule_id, not bool(rule.get("enabled")))
+            connection.commit()
+        return RedirectResponse(url="/guilds/{0}/reaction-thresholds".format(guild_id), status_code=303)
+
+    @router.post("/guilds/{guild_id}/reaction-thresholds/{rule_id}/copy")
+    async def copy_rule(request: Request, guild_id: str, rule_id: int):
+        require_editor(request, guild_id)
+        with get_connection() as connection:
+            repository = ReactionThresholdRepository(connection)
+            copied = repository.copy_rule(guild_id, rule_id)
+            if copied is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="reaction threshold rule not found")
+            connection.commit()
+        return RedirectResponse(url="/guilds/{0}/reaction-thresholds/{1}".format(guild_id, copied["id"]), status_code=303)
 
     async def render_form(request: Request, guild_id: str, rule_id: Optional[int], rule: Optional[Dict[str, Any]], error: str = ""):
         user = get_current_user(request)

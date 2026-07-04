@@ -30,6 +30,8 @@
 
   <section class="panel">
     <h2>検索・絞り込み</h2>
+    {% if message %}<p class="notice">{{ message }}</p>{% endif %}
+    {% if error %}<p class="error-text">{{ error }}</p>{% endif %}
     <form class="filter-form" method="get" action="/guilds/{{ guild_id }}/auto-reactions">
       <label>キーワード<input type="search" name="q" value="{{ filters.q }}" placeholder="呼び出しワード、返答で検索"></label>
       <label>
@@ -67,10 +69,16 @@
   <section class="panel">
     <h2>一覧</h2>
     {% if reactions %}
+      <form id="bulk-auto-reactions" method="post" action="/guilds/{{ guild_id }}/auto-reactions/bulk-enabled"></form>
+      <div class="actions-row">
+        <button form="bulk-auto-reactions" type="submit" name="action" value="on" {% if not can_create %}disabled{% endif %} onclick="return confirm('選択した自動反応をONにする？');">選択をON</button>
+        <button form="bulk-auto-reactions" type="submit" name="action" value="off" {% if not can_create %}disabled{% endif %} onclick="return confirm('選択した自動反応をOFFにする？');">選択をOFF</button>
+      </div>
       <div class="table-wrap">
         <table class="admin-table">
           <thead>
             <tr>
+              <th>選択</th>
               <th>状態</th>
               <th>呼び出しワード</th>
               <th>返答</th>
@@ -85,6 +93,7 @@
           <tbody>
             {% for reaction in reactions %}
               <tr>
+                <td data-label="選択"><input form="bulk-auto-reactions" type="checkbox" name="reaction_ids" value="{{ reaction.id }}" {% if not can_create %}disabled{% endif %}></td>
                 <td data-label="状態">{% if reaction.enabled %}<strong class="status enabled">有効</strong>{% else %}<strong class="status disabled">無効</strong>{% endif %}</td>
                 <td data-label="呼び出しワード">{{ reaction.trigger_text }}</td>
                 <td data-label="返答">{{ reaction.response_summary }}</td>
@@ -107,6 +116,9 @@
                   <div class="row-actions">
                     <a class="button-link secondary" href="{{ reaction.edit_url }}">編集</a>
                     <button class="info-button" type="button" data-modal-target="auto-reaction-info-{{ reaction.id }}" aria-label="{{ reaction.trigger_text }}のInfo">i</button>
+                    <form method="post" action="{{ reaction.copy_url }}" onsubmit="return confirm('この自動反応をコピーする？ コピー後はOFF。');">
+                      <button type="submit" {% if not can_create %}disabled{% endif %}>コピー</button>
+                    </form>
                     <form method="post" action="{{ reaction.toggle_url }}">
                       <button type="submit" {% if not can_create %}disabled title="権限なし"{% endif %}>{% if reaction.enabled %}OFFにする{% else %}ONにする{% endif %}</button>
                     </form>

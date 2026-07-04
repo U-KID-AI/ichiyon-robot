@@ -1,4 +1,4 @@
-{% extends "layout.html" %}
+﻿{% extends "layout.html" %}
 
 {% block title %}限定機能 - いちよんロボ管理画面{% endblock %}
 {% block heading %}限定機能{% endblock %}
@@ -27,10 +27,11 @@
 
   <section class="panel">
     <h2>検索・絞り込み</h2>
+    {% if message %}<p class="notice success">{{ message }}</p>{% endif %}
+    {% if error %}<p class="notice error">{{ error }}</p>{% endif %}
     <form class="filter-form" method="get" action="/guilds/{{ guild_id }}/mention-reactions/limited">
       <label>キーワード<input type="search" name="q" value="{{ filters.q }}" placeholder="ユーザーID、表示名、タグ名で検索"></label>
-      <label>
-        状態
+      <label>状態
         <select name="enabled">
           <option value="all" {% if filters.enabled == "all" %}selected{% endif %}>すべて</option>
           <option value="true" {% if filters.enabled == "true" %}selected{% endif %}>有効</option>
@@ -48,17 +49,25 @@
   <section class="panel">
     <h2>一覧</h2>
     {% if entries %}
+      {% if can_create %}
+        <form id="bulk-limited-effects" method="post" action="/guilds/{{ guild_id }}/mention-reactions/limited/bulk-enabled" onsubmit="return confirm('選択した限定機能をまとめて変更する？');"></form>
+        <div class="bulk-actions">
+          <button form="bulk-limited-effects" type="submit" name="action" value="on">選択をON</button>
+          <button form="bulk-limited-effects" type="submit" name="action" value="off" class="secondary">選択をOFF</button>
+        </div>
+      {% endif %}
       <div class="table-wrap">
         <table class="admin-table">
           <thead>
-            <tr><th>状態</th><th>対象ユーザーID</th><th>表示名/メモ</th><th>特殊効果タグ</th><th>効果の種類</th><th>説明</th><th>操作</th></tr>
+            <tr><th>選択</th><th>状態</th><th>対象ユーザーID</th><th>表示名・メモ</th><th>特殊効果タグ</th><th>効果の種類</th><th>説明</th><th>操作</th></tr>
           </thead>
           <tbody>
             {% for entry in entries %}
               <tr>
+                <td data-label="選択"><input form="bulk-limited-effects" type="checkbox" name="entry_ids" value="{{ entry.id }}" {% if not entry.can_manage %}disabled{% endif %}></td>
                 <td data-label="状態">{% if entry.enabled %}<strong class="status enabled">有効</strong>{% else %}<strong class="status disabled">無効</strong>{% endif %}</td>
                 <td data-label="対象ユーザーID"><code>{{ entry.discord_user_id }}</code></td>
-                <td data-label="表示名/メモ">{{ entry.display_name or "なし" }}</td>
+                <td data-label="表示名・メモ">{{ entry.display_name or "なし" }}</td>
                 <td data-label="特殊効果タグ"><span class="color-swatch" style="background: {{ entry.effect_tag_color or '#6B7280' }}"></span>{{ entry.effect_tag_name }}</td>
                 <td data-label="効果の種類">{{ entry.effect_type_label }}</td>
                 <td data-label="説明">{{ entry.description or "なし" }}</td>

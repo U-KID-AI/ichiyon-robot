@@ -393,3 +393,232 @@ services:
 - X APIを叩く確認はしていない。
 - `fetch_since_date` を古くしすぎると取得範囲が増えるため、費用とレート制限に注意する。
 - migration未適用の環境では、通常のデッキ検索は既存設定へフォールバックする。ただし取得開始日の保存はmigration適用後に使う。
+
+## 2026-07-04 X更新通知 第一段階
+
+今回入れたもの:
+
+- `x_update_watches` テーブル案を migration として追加。
+- `x_update_post_history` テーブル案を migration として追加。
+- `bot_id` / `guild_id` / `channel_id` 単位でX更新通知を管理する。
+- 設定項目:
+  - `x_username`
+  - `x_user_id`
+  - `display_name`
+  - `enabled`
+  - `include_replies`
+  - `include_reposts`
+  - `include_quotes`
+  - `check_interval_seconds`
+  - `last_seen_post_id`
+  - `last_posted_post_id`
+  - `last_checked_at`
+  - `last_success_at`
+  - `last_error`
+  - `post_template`
+- 初回チェック時は最新Post IDだけ保存し、Discordへ過去投稿を流さない。
+- 通常チェック時は `last_seen_post_id` を `since_id` として使い、前回以降の新着だけ取得する。
+- 投稿履歴は `UNIQUE(watch_id, post_id)` で重複投稿を防ぐ。
+- 通常投稿のみ初期ON。返信/リポスト/引用は初期OFF。
+- `post_template` で通知文を変更できる。
+- DB backend の1分ループからX更新通知を実行する。
+- 管理画面に一覧/作成/編集/ON/OFF/削除を追加。
+
+まだ本番/stgへ入れていないもの:
+
+- 本番/stg DBへの migration 適用。
+- 実データでのX更新通知設定作成。
+- X API実通信確認。
+- bot_id横断の開発者管理画面。
+- X APIレート制限に応じた監視数の自動調整。
+
+注意:
+
+- X APIを叩くテストはしていない。チェックはモックのみ。
+- usernameからuser_idへの解決は初回または未解決時だけ行う。
+- `last_seen_post_id` を更新するため、返信/リポスト/引用がOFFでも同じ投稿を毎回取り直さない。
+- `x_updates` feature flag がOFFの場合、そのguildでは実行しない。
+
+## 2026-07-04 管理画面改善 Phase 1
+
+今回入れたもの:
+
+- X更新通知設定だけを対象にした。
+- 一覧と編集画面からコピー作成できる。
+- コピー後は必ず `enabled=false`。
+- コピー後の `display_name` には `コピー` を付ける。
+- コピーしないもの:
+  - `id`
+  - `created_at`
+  - `updated_at`
+  - `last_seen_post_id`
+  - `last_posted_post_id`
+  - `last_checked_at`
+  - `last_success_at`
+  - `last_error`
+  - 投稿履歴
+  - `posted_message_id`
+- コピー後は初回同期扱いになるため、過去投稿をDiscordへ流さない。
+- コピーを許可するため、同一 `bot_id` / `guild_id` / `channel_id` / `x_username` の複数設定を許可する。
+- 一覧で複数選択して一括ON/OFFできる。
+- 一括ON/OFFは `enabled` を変えるだけで、X APIを即時実行しない。
+- 一括ON/OFFは `guild_admin` 以上。
+- bot_id権限導入後に、bot単位の操作権限も確認するTODOを残した。
+
+Phase 2以降:
+
+- 自動投稿へのコピー/一括ON/OFF横展開。
+- メンション反応へのコピー/一括ON/OFF横展開。
+- 特殊効果設定へのコピー/一括ON/OFF横展開。
+- 開発者だけBot横断表示。
+- 一般管理者は許可Bot/許可サーバーのみ表示。
+
+## 2026-07-04 管理画面改善 Phase 2
+
+今回入れたもの:
+
+- X更新通知に続き、自動投稿設定へコピー作成と一括ON/OFFを追加。
+- 特殊効果タグへコピー作成と一括ON/OFFを追加。
+- どちらもコピー後は必ず `enabled=false`。
+- 自動投稿コピーでは `last_posted_at` と投稿履歴をコピーしない。
+- 特殊効果タグコピーでは割り当て、倍率の現在値、実行時状態をコピーしない。
+- 一括ON/OFFは `enabled` を変更するだけで、投稿・外部API呼び出し・特殊効果実行は即時実行しない。
+- migrationは追加しない。
+
+見送った対象:
+
+- メンション反応: `keyword` / `pattern` の重複が実行優先順や検索型固定機能に影響するため、コピー仕様を別途決める。
+- 自動反応: trigger重複とpriorityの扱いで実行結果が変わるため、コピー仕様を別途決める。
+- NGワード: 同一ワード重複と制限タグの扱いを整理してから対応する。
+- モード: 返答候補、発動条件、終了条件、現在状態をまとめて扱う必要があるため、単純コピーはしない。
+- 特殊効果割り当て: `special_effect_assignments` は対象IDとの結びつきが主で、コピー対象ではなく付け替え操作として設計する。
+- 限定機能: `guild_id + discord_user_id + effect_tag_id` の重複制約に触れるため、コピーではなく別ユーザーへの複製UIとして検討する。
+- リアクション閾値ルール: 仕様上は横展開候補だが、今回のPhase 2では自動投稿と特殊効果タグまでに限定する。
+
+Phase 3以降:
+
+- メンション反応/自動反応のコピー時に、トリガー重複警告と初期OFF保存を入れる。
+- NGワード、リアクション閾値、モードの個別コピー仕様を決める。
+- 開発者だけBot横断表示。
+- 一般管理者は許可Bot/許可サーバーのみ表示。
+- bot_id権限スコープ。
+- 特殊効果の倍率上限設定。
+
+## 2026-07-04 管理画面改善 Phase 2 追加
+
+今回追加したもの:
+
+- メンション反応にコピー作成と一括ON/OFFを追加。
+- 自動反応にコピー作成と一括ON/OFFを追加。
+- NGワードにコピー作成と一括ON/OFFを追加。
+- モードにコピー作成と一括ON/OFFを追加。
+- 限定機能に一括ON/OFFを追加。
+- リアクション閾値ルールにコピー作成と一括ON/OFFを追加。
+
+共通仕様:
+
+- コピー後は必ず `enabled=false`。
+- コピー直後にDiscord投稿、外部API、定期処理、反応処理は実行しない。
+- `id`、作成/更新日時、実行履歴、投稿履歴、現在カウント、実行時状態はコピーしない。
+- メンション反応の候補、候補に付いた特殊効果割り当てはコピー先候補へ付け直す。
+- 自動反応とNGワードに付いた特殊効果割り当てはコピー先へ付け直す。
+- モードは返答候補、発動条件、終了条件をコピーするが、現在のモード状態はコピーしない。
+- 一括ON/OFFは `enabled` を変えるだけ。即時実行はしない。
+
+見送ったもの:
+
+- 限定機能のコピー作成。
+  - `guild_id + discord_user_id + effect_tag_id` の一意制約と既存Repositoryのupsert仕様により、同じ対象を単純コピーすると元設定を上書きする危険があるため。
+  - 実装する場合は、別ユーザーへ複製するUIか、重複許可の仕様変更が必要。
+- 特殊効果割り当て単体のコピー/一括ON/OFF。
+  - 割り当ては独立設定ではなく、反応・候補・NGワードなど対象との関係データ。
+  - 今回は親設定のコピー時に割り当てを付け直す方式で対応。
+- モード発動条件などのトリガー系単体のコピー/一括ON/OFF。
+  - 条件単体の一覧画面がなく、モード内の子設定として扱われているため。
+  - 今回はモードコピー時に子条件をまとめてコピーする方式で対応。
+
+Phase 3 以降:
+
+- 開発者だけBot横断表示。
+- 一般管理者は許可Bot/許可サーバーのみ表示。
+- bot_id権限スコープ。
+- 特殊効果の倍率上限設定。
+
+## 2026-07-04 特殊効果の倍率上限設定
+
+今回追加したもの:
+
+- `special_effect_tags.max_multiplier` を追加。
+- `special_effect_tags.multiplier_updated_by` を追加。
+- 特殊効果タグの管理画面で「最大倍率」を表示/編集できるようにした。
+- `probability_multiplier` の累積倍率計算時に、対象タグの `max_multiplier` が設定されていればその値で丸める。
+- `max_multiplier` 未設定時は既存通り制限なし。
+- 後方互換として `effect_config_json.max_multiplier` / `effect_config_json.max_effective_multiplier` も読む。
+
+適用仕様:
+
+- 倍率は従来通り複数の `probability_multiplier` を乗算する。
+- `max_multiplier` が空なら、9倍を4回発火した場合は `9 * 9 * 9 * 9 = 6561`。
+- `max_multiplier=729` の場合、同じ条件では `729` で止まる。
+- 0以下や不正な最大倍率は保存時にエラー。
+- 既存DB値が上限を超えていても一括UPDATEはしない。次回の実行時計算で丸める。
+- `probability_multiplier` 以外の効果では実行時に参照しない。
+
+コピーとの関係:
+
+- 特殊効果タグをコピーすると、設定値としての `max_multiplier` はコピーする。
+- 実行時の現在倍率、pending状態、発動履歴はコピーしない。
+- コピー後は従来通り `enabled=false`。
+
+migration:
+
+- `migrations/024_add_special_effect_multiplier_limits.sql` を追加。
+- 追加カラムのみで、既存データのUPDATE/DELETEや既存カラム削除はない。
+- 本番DBへの適用は別作業。
+
+未実装:
+
+- bot_id単位の特殊効果権限スコープ。
+- 開発者だけのBot横断表示。
+- 一般管理者は許可Bot/許可サーバーのみ表示する制御。
+- 倍率上限の一括編集UI。
+
+## 2026-07-04 Botインスタンス基盤 追加導入
+
+今回入れたもの:
+
+- `BOT_INSTANCE_ID` を `ichiyon` / `irsia` の切り替えキーとして使う。
+- `ichiyon` は `ICHIYON_DISCORD_TOKEN` を優先し、既存互換として `DISCORD_TOKEN` / `DISCORD_BOT_TOKEN` も読む。
+- `irsia` は `IRSIA_DISCORD_TOKEN` を読む。
+- 起動ログには `bot_instance_id`、表示名、採用した環境変数名だけを出す。トークン値は出さない。
+- 管理画面ヘッダーに現在のBotインスタンスを表示する。
+- `bot_instances` / `bot_permissions` のmigrationを追加する。
+- 主要設定テーブルへ後方互換の `bot_id DEFAULT 'ichiyon'` を追加するmigrationを用意する。
+- `docker-compose.yml` に `bot-irsia` profileを追加する。既存の `db` / `admin` / `bot` は維持する。
+
+migration:
+
+- `migrations/025_add_bot_instance_foundation.sql`
+- 新規テーブル:
+  - `bot_instances`
+  - `bot_permissions`
+- 主要設定テーブルへの追加カラム:
+  - `bot_id TEXT NOT NULL DEFAULT 'ichiyon'`
+- 既存データの `UPDATE` / `DELETE` / テーブル削除 / カラム削除は含めない。
+- 本番DBへの適用は別作業。
+
+今回まだやらないこと:
+
+- 既存Repositoryの全クエリへの `bot_id` 絞り込み全面適用。
+- 既存UNIQUE制約を `(bot_id, guild_id, ...)` へ組み替える作業。
+- 管理画面のBot横断表示。
+- 一般管理者のBot単位権限制御。
+- イルシア本番/stg Botの実起動。
+- X APIやDiscordへの実通信確認。
+
+段階移行メモ:
+
+1. まず今回のmigrationをstgでdump/restore後に適用し、既存行が `ichiyon` として見えることを確認する。
+2. 次にRepository単位で `bot_id` 条件を追加する。
+3. UNIQUE制約の移行は、重複データと管理画面コピー機能の挙動を確認してから別migrationで行う。
+4. イルシアは `BOT_INSTANCE_ID=irsia` と `IRSIA_DISCORD_TOKEN` を持つ別Compose service/profileで起動する。

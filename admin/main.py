@@ -11,6 +11,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
+from bot import config as bot_config
+
 from admin.auto_reactions import (
     register_auto_reaction_routes,
     router as auto_reaction_router,
@@ -36,6 +38,7 @@ from admin.special_effects import (
     register_special_effect_routes,
     router as special_effect_router,
 )
+from admin.x_updates import register_x_update_routes, router as x_update_router
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -61,6 +64,8 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent / "static"), name="static")
 app.mount("/assets", StaticFiles(directory=BASE_DIR / "assets"), name="assets")
 templates = Jinja2Templates(directory=Path(__file__).resolve().parent / "templates")
+templates.env.globals["current_bot_instance"] = bot_config.BOT_INSTANCE
+templates.env.globals["current_bot_instance_id"] = bot_config.BOT_INSTANCE_ID
 register_auth_routes(templates)
 register_server_routes(templates)
 register_mention_limited_effect_routes(templates)
@@ -71,6 +76,7 @@ register_ng_word_routes(templates)
 register_mode_routes(templates)
 register_auto_post_routes(templates)
 register_reaction_threshold_routes(templates)
+register_x_update_routes(templates)
 app.include_router(auth_router)
 app.include_router(server_router)
 app.include_router(mention_limited_effect_router)
@@ -81,6 +87,7 @@ app.include_router(ng_word_router)
 app.include_router(mode_router)
 app.include_router(auto_post_router)
 app.include_router(reaction_threshold_router)
+app.include_router(x_update_router)
 
 
 LEGACY_JSON_PATHS = ("/quotes", "/reactions", "/ng-words", "/kuji")

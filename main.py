@@ -10,6 +10,7 @@ from bot.reactions import handle_word_response
 from bot.services.auto_posts import run_db_auto_posts_once
 from bot.services.reaction_thresholds import handle_db_reaction_threshold
 from bot.services.runtime_db import expire_db_modes_once, get_message_guild_id, handle_db_runtime_message
+from bot.services.x_update_notifications import run_x_update_notifications_once
 
 
 intents = discord.Intents.default()
@@ -50,10 +51,12 @@ async def handle_mention_message(message: discord.Message) -> bool:
 async def on_ready():
     print(f"Logged in as {bot.user}")
     print(
-        "APP_ENV={0} ENABLE_DEV_COMMANDS={1} bot_instance_id={2}".format(
+        "APP_ENV={0} ENABLE_DEV_COMMANDS={1} bot_instance_id={2} bot_instance_name={3} token_env_key={4}".format(
             config.APP_ENV,
             config.ENABLE_DEV_COMMANDS,
             config.BOT_INSTANCE_ID,
+            config.BOT_INSTANCE.display_name,
+            config.TOKEN_ENV_KEY,
         )
     )
 
@@ -94,6 +97,7 @@ async def db_auto_post_task():
     try:
         await expire_db_modes_once(bot)
         await run_db_auto_posts_once(bot)
+        await run_x_update_notifications_once(bot)
     except Exception as e:
         print(f"[WARN] db_auto_post_task failed: {e}")
 
@@ -142,5 +146,13 @@ async def on_message(message: discord.Message):
     if await handle_word_response(message):
         return
 
+
+if not config.TOKEN:
+    raise RuntimeError(
+        "Discord token is not set for BOT_INSTANCE_ID={0}. Set one of: {1}".format(
+            config.BOT_INSTANCE_ID,
+            ", ".join(config.TOKEN_ENV_KEYS),
+        )
+    )
 
 bot.run(config.TOKEN)

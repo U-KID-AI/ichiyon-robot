@@ -127,6 +127,22 @@ class NgWordRepository:
             )
             return fetch_one(cursor)
 
+    def bulk_set_enabled(self, guild_id: str, word_ids: List[int], enabled: bool) -> int:
+        if not word_ids:
+            return 0
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE ng_words
+                SET enabled = %s,
+                    updated_at = NOW()
+                WHERE guild_id = %s
+                  AND id = ANY(%s)
+                """,
+                (enabled, guild_id, word_ids),
+            )
+            return cursor.rowcount
+
     def toggle_enabled(
         self,
         guild_id: str,
@@ -136,6 +152,42 @@ class NgWordRepository:
         if word is None:
             return None
         return self.set_enabled(guild_id, word_id, not bool(word["enabled"]))
+
+    def copy_word(self, guild_id: str, word_id: int) -> Optional[Dict[str, Any]]:
+        source = self.get_by_id(guild_id, word_id)
+        if source is None:
+            return None
+        base_word = "{0} コピー".format(str(source.get("word") or "").strip())
+        copied_word = base_word
+        suffix = 2
+        while self.word_exists(guild_id, copied_word):
+            copied_word = "{0} {1}".format(base_word, suffix)
+            suffix += 1
+        copied = self.create_word(guild_id, copied_word, False)
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO special_effect_assignments (
+                    guild_id,
+                    special_effect_tag_id,
+                    target_type,
+                    target_id,
+                    enabled
+                )
+                SELECT guild_id,
+                       special_effect_tag_id,
+                       target_type,
+                       %s,
+                       enabled
+                FROM special_effect_assignments
+                WHERE guild_id = %s
+                  AND target_type = 'ng_word'
+                  AND target_id = %s
+                ON CONFLICT (special_effect_tag_id, target_type, target_id) DO NOTHING
+                """,
+                (copied["id"], guild_id, word_id),
+            )
+        return copied
 
     def delete_word(self, guild_id: str, word_id: int) -> bool:
         with self.connection.cursor() as cursor:

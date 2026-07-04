@@ -1,5 +1,6 @@
 from bot.repositories.auto_reactions import AutoReactionRepository
 from bot.repositories.auto_posts import AutoPostRepository
+from bot.repositories.bot_instances import BotInstanceRepository, BotPermissionRepository
 from bot.repositories.counters import CounterRepository
 from bot.repositories.deck_search_settings import DeckSearchSettingsRepository
 from bot.repositories.feature_flags import FeatureFlagRepository
@@ -11,11 +12,14 @@ from bot.repositories.ng_words import NgWordRepository
 from bot.repositories.permissions import PermissionRepository
 from bot.repositories.reaction_thresholds import ReactionThresholdRepository
 from bot.repositories.special_effects import SpecialEffectRepository
+from bot.repositories.x_update_notifications import XUpdateWatchRepository
 
 
 __all__ = [
     "AutoReactionRepository",
     "AutoPostRepository",
+    "BotInstanceRepository",
+    "BotPermissionRepository",
     "CounterRepository",
     "DeckSearchSettingsRepository",
     "FeatureFlagRepository",
@@ -27,4 +31,5 @@ __all__ = [
     "PermissionRepository",
     "ReactionThresholdRepository",
     "SpecialEffectRepository",
+    "XUpdateWatchRepository",
 ]

@@ -1,5 +1,6 @@
 import json
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import RedirectResponse
@@ -43,6 +44,8 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
         behavior_type: str = Query("all"),
         admin_only: str = Query("all"),
         show_test_data: str = Query("false"),
+        message: str = Query(""),
+        error: str = Query(""),
     ):
         user = get_current_user(request)
         if user is None:
@@ -63,7 +66,42 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
                 "filters": filters,
                 "modes": modes,
                 "can_create": role_allows(server["role"], "editor"),
+                "message": message,
+                "error": error,
             },
+        )
+
+    @router.post("/guilds/{guild_id}/modes/bulk-enabled")
+    async def bulk_set_modes_enabled(
+        request: Request,
+        guild_id: str,
+        action: str = Form(""),
+        mode_ids: List[int] = Form([]),
+    ):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
+        server = find_server(guild_id, user["user_id"])
+        if not mode_ids:
+            return RedirectResponse(url="/guilds/{0}/modes?error={1}".format(guild_id, quote("項目を選択してね")), status_code=303)
+        if action not in ("on", "off"):
+            return RedirectResponse(url="/guilds/{0}/modes?error={1}".format(guild_id, quote("操作を選んでね")), status_code=303)
+        updated_count = 0
+        with get_connection() as connection:
+            repository = ModeRepository(connection)
+            for mode_id in mode_ids:
+                mode = repository.get_by_id(guild_id, mode_id)
+                if mode is None or not can_edit_mode(server["role"], mode):
+                    continue
+                if repository.set_enabled(guild_id, mode_id, action == "on") is not None:
+                    updated_count += 1
+            connection.commit()
+        failed_count = max(0, len(mode_ids) - updated_count)
+        return RedirectResponse(
+            url="/guilds/{0}/modes?message={1}".format(guild_id, quote("成功{0}件 / 失敗{1}件".format(updated_count, failed_count))),
+            status_code=303,
         )
 
     @router.post("/guilds/{guild_id}/modes/{mode_id}/toggle")
@@ -85,6 +123,27 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
             repository.toggle_enabled(guild_id, mode_id)
             connection.commit()
         return RedirectResponse(url="/guilds/{0}/modes".format(guild_id), status_code=303)
+
+    @router.post("/guilds/{guild_id}/modes/{mode_id}/copy")
+    async def copy_mode(request: Request, guild_id: str, mode_id: int):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+        if not can_access_guild(guild_id, user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
+        server = find_server(guild_id, user["user_id"])
+        with get_connection() as connection:
+            repository = ModeRepository(connection)
+            mode = repository.get_by_id(guild_id, mode_id)
+            if mode is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mode not found")
+            if not can_edit_mode(server["role"], mode):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="mode copy denied")
+            copied = repository.copy_mode(guild_id, mode_id)
+            if copied is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mode not found")
+            connection.commit()
+        return RedirectResponse(url="/guilds/{0}/modes/{1}".format(guild_id, copied["id"]), status_code=303)
 
     @router.post("/guilds/{guild_id}/modes/{mode_id}/delete")
     async def delete_mode(request: Request, guild_id: str, mode_id: int):
@@ -520,6 +579,7 @@ def build_mode_view(
             "behavior_type_label": BEHAVIOR_LABELS.get(mode.get("behavior_type") or "reply", mode.get("behavior_type") or "reply"),
             "edit_url": "/guilds/{0}/modes/{1}".format(guild_id, mode.get("id")),
             "toggle_url": "/guilds/{0}/modes/{1}/toggle".format(guild_id, mode.get("id")),
+            "copy_url": "/guilds/{0}/modes/{1}/copy".format(guild_id, mode.get("id")),
             "delete_url": "/guilds/{0}/modes/{1}/delete".format(guild_id, mode.get("id")),
         }
     )

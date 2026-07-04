@@ -8,6 +8,32 @@ def json_dumps_list(value: List[str]) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
+def normalize_json_dict(value: Any) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except ValueError:
+            return {}
+        if isinstance(parsed, dict):
+            return parsed
+    return {}
+
+
+def normalize_json_list(value: Any) -> List[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except ValueError:
+            return [item.strip() for item in value.splitlines() if item.strip()]
+        if isinstance(parsed, list):
+            return [str(item) for item in parsed]
+    return []
+
+
 class ModeRepository:
     def __init__(self, connection) -> None:
         self.connection = connection
@@ -230,11 +256,126 @@ class ModeRepository:
             )
             return fetch_one(cursor)
 
+    def bulk_set_enabled(self, guild_id: str, mode_ids: List[int], enabled: bool) -> int:
+        if not mode_ids:
+            return 0
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE modes
+                SET enabled = %s,
+                    updated_at = NOW()
+                WHERE guild_id = %s
+                  AND id = ANY(%s)
+                """,
+                (enabled, guild_id, mode_ids),
+            )
+            return cursor.rowcount
+
     def toggle_enabled(self, guild_id: str, mode_id: int) -> Optional[Dict[str, Any]]:
         mode = self.get_by_id(guild_id, mode_id)
         if mode is None:
             return None
         return self.set_enabled(guild_id, mode_id, not bool(mode["enabled"]))
+
+    def copy_mode(self, guild_id: str, mode_id: int) -> Optional[Dict[str, Any]]:
+        source = self.get_by_id(guild_id, mode_id)
+        if source is None:
+            return None
+        base_key = "{0}_copy".format(str(source.get("mode_key") or "mode").strip())
+        copied_key = base_key
+        suffix = 2
+        while self.mode_key_exists(guild_id, copied_key):
+            copied_key = "{0}_{1}".format(base_key, suffix)
+            suffix += 1
+        reaction_channel_ids = normalize_json_list(source.get("reaction_channel_ids"))
+        ignore_channel_ids = normalize_json_list(source.get("ignore_channel_ids"))
+        copied = self.create_mode(
+            guild_id,
+            copied_key,
+            "{0} コピー".format(str(source.get("name") or "モード").strip()),
+            str(source.get("description") or ""),
+            str(source.get("behavior_type") or "reply"),
+            str(source.get("mode_icon_path") or ""),
+            str(source.get("enter_message") or ""),
+            str(source.get("exit_message") or ""),
+            str(source.get("enter_gif_path") or ""),
+            str(source.get("exit_gif_path") or ""),
+            str(source.get("enter_notify_channel_id") or ""),
+            str(source.get("exit_notify_channel_id") or ""),
+            reaction_channel_ids,
+            ignore_channel_ids,
+            normalize_json_dict(source.get("cooldown_config_json")),
+            normalize_json_dict(source.get("appearance_config_json")),
+            False,
+            bool(source.get("admin_only")),
+            True,
+        )
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO mode_reply_choices (
+                    guild_id,
+                    mode_id,
+                    name,
+                    body,
+                    image_path,
+                    appearance_rate,
+                    enabled
+                )
+                SELECT guild_id,
+                       %s,
+                       name,
+                       body,
+                       image_path,
+                       appearance_rate,
+                       enabled
+                FROM mode_reply_choices
+                WHERE guild_id = %s AND mode_id = %s
+                """,
+                (copied["id"], guild_id, mode_id),
+            )
+            cursor.execute(
+                """
+                INSERT INTO mode_trigger_conditions (
+                    guild_id,
+                    mode_id,
+                    condition_type,
+                    condition_config_json,
+                    group_operator,
+                    enabled
+                )
+                SELECT guild_id,
+                       %s,
+                       condition_type,
+                       condition_config_json,
+                       group_operator,
+                       enabled
+                FROM mode_trigger_conditions
+                WHERE guild_id = %s AND mode_id = %s
+                """,
+                (copied["id"], guild_id, mode_id),
+            )
+            cursor.execute(
+                """
+                INSERT INTO mode_exit_conditions (
+                    guild_id,
+                    mode_id,
+                    condition_type,
+                    condition_config_json,
+                    enabled
+                )
+                SELECT guild_id,
+                       %s,
+                       condition_type,
+                       condition_config_json,
+                       enabled
+                FROM mode_exit_conditions
+                WHERE guild_id = %s AND mode_id = %s
+                """,
+                (copied["id"], guild_id, mode_id),
+            )
+        return copied
 
     def delete_mode(self, guild_id: str, mode_id: int) -> bool:
         with self.connection.cursor() as cursor:

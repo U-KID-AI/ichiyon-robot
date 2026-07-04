@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict, List, Optional
 
 from bot.repositories.base import fetch_all, fetch_one
@@ -172,11 +173,47 @@ class AutoPostRepository:
             )
             return fetch_one(cursor)
 
+    def bulk_set_enabled(self, guild_id: str, post_ids: List[int], enabled: bool) -> int:
+        if not post_ids:
+            return 0
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE auto_posts
+                SET enabled = %s,
+                    updated_at = NOW()
+                WHERE guild_id = %s
+                  AND id = ANY(%s)
+                """,
+                (enabled, guild_id, post_ids),
+            )
+            return cursor.rowcount
+
     def toggle_enabled(self, guild_id: str, post_id: int) -> Optional[Dict[str, Any]]:
         post = self.get_by_id(guild_id, post_id)
         if post is None:
             return None
         return self.set_enabled(guild_id, post_id, not bool(post["enabled"]))
+
+    def copy_post(self, guild_id: str, post_id: int) -> Optional[Dict[str, Any]]:
+        source = self.get_by_id(guild_id, post_id)
+        if source is None:
+            return None
+        source_name = str(source.get("name") or "自動投稿").strip()
+        schedule_value = source.get("schedule_value") or "{}"
+        if not isinstance(schedule_value, str):
+            schedule_value = json.dumps(schedule_value, ensure_ascii=False, sort_keys=True)
+        return self.create_post(
+            guild_id,
+            "{0} コピー".format(source_name),
+            source.get("body") or None,
+            source.get("image_path") or None,
+            str(source.get("channel_id") or ""),
+            str(source.get("schedule_type") or "yearly"),
+            schedule_value,
+            source.get("repeat_rule") or None,
+            False,
+        )
 
     def delete_post(self, guild_id: str, post_id: int) -> bool:
         with self.connection.cursor() as cursor:

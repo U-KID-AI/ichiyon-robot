@@ -22,6 +22,12 @@
 
   <section class="panel">
     <h2>検索・絞り込み</h2>
+    {% if message %}
+      <p class="notice">{{ message }}</p>
+    {% endif %}
+    {% if error %}
+      <p class="error-text">{{ error }}</p>
+    {% endif %}
     <form class="filter-form" method="get" action="/guilds/{{ guild_id }}/auto-posts">
       <label>キーワード<input type="search" name="q" value="{{ filters.q }}" placeholder="投稿名、本文で検索"></label>
       <label>
@@ -52,14 +58,20 @@
   <section class="panel">
     <h2>一覧</h2>
     {% if posts %}
+      <form id="bulk-auto-posts" method="post" action="/guilds/{{ guild_id }}/auto-posts/bulk-enabled"></form>
+      <div class="actions-row">
+        <button form="bulk-auto-posts" type="submit" name="action" value="on" {% if not can_create %}disabled{% endif %} onclick="return confirm('選択した自動投稿をONにする？');">選択をON</button>
+        <button form="bulk-auto-posts" type="submit" name="action" value="off" {% if not can_create %}disabled{% endif %} onclick="return confirm('選択した自動投稿をOFFにする？');">選択をOFF</button>
+      </div>
       <div class="table-wrap">
         <table class="admin-table">
           <thead>
-            <tr><th>状態</th><th>投稿名</th><th>チャンネル</th><th>本文</th><th>画像</th><th>スケジュール</th><th>最終投稿</th><th>次回予定</th><th>操作</th></tr>
+            <tr><th>選択</th><th>状態</th><th>投稿名</th><th>チャンネル</th><th>本文</th><th>画像</th><th>スケジュール</th><th>最終投稿</th><th>次回予定</th><th>操作</th></tr>
           </thead>
           <tbody>
             {% for post in posts %}
               <tr>
+                <td data-label="選択"><input form="bulk-auto-posts" type="checkbox" name="post_ids" value="{{ post.id }}" {% if not can_create %}disabled{% endif %}></td>
                 <td data-label="状態">{% if post.enabled %}<strong class="status enabled">有効</strong>{% else %}<strong class="status disabled">無効</strong>{% endif %}</td>
                 <td data-label="投稿名">{{ post.name }}</td>
                 <td data-label="チャンネル"><code>{{ post.channel_id }}</code></td>
@@ -72,6 +84,9 @@
                   <div class="row-actions">
                     <a class="button-link secondary" href="{{ post.edit_url }}">編集</a>
                     <button class="info-button" type="button" data-modal-target="auto-post-info-{{ post.id }}" aria-label="{{ post.name }}のInfo">i</button>
+                    <form method="post" action="{{ post.copy_url }}" onsubmit="return confirm('この自動投稿をコピーする？ コピー後はOFF。');">
+                      <button type="submit" {% if not can_create %}disabled{% endif %}>コピー</button>
+                    </form>
                     <form method="post" action="{{ post.toggle_url }}">
                       <button type="submit" {% if not can_create %}disabled title="権限なし"{% endif %}>{% if post.enabled %}OFFにする{% else %}ONにする{% endif %}</button>
                     </form>

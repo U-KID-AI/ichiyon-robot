@@ -39,6 +39,8 @@
 
   <section class="panel">
     <h2>検索・絞り込み</h2>
+    {% if message %}<p class="notice">{{ message }}</p>{% endif %}
+    {% if error %}<p class="error-text">{{ error }}</p>{% endif %}
     <form class="filter-form" method="get" action="/guilds/{{ guild_id }}/mention-reactions">
       <label>
         キーワード
@@ -82,10 +84,16 @@
   <section class="panel">
     <h2>一覧</h2>
     {% if reactions %}
+      <form id="bulk-mention-reactions" method="post" action="/guilds/{{ guild_id }}/mention-reactions/bulk-enabled"></form>
+      <div class="actions-row">
+        <button form="bulk-mention-reactions" type="submit" name="action" value="on" onclick="return confirm('選択したメンション反応をONにする？');">選択をON</button>
+        <button form="bulk-mention-reactions" type="submit" name="action" value="off" onclick="return confirm('選択したメンション反応をOFFにする？');">選択をOFF</button>
+      </div>
       <div class="table-wrap">
         <table class="admin-table">
           <thead>
             <tr>
+              <th>選択</th>
               <th>状態</th>
               <th>反応名</th>
               <th>種類</th>
@@ -100,6 +108,7 @@
           <tbody>
             {% for reaction in reactions %}
               <tr>
+                <td data-label="選択"><input form="bulk-mention-reactions" type="checkbox" name="reaction_ids" value="{{ reaction.id }}" {% if not reaction.can_toggle %}disabled{% endif %}></td>
                 <td data-label="状態">
                   {% if reaction.enabled %}
                     <strong class="status enabled">有効</strong>
@@ -118,6 +127,9 @@
                   <div class="row-actions">
                     <a class="button-link secondary" href="{{ reaction.edit_url }}">編集</a>
                     <button class="info-button" type="button" data-modal-target="mention-reaction-info-{{ reaction.id }}" aria-label="{{ reaction.name }}のInfo">i</button>
+                    <form method="post" action="{{ reaction.copy_url }}" onsubmit="return confirm('このメンション反応をコピーする？ コピー後はOFF。');">
+                      <button type="submit" {% if not reaction.can_toggle %}disabled{% endif %}>コピー</button>
+                    </form>
                     <form method="post" action="{{ reaction.toggle_url }}">
                       <button type="submit" {% if not reaction.can_toggle %}disabled title="権限なし"{% endif %}>
                         {% if reaction.enabled %}OFFにする{% else %}ONにする{% endif %}
