@@ -6,6 +6,8 @@ import discord
 
 from bot import config
 from bot.data_store import get_startup_message
+from bot.db import get_connection
+from bot.repositories.voice_lines import VoiceLineRepository, resolve_voice_line
 
 _bot = None
 ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
@@ -79,9 +81,26 @@ async def send_text_or_image(
     return False
 
 
+def get_startup_voice_line(guild_id: str) -> Optional[str]:
+    default_message = get_startup_message()
+    if config.BOT_INSTANCE_ID != "ichiyon":
+        default_message = None
+    if config.DATA_BACKEND != "db" or not guild_id:
+        return default_message
+    try:
+        with get_connection() as connection:
+            row = VoiceLineRepository(connection).get(config.BOT_INSTANCE_ID, guild_id)
+        return resolve_voice_line(row, "join_line", default_message or "")
+    except Exception as exc:
+        print("[WARN] Failed to load startup voice line for guild {0}: {1}".format(guild_id, exc))
+        return default_message
+
+
 async def send_startup_message(channel: discord.abc.Messageable) -> None:
-    startup_message = get_startup_message()
-    if startup_message is not None:
+    guild = get_channel_guild(channel)
+    guild_id = str(getattr(guild, "id", "") or "")
+    startup_message = get_startup_voice_line(guild_id)
+    if startup_message:
         await channel.send(startup_message)
 
 

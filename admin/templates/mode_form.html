@@ -115,7 +115,7 @@
         <label>リセット日<input type="number" name="cooldown_day" value="{{ mode_data.cooldown_day }}" min="1" max="31" {% if not can_edit %}disabled{% endif %}></label>
       </div>
       <p class="empty">例: はゆすは「期間内1回 / 月ごと / 月初」。成田は「期間内1回 / 月ごと / 22日」。</p>
-      <p class="empty">しこっち復帰メッセージ「まずは女子供から殺す」は固定。ここでは編集しない。</p>
+      <p class="empty">しこっち復帰メッセージは「入室時・復活時セリフ」でBot別・サーバー別に編集できます。未設定のいちよんロボは既存文言を使います。</p>
 
       {% if can_edit %}
         <button type="submit">{% if mode == "new" %}作成{% else %}保存{% endif %}</button>

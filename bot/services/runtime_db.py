@@ -1919,15 +1919,16 @@ async def send_mode_exit_message_to_channel(channel: discord.abc.Messageable, mo
 
 
 def get_recovery_voice_line(guild_id: str) -> Optional[str]:
+    default_line = SHIKOCCHI_RECOVERY_MESSAGE if config.BOT_INSTANCE_ID == "ichiyon" else ""
     if not guild_id:
-        return SHIKOCCHI_RECOVERY_MESSAGE
+        return default_line or None
     try:
         with get_connection() as connection:
             row = VoiceLineRepository(connection).get(config.BOT_INSTANCE_ID, guild_id)
-            return resolve_voice_line(row, "revive_line", SHIKOCCHI_RECOVERY_MESSAGE)
+            return resolve_voice_line(row, "revive_line", default_line)
     except Exception as exc:
         print("[WARN] Failed to load recovery voice line for guild {0}: {1}".format(guild_id, exc))
-        return SHIKOCCHI_RECOVERY_MESSAGE
+        return default_line or None
 
 
 async def enter_mode_if_needed(
