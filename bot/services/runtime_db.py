@@ -35,7 +35,6 @@ from bot.services.deck_search_settings import (
 )
 
 
-FEATURE_MENTION_REACTIONS = "mention_reactions"
 FEATURE_MENTION_RANDOM_DRAW = "mention_random_draw"
 FEATURE_MENTION_SEARCH = "mention_search"
 FEATURE_MENTION_LIMITED = "mention_limited"

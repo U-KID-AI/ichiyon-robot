@@ -8,6 +8,8 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from admin import servers
+from admin import mention_reactions
+from bot import guild_context
 from bot.services import runtime_db
 
 
@@ -59,12 +61,17 @@ def check_display_definitions() -> int:
     features = mention_features()
     labels = {feature["key"]: feature["label"] for feature in features}
     keys = [feature["key"] for feature in features]
+    all_keys = [feature["key"] for feature in servers.DISPLAY_FEATURES]
+    all_edit_paths = [feature["edit_path"] for feature in servers.DISPLAY_FEATURES]
     results.append(check(labels.get("mention_random_draw") == "ランダム抽選", "random draw label is independent", labels))
     results.append(check(labels.get("mention_search") == "検索", "search label is independent", labels))
     results.append(check(labels.get("mention_limited") == "限定機能", "limited label is independent", labels))
     results.append(check(all("メンション:" not in label for label in labels.values()), "mention prefix is removed", labels))
     results.append(check(len(keys) == len(set(keys)), "mention feature keys are unique", keys))
     results.append(check(all("flag_key" not in feature for feature in features), "mention features do not share flag_key", features))
+    results.append(check("mention_reactions" not in all_keys, "old mention parent is not displayed", all_keys))
+    results.append(check(servers.get_feature_definition("mention_reactions") is None, "old mention parent is not toggle target"))
+    results.append(check(all(path != "mention-reactions" for path in all_edit_paths), "old mention parent edit path is absent", all_edit_paths))
     return sum(1 for result in results if result)
 
 
@@ -95,6 +102,52 @@ def check_build_feature_rows() -> int:
     results.append(check(rows["mention_random_draw"]["toggle_url"].endswith("/features/mention_random_draw/toggle"), "random draw toggle target", rows["mention_random_draw"]["toggle_url"]))
     results.append(check(rows["mention_search"]["toggle_url"].endswith("/features/mention_search/toggle"), "search toggle target", rows["mention_search"]["toggle_url"]))
     results.append(check(rows["mention_limited"]["toggle_url"].endswith("/features/mention_limited/toggle"), "limited toggle target", rows["mention_limited"]["toggle_url"]))
+    results.append(check(len({row["toggle_url"] for row in rows.values()}) == 3, "mention feature toggle urls are unique", rows))
+    return sum(1 for result in results if result)
+
+
+def check_legacy_redirects() -> int:
+    results = []
+    results.append(check(
+        servers.legacy_mention_feature_redirect_url("guild") == "/guilds/guild",
+        "old mention parent redirects to guild top",
+        servers.legacy_mention_feature_redirect_url("guild"),
+    ))
+    results.append(check(
+        servers.legacy_mention_feature_redirect_url("guild", "random_draw") == "/guilds/guild/mention-reactions?kind=random_draw",
+        "old random kind redirects to random draw page",
+        servers.legacy_mention_feature_redirect_url("guild", "random_draw"),
+    ))
+    results.append(check(
+        servers.legacy_mention_feature_redirect_url("guild", "search") == "/guilds/guild/mention-reactions?kind=search",
+        "old search kind redirects to search page",
+        servers.legacy_mention_feature_redirect_url("guild", "search"),
+    ))
+    results.append(check(
+        servers.legacy_mention_feature_redirect_url("guild", "limited") == "/guilds/guild/mention-reactions/limited",
+        "old limited kind redirects to limited page",
+        servers.legacy_mention_feature_redirect_url("guild", "limited"),
+    ))
+    results.append(check(
+        mention_reactions.mention_reaction_kind_list_url("guild", "random_draw") == "/guilds/guild/mention-reactions?kind=random_draw",
+        "random draw operation returns to random draw page",
+        mention_reactions.mention_reaction_kind_list_url("guild", "random_draw"),
+    ))
+    results.append(check(
+        mention_reactions.mention_reaction_kind_list_url("guild", "search") == "/guilds/guild/mention-reactions?kind=search",
+        "search operation returns to search page",
+        mention_reactions.mention_reaction_kind_list_url("guild", "search"),
+    ))
+    return sum(1 for result in results if result)
+
+
+def check_default_feature_keys() -> int:
+    keys = list(guild_context.DEFAULT_FEATURE_KEYS)
+    results = []
+    results.append(check("mention_reactions" not in keys, "old mention parent is not default feature key", keys))
+    results.append(check("mention_random_draw" in keys, "random draw default feature key exists", keys))
+    results.append(check("mention_search" in keys, "search default feature key exists", keys))
+    results.append(check("mention_limited" in keys, "limited default feature key exists", keys))
     return sum(1 for result in results if result)
 
 
@@ -122,8 +175,14 @@ def check_runtime_flags() -> int:
 
 
 def main() -> int:
-    total = 6 + 6 + 3
-    passed = check_display_definitions() + check_build_feature_rows() + check_runtime_flags()
+    total = 9 + 7 + 6 + 4 + 3
+    passed = (
+        check_display_definitions()
+        + check_build_feature_rows()
+        + check_legacy_redirects()
+        + check_default_feature_keys()
+        + check_runtime_flags()
+    )
     print("summary: {0}/{1} OK".format(passed, total))
     return 0 if passed == total else 1
 
