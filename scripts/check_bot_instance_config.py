@@ -98,6 +98,28 @@ def main() -> int:
 
     config = load_config(
         {
+            "BOT_INSTANCE_ID": "ichiyon",
+            "ICHIYON_DISCORD_TOKEN": None,
+            "IRSIA_DISCORD_TOKEN": None,
+            "DISCORD_TOKEN": None,
+            "DISCORD_BOT_TOKEN": "dummy_legacy_bot",
+        }
+    )
+    check(
+        "ichiyon bot token fallback",
+        config.BOT_INSTANCE_ID == "ichiyon"
+        and config.TOKEN_ENV_KEY == "DISCORD_BOT_TOKEN"
+        and config.TOKEN == "dummy_legacy_bot",
+        "bot_id={0} token_env_key={1} token_present={2}".format(
+            config.BOT_INSTANCE_ID,
+            config.TOKEN_ENV_KEY,
+            bool(config.TOKEN),
+        ),
+        results,
+    )
+
+    config = load_config(
+        {
             "BOT_INSTANCE_ID": "irsia",
             "ICHIYON_DISCORD_TOKEN": "dummy_ichiyon",
             "IRSIA_DISCORD_TOKEN": "dummy_irsia",
@@ -111,6 +133,28 @@ def main() -> int:
         and config.BOT_INSTANCE.display_name == "イルシア"
         and config.TOKEN_ENV_KEY == "IRSIA_DISCORD_TOKEN"
         and config.TOKEN == "dummy_irsia",
+        "bot_id={0} token_env_key={1} token_present={2}".format(
+            config.BOT_INSTANCE_ID,
+            config.TOKEN_ENV_KEY,
+            bool(config.TOKEN),
+        ),
+        results,
+    )
+
+    config = load_config(
+        {
+            "BOT_INSTANCE_ID": "irsia",
+            "ICHIYON_DISCORD_TOKEN": "dummy_ichiyon",
+            "IRSIA_DISCORD_TOKEN": None,
+            "DISCORD_TOKEN": "dummy_legacy",
+            "DISCORD_BOT_TOKEN": None,
+        }
+    )
+    check(
+        "irsia can fall back to common token keys",
+        config.BOT_INSTANCE_ID == "irsia"
+        and config.TOKEN_ENV_KEY == "ICHIYON_DISCORD_TOKEN"
+        and config.TOKEN == "dummy_ichiyon",
         "bot_id={0} token_env_key={1} token_present={2}".format(
             config.BOT_INSTANCE_ID,
             config.TOKEN_ENV_KEY,
