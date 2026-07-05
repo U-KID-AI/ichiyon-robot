@@ -1,4 +1,4 @@
-﻿-- Scope shared guild settings by bot_id.
+-- Scope shared guild settings by bot_id.
 -- This migration does not delete table data. It replaces old guild-only uniqueness
 -- with bot_id + guild_id uniqueness so the same Discord guild can be configured
 -- independently for ichiyon and irsia.
