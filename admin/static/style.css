@@ -758,6 +758,41 @@ a {
     gap: 8px;
   }
 
+  label,
+  .image-field {
+    gap: 5px;
+    font-size: 12px;
+  }
+
+  input,
+  select,
+  textarea {
+    padding: 8px 10px;
+  }
+
+  textarea {
+    min-height: 72px;
+  }
+
+  details {
+    margin-top: 8px;
+  }
+
+  summary {
+    min-height: 32px;
+  }
+
+  .panel > .empty,
+  .panel > .muted,
+  .panel > .hint,
+  .subpanel > .empty,
+  .subpanel > .muted,
+  .subpanel > .hint {
+    margin: 4px 0 8px;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
   .panel,
   .subpanel,
   .image-field,
@@ -800,24 +835,108 @@ a {
   }
 
   .admin-table tr {
-    border: 1px solid var(--border-soft);
-    border-radius: 8px;
-    padding: 8px 10px;
-    margin-bottom: 10px;
-    background: var(--panel-soft);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-width: 0 0 1px;
+    border-color: var(--border-soft);
+    border-radius: 0;
+    padding: 6px 0;
+    margin-bottom: 0;
+    min-height: 46px;
+    background: transparent;
   }
 
   .admin-table td {
-    display: grid;
-    grid-template-columns: minmax(112px, 38%) 1fr;
-    gap: 10px;
+    display: none;
     border-bottom: 0;
-    padding: 6px 0;
+    min-width: 0;
+    padding: 0;
+  }
+
+  .admin-table td:nth-child(1),
+  .admin-table td:nth-child(2),
+  .admin-table td:nth-child(3),
+  .admin-table td:last-child {
+    display: flex;
+    align-items: center;
+  }
+
+  .admin-table td:nth-child(1),
+  .admin-table td:nth-child(2) {
+    flex: 0 0 auto;
+  }
+
+  .admin-table td:nth-child(3) {
+    flex: 1 1 auto;
+    overflow: hidden;
+    font-weight: 700;
+  }
+
+  .admin-table td:nth-child(3) > *,
+  .admin-table td:nth-child(3) {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .admin-table td:last-child {
+    flex: 0 0 auto;
+    justify-content: flex-end;
   }
 
   .admin-table td::before {
-    content: attr(data-label);
-    color: var(--muted);
-    font-weight: 800;
+    display: none;
+  }
+
+  .admin-table td .empty,
+  .admin-table td .muted,
+  .admin-table td .hint,
+  .admin-table td .error-text {
+    display: none;
+  }
+
+  .row-actions,
+  .actions-cell {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 4px;
+  }
+
+  .row-actions .button-link,
+  .row-actions button,
+  .actions-cell .button-link,
+  .actions-cell button {
+    max-width: 48px;
+    min-height: 28px;
+    padding: 4px 6px;
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 1;
+    text-overflow: clip;
+    white-space: nowrap;
+  }
+
+  .row-actions .info-button {
+    max-width: none;
+  }
+
+  .admin-table input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+  }
+
+  .quote-item,
+  .choice-item {
+    padding: 10px;
+  }
+
+  .choice-item .actions,
+  .choice-item .row-actions {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
   }
 }
