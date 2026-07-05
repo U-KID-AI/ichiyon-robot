@@ -709,3 +709,37 @@ migration:
 5. 本番 `.env` に `IRSIA_DISCORD_TOKEN` を設定する。
 6. Docker Composeの `bot-irsia` profile/serviceを起動する。
 7. 管理画面 `/bots` で `イルシア` が権限者にだけ表示されることを確認する。
+
+## 2026-07-05 イルシア本番追加準備
+
+追加migration:
+
+- `migrations/028_register_irsia_production_guilds.sql`
+- 既存データのUPDATE/DELETE/DROP/TRUNCATEは含めない。
+- `bot_instances` に `irsia` がなければ追加する。
+- 初期対象サーバーとして以下を `guilds` に追加する。
+  - `1520964851046944900` / 天使の聖域
+  - `928619302213533736` / 神聖イルシア皇国
+- `bot_guilds` を追加し、`irsia` と対象サーバー2件を紐づける。
+- `bot_voice_lines` に `irsia + guild_id` の空設定を追加する。
+
+bot_id分離の現状:
+
+- `bot_instances`: `bot_id` 主キーで分離済み。
+- `bot_permissions`: `bot_id + discord_user_id + guild_id` で分離済み。権限がないBotは管理画面に表示しない。
+- `bot_guilds`: `bot_id + guild_id` でBot配下サーバーを分離する。関連があるBotでは、そのサーバーだけをBot選択後の一覧に表示する。関連が未設定の既存 `ichiyon` は後方互換として従来どおりguild一覧をfallback表示する。
+- `bot_voice_lines`: `bot_id + guild_id` のUNIQUE制約で分離済み。
+- `deck_search_settings`: `bot_id + guild_id` で分離済み。
+- `x_update_watches`: `bot_id + guild_id` でRepository/Runtimeとも分離済み。
+- `modes` / `ng_words` / `reactions` / `mention_reactions` / `special_effect_tags` は `bot_id` カラム追加済み。ただし既存Repositoryの全面的な `bot_id` 絞り込みは段階移行中。イルシア専用サーバーで運用する限り、guild_idが分かれるため既存いちよんロボとは衝突しない。
+
+本番反映手順:
+
+1. mainへ対象コミットをマージする。
+2. 本番VMでmainをpullする。
+3. migration 027, 028を順に適用する。
+4. 本番 `.env` に `IRSIA_DISCORD_TOKEN` を設定する。
+5. イルシア管理者へ管理画面から `irsia` のBot権限と対象サーバー権限を付与する。
+6. 必要に応じて `/bots` からイルシアを選び、入室時・復活時セリフ、X更新通知、デッキ検索設定を編集する。
+7. `docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile irsia up -d bot-irsia` で起動する。
+8. 既存 `bot` / いちよんロボの稼働状態を確認し、イルシア側ログで `bot_instance_id=irsia` とDiscordログインを確認する。

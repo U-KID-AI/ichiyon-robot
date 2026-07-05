@@ -10,6 +10,10 @@ if str(PROJECT_ROOT) not in sys.path:
 from admin import servers
 
 
+REPOSITORY_PATH = PROJECT_ROOT / "bot" / "repositories" / "permissions.py"
+MIGRATION_028_PATH = PROJECT_ROOT / "migrations" / "028_register_irsia_production_guilds.sql"
+
+
 class FakeConnection:
     def __enter__(self):
         return self
@@ -66,6 +70,28 @@ def main() -> int:
             "unauthorized bot guild access is false",
             servers.can_access_guild("928619302213533736", "user", "ichiyon") is False,
             "ichiyon",
+        )
+        repository_source = REPOSITORY_PATH.read_text(encoding="utf-8")
+        migration_source = MIGRATION_028_PATH.read_text(encoding="utf-8")
+        record(
+            results,
+            "bot guild mapping table is declared",
+            "CREATE TABLE IF NOT EXISTS bot_guilds" in migration_source,
+            "bot_guilds",
+        )
+        record(
+            results,
+            "irsia target guilds are mapped to bot",
+            "('irsia', '1520964851046944900', TRUE)" in migration_source
+            and "('irsia', '928619302213533736', TRUE)" in migration_source,
+            "irsia guilds",
+        )
+        record(
+            results,
+            "bot guild mapping filters guild list",
+            "list_configured_guilds_for_bot" in repository_source
+            and "FROM bot_guilds bg" in repository_source,
+            "repository",
         )
     finally:
         servers.get_connection = original_get_connection

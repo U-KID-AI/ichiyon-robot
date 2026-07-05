@@ -197,8 +197,44 @@ class PermissionRepository:
                 return True
         return bot_id == "ichiyon" and bool(self.list_guild_permissions(discord_user_id))
 
+    def list_configured_guilds_for_bot(self, bot_id: str, role: str) -> List[Dict[str, Any]]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    g.guild_id,
+                    g.name,
+                    g.icon_url,
+                    g.enabled,
+                    %s AS role
+                FROM bot_guilds bg
+                JOIN guilds g ON g.guild_id = bg.guild_id
+                WHERE bg.bot_id = %s
+                  AND bg.enabled = TRUE
+                ORDER BY g.name ASC, g.guild_id ASC
+                """,
+                (role, bot_id),
+            )
+            return fetch_all(cursor)
+
+    def has_configured_guilds_for_bot(self, bot_id: str) -> bool:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT 1
+                FROM bot_guilds
+                WHERE bot_id = %s
+                LIMIT 1
+                """,
+                (bot_id,),
+            )
+            return cursor.fetchone() is not None
+
     def list_manageable_guilds_for_bot(self, bot_id: str, discord_user_id: str) -> List[Dict[str, Any]]:
         if self.has_global_admin(discord_user_id):
+            configured_rows = self.list_configured_guilds_for_bot(bot_id, "global_admin")
+            if configured_rows:
+                return configured_rows
             with self.connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -228,9 +264,23 @@ class PermissionRepository:
                 WHERE p.discord_user_id = %s
                   AND p.bot_id = %s
                   AND p.guild_id IS NOT NULL
+                  AND (
+                      NOT EXISTS (
+                          SELECT 1
+                          FROM bot_guilds bg0
+                          WHERE bg0.bot_id = %s
+                      )
+                      OR EXISTS (
+                          SELECT 1
+                          FROM bot_guilds bg
+                          WHERE bg.bot_id = %s
+                            AND bg.guild_id = p.guild_id
+                            AND bg.enabled = TRUE
+                      )
+                  )
                 ORDER BY g.name ASC, g.guild_id ASC
                 """,
-                (discord_user_id, bot_id),
+                (discord_user_id, bot_id, bot_id, bot_id),
             )
             rows = fetch_all(cursor)
         if rows:
@@ -252,6 +302,9 @@ class PermissionRepository:
             bot_level = fetch_one(cursor)
 
         if bot_level and role_allows(bot_level.get("role"), "viewer"):
+            configured_rows = self.list_configured_guilds_for_bot(bot_id, bot_level.get("role") or "viewer")
+            if configured_rows:
+                return configured_rows
             with self.connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -274,6 +327,11 @@ class PermissionRepository:
 
     def can_access_bot_guild(self, bot_id: str, guild_id: str, discord_user_id: str) -> bool:
         if self.has_global_admin(discord_user_id):
+            if self.has_configured_guilds_for_bot(bot_id):
+                for guild in self.list_configured_guilds_for_bot(bot_id, "global_admin"):
+                    if str(guild.get("guild_id")) == str(guild_id):
+                        return True
+                return False
             return True
         for guild in self.list_manageable_guilds_for_bot(bot_id, discord_user_id):
             if str(guild.get("guild_id")) == str(guild_id):
