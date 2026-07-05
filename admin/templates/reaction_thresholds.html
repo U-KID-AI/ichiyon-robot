@@ -54,7 +54,7 @@
                       <button type="submit">コピー</button>
                     </form>
                     <form method="post" action="/guilds/{{ guild_id }}/reaction-thresholds/{{ rule.id }}/toggle">
-                      <button type="submit">{% if rule.enabled %}OFFにする{% else %}ONにする{% endif %}</button>
+                      <button type="submit">{% if rule.enabled %}OFF{% else %}ON{% endif %}</button>
                     </form>
                   {% endif %}
                 </div>

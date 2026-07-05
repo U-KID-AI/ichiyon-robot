@@ -75,7 +75,7 @@
                   <div class="row-actions">
                     <a class="button-link secondary" href="{{ entry.edit_url }}">編集</a>
                     <form method="post" action="{{ entry.toggle_url }}">
-                      <button type="submit" {% if not entry.can_manage %}disabled title="権限なし"{% endif %}>{% if entry.enabled %}OFFにする{% else %}ONにする{% endif %}</button>
+                      <button type="submit" {% if not entry.can_manage %}disabled title="権限なし"{% endif %}>{% if entry.enabled %}OFF{% else %}ON{% endif %}</button>
                     </form>
                     <form method="post" action="{{ entry.delete_url }}" data-confirm="この限定機能を削除する？">
                       <button class="danger" type="submit" {% if not entry.can_manage %}disabled title="権限なし"{% endif %}>削除</button>

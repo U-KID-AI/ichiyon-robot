@@ -90,7 +90,7 @@
                       <button type="submit" {% if not tag.can_toggle %}disabled{% endif %}>コピー</button>
                     </form>
                     <form method="post" action="{{ tag.toggle_url }}">
-                      <button type="submit" {% if not tag.can_toggle %}disabled title="権限なし"{% endif %}>{% if tag.enabled %}OFFにする{% else %}ONにする{% endif %}</button>
+                      <button type="submit" {% if not tag.can_toggle %}disabled title="権限なし"{% endif %}>{% if tag.enabled %}OFF{% else %}ON{% endif %}</button>
                     </form>
                     <form method="post" action="{{ tag.delete_url }}" data-confirm="この特殊効果タグを削除する？">
                       <button class="danger" type="submit" {% if not tag.can_delete %}disabled title="固定タグ、または権限なし"{% endif %}>削除</button>

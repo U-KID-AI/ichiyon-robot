@@ -132,7 +132,7 @@
                     </form>
                     <form method="post" action="{{ reaction.toggle_url }}">
                       <button type="submit" {% if not reaction.can_toggle %}disabled title="権限なし"{% endif %}>
-                        {% if reaction.enabled %}OFFにする{% else %}ONにする{% endif %}
+                        {% if reaction.enabled %}OFF{% else %}ON{% endif %}
                       </button>
                     </form>
                     <form method="post" action="{{ reaction.delete_url }}" data-confirm="このメンション反応を削除する？">
