@@ -1,6 +1,9 @@
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, List
+
+from jinja2 import Environment, FileSystemLoader
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -266,8 +269,127 @@ def check_runtime_flags() -> int:
     return sum(1 for result in results if result)
 
 
+def check_admin_templates_parse() -> int:
+    template_dir = ROOT_DIR / "admin" / "templates"
+    env = Environment(loader=FileSystemLoader(str(template_dir)))
+    results = []
+    for path in sorted(template_dir.glob("*.html")):
+        try:
+            env.parse(path.read_text(encoding="utf-8"))
+            results.append(check(True, "template parses: {0}".format(path.name)))
+        except Exception as exc:
+            results.append(check(False, "template parses: {0}".format(path.name), "{0}: {1}".format(type(exc).__name__, exc)))
+    return sum(1 for result in results if result)
+
+
+def check_mode_templates_render() -> int:
+    template_dir = ROOT_DIR / "admin" / "templates"
+    env = Environment(loader=FileSystemLoader(str(template_dir)))
+    env.globals["url_for"] = lambda name, **kwargs: "/static/style.css"
+    env.globals["current_bot_instance"] = SimpleNamespace(display_name="いちよんロボ", bot_id="ichiyon")
+    env.globals["current_bot_instance_id"] = "ichiyon"
+    request = SimpleNamespace(session={"discord_user": {"username": "tester"}})
+    base_context = {
+        "request": request,
+        "user": {"name": "tester"},
+        "server": {"name": "server", "icon_url": None, "role": "guild_admin"},
+        "guild_id": "guild",
+    }
+    mode_row = {
+        "id": 1,
+        "enabled": True,
+        "can_toggle": True,
+        "can_delete": True,
+        "name": "しこっち",
+        "mode_nickname": "しこっち",
+        "mode_key": "shikocchi",
+        "behavior_type_label": "返信",
+        "admin_only": False,
+        "cooldown_summary": "none",
+        "trigger_count": 1,
+        "reply_count": 1,
+        "exit_count": 1,
+        "description": "",
+        "enter_message": "しこっち、きた",
+        "edit_url": "/guilds/guild/modes/1",
+        "toggle_url": "/guilds/guild/modes/1/toggle",
+        "copy_url": "/guilds/guild/modes/1/copy",
+        "delete_url": "/guilds/guild/modes/1/delete",
+    }
+    mode_form = {
+        "name": "しこっち",
+        "mode_key": "shikocchi",
+        "mode_nickname": "しこっち",
+        "description": "",
+        "behavior_type": "reply",
+        "mode_icon_path": "",
+        "enabled": True,
+        "admin_only": False,
+        "is_deletable": True,
+        "enter_message": "しこっち、きた",
+        "exit_message": "",
+        "enter_gif_path": "",
+        "exit_gif_path": "",
+        "enter_notify_channel_id": "",
+        "exit_notify_channel_id": "",
+        "reaction_channel_ids": "",
+        "ignore_channel_ids": "",
+        "cooldown_type": "none",
+        "cooldown_seconds": 0,
+        "cooldown_period": "none",
+        "cooldown_reset": "none",
+        "cooldown_day": "",
+        "state": None,
+        "reply_choices": [],
+        "trigger_conditions": [],
+        "exit_conditions": [],
+    }
+    results = []
+    try:
+        env.get_template("modes.html").render(
+            **base_context,
+            filters={"q": "", "enabled": "all", "behavior_type": "all", "admin_only": "all", "show_test_data": False},
+            modes=[mode_row],
+            can_create=True,
+            message="",
+            error="",
+        )
+        results.append(check(True, "modes list template renders"))
+    except Exception as exc:
+        results.append(check(False, "modes list template renders", "{0}: {1}".format(type(exc).__name__, exc)))
+    try:
+        env.get_template("mode_form.html").render(
+            **base_context,
+            mode="edit",
+            mode_id=1,
+            mode_data=mode_form,
+            errors=[],
+            can_edit=True,
+            can_set_admin_only=True,
+            behavior_types=("reply", "offline"),
+            behavior_labels={"reply": "返信", "offline": "反応しない"},
+            cooldown_types=("none", "duration", "once_per_period"),
+            cooldown_type_labels={},
+            cooldown_periods=("none", "monthly"),
+            cooldown_period_labels={},
+            cooldown_resets=("none", "month_start", "day"),
+            cooldown_reset_labels={},
+            trigger_types=("probability", "counter_threshold", "period_not_triggered", "manual", "schedule"),
+            condition_type_labels={},
+            exit_types=("duration", "manual"),
+            reset_types=("none", "daily", "monthly", "monthly_day", "manual"),
+            reset_type_labels={},
+            counters=[],
+        )
+        results.append(check(True, "mode edit template renders"))
+    except Exception as exc:
+        results.append(check(False, "mode edit template renders", "{0}: {1}".format(type(exc).__name__, exc)))
+    return sum(1 for result in results if result)
+
+
 def main() -> int:
-    total = 9 + 7 + 6 + 6 + 3 + 4 + 3
+    template_count = len(list((ROOT_DIR / "admin" / "templates").glob("*.html")))
+    total = 9 + 7 + 6 + 6 + 3 + 4 + 3 + template_count + 2
     passed = (
         check_display_definitions()
         + check_build_feature_rows()
@@ -276,6 +398,8 @@ def main() -> int:
         + check_mention_reaction_copy_keywords()
         + check_default_feature_keys()
         + check_runtime_flags()
+        + check_admin_templates_parse()
+        + check_mode_templates_render()
     )
     print("summary: {0}/{1} OK".format(passed, total))
     return 0 if passed == total else 1
