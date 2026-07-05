@@ -4,8 +4,15 @@
 {% block heading %}ユーザー編集{% endblock %}
 
 {% block content %}
+  <section class="panel">
+    <div class="page-actions">
+      <a class="button-link secondary" href="/admin/users">一覧へ戻る</a>
+      <a class="button-link secondary" href="/admin">管理メニューへ</a>
+    </div>
+  </section>
+
   {% if errors %}
-    <section class="alert error">
+    <section class="panel error-panel">
       <ul>
         {% for error in errors %}
           <li>{{ error }}</li>
@@ -14,69 +21,74 @@
     </section>
   {% endif %}
 
-  <form class="panel form-grid" method="post">
-    <label>
-      Discord user ID
-      <input name="discord_user_id" value="{{ form.discord_user_id }}" {% if target_user %}readonly{% endif %} required>
-    </label>
-    <label>
-      表示名
-      <input name="display_name" value="{{ form.display_name or '' }}">
-    </label>
-    <label>
-      管理画面ロール
-      <select name="role">
-        <option value="viewer" {% if form.role == "viewer" %}selected{% endif %}>viewer</option>
-        <option value="global_admin" {% if form.role == "global_admin" %}selected{% endif %}>global_admin</option>
-      </select>
-    </label>
-    <label class="checkbox-row">
-      <input type="checkbox" name="enabled" {% if form.enabled %}checked{% endif %}>
-      有効
-    </label>
-    <label class="checkbox-row">
-      <input type="checkbox" name="can_manage_users" {% if form.can_manage_users %}checked{% endif %}>
-      ユーザー管理を許可
-    </label>
-
-    <fieldset>
-      <legend>Bot権限</legend>
-      {% for bot in bots %}
-        <div class="permission-row">
-          <strong>{{ bot.display_name or bot.bot_id }}</strong>
-          <select name="bot_roles">
-            <option value="">なし</option>
-            {% for role in valid_roles %}
-              {% set value = bot.bot_id ~ ":" ~ role %}
-              <option value="{{ value }}" {% if selected_bot_roles.get(bot.bot_id) == role %}selected{% endif %}>{{ role }}</option>
-            {% endfor %}
+  <form method="post">
+    <section class="panel">
+      <h2>基本</h2>
+      <div class="form-grid">
+        <label>Discord user ID<input name="discord_user_id" value="{{ form.discord_user_id }}" {% if target_user %}readonly{% endif %} required></label>
+        <label>表示名<input name="display_name" value="{{ form.display_name or '' }}"></label>
+        <label>
+          管理画面ロール
+          <select name="role">
+            <option value="viewer" {% if form.role == "viewer" %}selected{% endif %}>viewer</option>
+            <option value="global_admin" {% if form.role == "global_admin" %}selected{% endif %}>global_admin</option>
           </select>
-        </div>
-      {% endfor %}
-    </fieldset>
+        </label>
+      </div>
+      <div class="check-row user-checks">
+        <label class="check-row"><input type="checkbox" name="enabled" {% if form.enabled %}checked{% endif %}>有効</label>
+        <label class="check-row"><input type="checkbox" name="can_manage_users" {% if form.can_manage_users %}checked{% endif %}>ユーザー管理</label>
+      </div>
+    </section>
 
-    <fieldset>
-      <legend>サーバー権限</legend>
-      {% for bot in bots %}
-        {% for guild in guilds %}
-          {% set key = bot.bot_id ~ ":" ~ guild.guild_id %}
+    <section class="panel">
+      <h2>Bot権限</h2>
+      <div class="permission-list">
+        {% for bot in bots %}
           <div class="permission-row">
-            <span>{{ bot.display_name or bot.bot_id }} / {{ guild.name or guild.guild_id }}</span>
-            <select name="guild_roles">
+            <div>
+              <strong>{{ bot.display_name or bot.bot_id }}</strong>
+              <p class="empty">Bot ID: {{ bot.bot_id }}</p>
+            </div>
+            <select name="bot_roles" aria-label="{{ bot.bot_id }} の権限">
               <option value="">なし</option>
               {% for role in valid_roles %}
-                {% set value = bot.bot_id ~ ":" ~ guild.guild_id ~ ":" ~ role %}
-                <option value="{{ value }}" {% if selected_guild_roles.get(key) == role %}selected{% endif %}>{{ role }}</option>
+                {% set value = bot.bot_id ~ ":" ~ role %}
+                <option value="{{ value }}" {% if selected_bot_roles.get(bot.bot_id) == role %}selected{% endif %}>{{ role }}</option>
               {% endfor %}
             </select>
           </div>
         {% endfor %}
-      {% endfor %}
-    </fieldset>
+      </div>
+    </section>
 
-    <div class="form-actions">
+    <section class="panel">
+      <h2>サーバー権限</h2>
+      <div class="permission-list">
+        {% for bot in bots %}
+          {% for guild in guilds %}
+            {% set key = bot.bot_id ~ ":" ~ guild.guild_id %}
+            <div class="permission-row">
+              <div>
+                <strong>{{ guild.name or guild.guild_id }}</strong>
+                <p class="empty">{{ bot.display_name or bot.bot_id }} / {{ guild.guild_id }}</p>
+              </div>
+              <select name="guild_roles" aria-label="{{ bot.bot_id }} {{ guild.guild_id }} の権限">
+                <option value="">なし</option>
+                {% for role in valid_roles %}
+                  {% set value = bot.bot_id ~ ":" ~ guild.guild_id ~ ":" ~ role %}
+                  <option value="{{ value }}" {% if selected_guild_roles.get(key) == role %}selected{% endif %}>{{ role }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          {% endfor %}
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="panel actions-row">
       <button type="submit">保存</button>
-      <a class="button" href="/admin/users">戻る</a>
-    </div>
+      <a class="button-link secondary" href="/admin/users">戻る</a>
+    </section>
   </form>
 {% endblock %}

@@ -4,21 +4,31 @@
 {% block heading %}{{ bot.display_name or bot.bot_id }} のサーバー{% endblock %}
 
 {% block content %}
-  <section class="panel compact-list">
-    {% if servers %}
+  <div class="page-actions">
+    <a class="button-link secondary" href="/bots">Bot選択へ戻る</a>
+  </div>
+  <section class="panel">
+    <p class="hint">このBotで管理できるサーバーだけを表示しています。</p>
+    <div class="server-list">
       {% for server in servers %}
-        <div class="compact-row">
-          <div class="compact-main">
-            <strong>{{ server.name or server.guild_id }}</strong>
-            <span class="muted mobile-hidden-description">{{ server.guild_id }} / {{ server.role }}</span>
+        <article class="server-item">
+          <div class="server-summary">
+            {% if server.icon_url %}
+              <img class="server-icon" src="{{ server.icon_url }}" alt="">
+            {% else %}
+              <div class="server-icon placeholder"></div>
+            {% endif %}
+            <div>
+              <h2>{{ server.name or server.guild_id }}</h2>
+              <p class="empty">サーバーID: {{ server.guild_id }}</p>
+              <strong class="status enabled">{{ server.role }}</strong>
+            </div>
           </div>
-          <div class="compact-actions">
-            <a class="button" href="/bots/{{ bot.bot_id }}/guilds/{{ server.guild_id }}">管理</a>
-          </div>
-        </div>
+          <a class="button-link" href="/bots/{{ bot.bot_id }}/guilds/{{ server.guild_id }}">管理へ</a>
+        </article>
+      {% else %}
+        <p class="empty">管理できるサーバーがありません。</p>
       {% endfor %}
-    {% else %}
-      <p>管理できるサーバーがありません。</p>
-    {% endif %}
+    </div>
   </section>
 {% endblock %}

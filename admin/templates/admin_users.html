@@ -4,25 +4,45 @@
 {% block heading %}ユーザー管理{% endblock %}
 
 {% block content %}
-  <div class="toolbar">
-    <a class="button primary" href="/admin/users/new">新規追加</a>
-  </div>
-  <section class="panel compact-list">
-    {% if users %}
-      {% for item in users %}
-        <div class="compact-row">
-          <div class="compact-main">
-            <strong>{{ item.display_name or item.discord_user_id }}</strong>
-            <span class="muted mobile-hidden-description">{{ item.discord_user_id }} / {{ item.role }}</span>
-          </div>
-          <span class="status-pill {{ 'enabled' if item.enabled else 'disabled' }}">{{ "ON" if item.enabled else "OFF" }}</span>
-          <div class="compact-actions">
-            <a class="button" href="/admin/users/{{ item.discord_user_id }}">編集</a>
-          </div>
-        </div>
-      {% endfor %}
-    {% else %}
-      <p>管理ユーザーが登録されていません。</p>
-    {% endif %}
+  <section class="panel">
+    <div class="page-actions">
+      <a class="button-link" href="/admin/users/new">新規追加</a>
+      <a class="button-link secondary" href="/admin">管理メニューへ</a>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="table-wrap">
+      <table class="admin-table compact-table">
+        <thead>
+          <tr>
+            <th>状態</th>
+            <th>表示名</th>
+            <th>Discord user ID</th>
+            <th>ロール</th>
+            <th>最終ログイン</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in users %}
+            <tr>
+              <td><strong class="status {{ 'enabled' if item.enabled else 'disabled' }}">{{ "ON" if item.enabled else "OFF" }}</strong></td>
+              <td><strong>{{ item.display_name or item.discord_user_id }}</strong></td>
+              <td>{{ item.discord_user_id }}</td>
+              <td>{{ item.role }}</td>
+              <td>{{ item.last_login_at or "-" }}</td>
+              <td class="actions-cell">
+                <a class="button-link secondary" href="/admin/users/{{ item.discord_user_id }}">編集</a>
+              </td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="6" class="empty">管理ユーザーが登録されていません。</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </section>
 {% endblock %}

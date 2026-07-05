@@ -4,21 +4,27 @@
 {% block heading %}Bot選択{% endblock %}
 
 {% block content %}
-  <section class="panel compact-list">
-    {% if bots %}
+  <section class="panel">
+    <p class="hint">管理権限のあるBotだけを表示しています。</p>
+    <div class="server-list">
       {% for bot in bots %}
-        <div class="compact-row">
-          <div class="compact-main">
-            <strong>{{ bot.display_name or bot.bot_id }}</strong>
-            <span class="muted mobile-hidden-description">{{ bot.description or bot.bot_id }}</span>
+        <article class="server-item">
+          <div class="server-summary">
+            <div class="server-icon placeholder bot-placeholder"></div>
+            <div>
+              <h2>{{ bot.display_name or bot.bot_id }}</h2>
+              <p class="empty">Bot ID: {{ bot.bot_id }}</p>
+              {% if bot.description %}
+                <p class="empty mobile-hidden-description">{{ bot.description }}</p>
+              {% endif %}
+              <strong class="status enabled">{{ bot.role or "viewer" }}</strong>
+            </div>
           </div>
-          <div class="compact-actions">
-            <a class="button" href="/bots/{{ bot.bot_id }}/guilds">選択</a>
-          </div>
-        </div>
+          <a class="button-link" href="/bots/{{ bot.bot_id }}/guilds">選択</a>
+        </article>
+      {% else %}
+        <p class="empty">管理できるBotがありません。</p>
       {% endfor %}
-    {% else %}
-      <p>管理できるBotがありません。</p>
-    {% endif %}
+    </div>
   </section>
 {% endblock %}
