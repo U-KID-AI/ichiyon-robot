@@ -104,35 +104,32 @@ ROLE_LEVELS = {
 DISPLAY_FEATURES = [
     {
         "key": "mention_random_draw",
-        "flag_key": "mention_reactions",
-        "label": "メンション: ランダム抽選",
+        "label": "ランダム抽選",
         "edit_path": "mention-reactions?kind=random_draw",
         "required_role": "editor",
         "overview": "候補からランダムに返す。",
         "settings": "呼び出しワード、抽選候補、出やすさ、画像、リアクション",
-        "off_behavior": "OFFにすると、メンション反応全体を止める。",
+        "off_behavior": "OFFにすると、ランダム抽選だけを止める。",
         "notes": "名言・おみくじ・お前も〇〇よな？など。",
     },
     {
         "key": "mention_search",
-        "flag_key": "mention_reactions",
-        "label": "メンション: 検索",
+        "label": "検索",
         "edit_path": "mention-reactions?kind=search",
         "required_role": "editor",
         "overview": "入力内容で検索して返す。",
         "settings": "呼び出しワード、検索設定、デッキ検索設定",
-        "off_behavior": "OFFにすると、メンション反応全体を止める。",
+        "off_behavior": "OFFにすると、検索だけを止める。",
         "notes": "デッキ検索など。",
     },
     {
         "key": "mention_limited",
-        "flag_key": "mention_reactions",
-        "label": "メンション: 限定機能",
+        "label": "限定機能",
         "edit_path": "mention-reactions/limited",
         "required_role": "editor",
         "overview": "特定ユーザーに追加効果を付ける。",
         "settings": "対象ユーザーID、特殊効果タグ、有効/無効",
-        "off_behavior": "OFFにすると、メンション反応全体を止める。",
+        "off_behavior": "OFFにすると、限定機能だけを止める。",
         "notes": "限定タグはDB backend時のみ実行。",
     },
     {
@@ -306,7 +303,7 @@ def find_server(guild_id: str, discord_user_id: str) -> Dict[str, Any]:
 
 def get_feature_definition(feature_key: str) -> Optional[Dict[str, Any]]:
     for feature in DISPLAY_FEATURES:
-        if feature["key"] == feature_key or feature.get("flag_key") == feature_key:
+        if feature["key"] == feature_key:
             return feature
     return None
 
@@ -329,11 +326,10 @@ def build_feature_rows(
     rows = []
     for feature in DISPLAY_FEATURES:
         row = dict(feature)
-        flag_key = feature.get("flag_key", feature["key"])
-        row["enabled"] = flags.get(flag_key, True)
+        row["enabled"] = flags.get(feature["key"], True)
         row["can_toggle"] = role_allows(role, feature["required_role"])
         row["edit_url"] = "/guilds/{0}/{1}".format(guild_id, feature["edit_path"])
-        row["toggle_url"] = "/guilds/{0}/features/{1}/toggle".format(guild_id, flag_key)
+        row["toggle_url"] = "/guilds/{0}/features/{1}/toggle".format(guild_id, feature["key"])
         rows.append(row)
 
     return rows
