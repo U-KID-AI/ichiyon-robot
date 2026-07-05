@@ -30,6 +30,12 @@ BOT_INSTANCES: Dict[str, BotInstance] = {
     ),
 }
 
+COMMON_DISCORD_TOKEN_ENV_KEYS: Tuple[str, ...] = (
+    "ICHIYON_DISCORD_TOKEN",
+    "DISCORD_TOKEN",
+    "DISCORD_BOT_TOKEN",
+)
+
 
 def get_env_int(name: str, default: int = 0) -> int:
     value = os.getenv(name)
@@ -92,19 +98,27 @@ def get_env_str(name: str, default: str) -> str:
     return value.strip()
 
 
-def get_discord_token_and_env_key(instance: BotInstance) -> Tuple[str, str]:
-    for env_key in instance.token_env_keys:
+def get_token_env_keys(instance: BotInstance) -> Tuple[str, ...]:
+    if instance.bot_id == "irsia":
+        return instance.token_env_keys + tuple(
+            key for key in COMMON_DISCORD_TOKEN_ENV_KEYS if key not in instance.token_env_keys
+        )
+    return COMMON_DISCORD_TOKEN_ENV_KEYS
+
+
+def get_discord_token_and_env_key(env_keys: Tuple[str, ...]) -> Tuple[str, str]:
+    for env_key in env_keys:
         value = os.getenv(env_key)
         if value is not None and value.strip():
             return value.strip(), env_key
-    return "", instance.token_env_keys[0]
+    return "", env_keys[0]
 
 
 APP_ENV = get_app_env()
 BOT_INSTANCE_ID = get_bot_instance_id()
 BOT_INSTANCE = BOT_INSTANCES[BOT_INSTANCE_ID]
-TOKEN_ENV_KEYS = BOT_INSTANCE.token_env_keys
-TOKEN, TOKEN_ENV_KEY = get_discord_token_and_env_key(BOT_INSTANCE)
+TOKEN_ENV_KEYS = get_token_env_keys(BOT_INSTANCE)
+TOKEN, TOKEN_ENV_KEY = get_discord_token_and_env_key(TOKEN_ENV_KEYS)
 DATA_BACKEND = get_data_backend()
 ENABLE_DEV_COMMANDS = get_env_bool("ENABLE_DEV_COMMANDS", False)
 DEVELOPER_USER_ID = get_env_int("DEVELOPER_USER_ID")
