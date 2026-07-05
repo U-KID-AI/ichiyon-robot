@@ -764,3 +764,14 @@ bot_id分離の現状:
 - `enabled=false` の設定ではセリフを送らない。
 - `ichiyon` は未設定時に既存の入室/復活fallbackを維持する。
 - `irsia` は未設定時に `ichiyon` の固定復活文言へfallbackしない。
+
+## 2026-07-06 イルシア いちよんラボguild ID補正
+
+追加migration:
+
+- `migrations/030_correct_irsia_ichiyon_lab_guild_id.sql`
+- 029で `1392174489609179327` をいちよんラボとして登録したが、正しいいちよんラボは `1515983621461245972`。
+- `guilds` に `1515983621461245972` / いちよんラボを追加する。
+- `bot_guilds` と `bot_voice_lines` に `irsia + 1515983621461245972` を追加する。
+- `bot_guilds` と `bot_voice_lines` から `irsia + 1392174489609179327` の紐づけだけを削除する。
+- `guilds` から `1392174489609179327` は削除しない。ランセ地方として既存利用されている可能性があるため。
