@@ -10,6 +10,7 @@ if str(ROOT_DIR) not in sys.path:
 from admin import servers
 from admin import mention_reactions
 from bot import guild_context
+from bot.repositories.mention_reactions import MentionReactionRepository
 from bot.services import runtime_db
 
 
@@ -35,6 +36,21 @@ class FakeFeatureFlagRepository:
             if flag["feature_key"] == feature_key:
                 return bool(flag["enabled"])
         return default
+
+
+class FakeMentionReactionRepository:
+    reactions = []
+
+    def __init__(self, connection) -> None:
+        self.connection = connection
+
+    def list_reactions_for_admin(self, guild_id, query=None, reaction_kind=None, enabled=None, is_system=None):
+        rows = []
+        for reaction in self.reactions:
+            if reaction_kind is not None and reaction["reaction_kind"] != reaction_kind:
+                continue
+            rows.append(dict(reaction))
+        return rows
 
 
 def ok(name: str, detail: Any = "") -> bool:
@@ -141,6 +157,82 @@ def check_legacy_redirects() -> int:
     return sum(1 for result in results if result)
 
 
+def check_mention_reaction_action_urls() -> int:
+    original_get_connection = mention_reactions.get_connection
+    original_repository = mention_reactions.MentionReactionRepository
+    try:
+        mention_reactions.get_connection = lambda: FakeConnection()
+        mention_reactions.MentionReactionRepository = FakeMentionReactionRepository
+        FakeMentionReactionRepository.reactions = [
+            {
+                "id": 10,
+                "reaction_key": "omikuji",
+                "keyword": "おみくじ",
+                "match_type": "exact",
+                "reaction_kind": "random_draw",
+                "name": "おみくじ",
+                "description": "",
+                "admin_only": False,
+                "is_system": True,
+                "is_deletable": False,
+                "enabled": True,
+                "choice_count": 3,
+            },
+            {
+                "id": 20,
+                "reaction_key": "deck_search",
+                "keyword": "デッキ",
+                "match_type": "prefix",
+                "reaction_kind": "search",
+                "name": "デッキ検索",
+                "description": "",
+                "admin_only": False,
+                "is_system": True,
+                "is_deletable": False,
+                "enabled": True,
+                "choice_count": 0,
+            },
+        ]
+        random_rows = mention_reactions.list_reaction_rows(
+            "guild",
+            "guild_admin",
+            {"q": "", "kind": "random_draw", "enabled": "all", "system": "all", "show_test_data": True},
+        )
+        search_rows = mention_reactions.list_reaction_rows(
+            "guild",
+            "guild_admin",
+            {"q": "", "kind": "search", "enabled": "all", "system": "all", "show_test_data": True},
+        )
+    finally:
+        mention_reactions.get_connection = original_get_connection
+        mention_reactions.MentionReactionRepository = original_repository
+
+    random_row = random_rows[0]
+    search_row = search_rows[0]
+    results = []
+    results.append(check(random_row["toggle_url"].endswith("/mention-reactions/10/toggle"), "random draw row has toggle url", random_row["toggle_url"]))
+    results.append(check(random_row["copy_url"].endswith("/mention-reactions/10/copy"), "random draw row has copy url", random_row["copy_url"]))
+    results.append(check(search_row["toggle_url"].endswith("/mention-reactions/20/toggle"), "deck search row has toggle url", search_row["toggle_url"]))
+    results.append(check(search_row["copy_url"].endswith("/mention-reactions/20/copy"), "deck search row has copy url", search_row["copy_url"]))
+    results.append(check("/features/mention_reactions" not in random_row["toggle_url"], "random row toggle avoids old parent", random_row["toggle_url"]))
+    results.append(check("/features/mention_reactions" not in search_row["toggle_url"], "deck row toggle avoids old parent", search_row["toggle_url"]))
+    return sum(1 for result in results if result)
+
+
+def check_mention_reaction_copy_keywords() -> int:
+    repository = MentionReactionRepository(None)
+    existing = {"デッキ コピー", "おみくじ コピー", "おみくじ コピー_2"}
+    repository.keyword_exists = lambda guild_id, keyword, exclude_id=None: keyword in existing
+    deck_keyword = repository.build_unique_copy_keyword("guild", "デッキ", "deck_search")
+    omikuji_keyword = repository.build_unique_copy_keyword("guild", "おみくじ", "omikuji")
+    empty_keyword = repository.build_unique_copy_keyword("guild", "", "custom_key")
+    results = []
+    results.append(check(deck_keyword == "デッキ コピー_2", "deck search copy keyword is unique", deck_keyword))
+    results.append(check(omikuji_keyword == "おみくじ コピー_3", "random draw copy keyword is unique", omikuji_keyword))
+    results.append(check(empty_keyword == "custom_key_copy", "empty copy keyword is safe", empty_keyword))
+    return sum(1 for result in results if result)
+
+
 def check_default_feature_keys() -> int:
     keys = list(guild_context.DEFAULT_FEATURE_KEYS)
     results = []
@@ -175,11 +267,13 @@ def check_runtime_flags() -> int:
 
 
 def main() -> int:
-    total = 9 + 7 + 6 + 4 + 3
+    total = 9 + 7 + 6 + 6 + 3 + 4 + 3
     passed = (
         check_display_definitions()
         + check_build_feature_rows()
         + check_legacy_redirects()
+        + check_mention_reaction_action_urls()
+        + check_mention_reaction_copy_keywords()
         + check_default_feature_keys()
         + check_runtime_flags()
     )
