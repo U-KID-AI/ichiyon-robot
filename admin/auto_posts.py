@@ -8,6 +8,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from admin.auth import get_current_user
+from admin.bot_context import current_selected_bot_id, selected_bot_id
 from admin.servers import can_access_guild, find_server, role_allows
 from admin.ux import is_test_data, parse_show_test_data, save_uploaded_image
 from bot.db import get_connection
@@ -38,10 +39,10 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         filters = normalize_filters(q, enabled, has_image, channel_id, show_test_data)
         posts = list_post_rows(guild_id, filters)
         return templates.TemplateResponse(
@@ -69,9 +70,9 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="auto post bulk update denied")
         # TODO(v3): bot_id権限を導入したら、guild権限だけでなくBot単位の操作権限も確認する。
@@ -86,7 +87,7 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
                 status_code=303,
             )
         with get_connection() as connection:
-            repository = AutoPostRepository(connection)
+            repository = AutoPostRepository(connection, bot_id=current_selected_bot_id())
             updated_count = repository.bulk_set_enabled(guild_id, post_ids, action == "on")
             connection.commit()
         failed_count = max(0, len(post_ids) - updated_count)
@@ -103,14 +104,14 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="auto post toggle denied")
 
         with get_connection() as connection:
-            repository = AutoPostRepository(connection)
+            repository = AutoPostRepository(connection, bot_id=current_selected_bot_id())
             if repository.get_by_id(guild_id, post_id) is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="auto post not found")
             repository.toggle_enabled(guild_id, post_id)
@@ -123,14 +124,14 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="auto post copy denied")
 
         with get_connection() as connection:
-            repository = AutoPostRepository(connection)
+            repository = AutoPostRepository(connection, bot_id=current_selected_bot_id())
             copied = repository.copy_post(guild_id, post_id)
             if copied is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="auto post not found")
@@ -146,13 +147,13 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="サーバーを見る権限がありません。")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="削除する権限がありません。")
         with get_connection() as connection:
-            repository = AutoPostRepository(connection)
+            repository = AutoPostRepository(connection, bot_id=current_selected_bot_id())
             if repository.get_by_id(guild_id, post_id) is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="自動投稿が見つかりません。")
             repository.delete_post(guild_id, post_id)
@@ -164,9 +165,9 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="auto post creation denied")
 
@@ -203,12 +204,12 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
 
         with get_connection() as connection:
-            repository = AutoPostRepository(connection)
+            repository = AutoPostRepository(connection, bot_id=current_selected_bot_id())
             post = repository.get_by_id(guild_id, post_id)
             if post is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="auto post not found")
@@ -275,7 +276,7 @@ def parse_bool(value: str) -> Optional[bool]:
 
 def list_post_rows(guild_id: str, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
     with get_connection() as connection:
-        repository = AutoPostRepository(connection)
+        repository = AutoPostRepository(connection, bot_id=current_selected_bot_id())
         posts = repository.list_posts(
             guild_id,
             query=filters["q"] or None,
@@ -452,9 +453,9 @@ async def save_auto_post(
     user = get_current_user(request)
     if user is None:
         return RedirectResponse(url="/login", status_code=303)
-    if not can_access_guild(guild_id, user["user_id"]):
+    if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-    server = find_server(guild_id, user["user_id"])
+    server = find_server(guild_id, user["user_id"], selected_bot_id(request))
     if not role_allows(server["role"], "editor"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="auto post editing denied")
 
@@ -467,7 +468,7 @@ async def save_auto_post(
     if upload_error:
         errors.append(upload_error)
     with get_connection() as connection:
-        repository = AutoPostRepository(connection)
+        repository = AutoPostRepository(connection, bot_id=current_selected_bot_id())
         if post_id is not None and repository.get_by_id(guild_id, post_id) is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="auto post not found")
 

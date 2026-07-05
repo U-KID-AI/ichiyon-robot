@@ -1,11 +1,13 @@
 from typing import Any, Dict, List, Optional
 
+from bot import config
 from bot.repositories.base import fetch_all, fetch_one
 
 
 class NgWordRepository:
-    def __init__(self, connection) -> None:
+    def __init__(self, connection, bot_id: Optional[str] = None) -> None:
         self.connection = connection
+        self.bot_id = bot_id or config.BOT_INSTANCE_ID
 
     def list_words(
         self,
@@ -13,8 +15,8 @@ class NgWordRepository:
         query: Optional[str] = None,
         enabled: Optional[bool] = None,
     ) -> List[Dict[str, Any]]:
-        params = [guild_id]
-        where = ["guild_id = %s"]
+        params = [self.bot_id, guild_id]
+        where = ["bot_id = %s", "guild_id = %s"]
 
         if query:
             where.append("word ILIKE %s")
@@ -41,9 +43,9 @@ class NgWordRepository:
                 """
                 SELECT *
                 FROM ng_words
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 """,
-                (guild_id, word_id),
+                (self.bot_id, guild_id, word_id),
             )
             return fetch_one(cursor)
 
@@ -53,8 +55,8 @@ class NgWordRepository:
         word: str,
         exclude_word_id: Optional[int] = None,
     ) -> bool:
-        params = [guild_id, word]
-        where = ["guild_id = %s", "word = %s"]
+        params = [self.bot_id, guild_id, word]
+        where = ["bot_id = %s", "guild_id = %s", "word = %s"]
         if exclude_word_id is not None:
             where.append("id <> %s")
             params.append(exclude_word_id)
@@ -79,11 +81,11 @@ class NgWordRepository:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
-                INSERT INTO ng_words (guild_id, word, enabled)
-                VALUES (%s, %s, %s)
+                INSERT INTO ng_words (bot_id, guild_id, word, enabled)
+                VALUES (%s, %s, %s, %s)
                 RETURNING *
                 """,
-                (guild_id, word, enabled),
+                (self.bot_id, guild_id, word, enabled),
             )
             return fetch_one(cursor)
 
@@ -101,10 +103,10 @@ class NgWordRepository:
                 SET word = %s,
                     enabled = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
                 """,
-                (word, enabled, guild_id, word_id),
+                (word, enabled, self.bot_id, guild_id, word_id),
             )
             return fetch_one(cursor)
 
@@ -120,10 +122,10 @@ class NgWordRepository:
                 UPDATE ng_words
                 SET enabled = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
                 """,
-                (enabled, guild_id, word_id),
+                (enabled, self.bot_id, guild_id, word_id),
             )
             return fetch_one(cursor)
 
@@ -136,10 +138,11 @@ class NgWordRepository:
                 UPDATE ng_words
                 SET enabled = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s
+                WHERE bot_id = %s
+                  AND guild_id = %s
                   AND id = ANY(%s)
                 """,
-                (enabled, guild_id, word_ids),
+                (enabled, self.bot_id, guild_id, word_ids),
             )
             return cursor.rowcount
 
@@ -168,24 +171,27 @@ class NgWordRepository:
             cursor.execute(
                 """
                 INSERT INTO special_effect_assignments (
+                    bot_id,
                     guild_id,
                     special_effect_tag_id,
                     target_type,
                     target_id,
                     enabled
                 )
-                SELECT guild_id,
+                SELECT bot_id,
+                       guild_id,
                        special_effect_tag_id,
                        target_type,
                        %s,
                        enabled
                 FROM special_effect_assignments
-                WHERE guild_id = %s
+                WHERE bot_id = %s
+                  AND guild_id = %s
                   AND target_type = 'ng_word'
                   AND target_id = %s
-                ON CONFLICT (special_effect_tag_id, target_type, target_id) DO NOTHING
+                ON CONFLICT (bot_id, special_effect_tag_id, target_type, target_id) DO NOTHING
                 """,
-                (copied["id"], guild_id, word_id),
+                (copied["id"], self.bot_id, guild_id, word_id),
             )
         return copied
 
@@ -194,18 +200,19 @@ class NgWordRepository:
             cursor.execute(
                 """
                 DELETE FROM special_effect_assignments
-                WHERE guild_id = %s
+                WHERE bot_id = %s
+                  AND guild_id = %s
                   AND target_type = 'ng_word'
                   AND target_id = %s
                 """,
-                (guild_id, word_id),
+                (self.bot_id, guild_id, word_id),
             )
             cursor.execute(
                 """
                 DELETE FROM ng_words
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 """,
-                (guild_id, word_id),
+                (self.bot_id, guild_id, word_id),
             )
             return cursor.rowcount > 0
 
@@ -215,8 +222,8 @@ class NgWordRepository:
         content: str,
         enabled: Optional[bool] = True,
     ) -> List[Dict[str, Any]]:
-        params = [guild_id, content]
-        where = ["guild_id = %s", "POSITION(word IN %s) > 0"]
+        params = [self.bot_id, guild_id, content]
+        where = ["bot_id = %s", "guild_id = %s", "POSITION(word IN %s) > 0"]
 
         if enabled is not None:
             where.append("enabled = %s")

@@ -28,8 +28,9 @@ class FakeConnection:
 class FakeFeatureFlagRepository:
     flags = []
 
-    def __init__(self, connection) -> None:
+    def __init__(self, connection, bot_id=None) -> None:
         self.connection = connection
+        self.bot_id = bot_id
 
     def list_flags(self, guild_id: str) -> List[Dict[str, Any]]:
         return list(self.flags)
@@ -44,8 +45,9 @@ class FakeFeatureFlagRepository:
 class FakeVoiceLineRepository:
     row = None
 
-    def __init__(self, connection) -> None:
+    def __init__(self, connection, bot_id=None) -> None:
         self.connection = connection
+        self.bot_id = bot_id
 
     def get(self, bot_id: str, guild_id: str):
         return self.row
@@ -54,8 +56,9 @@ class FakeVoiceLineRepository:
 class FakeMentionReactionRepository:
     reactions = []
 
-    def __init__(self, connection) -> None:
+    def __init__(self, connection, bot_id=None) -> None:
         self.connection = connection
+        self.bot_id = bot_id
 
     def list_reactions_for_admin(self, guild_id, query=None, reaction_kind=None, enabled=None, is_system=None):
         rows = []

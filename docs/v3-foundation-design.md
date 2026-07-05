@@ -775,3 +775,22 @@ bot_id分離の現状:
 - `bot_guilds` と `bot_voice_lines` に `irsia + 1515983621461245972` を追加する。
 - `bot_guilds` と `bot_voice_lines` から `irsia + 1392174489609179327` の紐づけだけを削除する。
 - `guilds` から `1392174489609179327` は削除しない。ランセ地方として既存利用されている可能性があるため。
+## 2026-07-06 shared guild settings bot scope
+
+いちよんラボのように同じ Discord guild_id を複数Botへ紐づける場合でも、管理設定は `bot_id + guild_id` 単位で分離する。
+
+- `guilds` はDiscordサーバーのグローバルマスタとして維持する。
+- Botとサーバーの紐づけは `bot_guilds(bot_id, guild_id)` で管理する。
+- 機能ON/OFFは `feature_flags(bot_id, guild_id, feature_key)` で分離する。
+- メンション反応、検索、限定機能、自動反応、NGワード、モード、カウンター、特殊効果、特殊効果割り当て、自動投稿、リアクション閾値は、Repositoryで現在Botの `bot_id` を必ずWHERE条件へ含める。
+- 入室時・復活時セリフは従来どおり `bot_voice_lines(bot_id, guild_id)` を参照する。
+- X更新通知とデッキ検索設定は既に `bot_id + guild_id` の設計を維持する。
+- 管理画面では選択中Botを `selected_bot_id(request)` / `current_selected_bot_id()` で各機能ページ、保存、削除、コピー、ON/OFFへ渡す。
+- Runtime側は `BOT_INSTANCE_ID` をRepositoryのデフォルト `bot_id` として使うため、いちよんロボは `ichiyon`、イルシアは `irsia` の設定だけ読む。
+
+追加migration:
+
+- `migrations/031_scope_shared_guild_settings_by_bot.sql`
+- 旧 `guild_id` 単位のUNIQUE制約/INDEXを `bot_id + guild_id` 単位へ置き換える。
+- 既存テーブル行のUPDATE/DELETE/TRUNCATE、既存テーブル/カラム削除は行わない。
+- 制約/INDEXの置き換えにより、`ichiyon + 1515983621461245972` と `irsia + 1515983621461245972` は同じguildでも別設定として保存できる。

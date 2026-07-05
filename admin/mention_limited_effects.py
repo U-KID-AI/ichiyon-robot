@@ -6,6 +6,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from admin.auth import get_current_user
+from admin.bot_context import current_selected_bot_id, selected_bot_id
 from admin.servers import can_access_guild, find_server, role_allows
 from admin.ux import EFFECT_TYPE_LABELS, is_test_data, parse_show_test_data
 from bot.db import get_connection
@@ -30,10 +31,10 @@ def register_mention_limited_effect_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         filters = normalize_filters(q, enabled, show_test_data)
         entries = list_entry_rows(guild_id, server["role"], filters)
         return templates.TemplateResponse(
@@ -61,16 +62,16 @@ def register_mention_limited_effect_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if not entry_ids:
             return RedirectResponse(url="/guilds/{0}/mention-reactions/limited?error={1}".format(guild_id, quote("項目を選択してね")), status_code=303)
         if action not in ("on", "off"):
             return RedirectResponse(url="/guilds/{0}/mention-reactions/limited?error={1}".format(guild_id, quote("操作を選んでね")), status_code=303)
         updated_count = 0
         with get_connection() as connection:
-            repository = MentionLimitedEffectRepository(connection)
+            repository = MentionLimitedEffectRepository(connection, bot_id=current_selected_bot_id())
             for entry_id in entry_ids:
                 entry = repository.get_by_id(guild_id, entry_id)
                 if entry is None or not can_manage_entry(server["role"], entry):
@@ -89,9 +90,9 @@ def register_mention_limited_effect_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="limited effect creation denied")
         return render_form(templates, request, server, guild_id, "new", default_form(), [], True)
@@ -123,11 +124,11 @@ def register_mention_limited_effect_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         with get_connection() as connection:
-            repository = MentionLimitedEffectRepository(connection)
+            repository = MentionLimitedEffectRepository(connection, bot_id=current_selected_bot_id())
             entry = repository.get_by_id(guild_id, entry_id)
             if entry is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="limited effect not found")
@@ -171,11 +172,11 @@ def register_mention_limited_effect_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         with get_connection() as connection:
-            repository = MentionLimitedEffectRepository(connection)
+            repository = MentionLimitedEffectRepository(connection, bot_id=current_selected_bot_id())
             entry = repository.get_by_id(guild_id, entry_id)
             if entry is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="limited effect not found")
@@ -190,11 +191,11 @@ def register_mention_limited_effect_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         with get_connection() as connection:
-            repository = MentionLimitedEffectRepository(connection)
+            repository = MentionLimitedEffectRepository(connection, bot_id=current_selected_bot_id())
             entry = repository.get_by_id(guild_id, entry_id)
             if entry is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="limited effect not found")
@@ -223,7 +224,7 @@ def parse_bool(value: str) -> Optional[bool]:
 
 def list_entry_rows(guild_id: str, role: str, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
     with get_connection() as connection:
-        repository = MentionLimitedEffectRepository(connection)
+        repository = MentionLimitedEffectRepository(connection, bot_id=current_selected_bot_id())
         entries = repository.list_entries(
             guild_id,
             query=filters["q"] or None,
@@ -326,7 +327,7 @@ def build_form(
 
 def list_available_tags(guild_id: str, role: str) -> List[Dict[str, Any]]:
     with get_connection() as connection:
-        tags = SpecialEffectRepository(connection).list_tags(
+        tags = SpecialEffectRepository(connection, bot_id=current_selected_bot_id()).list_tags(
             guild_id,
             target_type=MENTION_EFFECT_TARGET,
             enabled=None,
@@ -343,7 +344,7 @@ def list_available_tags(guild_id: str, role: str) -> List[Dict[str, Any]]:
 
 def validate_tag(guild_id: str, role: str, tag_id: int) -> Optional[str]:
     with get_connection() as connection:
-        tag = SpecialEffectRepository(connection).get_by_id(guild_id, tag_id)
+        tag = SpecialEffectRepository(connection, bot_id=current_selected_bot_id()).get_by_id(guild_id, tag_id)
     if tag is None:
         return "特殊効果タグが見つからない。"
     if tag.get("target_type") != MENTION_EFFECT_TARGET:
@@ -367,9 +368,9 @@ async def save_limited_effect(
     user = get_current_user(request)
     if user is None:
         return RedirectResponse(url="/login", status_code=303)
-    if not can_access_guild(guild_id, user["user_id"]):
+    if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-    server = find_server(guild_id, user["user_id"])
+    server = find_server(guild_id, user["user_id"], selected_bot_id(request))
     if not role_allows(server["role"], "editor"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="limited effect editing denied")
 
@@ -395,7 +396,7 @@ async def save_limited_effect(
         )
 
     with get_connection() as connection:
-        repository = MentionLimitedEffectRepository(connection)
+        repository = MentionLimitedEffectRepository(connection, bot_id=current_selected_bot_id())
         if entry_id is None:
             entry = repository.create_entry(
                 guild_id,

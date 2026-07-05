@@ -1,11 +1,13 @@
 from typing import Any, Dict, List, Optional
 
+from bot import config
 from bot.repositories.base import fetch_all, fetch_one
 
 
 class FeatureFlagRepository:
-    def __init__(self, connection) -> None:
+    def __init__(self, connection, bot_id: Optional[str] = None) -> None:
         self.connection = connection
+        self.bot_id = bot_id or config.BOT_INSTANCE_ID
 
     def list_flags(self, guild_id: str) -> List[Dict[str, Any]]:
         with self.connection.cursor() as cursor:
@@ -13,10 +15,10 @@ class FeatureFlagRepository:
                 """
                 SELECT *
                 FROM feature_flags
-                WHERE guild_id = %s
+                WHERE bot_id = %s AND guild_id = %s
                 ORDER BY feature_key ASC
                 """,
-                (guild_id,),
+                (self.bot_id, guild_id),
             )
             return fetch_all(cursor)
 
@@ -26,9 +28,9 @@ class FeatureFlagRepository:
                 """
                 SELECT *
                 FROM feature_flags
-                WHERE guild_id = %s AND feature_key = %s
+                WHERE bot_id = %s AND guild_id = %s AND feature_key = %s
                 """,
-                (guild_id, feature_key),
+                (self.bot_id, guild_id, feature_key),
             )
             return fetch_one(cursor)
 
@@ -49,19 +51,20 @@ class FeatureFlagRepository:
             cursor.execute(
                 """
                 INSERT INTO feature_flags (
+                    bot_id,
                     guild_id,
                     feature_key,
                     enabled,
                     updated_by_discord_user_id
                 )
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (guild_id, feature_key) DO UPDATE
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (bot_id, guild_id, feature_key) DO UPDATE
                 SET enabled = EXCLUDED.enabled,
                     updated_by_discord_user_id = EXCLUDED.updated_by_discord_user_id,
                     updated_at = NOW()
                 RETURNING *
                 """,
-                (guild_id, feature_key, enabled, updated_by_discord_user_id),
+                (self.bot_id, guild_id, feature_key, enabled, updated_by_discord_user_id),
             )
             return fetch_one(cursor)
 

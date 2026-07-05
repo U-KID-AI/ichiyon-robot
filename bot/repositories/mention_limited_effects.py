@@ -1,11 +1,13 @@
 from typing import Any, Dict, List, Optional
 
+from bot import config
 from bot.repositories.base import fetch_all, fetch_one
 
 
 class MentionLimitedEffectRepository:
-    def __init__(self, connection) -> None:
+    def __init__(self, connection, bot_id: Optional[str] = None) -> None:
         self.connection = connection
+        self.bot_id = bot_id or config.BOT_INSTANCE_ID
 
     def list_entries(
         self,
@@ -14,8 +16,8 @@ class MentionLimitedEffectRepository:
         enabled: Optional[bool] = None,
         effect_tag_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
-        params = [guild_id]
-        where = ["l.guild_id = %s"]
+        params = [self.bot_id, guild_id]
+        where = ["l.bot_id = %s", "l.guild_id = %s", "t.bot_id = l.bot_id"]
         if query:
             like_query = "%{0}%".format(query)
             where.append(
@@ -67,9 +69,10 @@ class MentionLimitedEffectRepository:
                     t.admin_only AS effect_tag_admin_only
                 FROM mention_limited_effects l
                 JOIN special_effect_tags t ON t.id = l.effect_tag_id
-                WHERE l.guild_id = %s AND l.id = %s
+                WHERE l.bot_id = %s AND l.guild_id = %s AND l.id = %s
+                  AND t.bot_id = l.bot_id
                 """,
-                (guild_id, entry_id),
+                (self.bot_id, guild_id, entry_id),
             )
             return fetch_one(cursor)
 
@@ -86,6 +89,7 @@ class MentionLimitedEffectRepository:
             cursor.execute(
                 """
                 INSERT INTO mention_limited_effects (
+                    bot_id,
                     guild_id,
                     discord_user_id,
                     display_name,
@@ -93,15 +97,15 @@ class MentionLimitedEffectRepository:
                     description,
                     enabled
                 )
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (guild_id, discord_user_id, effect_tag_id) DO UPDATE
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (bot_id, guild_id, discord_user_id, effect_tag_id) DO UPDATE
                 SET display_name = EXCLUDED.display_name,
                     description = EXCLUDED.description,
                     enabled = EXCLUDED.enabled,
                     updated_at = NOW()
                 RETURNING *
                 """,
-                (guild_id, discord_user_id, display_name, effect_tag_id, description, enabled),
+                (self.bot_id, guild_id, discord_user_id, display_name, effect_tag_id, description, enabled),
             )
             return fetch_one(cursor)
 
@@ -125,10 +129,10 @@ class MentionLimitedEffectRepository:
                     description = %s,
                     enabled = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
                 """,
-                (discord_user_id, display_name, effect_tag_id, description, enabled, guild_id, entry_id),
+                (discord_user_id, display_name, effect_tag_id, description, enabled, self.bot_id, guild_id, entry_id),
             )
             return fetch_one(cursor)
 
@@ -139,10 +143,10 @@ class MentionLimitedEffectRepository:
                 UPDATE mention_limited_effects
                 SET enabled = NOT enabled,
                     updated_at = NOW()
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
                 """,
-                (guild_id, entry_id),
+                (self.bot_id, guild_id, entry_id),
             )
             return fetch_one(cursor)
 
@@ -153,10 +157,10 @@ class MentionLimitedEffectRepository:
                 UPDATE mention_limited_effects
                 SET enabled = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
                 """,
-                (enabled, guild_id, entry_id),
+                (enabled, self.bot_id, guild_id, entry_id),
             )
             return fetch_one(cursor)
 
@@ -169,10 +173,11 @@ class MentionLimitedEffectRepository:
                 UPDATE mention_limited_effects
                 SET enabled = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s
+                WHERE bot_id = %s
+                  AND guild_id = %s
                   AND id = ANY(%s)
                 """,
-                (enabled, guild_id, entry_ids),
+                (enabled, self.bot_id, guild_id, entry_ids),
             )
             return cursor.rowcount
 
@@ -181,9 +186,9 @@ class MentionLimitedEffectRepository:
             cursor.execute(
                 """
                 DELETE FROM mention_limited_effects
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 """,
-                (guild_id, entry_id),
+                (self.bot_id, guild_id, entry_id),
             )
             return cursor.rowcount > 0
 
@@ -193,8 +198,8 @@ class MentionLimitedEffectRepository:
         discord_user_id: str,
         enabled: Optional[bool] = True,
     ) -> List[Dict[str, Any]]:
-        params = [guild_id, discord_user_id]
-        where = ["l.guild_id = %s", "l.discord_user_id = %s"]
+        params = [self.bot_id, guild_id, discord_user_id]
+        where = ["l.bot_id = %s", "l.guild_id = %s", "l.discord_user_id = %s", "t.bot_id = l.bot_id"]
         if enabled is not None:
             where.append("l.enabled = %s")
             where.append("t.enabled = %s")

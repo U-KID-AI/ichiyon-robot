@@ -8,6 +8,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from admin.auth import get_current_user
+from admin.bot_context import current_selected_bot_id, selected_bot_id
 from admin.servers import can_access_guild, find_server, role_allows
 from admin.ux import (
     ADDITIONAL_POST_TIMING_LABELS,
@@ -97,10 +98,10 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
 
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if kind == "limited":
             return RedirectResponse(url="/guilds/{0}/mention-reactions/limited".format(guild_id), status_code=303)
         if kind not in ("random_draw", "search"):
@@ -138,9 +139,9 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         redirect_url = mention_reaction_kind_list_url(guild_id, kind)
         if not reaction_ids:
             return RedirectResponse(url="{0}&error={1}".format(redirect_url, quote("項目を選択してね")), status_code=303)
@@ -148,7 +149,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
             return RedirectResponse(url="{0}&error={1}".format(redirect_url, quote("操作を選んでね")), status_code=303)
         updated_count = 0
         with get_connection() as connection:
-            repository = MentionReactionRepository(connection)
+            repository = MentionReactionRepository(connection, bot_id=current_selected_bot_id())
             for reaction_id in reaction_ids:
                 reaction = repository.get_by_id(guild_id, reaction_id)
                 if reaction is None or not role_allows(server["role"], required_toggle_role(reaction)):
@@ -168,15 +169,15 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
 
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if not role_allows(server["role"], "guild_admin"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="deck search creation denied")
 
         with get_connection() as connection:
-            repository = MentionReactionRepository(connection)
+            repository = MentionReactionRepository(connection, bot_id=current_selected_bot_id())
             reaction = repository.ensure_deck_search_reaction(guild_id, enabled=False)
             connection.commit()
 
@@ -195,13 +196,13 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
 
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         redirect_url = mention_reaction_kind_list_url(guild_id, None)
         with get_connection() as connection:
-            repository = MentionReactionRepository(connection)
+            repository = MentionReactionRepository(connection, bot_id=current_selected_bot_id())
             reaction = repository.get_by_id(guild_id, reaction_id)
             if reaction is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mention reaction not found")
@@ -221,11 +222,11 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         with get_connection() as connection:
-            repository = MentionReactionRepository(connection)
+            repository = MentionReactionRepository(connection, bot_id=current_selected_bot_id())
             reaction = repository.get_by_id(guild_id, reaction_id)
             if reaction is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mention reaction not found")
@@ -247,13 +248,13 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
 
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="サーバーを見る権限がありません。")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         redirect_url = mention_reaction_kind_list_url(guild_id, None)
         with get_connection() as connection:
-            repository = MentionReactionRepository(connection)
+            repository = MentionReactionRepository(connection, bot_id=current_selected_bot_id())
             reaction = repository.get_by_id(guild_id, reaction_id)
             if reaction is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="メンション反応が見つかりません。")
@@ -276,10 +277,10 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
 
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="mention reaction creation denied")
 
@@ -317,10 +318,10 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
 
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="mention reaction creation denied")
 
@@ -329,7 +330,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         if form["admin_only"] and not role_allows(server["role"], "guild_admin"):
             errors.append("管理者限定の反応はサーバー管理者以上だけ作成可。")
         with get_connection() as connection:
-            repository = MentionReactionRepository(connection)
+            repository = MentionReactionRepository(connection, bot_id=current_selected_bot_id())
             if not errors and repository.keyword_exists(guild_id, form["keyword"]):
                 errors.append(KEYWORD_DUPLICATE_ERROR)
 
@@ -383,12 +384,12 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
 
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         with get_connection() as connection:
-            repository = MentionReactionRepository(connection)
+            repository = MentionReactionRepository(connection, bot_id=current_selected_bot_id())
             reaction = repository.get_by_id(guild_id, reaction_id)
             if reaction is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mention reaction not found")
@@ -397,7 +398,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
             reaction_view = build_reaction_view(reaction)
             deck_settings = build_deck_settings(reaction_view) if is_deck_search_reaction(reaction_view) else None
             if deck_settings is not None:
-                runtime_settings = DeckSearchSettingsRepository(connection).get(bot_config.BOT_INSTANCE_ID, guild_id)
+                runtime_settings = DeckSearchSettingsRepository(connection).get(current_selected_bot_id(), guild_id)
                 deck_settings = merge_deck_runtime_settings(deck_settings, runtime_settings)
 
         return templates.TemplateResponse(
@@ -466,12 +467,12 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
 
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         with get_connection() as connection:
-            repository = MentionReactionRepository(connection)
+            repository = MentionReactionRepository(connection, bot_id=current_selected_bot_id())
             reaction = repository.get_by_id(guild_id, reaction_id)
             if reaction is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mention reaction not found")
@@ -564,7 +565,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 deck_settings["config_json"],
             )
             DeckSearchSettingsRepository(connection).upsert(
-                bot_config.BOT_INSTANCE_ID,
+                current_selected_bot_id(),
                 guild_id,
                 deck_settings["fetch_since_date_value"],
                 deck_settings["max_lookback_days"],
@@ -593,12 +594,12 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
 
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         with get_connection() as connection:
-            repository = MentionReactionRepository(connection)
+            repository = MentionReactionRepository(connection, bot_id=current_selected_bot_id())
             reaction = repository.get_by_id(guild_id, reaction_id)
             if reaction is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mention reaction not found")
@@ -849,12 +850,12 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         with get_connection() as connection:
-            mention_repository = MentionReactionRepository(connection)
+            mention_repository = MentionReactionRepository(connection, bot_id=current_selected_bot_id())
             reaction = mention_repository.get_by_id(guild_id, reaction_id)
             if reaction is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mention reaction not found")
@@ -894,12 +895,12 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         with get_connection() as connection:
-            mention_repository = MentionReactionRepository(connection)
+            mention_repository = MentionReactionRepository(connection, bot_id=current_selected_bot_id())
             reaction = mention_repository.get_by_id(guild_id, reaction_id)
             if reaction is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mention reaction not found")
@@ -907,7 +908,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
             if choice is None or int(choice["mention_reaction_id"]) != reaction_id:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mention reaction choice not found")
 
-            effect_repository = SpecialEffectRepository(connection)
+            effect_repository = SpecialEffectRepository(connection, bot_id=current_selected_bot_id())
             tag = effect_repository.get_by_id(guild_id, tag_id)
             if tag is None or tag.get("target_type") != ASSIGNMENT_TARGET_TYPE:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="special effect tag not found")
@@ -958,7 +959,7 @@ def list_reaction_rows(
     filters: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
     with get_connection() as connection:
-        repository = MentionReactionRepository(connection)
+        repository = MentionReactionRepository(connection, bot_id=current_selected_bot_id())
         reactions = repository.list_reactions_for_admin(
             guild_id,
             query=filters["q"] or None,
@@ -1048,7 +1049,7 @@ def attach_choice_effects(
     choices: List[Dict[str, Any]],
     role: str,
 ) -> List[Dict[str, Any]]:
-    repository = SpecialEffectRepository(connection)
+    repository = SpecialEffectRepository(connection, bot_id=current_selected_bot_id())
     next_choices = []
     for choice in choices:
         row = dict(choice)
@@ -1129,7 +1130,7 @@ def list_assignable_effect_rows(
     role: str,
     filters: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
-    repository = SpecialEffectRepository(connection)
+    repository = SpecialEffectRepository(connection, bot_id=current_selected_bot_id())
     tags = repository.list_tags(
         guild_id,
         query=filters["q"] or None,
@@ -1176,7 +1177,7 @@ def can_edit_deck_settings(role: str, reaction: Dict[str, Any]) -> bool:
 
 def has_deck_search_reaction(guild_id: str) -> bool:
     with get_connection() as connection:
-        repository = MentionReactionRepository(connection)
+        repository = MentionReactionRepository(connection, bot_id=current_selected_bot_id())
         return repository.get_by_key(guild_id, DECK_SEARCH_KEY) is not None
 
 
@@ -1587,7 +1588,7 @@ def prepare_choice_mutation(guild_id: str, reaction_id: int, discord_user_id: st
 
     server = find_server(guild_id, discord_user_id)
     connection = connect()
-    repository = MentionReactionRepository(connection)
+    repository = MentionReactionRepository(connection, bot_id=current_selected_bot_id())
     reaction = repository.get_by_id(guild_id, reaction_id)
     if reaction is None:
         connection.close()

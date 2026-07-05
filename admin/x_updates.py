@@ -6,6 +6,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from admin.auth import get_current_user
+from admin.bot_context import selected_bot_id
 from admin.servers import can_access_guild, find_server, role_allows
 from admin.ux import is_test_data, parse_show_test_data
 from bot import config as bot_config
@@ -35,11 +36,12 @@ def register_x_update_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         filters = normalize_filters(q, enabled, show_test_data)
-        watches = list_watch_rows(guild_id, filters)
+        bot_id = selected_bot_id(request)
+        watches = list_watch_rows(bot_id, guild_id, filters)
         return templates.TemplateResponse(
             request,
             "x_updates.html",
@@ -78,7 +80,7 @@ def register_x_update_routes(templates: Jinja2Templates) -> None:
         with get_connection() as connection:
             repository = XUpdateWatchRepository(connection)
             updated_count = repository.bulk_set_enabled(
-                bot_config.BOT_INSTANCE_ID,
+                selected_bot_id(request),
                 guild_id,
                 watch_ids,
                 enabled_value,
@@ -98,9 +100,9 @@ def register_x_update_routes(templates: Jinja2Templates) -> None:
         user, server = require_guild_admin(request, guild_id)
         with get_connection() as connection:
             repository = XUpdateWatchRepository(connection)
-            if repository.get_by_id(bot_config.BOT_INSTANCE_ID, guild_id, watch_id) is None:
+            if repository.get_by_id(selected_bot_id(request), guild_id, watch_id) is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="x update watch not found")
-            repository.toggle_enabled(bot_config.BOT_INSTANCE_ID, guild_id, watch_id)
+            repository.toggle_enabled(selected_bot_id(request), guild_id, watch_id)
             connection.commit()
         return RedirectResponse(url="/guilds/{0}/x-updates".format(guild_id), status_code=303)
 
@@ -110,7 +112,7 @@ def register_x_update_routes(templates: Jinja2Templates) -> None:
         # TODO(v3): bot_id単位の権限が入ったら、コピー対象のbot_id操作権限も確認する。
         with get_connection() as connection:
             repository = XUpdateWatchRepository(connection)
-            copied = repository.copy_watch(bot_config.BOT_INSTANCE_ID, guild_id, watch_id)
+            copied = repository.copy_watch(selected_bot_id(request), guild_id, watch_id)
             if copied is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="x update watch not found")
             connection.commit()
@@ -124,9 +126,9 @@ def register_x_update_routes(templates: Jinja2Templates) -> None:
         user, server = require_guild_admin(request, guild_id)
         with get_connection() as connection:
             repository = XUpdateWatchRepository(connection)
-            if repository.get_by_id(bot_config.BOT_INSTANCE_ID, guild_id, watch_id) is None:
+            if repository.get_by_id(selected_bot_id(request), guild_id, watch_id) is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="x update watch not found")
-            repository.delete_watch(bot_config.BOT_INSTANCE_ID, guild_id, watch_id)
+            repository.delete_watch(selected_bot_id(request), guild_id, watch_id)
             connection.commit()
         return RedirectResponse(url="/guilds/{0}/x-updates".format(guild_id), status_code=303)
 
@@ -159,12 +161,12 @@ def register_x_update_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         with get_connection() as connection:
             repository = XUpdateWatchRepository(connection)
-            watch = repository.get_by_id(bot_config.BOT_INSTANCE_ID, guild_id, watch_id)
+            watch = repository.get_by_id(selected_bot_id(request), guild_id, watch_id)
             if watch is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="x update watch not found")
             form = build_form_from_watch(watch)
@@ -205,9 +207,9 @@ def require_guild_admin(request: Request, guild_id: str):
     user = get_current_user(request)
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="login required")
-    if not can_access_guild(guild_id, user["user_id"]):
+    if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-    server = find_server(guild_id, user["user_id"])
+    server = find_server(guild_id, user["user_id"], selected_bot_id(request))
     if not role_allows(server["role"], "guild_admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="x update editing denied")
     return user, server
@@ -229,11 +231,11 @@ def parse_bool_filter(value: str) -> Optional[bool]:
     return None
 
 
-def list_watch_rows(guild_id: str, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
+def list_watch_rows(bot_id: str, guild_id: str, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
     with get_connection() as connection:
         repository = XUpdateWatchRepository(connection)
         watches = repository.list_watches(
-            bot_config.BOT_INSTANCE_ID,
+            bot_id,
             guild_id,
             query=filters["q"] or None,
             enabled=parse_bool_filter(filters["enabled"]),
@@ -353,12 +355,12 @@ async def save_x_update(
     form, errors = build_form(values)
     with get_connection() as connection:
         repository = XUpdateWatchRepository(connection)
-        if watch_id is not None and repository.get_by_id(bot_config.BOT_INSTANCE_ID, guild_id, watch_id) is None:
+        if watch_id is not None and repository.get_by_id(selected_bot_id(request), guild_id, watch_id) is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="x update watch not found")
         if not errors:
             if watch_id is None:
                 created = repository.create_watch(
-                    bot_config.BOT_INSTANCE_ID,
+                    selected_bot_id(request),
                     guild_id,
                     form["channel_id"],
                     form["x_username"],
@@ -379,7 +381,7 @@ async def save_x_update(
                     status_code=303,
                 )
             repository.update_watch(
-                bot_config.BOT_INSTANCE_ID,
+                selected_bot_id(request),
                 guild_id,
                 watch_id,
                 form["channel_id"],

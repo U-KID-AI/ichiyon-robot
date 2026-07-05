@@ -1,3 +1,4 @@
+from contextvars import ContextVar
 from typing import Any, Dict, Optional
 
 from fastapi import Request
@@ -9,13 +10,21 @@ from bot.repositories.bot_instances import BotInstanceRepository
 
 
 SESSION_BOT_ID_KEY = "selected_bot_id"
+CURRENT_BOT_ID: ContextVar[Optional[str]] = ContextVar("current_admin_bot_id", default=None)
 
 
 def selected_bot_id(request: Request) -> str:
     value = request.session.get(SESSION_BOT_ID_KEY)
     if isinstance(value, str) and value.strip():
-        return value.strip()
-    return bot_config.BOT_INSTANCE_ID
+        bot_id = value.strip()
+    else:
+        bot_id = bot_config.BOT_INSTANCE_ID
+    CURRENT_BOT_ID.set(bot_id)
+    return bot_id
+
+
+def current_selected_bot_id() -> str:
+    return CURRENT_BOT_ID.get() or bot_config.BOT_INSTANCE_ID
 
 
 def set_selected_bot_id(request: Request, bot_id: str) -> None:

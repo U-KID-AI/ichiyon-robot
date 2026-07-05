@@ -1,11 +1,13 @@
 from typing import Any, Dict, List, Optional
 
+from bot import config
 from bot.repositories.base import fetch_all, fetch_one
 
 
 class AutoReactionRepository:
-    def __init__(self, connection) -> None:
+    def __init__(self, connection, bot_id: Optional[str] = None) -> None:
         self.connection = connection
+        self.bot_id = bot_id or config.BOT_INSTANCE_ID
 
     def list_reactions(
         self,
@@ -14,8 +16,8 @@ class AutoReactionRepository:
         enabled: Optional[bool] = None,
         has_image: Optional[bool] = None,
     ) -> List[Dict[str, Any]]:
-        params = [guild_id]
-        where = ["guild_id = %s"]
+        params = [self.bot_id, guild_id]
+        where = ["bot_id = %s", "guild_id = %s"]
 
         if query:
             like_query = "%{0}%".format(query)
@@ -50,9 +52,9 @@ class AutoReactionRepository:
                 """
                 SELECT *
                 FROM reactions
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 """,
-                (guild_id, reaction_id),
+                (self.bot_id, guild_id, reaction_id),
             )
             return fetch_one(cursor)
 
@@ -63,8 +65,8 @@ class AutoReactionRepository:
         match_type: str,
         exclude_reaction_id: Optional[int] = None,
     ) -> bool:
-        params = [guild_id, trigger_text, match_type]
-        where = ["guild_id = %s", "trigger_text = %s", "match_type = %s"]
+        params = [self.bot_id, guild_id, trigger_text, match_type]
+        where = ["bot_id = %s", "guild_id = %s", "trigger_text = %s", "match_type = %s"]
         if exclude_reaction_id is not None:
             where.append("id <> %s")
             params.append(exclude_reaction_id)
@@ -95,6 +97,7 @@ class AutoReactionRepository:
             cursor.execute(
                 """
                 INSERT INTO reactions (
+                    bot_id,
                     guild_id,
                     trigger_text,
                     response_text,
@@ -104,10 +107,11 @@ class AutoReactionRepository:
                     priority,
                     enabled
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING *
                 """,
                 (
+                    self.bot_id,
                     guild_id,
                     trigger_text,
                     response_text,
@@ -144,7 +148,7 @@ class AutoReactionRepository:
                     priority = %s,
                     enabled = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
                 """,
                 (
@@ -155,6 +159,7 @@ class AutoReactionRepository:
                     match_type,
                     priority,
                     enabled,
+                    self.bot_id,
                     guild_id,
                     reaction_id,
                 ),
@@ -173,10 +178,10 @@ class AutoReactionRepository:
                 UPDATE reactions
                 SET enabled = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
                 """,
-                (enabled, guild_id, reaction_id),
+                (enabled, self.bot_id, guild_id, reaction_id),
             )
             return fetch_one(cursor)
 
@@ -189,10 +194,11 @@ class AutoReactionRepository:
                 UPDATE reactions
                 SET enabled = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s
+                WHERE bot_id = %s
+                  AND guild_id = %s
                   AND id = ANY(%s)
                 """,
-                (enabled, guild_id, reaction_ids),
+                (enabled, self.bot_id, guild_id, reaction_ids),
             )
             return cursor.rowcount
 
@@ -224,24 +230,27 @@ class AutoReactionRepository:
             cursor.execute(
                 """
                 INSERT INTO special_effect_assignments (
+                    bot_id,
                     guild_id,
                     special_effect_tag_id,
                     target_type,
                     target_id,
                     enabled
                 )
-                SELECT guild_id,
+                SELECT bot_id,
+                       guild_id,
                        special_effect_tag_id,
                        target_type,
                        %s,
                        enabled
                 FROM special_effect_assignments
                 WHERE guild_id = %s
+                  AND bot_id = %s
                   AND target_type = 'auto_reaction'
                   AND target_id = %s
-                ON CONFLICT (special_effect_tag_id, target_type, target_id) DO NOTHING
+                ON CONFLICT (bot_id, special_effect_tag_id, target_type, target_id) DO NOTHING
                 """,
-                (copied["id"], guild_id, reaction_id),
+                (copied["id"], guild_id, self.bot_id, reaction_id),
             )
         return copied
 
@@ -250,18 +259,19 @@ class AutoReactionRepository:
             cursor.execute(
                 """
                 DELETE FROM special_effect_assignments
-                WHERE guild_id = %s
+                WHERE bot_id = %s
+                  AND guild_id = %s
                   AND target_type = 'auto_reaction'
                   AND target_id = %s
                 """,
-                (guild_id, reaction_id),
+                (self.bot_id, guild_id, reaction_id),
             )
             cursor.execute(
                 """
                 DELETE FROM reactions
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 """,
-                (guild_id, reaction_id),
+                (self.bot_id, guild_id, reaction_id),
             )
             return cursor.rowcount > 0
 
@@ -271,8 +281,9 @@ class AutoReactionRepository:
         content: str,
         enabled: Optional[bool] = True,
     ) -> List[Dict[str, Any]]:
-        params = [guild_id, content, content, content, content]
+        params = [self.bot_id, guild_id, content, content, content, content]
         where = [
+            "bot_id = %s",
             "guild_id = %s",
             "((match_type = 'exact' AND %s = trigger_text) "
             "OR (match_type = 'prefix' AND POSITION(trigger_text IN %s) = 1) "
