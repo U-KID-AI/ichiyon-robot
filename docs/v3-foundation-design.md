@@ -743,3 +743,24 @@ bot_id分離の現状:
 6. 必要に応じて `/bots` からイルシアを選び、入室時・復活時セリフ、X更新通知、デッキ検索設定を編集する。
 7. `docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile irsia up -d bot-irsia` で起動する。
 8. 既存 `bot` / いちよんロボの稼働状態を確認し、イルシア側ログで `bot_instance_id=irsia` とDiscordログインを確認する。
+
+## 2026-07-06 イルシアguild分離とセリフ反映修正
+
+追加migration:
+
+- `migrations/029_fix_irsia_bot_guilds_and_voice_lines.sql`
+- 既存データのUPDATE/DELETE/DROP/TRUNCATEは含めない。
+- 既存 `guilds` を `ichiyon` へ `bot_guilds` で明示紐づけする。ただしイルシア専用の `1520964851046944900` / `928619302213533736` は除外する。
+- `irsia` には以下3サーバーを紐づける。
+  - `1392174489609179327` / いちよんラボ
+  - `1520964851046944900` / 天使の聖域
+  - `928619302213533736` / 神聖イルシア皇国
+- `bot_voice_lines` に `irsia + guild_id` の空設定を追加する。
+
+実行時仕様:
+
+- 入室時セリフは `bot_voice_lines(bot_id, guild_id).join_line` を優先する。
+- 復活時セリフは `bot_voice_lines(bot_id, guild_id).revive_line` を優先する。
+- `enabled=false` の設定ではセリフを送らない。
+- `ichiyon` は未設定時に既存の入室/復活fallbackを維持する。
+- `irsia` は未設定時に `ichiyon` の固定復活文言へfallbackしない。

@@ -12,6 +12,7 @@ from admin import servers
 
 REPOSITORY_PATH = PROJECT_ROOT / "bot" / "repositories" / "permissions.py"
 MIGRATION_028_PATH = PROJECT_ROOT / "migrations" / "028_register_irsia_production_guilds.sql"
+MIGRATION_029_PATH = PROJECT_ROOT / "migrations" / "029_fix_irsia_bot_guilds_and_voice_lines.sql"
 
 
 class FakeConnection:
@@ -73,10 +74,12 @@ def main() -> int:
         )
         repository_source = REPOSITORY_PATH.read_text(encoding="utf-8")
         migration_source = MIGRATION_028_PATH.read_text(encoding="utf-8")
+        migration_029_source = MIGRATION_029_PATH.read_text(encoding="utf-8")
         record(
             results,
             "bot guild mapping table is declared",
-            "CREATE TABLE IF NOT EXISTS bot_guilds" in migration_source,
+            "CREATE TABLE IF NOT EXISTS bot_guilds" in migration_source
+            and "CREATE TABLE IF NOT EXISTS bot_guilds" in migration_029_source,
             "bot_guilds",
         )
         record(
@@ -85,6 +88,19 @@ def main() -> int:
             "('irsia', '1520964851046944900', TRUE)" in migration_source
             and "('irsia', '928619302213533736', TRUE)" in migration_source,
             "irsia guilds",
+        )
+        record(
+            results,
+            "irsia lab guild is mapped to bot",
+            "('irsia', '1392174489609179327', TRUE)" in migration_029_source,
+            "irsia lab",
+        )
+        record(
+            results,
+            "existing guilds are mapped to ichiyon except irsia only guilds",
+            "SELECT 'ichiyon', g.guild_id, TRUE" in migration_029_source
+            and "'1520964851046944900', '928619302213533736'" in migration_029_source,
+            "ichiyon mapping",
         )
         record(
             results,
