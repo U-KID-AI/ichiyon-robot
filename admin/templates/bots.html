@@ -1,0 +1,24 @@
+{% extends "layout.html" %}
+
+{% block title %}Bot選択{% endblock %}
+{% block heading %}Bot選択{% endblock %}
+
+{% block content %}
+  <section class="panel compact-list">
+    {% if bots %}
+      {% for bot in bots %}
+        <div class="compact-row">
+          <div class="compact-main">
+            <strong>{{ bot.display_name or bot.bot_id }}</strong>
+            <span class="muted mobile-hidden-description">{{ bot.description or bot.bot_id }}</span>
+          </div>
+          <div class="compact-actions">
+            <a class="button" href="/bots/{{ bot.bot_id }}/guilds">選択</a>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p>管理できるBotがありません。</p>
+    {% endif %}
+  </section>
+{% endblock %}

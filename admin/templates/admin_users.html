@@ -1,0 +1,28 @@
+{% extends "layout.html" %}
+
+{% block title %}ユーザー管理{% endblock %}
+{% block heading %}ユーザー管理{% endblock %}
+
+{% block content %}
+  <div class="toolbar">
+    <a class="button primary" href="/admin/users/new">新規追加</a>
+  </div>
+  <section class="panel compact-list">
+    {% if users %}
+      {% for item in users %}
+        <div class="compact-row">
+          <div class="compact-main">
+            <strong>{{ item.display_name or item.discord_user_id }}</strong>
+            <span class="muted mobile-hidden-description">{{ item.discord_user_id }} / {{ item.role }}</span>
+          </div>
+          <span class="status-pill {{ 'enabled' if item.enabled else 'disabled' }}">{{ "ON" if item.enabled else "OFF" }}</span>
+          <div class="compact-actions">
+            <a class="button" href="/admin/users/{{ item.discord_user_id }}">編集</a>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p>管理ユーザーが登録されていません。</p>
+    {% endif %}
+  </section>
+{% endblock %}

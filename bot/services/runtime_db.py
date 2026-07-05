@@ -23,7 +23,9 @@ from bot.repositories import (
     NgWordRepository,
     PermissionRepository,
     SpecialEffectRepository,
+    VoiceLineRepository,
 )
+from bot.repositories.voice_lines import DEFAULT_REVIVE_LINE, resolve_voice_line
 from bot.services.deck_search import search_decks
 from bot.services.deck_search_settings import (
     apply_deck_search_settings,
@@ -47,7 +49,7 @@ MATCH_TYPE_RANK = {
     "prefix": 2,
     "regex": 1,
 }
-SHIKOCCHI_RECOVERY_MESSAGE = "まずは女子供から殺す"
+SHIKOCCHI_RECOVERY_MESSAGE = DEFAULT_REVIVE_LINE
 MAX_NEXT_ACTION_COUNT = 5
 _PENDING_NEXT_EFFECTS: Dict[str, List[Dict[str, Any]]] = {}
 
@@ -1911,7 +1913,21 @@ async def send_mode_exit_message_to_channel(channel: discord.abc.Messageable, mo
     mode_key = (mode.get("mode_key") or "").lower()
     mode_name = (mode.get("name") or "").lower()
     if "shikocchi" in mode_key or "しこっち" in mode_name:
-        await channel.send(SHIKOCCHI_RECOVERY_MESSAGE)
+        line = get_recovery_voice_line(str(mode.get("guild_id") or ""))
+        if line:
+            await channel.send(line)
+
+
+def get_recovery_voice_line(guild_id: str) -> Optional[str]:
+    if not guild_id:
+        return SHIKOCCHI_RECOVERY_MESSAGE
+    try:
+        with get_connection() as connection:
+            row = VoiceLineRepository(connection).get(config.BOT_INSTANCE_ID, guild_id)
+            return resolve_voice_line(row, "revive_line", SHIKOCCHI_RECOVERY_MESSAGE)
+    except Exception as exc:
+        print("[WARN] Failed to load recovery voice line for guild {0}: {1}".format(guild_id, exc))
+        return SHIKOCCHI_RECOVERY_MESSAGE
 
 
 async def enter_mode_if_needed(

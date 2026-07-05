@@ -669,3 +669,43 @@ migration:
 - X更新通知のキーワード検索はRecent Searchを使うため、X側の検索仕様に依存する。
 - 取得後フィルタは必ず併用する。
 - `bot_id` 権限スコープ、Bot横断表示は後続。
+- `bot_id` 讓ｩ髯舌せ繧ｳ繝ｼ繝励。ot讓ｪ譁ｭ陦ｨ遉ｺ縺ｯ蠕檎ｶ壹・
+
+## 2026-07-05 Bot切替 / ユーザー管理 / セリフ設定
+
+今回入れたもの:
+
+- 管理画面に `/admin` を追加し、ログイン後の管理メニューを用意した。
+- `/bots` で管理権限のあるBotだけを表示する。
+- `/bots/{bot_id}/guilds` で、そのBotについて権限のあるサーバーだけを表示する。
+- 選択中Botは管理画面セッションに保存し、既存 `/guilds/{guild_id}` の表示に反映する。
+- `admin_users` に `display_name` / `enabled` / `can_manage_users` / `last_login_at` を追加するmigrationを用意した。
+- `/admin/users` で管理画面ユーザー、Bot権限、サーバー権限を編集できる。
+- `bot_voice_lines` を追加し、`bot_id + guild_id` 単位で入室時セリフ、復活時セリフ、有効/無効を持てるようにした。
+- 機能一覧に「入室時・復活時セリフ」を追加した。
+- しこっちモード復帰時の固定復活文言は、`bot_voice_lines.revive_line` があればそれを使う。未設定時はいちよんロボ既存文言を維持する。
+- `bot_voice_lines.enabled=false` の場合、その設定からの復活セリフは送らない。
+
+権限の基本方針:
+
+- `DEVELOPER_USER_ID` または `ADMIN_DEVELOPER_USER_IDS` に含まれるユーザーは初期スーパー管理者として扱う。
+- `admin_users.role=global_admin` も全Bot/全サーバーを管理できる。
+- それ以外のユーザーは `bot_permissions` に登録されたBotだけが見える。
+- 権限がないBot/サーバーは一覧に表示しない。直接URLでも404/403で隠す。
+- 既存互換として、旧 `guild_permissions` だけ持つユーザーは `ichiyon` のみ見える。
+
+migration:
+
+- `migrations/027_add_admin_bot_management_and_voice_lines.sql`
+- 既存データのUPDATE/DELETE/DROP/TRUNCATEは含めない。
+- 本番DBへの適用は別作業。
+
+イルシア本番追加で必要な作業:
+
+1. 本番DBにmigration 027を適用する。
+2. `bot_instances` に `irsia` が存在し、有効であることを確認する。
+3. イルシア管理者に `bot_permissions` を付与する。
+4. イルシアを使うサーバーを `guilds` に登録し、必要な権限を付与する。
+5. 本番 `.env` に `IRSIA_DISCORD_TOKEN` を設定する。
+6. Docker Composeの `bot-irsia` profile/serviceを起動する。
+7. 管理画面 `/bots` で `イルシア` が権限者にだけ表示されることを確認する。

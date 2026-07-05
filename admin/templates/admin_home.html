@@ -1,0 +1,29 @@
+{% extends "layout.html" %}
+
+{% block title %}管理メニュー{% endblock %}
+{% block heading %}管理メニュー{% endblock %}
+
+{% block content %}
+  <section class="panel compact-list">
+    <div class="compact-row">
+      <div class="compact-main">
+        <strong>Bot選択</strong>
+        <span class="muted mobile-hidden-description">管理するBotとサーバーを選びます。</span>
+      </div>
+      <div class="compact-actions">
+        <a class="button" href="/bots">開く</a>
+      </div>
+    </div>
+    {% if can_manage_users %}
+      <div class="compact-row">
+        <div class="compact-main">
+          <strong>ユーザー管理</strong>
+          <span class="muted mobile-hidden-description">管理画面ユーザーとBot/サーバー権限を編集します。</span>
+        </div>
+        <div class="compact-actions">
+          <a class="button" href="/admin/users">開く</a>
+        </div>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

@@ -1,0 +1,24 @@
+{% extends "layout.html" %}
+
+{% block title %}{{ bot.display_name or bot.bot_id }} のサーバー{% endblock %}
+{% block heading %}{{ bot.display_name or bot.bot_id }} のサーバー{% endblock %}
+
+{% block content %}
+  <section class="panel compact-list">
+    {% if servers %}
+      {% for server in servers %}
+        <div class="compact-row">
+          <div class="compact-main">
+            <strong>{{ server.name or server.guild_id }}</strong>
+            <span class="muted mobile-hidden-description">{{ server.guild_id }} / {{ server.role }}</span>
+          </div>
+          <div class="compact-actions">
+            <a class="button" href="/bots/{{ bot.bot_id }}/guilds/{{ server.guild_id }}">管理</a>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p>管理できるサーバーがありません。</p>
+    {% endif %}
+  </section>
+{% endblock %}

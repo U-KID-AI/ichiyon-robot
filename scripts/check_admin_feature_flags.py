@@ -41,6 +41,16 @@ class FakeFeatureFlagRepository:
         return default
 
 
+class FakeVoiceLineRepository:
+    row = None
+
+    def __init__(self, connection) -> None:
+        self.connection = connection
+
+    def get(self, bot_id: str, guild_id: str):
+        return self.row
+
+
 class FakeMentionReactionRepository:
     reactions = []
 
@@ -97,9 +107,12 @@ def check_display_definitions() -> int:
 def check_build_feature_rows() -> int:
     original_get_connection = servers.get_connection
     original_repository = servers.FeatureFlagRepository
+    original_voice_repository = servers.VoiceLineRepository
     try:
         servers.get_connection = lambda: FakeConnection()
         servers.FeatureFlagRepository = FakeFeatureFlagRepository
+        servers.VoiceLineRepository = FakeVoiceLineRepository
+        FakeVoiceLineRepository.row = {"enabled": False}
         FakeFeatureFlagRepository.flags = [
             {"feature_key": "mention_random_draw", "enabled": False},
             {"feature_key": "mention_search", "enabled": True},
@@ -108,11 +121,12 @@ def check_build_feature_rows() -> int:
         rows = {
             row["key"]: row
             for row in servers.build_feature_rows("guild", "guild_admin")
-            if row["key"] in {"mention_random_draw", "mention_search", "mention_limited"}
+            if row["key"] in {"mention_random_draw", "mention_search", "mention_limited", "voice_lines"}
         }
     finally:
         servers.get_connection = original_get_connection
         servers.FeatureFlagRepository = original_repository
+        servers.VoiceLineRepository = original_voice_repository
 
     results = []
     results.append(check(rows["mention_random_draw"]["enabled"] is False, "random draw state is independent", rows))
@@ -121,7 +135,13 @@ def check_build_feature_rows() -> int:
     results.append(check(rows["mention_random_draw"]["toggle_url"].endswith("/features/mention_random_draw/toggle"), "random draw toggle target", rows["mention_random_draw"]["toggle_url"]))
     results.append(check(rows["mention_search"]["toggle_url"].endswith("/features/mention_search/toggle"), "search toggle target", rows["mention_search"]["toggle_url"]))
     results.append(check(rows["mention_limited"]["toggle_url"].endswith("/features/mention_limited/toggle"), "limited toggle target", rows["mention_limited"]["toggle_url"]))
-    results.append(check(len({row["toggle_url"] for row in rows.values()}) == 3, "mention feature toggle urls are unique", rows))
+    mention_toggle_urls = {
+        rows[key]["toggle_url"]
+        for key in ("mention_random_draw", "mention_search", "mention_limited")
+    }
+    results.append(check(len(mention_toggle_urls) == 3, "mention feature toggle urls are unique", rows))
+    results.append(check(rows["voice_lines"]["enabled"] is False, "voice line state comes from voice line setting", rows["voice_lines"]))
+    results.append(check(rows["voice_lines"]["toggle_url"].endswith("/voice-lines/toggle"), "voice line has own toggle route", rows["voice_lines"]["toggle_url"]))
     return sum(1 for result in results if result)
 
 
@@ -389,7 +409,7 @@ def check_mode_templates_render() -> int:
 
 def main() -> int:
     template_count = len(list((ROOT_DIR / "admin" / "templates").glob("*.html")))
-    total = 9 + 7 + 6 + 6 + 3 + 4 + 3 + template_count + 2
+    total = 9 + 9 + 6 + 6 + 3 + 4 + 3 + template_count + 2
     passed = (
         check_display_definitions()
         + check_build_feature_rows()
