@@ -11,7 +11,11 @@ from admin.ux import is_test_data, parse_show_test_data
 from bot import config as bot_config
 from bot.db import get_connection
 from bot.repositories import XUpdateWatchRepository
-from bot.services.x_update_notifications import DEFAULT_CHECK_INTERVAL_SECONDS, DEFAULT_POST_TEMPLATE
+from bot.services.x_update_notifications import (
+    DEFAULT_CHECK_INTERVAL_SECONDS,
+    DEFAULT_POST_TEMPLATE,
+    parse_keyword_list,
+)
 
 
 router = APIRouter()
@@ -144,6 +148,8 @@ def register_x_update_routes(templates: Jinja2Templates) -> None:
         include_reposts: Optional[str] = Form(None),
         include_quotes: Optional[str] = Form(None),
         check_interval_seconds: str = Form("900"),
+        include_keywords: str = Form(""),
+        exclude_keywords: str = Form(""),
         post_template: str = Form(""),
     ):
         return await save_x_update(request, templates, guild_id, None, locals())
@@ -188,6 +194,8 @@ def register_x_update_routes(templates: Jinja2Templates) -> None:
         include_reposts: Optional[str] = Form(None),
         include_quotes: Optional[str] = Form(None),
         check_interval_seconds: str = Form("900"),
+        include_keywords: str = Form(""),
+        exclude_keywords: str = Form(""),
         post_template: str = Form(""),
     ):
         return await save_x_update(request, templates, guild_id, watch_id, locals())
@@ -243,6 +251,8 @@ def row_is_hidden_test_data(row: Dict[str, Any]) -> bool:
 
 def build_watch_view(watch: Dict[str, Any], guild_id: str) -> Dict[str, Any]:
     row = build_form_from_watch(watch)
+    row["include_keywords_label"] = "、".join(parse_keyword_list(row.get("include_keywords")))
+    row["exclude_keywords_label"] = "、".join(parse_keyword_list(row.get("exclude_keywords")))
     row["edit_url"] = "/guilds/{0}/x-updates/{1}".format(guild_id, row["id"])
     row["toggle_url"] = "/guilds/{0}/x-updates/{1}/toggle".format(guild_id, row["id"])
     row["delete_url"] = "/guilds/{0}/x-updates/{1}/delete".format(guild_id, row["id"])
@@ -260,6 +270,8 @@ def default_form() -> Dict[str, Any]:
         "include_replies": False,
         "include_reposts": False,
         "include_quotes": False,
+        "include_keywords": "",
+        "exclude_keywords": "",
         "check_interval_seconds": DEFAULT_CHECK_INTERVAL_SECONDS,
         "last_seen_post_id": "",
         "last_posted_post_id": "",
@@ -283,6 +295,8 @@ def build_form_from_watch(watch: Dict[str, Any]) -> Dict[str, Any]:
             "include_replies": bool(watch.get("include_replies")),
             "include_reposts": bool(watch.get("include_reposts")),
             "include_quotes": bool(watch.get("include_quotes")),
+            "include_keywords": watch.get("include_keywords") or "",
+            "exclude_keywords": watch.get("exclude_keywords") or "",
             "check_interval_seconds": int(watch.get("check_interval_seconds") or DEFAULT_CHECK_INTERVAL_SECONDS),
             "last_seen_post_id": watch.get("last_seen_post_id") or "",
             "last_posted_post_id": watch.get("last_posted_post_id") or "",
@@ -307,6 +321,8 @@ def build_form(values: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
             "include_replies": values.get("include_replies") == "on",
             "include_reposts": values.get("include_reposts") == "on",
             "include_quotes": values.get("include_quotes") == "on",
+            "include_keywords": "\n".join(parse_keyword_list(values.get("include_keywords"))),
+            "exclude_keywords": "\n".join(parse_keyword_list(values.get("exclude_keywords"))),
             "post_template": str(values.get("post_template") or "").strip() or DEFAULT_POST_TEMPLATE,
         }
     )
@@ -354,6 +370,8 @@ async def save_x_update(
                     form["include_quotes"],
                     form["check_interval_seconds"],
                     form["post_template"] or None,
+                    form["include_keywords"] or None,
+                    form["exclude_keywords"] or None,
                 )
                 connection.commit()
                 return RedirectResponse(
@@ -374,6 +392,8 @@ async def save_x_update(
                 form["include_quotes"],
                 form["check_interval_seconds"],
                 form["post_template"] or None,
+                form["include_keywords"] or None,
+                form["exclude_keywords"] or None,
             )
             connection.commit()
             return RedirectResponse(url="/guilds/{0}/x-updates/{1}".format(guild_id, watch_id), status_code=303)

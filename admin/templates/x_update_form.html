@@ -42,6 +42,15 @@
     </section>
 
     <section class="panel">
+      <h2>キーワード</h2>
+      <div class="form-grid">
+        <label>必須ワード<textarea name="include_keywords" rows="4" placeholder="シャドバ&#10;Shadowverse&#10;デッキ" {% if not can_edit %}disabled{% endif %}>{{ watch.include_keywords }}</textarea></label>
+        <label>除外ワード<textarea name="exclude_keywords" rows="4" placeholder="PR&#10;キャンペーン" {% if not can_edit %}disabled{% endif %}>{{ watch.exclude_keywords }}</textarea></label>
+      </div>
+      <p class="empty">カンマ区切り・改行区切り。必須ワードはどれか1つを含む投稿だけ通知。除外ワードは優先して除外。</p>
+    </section>
+
+    <section class="panel">
       <h2>投稿文</h2>
       <textarea name="post_template" rows="4" {% if not can_edit %}disabled{% endif %}>{{ watch.post_template }}</textarea>
       <p class="empty">使える変数: {account_name} {username} {post_text} {post_url} {created_at}</p>

@@ -54,7 +54,7 @@
         <button form="bulk-x-updates" type="submit" name="action" value="off" onclick="return confirm('選択した通知をOFFにする？');">選択をOFF</button>
       </div>
       <div class="table-wrap">
-        <table>
+        <table class="admin-table compact-table">
           <thead>
             <tr>
               <th>選択</th>
@@ -70,23 +70,29 @@
           <tbody>
             {% for watch in watches %}
               <tr>
-                <td><input form="bulk-x-updates" type="checkbox" name="watch_ids" value="{{ watch.id }}"></td>
-                <td>{% if watch.enabled %}<strong class="status enabled">ON</strong>{% else %}<strong class="status disabled">OFF</strong>{% endif %}</td>
-                <td>
+                <td data-label="選択"><input form="bulk-x-updates" type="checkbox" name="watch_ids" value="{{ watch.id }}"></td>
+                <td data-label="状態">{% if watch.enabled %}<strong class="status enabled">ON</strong>{% else %}<strong class="status disabled">OFF</strong>{% endif %}</td>
+                <td data-label="Xアカウント">
                   <strong>@{{ watch.x_username }}</strong>
                   {% if watch.display_name %}<div class="empty">{{ watch.display_name }}</div>{% endif %}
                   {% if watch.last_error %}<div class="error-text">{{ watch.last_error }}</div>{% endif %}
                 </td>
-                <td><code>{{ watch.channel_id }}</code></td>
-                <td>
+                <td data-label="通知先"><code>{{ watch.channel_id }}</code></td>
+                <td data-label="対象">
                   通常投稿
                   {% if watch.include_replies %} / 返信{% endif %}
                   {% if watch.include_reposts %} / リポスト{% endif %}
                   {% if watch.include_quotes %} / 引用{% endif %}
+                  {% if watch.include_keywords_label %}
+                    <div class="empty">必須: {{ watch.include_keywords_label }}</div>
+                  {% endif %}
+                  {% if watch.exclude_keywords_label %}
+                    <div class="empty">除外: {{ watch.exclude_keywords_label }}</div>
+                  {% endif %}
                 </td>
-                <td>{{ watch.last_checked_at or '-' }}</td>
-                <td>{{ watch.last_posted_post_id or '-' }}</td>
-                <td class="actions-cell">
+                <td data-label="最終確認">{{ watch.last_checked_at or '-' }}</td>
+                <td data-label="最終投稿">{{ watch.last_posted_post_id or '-' }}</td>
+                <td data-label="操作" class="actions-cell">
                   <a class="button-link secondary" href="{{ watch.edit_url }}">編集</a>
                   <form method="post" action="/guilds/{{ guild_id }}/x-updates/{{ watch.id }}/copy" onsubmit="return confirm('この通知をコピーする？ コピー後はOFF。');">
                     <button type="submit">コピー</button>

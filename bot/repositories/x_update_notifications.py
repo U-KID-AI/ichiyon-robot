@@ -81,6 +81,8 @@ class XUpdateWatchRepository:
         include_quotes: bool,
         check_interval_seconds: int,
         post_template: Optional[str],
+        include_keywords: Optional[str] = None,
+        exclude_keywords: Optional[str] = None,
     ) -> Dict[str, Any]:
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -97,9 +99,11 @@ class XUpdateWatchRepository:
                     include_reposts,
                     include_quotes,
                     check_interval_seconds,
-                    post_template
+                    post_template,
+                    include_keywords,
+                    exclude_keywords
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING *
                 """,
                 (
@@ -115,6 +119,8 @@ class XUpdateWatchRepository:
                     include_quotes,
                     check_interval_seconds,
                     post_template,
+                    include_keywords,
+                    exclude_keywords,
                 ),
             )
             return fetch_one(cursor)
@@ -134,6 +140,8 @@ class XUpdateWatchRepository:
         include_quotes: bool,
         check_interval_seconds: int,
         post_template: Optional[str],
+        include_keywords: Optional[str] = None,
+        exclude_keywords: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -149,6 +157,8 @@ class XUpdateWatchRepository:
                     include_quotes = %s,
                     check_interval_seconds = %s,
                     post_template = %s,
+                    include_keywords = %s,
+                    exclude_keywords = %s,
                     updated_at = NOW()
                 WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
@@ -164,6 +174,8 @@ class XUpdateWatchRepository:
                     include_quotes,
                     check_interval_seconds,
                     post_template,
+                    include_keywords,
+                    exclude_keywords,
                     bot_id,
                     guild_id,
                     watch_id,
@@ -224,6 +236,8 @@ class XUpdateWatchRepository:
             bool(source.get("include_quotes")),
             int(source.get("check_interval_seconds") or 900),
             source.get("post_template") or None,
+            source.get("include_keywords") or None,
+            source.get("exclude_keywords") or None,
         )
 
     def delete_watch(self, bot_id: str, guild_id: str, watch_id: int) -> bool:

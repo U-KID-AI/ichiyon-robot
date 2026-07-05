@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -14,10 +15,68 @@ DEFAULT_POST_TEMPLATE = "{account_name} が更新しました\n{post_url}"
 DEFAULT_CHECK_INTERVAL_SECONDS = 900
 DEFAULT_MAX_POSTS_PER_CHECK = 5
 DEFAULT_X_UPDATE_FETCH_LIMIT = 10
+SAFE_QUERY_TERM_RE = re.compile(r"^[0-9A-Za-z_\-\u3040-\u30ff\u3400-\u9fff]+$")
 
 
 def normalize_username(value: str) -> str:
     return str(value or "").strip().lstrip("@")
+
+
+def parse_keyword_list(value: Any) -> List[str]:
+    raw_text = str(value or "")
+    if not raw_text.strip():
+        return []
+    words = []
+    seen = set()
+    for item in re.split(r"[\n,，、]+", raw_text):
+        word = item.strip()
+        if not word:
+            continue
+        normalized = word.casefold()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        words.append(word)
+    return words
+
+
+def is_safe_x_query_term(value: str) -> bool:
+    if not value or len(value) > 40:
+        return False
+    if "http://" in value.lower() or "https://" in value.lower():
+        return False
+    if "@" in value or any(ord(char) < 32 for char in value):
+        return False
+    return SAFE_QUERY_TERM_RE.match(value) is not None
+
+
+def build_keyword_query_terms(words: List[str]) -> List[str]:
+    return [word for word in words if is_safe_x_query_term(word)]
+
+
+def build_x_update_search_query(username: str, include_keywords: List[str], exclude_keywords: List[str]) -> str:
+    query_parts = ["from:{0}".format(normalize_username(username))]
+    safe_include = build_keyword_query_terms(include_keywords)
+    safe_exclude = build_keyword_query_terms(exclude_keywords)
+    if safe_include:
+        if len(safe_include) == 1:
+            query_parts.append(safe_include[0])
+        else:
+            query_parts.append("({0})".format(" OR ".join(safe_include)))
+    for word in safe_exclude:
+        query_parts.append("-{0}".format(word))
+    return " ".join(query_parts)
+
+
+def post_matches_keyword_filters(post: x_search.XPost, include_keywords: List[str], exclude_keywords: List[str]) -> bool:
+    text = (post.text or "").casefold()
+    include_values = [word.casefold() for word in include_keywords]
+    exclude_values = [word.casefold() for word in exclude_keywords]
+    if exclude_values and any(word in text for word in exclude_values):
+        return False
+    if include_values and not any(word in text for word in include_values):
+        return False
+    return True
 
 
 def get_post_reference_types(post: x_search.XPost) -> List[str]:
@@ -25,6 +84,10 @@ def get_post_reference_types(post: x_search.XPost) -> List[str]:
 
 
 def should_post_update(post: x_search.XPost, watch: Dict[str, Any]) -> bool:
+    include_keywords = parse_keyword_list(watch.get("include_keywords"))
+    exclude_keywords = parse_keyword_list(watch.get("exclude_keywords"))
+    if not post_matches_keyword_filters(post, include_keywords, exclude_keywords):
+        return False
     reference_types = set(get_post_reference_types(post))
     if "retweeted" in reference_types and not bool(watch.get("include_reposts")):
         return False
@@ -103,11 +166,23 @@ async def process_x_update_watch(bot, repository: XUpdateWatchRepository, watch:
         return 0
 
     last_seen_post_id = str(watch.get("last_seen_post_id") or "").strip() or None
-    posts = await x_search.get_user_posts(
-        x_user_id,
-        last_seen_post_id,
-        DEFAULT_X_UPDATE_FETCH_LIMIT,
-    )
+    include_keywords = parse_keyword_list(watch.get("include_keywords"))
+    exclude_keywords = parse_keyword_list(watch.get("exclude_keywords"))
+    safe_query_terms = build_keyword_query_terms(include_keywords) + build_keyword_query_terms(exclude_keywords)
+    if safe_query_terms:
+        query = build_x_update_search_query(str(watch.get("x_username") or ""), include_keywords, exclude_keywords)
+        posts = await x_search.search_recent_posts(
+            query,
+            DEFAULT_X_UPDATE_FETCH_LIMIT,
+            10,
+            since_id=last_seen_post_id,
+        )
+    else:
+        posts = await x_search.get_user_posts(
+            x_user_id,
+            last_seen_post_id,
+            DEFAULT_X_UPDATE_FETCH_LIMIT,
+        )
     latest_seen = newest_post_id(posts)
 
     if not last_seen_post_id:

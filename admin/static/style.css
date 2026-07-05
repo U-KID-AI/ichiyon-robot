@@ -356,6 +356,15 @@ textarea:disabled::placeholder {
   padding: 16px;
 }
 
+.feature-overview {
+  margin-top: 6px;
+  max-width: 64ch;
+}
+
+.compact-table td {
+  vertical-align: top;
+}
+
 .server-summary,
 .feature-main {
   min-width: 0;
@@ -622,10 +631,7 @@ a {
   .actions,
   .profile-row,
   .server-item,
-  .server-summary,
-  .feature-item,
-  .feature-actions,
-  .feature-title-row {
+  .server-summary {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -641,8 +647,66 @@ a {
   }
 
   main {
-    padding: 16px;
+    padding: 12px;
     background: var(--app-bg);
+  }
+
+  .panel {
+    margin-bottom: 12px;
+    padding: 12px;
+  }
+
+  .server-summary {
+    gap: 10px;
+  }
+
+  .server-icon {
+    width: 44px;
+    height: 44px;
+  }
+
+  .feature-list {
+    gap: 8px;
+  }
+
+  .feature-item {
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .feature-title-row {
+    gap: 8px;
+  }
+
+  .feature-title-row h3 {
+    font-size: 15px;
+  }
+
+  .feature-overview {
+    display: none;
+  }
+
+  .feature-actions {
+    flex: 0 0 auto;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  .feature-actions .button-link,
+  .feature-actions button {
+    min-height: 32px;
+    padding: 6px 9px;
+    font-size: 13px;
+  }
+
+  .info-button {
+    width: 32px;
+    height: 32px;
+  }
+
+  .actions-row {
+    gap: 8px;
   }
 
   .panel,
@@ -689,8 +753,8 @@ a {
   .admin-table tr {
     border: 1px solid var(--border-soft);
     border-radius: 8px;
-    padding: 10px;
-    margin-bottom: 12px;
+    padding: 8px 10px;
+    margin-bottom: 10px;
     background: var(--panel-soft);
   }
 
@@ -699,7 +763,7 @@ a {
     grid-template-columns: minmax(112px, 38%) 1fr;
     gap: 10px;
     border-bottom: 0;
-    padding: 8px 0;
+    padding: 6px 0;
   }
 
   .admin-table td::before {

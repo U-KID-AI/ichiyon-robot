@@ -101,6 +101,112 @@ ROLE_LEVELS = {
     "global_admin": 4,
 }
 
+DISPLAY_FEATURES = [
+    {
+        "key": "mention_random_draw",
+        "flag_key": "mention_reactions",
+        "label": "メンション: ランダム抽選",
+        "edit_path": "mention-reactions?kind=random_draw",
+        "required_role": "editor",
+        "overview": "候補からランダムに返す。",
+        "settings": "呼び出しワード、抽選候補、出やすさ、画像、リアクション",
+        "off_behavior": "OFFにすると、メンション反応全体を止める。",
+        "notes": "名言・おみくじ・お前も〇〇よな？など。",
+    },
+    {
+        "key": "mention_search",
+        "flag_key": "mention_reactions",
+        "label": "メンション: 検索",
+        "edit_path": "mention-reactions?kind=search",
+        "required_role": "editor",
+        "overview": "入力内容で検索して返す。",
+        "settings": "呼び出しワード、検索設定、デッキ検索設定",
+        "off_behavior": "OFFにすると、メンション反応全体を止める。",
+        "notes": "デッキ検索など。",
+    },
+    {
+        "key": "mention_limited",
+        "flag_key": "mention_reactions",
+        "label": "メンション: 限定機能",
+        "edit_path": "mention-reactions/limited",
+        "required_role": "editor",
+        "overview": "特定ユーザーに追加効果を付ける。",
+        "settings": "対象ユーザーID、特殊効果タグ、有効/無効",
+        "off_behavior": "OFFにすると、メンション反応全体を止める。",
+        "notes": "限定タグはDB backend時のみ実行。",
+    },
+    {
+        "key": "reactions",
+        "label": "自動反応",
+        "edit_path": "auto-reactions",
+        "required_role": "editor",
+        "overview": "特定の言葉に自動で返答。",
+        "settings": "トリガー、返答、画像、絵文字、優先度、有効/無効",
+        "off_behavior": "OFFにすると、自動反応を実行しない。",
+        "notes": "NGワード検知時は通常反応を止める。",
+    },
+    {
+        "key": "ng_words",
+        "label": "NGワード",
+        "edit_path": "ng-words",
+        "required_role": "editor",
+        "overview": "反応を止める言葉を設定。",
+        "settings": "NGワード、有効/無効、特殊効果タグ",
+        "off_behavior": "OFFにすると、NGワード判定を使わない。",
+        "notes": "検知時はメンション反応・自動反応を止める。",
+    },
+    {
+        "key": "modes",
+        "label": "モード",
+        "edit_path": "modes",
+        "required_role": "editor",
+        "overview": "一時的な特殊状態を設定。",
+        "settings": "発動条件、返答候補、終了条件、見た目、通知",
+        "off_behavior": "OFFにすると、モード抽選やモード中挙動を使わない。",
+        "notes": "モード中は他機能を止める設定あり。",
+    },
+    {
+        "key": "auto_posts",
+        "label": "自動投稿",
+        "edit_path": "auto-posts",
+        "required_role": "editor",
+        "overview": "決まった日時の投稿を設定。",
+        "settings": "投稿名、本文、画像、チャンネル、スケジュール、有効/無効",
+        "off_behavior": "OFFにすると、自動投稿を実行しない。",
+        "notes": "投稿済み履歴で二重投稿を防止。",
+    },
+    {
+        "key": "x_updates",
+        "label": "X更新通知",
+        "edit_path": "x-updates",
+        "required_role": "guild_admin",
+        "overview": "登録したXアカウントの新着を通知。",
+        "settings": "Xユーザー名、通知先、対象投稿、必須/除外ワード、確認間隔、投稿文",
+        "off_behavior": "OFFにすると、X更新通知を実行しない。",
+        "notes": "初回は最新Post IDだけ保存し、過去投稿は流さない。",
+    },
+    {
+        "key": "special_effect_tags",
+        "label": "特殊効果タグ",
+        "edit_path": "special-effects",
+        "required_role": "editor",
+        "overview": "追加投稿やカウント変更を設定。",
+        "settings": "タグ名、対象、効果の種類、詳細設定、最大倍率、有効/無効",
+        "off_behavior": "OFFにすると、特殊効果タグを適用しない。",
+        "notes": "メンション反応本体とモードには直接付けない。",
+    },
+    {
+        "key": "reaction_thresholds",
+        "label": "リアクション返信",
+        "edit_path": "reaction-thresholds",
+        "required_role": "editor",
+        "overview": "同じリアクションが集まった時に返答。",
+        "settings": "しきい値、返答元、対象チャンネル、対象絵文字、除外条件",
+        "off_behavior": "OFFにすると、リアクション数による返信を行わない。",
+        "notes": "同じメッセージと絵文字の組み合わせでは重複返信しない。",
+    },
+]
+
 
 def register_server_routes(templates: Jinja2Templates) -> None:
     @router.get("/servers")
@@ -199,8 +305,8 @@ def find_server(guild_id: str, discord_user_id: str) -> Dict[str, Any]:
 
 
 def get_feature_definition(feature_key: str) -> Optional[Dict[str, Any]]:
-    for feature in FEATURES:
-        if feature["key"] == feature_key:
+    for feature in DISPLAY_FEATURES:
+        if feature["key"] == feature_key or feature.get("flag_key") == feature_key:
             return feature
     return None
 
@@ -221,12 +327,13 @@ def build_feature_rows(
         }
 
     rows = []
-    for feature in FEATURES:
+    for feature in DISPLAY_FEATURES:
         row = dict(feature)
-        row["enabled"] = flags.get(feature["key"], True)
+        flag_key = feature.get("flag_key", feature["key"])
+        row["enabled"] = flags.get(flag_key, True)
         row["can_toggle"] = role_allows(role, feature["required_role"])
         row["edit_url"] = "/guilds/{0}/{1}".format(guild_id, feature["edit_path"])
-        row["toggle_url"] = "/guilds/{0}/features/{1}/toggle".format(guild_id, feature["key"])
+        row["toggle_url"] = "/guilds/{0}/features/{1}/toggle".format(guild_id, flag_key)
         rows.append(row)
 
     return rows
