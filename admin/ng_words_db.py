@@ -7,6 +7,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from admin.auth import get_current_user
+from admin.bot_context import current_selected_bot_id, selected_bot_id
 from admin.servers import can_access_guild, find_server, role_allows
 from admin.ux import (
     ADDITIONAL_POST_TIMING_LABELS,
@@ -55,10 +56,10 @@ def register_ng_word_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         filters = normalize_filters(q, enabled, has_effects, show_test_data)
         words = list_word_rows(guild_id, server["role"], filters)
         return templates.TemplateResponse(
@@ -86,9 +87,9 @@ def register_ng_word_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ng word bulk update denied")
         if not word_ids:
@@ -96,7 +97,7 @@ def register_ng_word_routes(templates: Jinja2Templates) -> None:
         if action not in ("on", "off"):
             return RedirectResponse(url="/guilds/{0}/ng-words?error={1}".format(guild_id, quote("操作を選んでね")), status_code=303)
         with get_connection() as connection:
-            repository = NgWordRepository(connection)
+            repository = NgWordRepository(connection, bot_id=current_selected_bot_id())
             updated_count = repository.bulk_set_enabled(guild_id, word_ids, action == "on")
             connection.commit()
         failed_count = max(0, len(word_ids) - updated_count)
@@ -110,14 +111,14 @@ def register_ng_word_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ng word toggle denied")
 
         with get_connection() as connection:
-            repository = NgWordRepository(connection)
+            repository = NgWordRepository(connection, bot_id=current_selected_bot_id())
             if repository.get_by_id(guild_id, word_id) is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ng word not found")
             repository.toggle_enabled(guild_id, word_id)
@@ -130,13 +131,13 @@ def register_ng_word_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ng word copy denied")
         with get_connection() as connection:
-            repository = NgWordRepository(connection)
+            repository = NgWordRepository(connection, bot_id=current_selected_bot_id())
             copied = repository.copy_word(guild_id, word_id)
             if copied is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ng word not found")
@@ -148,13 +149,13 @@ def register_ng_word_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="サーバーを見る権限がありません。")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="削除する権限がありません。")
         with get_connection() as connection:
-            repository = NgWordRepository(connection)
+            repository = NgWordRepository(connection, bot_id=current_selected_bot_id())
             if repository.get_by_id(guild_id, word_id) is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NGワードが見つかりません。")
             repository.delete_word(guild_id, word_id)
@@ -166,9 +167,9 @@ def register_ng_word_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ng word creation denied")
 
@@ -184,15 +185,15 @@ def register_ng_word_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ng word creation denied")
 
         form, errors = build_form(word, enabled)
         with get_connection() as connection:
-            repository = NgWordRepository(connection)
+            repository = NgWordRepository(connection, bot_id=current_selected_bot_id())
             if not errors and repository.word_exists(guild_id, form["word"]):
                 errors.append(DUPLICATE_ERROR)
             if not errors:
@@ -210,11 +211,11 @@ def register_ng_word_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         with get_connection() as connection:
-            repository = NgWordRepository(connection)
+            repository = NgWordRepository(connection, bot_id=current_selected_bot_id())
             row = repository.get_by_id(guild_id, word_id)
             if row is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ng word not found")
@@ -243,15 +244,15 @@ def register_ng_word_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ng word editing denied")
 
         form, errors = build_form(word, enabled)
         with get_connection() as connection:
-            repository = NgWordRepository(connection)
+            repository = NgWordRepository(connection, bot_id=current_selected_bot_id())
             existing = repository.get_by_id(guild_id, word_id)
             if existing is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ng word not found")
@@ -279,12 +280,12 @@ def register_ng_word_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         filters = normalize_assignment_filters(q, effect_type, admin_only, include_disabled)
         with get_connection() as connection:
-            repository = NgWordRepository(connection)
+            repository = NgWordRepository(connection, bot_id=current_selected_bot_id())
             word_row = repository.get_by_id(guild_id, word_id)
             if word_row is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ng word not found")
@@ -316,14 +317,14 @@ def register_ng_word_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         with get_connection() as connection:
-            word_repository = NgWordRepository(connection)
+            word_repository = NgWordRepository(connection, bot_id=current_selected_bot_id())
             if word_repository.get_by_id(guild_id, word_id) is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ng word not found")
-            effect_repository = SpecialEffectRepository(connection)
+            effect_repository = SpecialEffectRepository(connection, bot_id=current_selected_bot_id())
             tag = effect_repository.get_by_id(guild_id, tag_id)
             if tag is None or tag.get("target_type") != TARGET_TYPE:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="special effect tag not found")
@@ -364,7 +365,7 @@ def parse_bool(value: str) -> Optional[bool]:
 
 def list_word_rows(guild_id: str, role: str, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
     with get_connection() as connection:
-        repository = NgWordRepository(connection)
+        repository = NgWordRepository(connection, bot_id=current_selected_bot_id())
         words = repository.list_words(guild_id, query=filters["q"] or None, enabled=parse_bool(filters["enabled"]))
         rows = [
             build_word_view(connection, guild_id, word, role)
@@ -452,7 +453,7 @@ def can_manage_effect_assignment(role: str, tag: Dict[str, Any]) -> bool:
 
 
 def list_effects_for_target(connection, guild_id: str, word_id: int, role: str) -> List[Dict[str, Any]]:
-    repository = SpecialEffectRepository(connection)
+    repository = SpecialEffectRepository(connection, bot_id=current_selected_bot_id())
     effects = repository.list_for_target(guild_id, TARGET_TYPE, word_id, enabled=None)
     return [
         build_effect_view(effect, role)
@@ -506,7 +507,7 @@ def list_assignable_effect_rows(
     role: str,
     filters: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
-    repository = SpecialEffectRepository(connection)
+    repository = SpecialEffectRepository(connection, bot_id=current_selected_bot_id())
     tags = repository.list_tags(
         guild_id,
         query=filters["q"] or None,

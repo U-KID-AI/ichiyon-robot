@@ -1,12 +1,14 @@
 import json
 from typing import Any, Dict, List, Optional
 
+from bot import config
 from bot.repositories.base import fetch_all, fetch_one
 
 
 class AutoPostRepository:
-    def __init__(self, connection) -> None:
+    def __init__(self, connection, bot_id: Optional[str] = None) -> None:
         self.connection = connection
+        self.bot_id = bot_id or config.BOT_INSTANCE_ID
 
     def list_posts(
         self,
@@ -16,8 +18,8 @@ class AutoPostRepository:
         has_image: Optional[bool] = None,
         channel_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        params = [guild_id]
-        where = ["guild_id = %s"]
+        params = [self.bot_id, guild_id]
+        where = ["bot_id = %s", "guild_id = %s"]
 
         if query:
             like_query = "%{0}%".format(query)
@@ -54,9 +56,9 @@ class AutoPostRepository:
                 """
                 SELECT *
                 FROM auto_posts
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 """,
-                (guild_id, post_id),
+                (self.bot_id, guild_id, post_id),
             )
             return fetch_one(cursor)
 
@@ -66,9 +68,10 @@ class AutoPostRepository:
                 """
                 SELECT *
                 FROM auto_posts
-                WHERE enabled = TRUE
+                WHERE bot_id = %s AND enabled = TRUE
                 ORDER BY guild_id ASC, id ASC
-                """
+                """,
+                (self.bot_id,),
             )
             return fetch_all(cursor)
 
@@ -88,6 +91,7 @@ class AutoPostRepository:
             cursor.execute(
                 """
                 INSERT INTO auto_posts (
+                    bot_id,
                     guild_id,
                     name,
                     body,
@@ -98,10 +102,11 @@ class AutoPostRepository:
                     repeat_rule,
                     enabled
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING *
                 """,
                 (
+                    self.bot_id,
                     guild_id,
                     name,
                     body,
@@ -141,7 +146,7 @@ class AutoPostRepository:
                     repeat_rule = %s,
                     enabled = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
                 """,
                 (
@@ -153,6 +158,7 @@ class AutoPostRepository:
                     schedule_value,
                     repeat_rule,
                     enabled,
+                    self.bot_id,
                     guild_id,
                     post_id,
                 ),
@@ -166,10 +172,10 @@ class AutoPostRepository:
                 UPDATE auto_posts
                 SET enabled = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
                 """,
-                (enabled, guild_id, post_id),
+                (enabled, self.bot_id, guild_id, post_id),
             )
             return fetch_one(cursor)
 
@@ -182,10 +188,11 @@ class AutoPostRepository:
                 UPDATE auto_posts
                 SET enabled = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s
+                WHERE bot_id = %s
+                  AND guild_id = %s
                   AND id = ANY(%s)
                 """,
-                (enabled, guild_id, post_ids),
+                (enabled, self.bot_id, guild_id, post_ids),
             )
             return cursor.rowcount
 
@@ -220,9 +227,9 @@ class AutoPostRepository:
             cursor.execute(
                 """
                 DELETE FROM auto_posts
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 """,
-                (guild_id, post_id),
+                (self.bot_id, guild_id, post_id),
             )
             return cursor.rowcount > 0
 
@@ -233,8 +240,9 @@ class AutoPostRepository:
                 SELECT 1
                 FROM auto_post_delivery_history
                 WHERE auto_post_id = %s AND due_key = %s
+                  AND bot_id = %s
                 """,
-                (post_id, due_key),
+                (post_id, due_key, self.bot_id),
             )
             return cursor.fetchone() is not None
 
@@ -250,16 +258,17 @@ class AutoPostRepository:
                 """
                 INSERT INTO auto_post_delivery_history (
                     guild_id,
+                    bot_id,
                     auto_post_id,
                     due_key,
                     delivered_at,
                     channel_id
                 )
-                VALUES (%s, %s, %s, NOW(), %s)
+                VALUES (%s, %s, %s, %s, NOW(), %s)
                 ON CONFLICT (auto_post_id, due_key) DO NOTHING
                 RETURNING *
                 """,
-                (guild_id, post_id, due_key, channel_id),
+                (guild_id, self.bot_id, post_id, due_key, channel_id),
             )
             return fetch_one(cursor)
 
@@ -270,7 +279,7 @@ class AutoPostRepository:
                 UPDATE auto_posts
                 SET last_posted_at = NOW(),
                     updated_at = NOW()
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 """,
-                (guild_id, post_id),
+                (self.bot_id, guild_id, post_id),
             )

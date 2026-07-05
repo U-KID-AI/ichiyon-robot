@@ -1,6 +1,7 @@
 import json
 from typing import Any, Dict, List, Optional
 
+from bot import config
 from bot.repositories.base import fetch_all, fetch_one, json_dumps
 
 
@@ -35,8 +36,9 @@ def normalize_json_list(value: Any) -> List[str]:
 
 
 class ModeRepository:
-    def __init__(self, connection) -> None:
+    def __init__(self, connection, bot_id: Optional[str] = None) -> None:
         self.connection = connection
+        self.bot_id = bot_id or config.BOT_INSTANCE_ID
 
     def list_modes(
         self,
@@ -46,8 +48,8 @@ class ModeRepository:
         behavior_type: Optional[str] = None,
         admin_only: Optional[bool] = None,
     ) -> List[Dict[str, Any]]:
-        params = [guild_id]
-        where = ["guild_id = %s"]
+        params = [self.bot_id, guild_id]
+        where = ["bot_id = %s", "guild_id = %s"]
 
         if query:
             like_query = "%{0}%".format(query)
@@ -83,9 +85,9 @@ class ModeRepository:
                 """
                 SELECT *
                 FROM modes
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 """,
-                (guild_id, mode_id),
+                (self.bot_id, guild_id, mode_id),
             )
             return fetch_one(cursor)
 
@@ -95,8 +97,8 @@ class ModeRepository:
         mode_key: str,
         exclude_mode_id: Optional[int] = None,
     ) -> bool:
-        params = [guild_id, mode_key]
-        where = ["guild_id = %s", "mode_key = %s"]
+        params = [self.bot_id, guild_id, mode_key]
+        where = ["bot_id = %s", "guild_id = %s", "mode_key = %s"]
         if exclude_mode_id is not None:
             where.append("id <> %s")
             params.append(exclude_mode_id)
@@ -136,15 +138,17 @@ class ModeRepository:
             cursor.execute(
                 """
                 INSERT INTO modes (
+                    bot_id,
                     guild_id, mode_key, name, description, behavior_type,
                     mode_icon_path, enter_message, exit_message, enter_gif_path, exit_gif_path,
                     enter_notify_channel_id, exit_notify_channel_id, reaction_channel_ids,
                     ignore_channel_ids, cooldown_config_json, appearance_config_json, enabled, admin_only, is_deletable
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::JSONB, %s::JSONB, %s::JSONB, %s::JSONB, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::JSONB, %s::JSONB, %s::JSONB, %s::JSONB, %s, %s, %s)
                 RETURNING *
                 """,
                 (
+                    self.bot_id,
                     guild_id,
                     mode_key,
                     name,
@@ -214,7 +218,7 @@ class ModeRepository:
                     admin_only = %s,
                     is_deletable = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
                 """,
                 (
@@ -236,6 +240,7 @@ class ModeRepository:
                     enabled,
                     admin_only,
                     is_deletable,
+                    self.bot_id,
                     guild_id,
                     mode_id,
                 ),
@@ -249,10 +254,10 @@ class ModeRepository:
                 UPDATE modes
                 SET enabled = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
                 """,
-                (enabled, guild_id, mode_id),
+                (enabled, self.bot_id, guild_id, mode_id),
             )
             return fetch_one(cursor)
 
@@ -265,10 +270,11 @@ class ModeRepository:
                 UPDATE modes
                 SET enabled = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s
+                WHERE bot_id = %s
+                  AND guild_id = %s
                   AND id = ANY(%s)
                 """,
-                (enabled, guild_id, mode_ids),
+                (enabled, self.bot_id, guild_id, mode_ids),
             )
             return cursor.rowcount
 
@@ -315,6 +321,7 @@ class ModeRepository:
             cursor.execute(
                 """
                 INSERT INTO mode_reply_choices (
+                    bot_id,
                     guild_id,
                     mode_id,
                     name,
@@ -323,7 +330,8 @@ class ModeRepository:
                     appearance_rate,
                     enabled
                 )
-                SELECT guild_id,
+                SELECT bot_id,
+                       guild_id,
                        %s,
                        name,
                        body,
@@ -331,13 +339,14 @@ class ModeRepository:
                        appearance_rate,
                        enabled
                 FROM mode_reply_choices
-                WHERE guild_id = %s AND mode_id = %s
+                WHERE bot_id = %s AND guild_id = %s AND mode_id = %s
                 """,
-                (copied["id"], guild_id, mode_id),
+                (copied["id"], self.bot_id, guild_id, mode_id),
             )
             cursor.execute(
                 """
                 INSERT INTO mode_trigger_conditions (
+                    bot_id,
                     guild_id,
                     mode_id,
                     condition_type,
@@ -345,35 +354,38 @@ class ModeRepository:
                     group_operator,
                     enabled
                 )
-                SELECT guild_id,
+                SELECT bot_id,
+                       guild_id,
                        %s,
                        condition_type,
                        condition_config_json,
                        group_operator,
                        enabled
                 FROM mode_trigger_conditions
-                WHERE guild_id = %s AND mode_id = %s
+                WHERE bot_id = %s AND guild_id = %s AND mode_id = %s
                 """,
-                (copied["id"], guild_id, mode_id),
+                (copied["id"], self.bot_id, guild_id, mode_id),
             )
             cursor.execute(
                 """
                 INSERT INTO mode_exit_conditions (
+                    bot_id,
                     guild_id,
                     mode_id,
                     condition_type,
                     condition_config_json,
                     enabled
                 )
-                SELECT guild_id,
+                SELECT bot_id,
+                       guild_id,
                        %s,
                        condition_type,
                        condition_config_json,
                        enabled
                 FROM mode_exit_conditions
-                WHERE guild_id = %s AND mode_id = %s
+                WHERE bot_id = %s AND guild_id = %s AND mode_id = %s
                 """,
-                (copied["id"], guild_id, mode_id),
+                (copied["id"], self.bot_id, guild_id, mode_id),
             )
         return copied
 
@@ -386,16 +398,16 @@ class ModeRepository:
                     active_until = NULL,
                     pseudo_offline_until = NULL,
                     updated_at = NOW()
-                WHERE guild_id = %s AND current_mode_id = %s
+                WHERE bot_id = %s AND guild_id = %s AND current_mode_id = %s
                 """,
-                (guild_id, mode_id),
+                (self.bot_id, guild_id, mode_id),
             )
             cursor.execute(
                 """
                 DELETE FROM modes
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 """,
-                (guild_id, mode_id),
+                (self.bot_id, guild_id, mode_id),
             )
             return cursor.rowcount > 0
 
@@ -408,9 +420,9 @@ class ModeRepository:
                 """
                 SELECT *
                 FROM mode_states
-                WHERE guild_id = %s
+                WHERE bot_id = %s AND guild_id = %s
                 """,
-                (guild_id,),
+                (self.bot_id, guild_id),
             )
             return fetch_one(cursor)
 
@@ -430,6 +442,7 @@ class ModeRepository:
             cursor.execute(
                 """
                 INSERT INTO mode_states (
+                    bot_id,
                     guild_id,
                     current_mode_id,
                     active_until,
@@ -438,8 +451,8 @@ class ModeRepository:
                     period_states_json,
                     state_json
                 )
-                VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
-                ON CONFLICT (guild_id) DO UPDATE
+                VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
+                ON CONFLICT (bot_id, guild_id) DO UPDATE
                 SET current_mode_id = EXCLUDED.current_mode_id,
                     active_until = EXCLUDED.active_until,
                     pseudo_offline_until = EXCLUDED.pseudo_offline_until,
@@ -449,6 +462,7 @@ class ModeRepository:
                     updated_at = NOW()
                 """,
                 (
+                    self.bot_id,
                     guild_id,
                     current_mode_id,
                     active_until,
@@ -485,6 +499,7 @@ class ModeRepository:
             cursor.execute(
                 """
                 INSERT INTO mode_states (
+                    bot_id,
                     guild_id,
                     current_mode_id,
                     active_until,
@@ -493,8 +508,8 @@ class ModeRepository:
                     period_states_json,
                     state_json
                 )
-                VALUES (%s, NULL, NULL, NULL, 0, '{}'::jsonb, %s::jsonb)
-                ON CONFLICT (guild_id) DO UPDATE
+                VALUES (%s, %s, NULL, NULL, NULL, 0, '{}'::jsonb, %s::jsonb)
+                ON CONFLICT (bot_id, guild_id) DO UPDATE
                 SET current_mode_id = NULL,
                     active_until = NULL,
                     pseudo_offline_until = NULL,
@@ -502,7 +517,7 @@ class ModeRepository:
                     state_json = EXCLUDED.state_json,
                     updated_at = NOW()
                 """,
-                (guild_id, json_dumps(state_json or {})),
+                (self.bot_id, guild_id, json_dumps(state_json or {})),
             )
 
     def list_expired_mode_states(self) -> List[Dict[str, Any]]:
@@ -511,11 +526,13 @@ class ModeRepository:
                 """
                 SELECT *
                 FROM mode_states
-                WHERE current_mode_id IS NOT NULL
+                WHERE bot_id = %s
+                  AND current_mode_id IS NOT NULL
                   AND active_until IS NOT NULL
                   AND active_until <= NOW()
                 ORDER BY active_until ASC
-                """
+                """,
+                (self.bot_id,),
             )
             return fetch_all(cursor)
 
@@ -530,9 +547,9 @@ class ModeRepository:
                 """
                 SELECT *
                 FROM mode_trigger_history
-                WHERE guild_id = %s AND mode_id = %s AND period_key = %s
+                WHERE bot_id = %s AND guild_id = %s AND mode_id = %s AND period_key = %s
                 """,
-                (guild_id, mode_id, period_key),
+                (self.bot_id, guild_id, mode_id, period_key),
             )
             return fetch_one(cursor)
 
@@ -548,20 +565,21 @@ class ModeRepository:
             cursor.execute(
                 """
                 INSERT INTO mode_trigger_history (
+                    bot_id,
                     guild_id,
                     mode_id,
                     period_key,
                     triggered_at,
                     metadata_json
                 )
-                VALUES (%s, %s, %s, NOW(), %s::jsonb)
-                ON CONFLICT (guild_id, mode_id, period_key) DO UPDATE
+                VALUES (%s, %s, %s, %s, NOW(), %s::jsonb)
+                ON CONFLICT (bot_id, guild_id, mode_id, period_key) DO UPDATE
                 SET triggered_at = EXCLUDED.triggered_at,
                     metadata_json = EXCLUDED.metadata_json,
                     updated_at = NOW()
                 RETURNING *
                 """,
-                (guild_id, mode_id, period_key, json_dumps(metadata)),
+                (self.bot_id, guild_id, mode_id, period_key, json_dumps(metadata)),
             )
             return fetch_one(cursor)
 
@@ -615,8 +633,8 @@ class ModeRepository:
         enabled: Optional[bool],
         order_by: str,
     ) -> List[Dict[str, Any]]:
-        params = [guild_id, mode_id]
-        where = ["guild_id = %s", "mode_id = %s"]
+        params = [self.bot_id, guild_id, mode_id]
+        where = ["bot_id = %s", "guild_id = %s", "mode_id = %s"]
 
         if enabled is not None:
             where.append("enabled = %s")
@@ -651,12 +669,12 @@ class ModeRepository:
             cursor.execute(
                 """
                 INSERT INTO mode_reply_choices (
-                    guild_id, mode_id, name, body, image_path, appearance_rate, enabled
+                    bot_id, guild_id, mode_id, name, body, image_path, appearance_rate, enabled
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING *
                 """,
-                (guild_id, mode_id, name, body, image_path, appearance_rate, enabled),
+                (self.bot_id, guild_id, mode_id, name, body, image_path, appearance_rate, enabled),
             )
             return fetch_one(cursor)
 
@@ -680,10 +698,10 @@ class ModeRepository:
                     appearance_rate = %s,
                     enabled = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
                 """,
-                (name, body, image_path, appearance_rate, enabled, guild_id, choice_id),
+                (name, body, image_path, appearance_rate, enabled, self.bot_id, guild_id, choice_id),
             )
             return fetch_one(cursor)
 
@@ -692,17 +710,17 @@ class ModeRepository:
             cursor.execute(
                 """
                 DELETE FROM mode_reply_choices
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 """,
-                (guild_id, choice_id),
+                (self.bot_id, guild_id, choice_id),
             )
             return cursor.rowcount > 0
 
     def get_reply_choice(self, guild_id: str, choice_id: int) -> Optional[Dict[str, Any]]:
         with self.connection.cursor() as cursor:
             cursor.execute(
-                "SELECT * FROM mode_reply_choices WHERE guild_id = %s AND id = %s",
-                (guild_id, choice_id),
+                "SELECT * FROM mode_reply_choices WHERE bot_id = %s AND guild_id = %s AND id = %s",
+                (self.bot_id, guild_id, choice_id),
             )
             return fetch_one(cursor)
 
@@ -719,12 +737,12 @@ class ModeRepository:
             cursor.execute(
                 """
                 INSERT INTO mode_trigger_conditions (
-                    guild_id, mode_id, condition_type, condition_config_json, group_operator, enabled
+                    bot_id, guild_id, mode_id, condition_type, condition_config_json, group_operator, enabled
                 )
-                VALUES (%s, %s, %s, %s::JSONB, %s, %s)
+                VALUES (%s, %s, %s, %s, %s::JSONB, %s, %s)
                 RETURNING *
                 """,
-                (guild_id, mode_id, condition_type, json_dumps(condition_config), group_operator, enabled),
+                (self.bot_id, guild_id, mode_id, condition_type, json_dumps(condition_config), group_operator, enabled),
             )
             return fetch_one(cursor)
 
@@ -746,18 +764,18 @@ class ModeRepository:
                     group_operator = %s,
                     enabled = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
                 """,
-                (condition_type, json_dumps(condition_config), group_operator, enabled, guild_id, condition_id),
+                (condition_type, json_dumps(condition_config), group_operator, enabled, self.bot_id, guild_id, condition_id),
             )
             return fetch_one(cursor)
 
     def get_trigger_condition(self, guild_id: str, condition_id: int) -> Optional[Dict[str, Any]]:
         with self.connection.cursor() as cursor:
             cursor.execute(
-                "SELECT * FROM mode_trigger_conditions WHERE guild_id = %s AND id = %s",
-                (guild_id, condition_id),
+                "SELECT * FROM mode_trigger_conditions WHERE bot_id = %s AND guild_id = %s AND id = %s",
+                (self.bot_id, guild_id, condition_id),
             )
             return fetch_one(cursor)
 
@@ -773,12 +791,12 @@ class ModeRepository:
             cursor.execute(
                 """
                 INSERT INTO mode_exit_conditions (
-                    guild_id, mode_id, condition_type, condition_config_json, enabled
+                    bot_id, guild_id, mode_id, condition_type, condition_config_json, enabled
                 )
-                VALUES (%s, %s, %s, %s::JSONB, %s)
+                VALUES (%s, %s, %s, %s, %s::JSONB, %s)
                 RETURNING *
                 """,
-                (guild_id, mode_id, condition_type, json_dumps(condition_config), enabled),
+                (self.bot_id, guild_id, mode_id, condition_type, json_dumps(condition_config), enabled),
             )
             return fetch_one(cursor)
 
@@ -798,17 +816,17 @@ class ModeRepository:
                     condition_config_json = %s::JSONB,
                     enabled = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
                 """,
-                (condition_type, json_dumps(condition_config), enabled, guild_id, condition_id),
+                (condition_type, json_dumps(condition_config), enabled, self.bot_id, guild_id, condition_id),
             )
             return fetch_one(cursor)
 
     def get_exit_condition(self, guild_id: str, condition_id: int) -> Optional[Dict[str, Any]]:
         with self.connection.cursor() as cursor:
             cursor.execute(
-                "SELECT * FROM mode_exit_conditions WHERE guild_id = %s AND id = %s",
-                (guild_id, condition_id),
+                "SELECT * FROM mode_exit_conditions WHERE bot_id = %s AND guild_id = %s AND id = %s",
+                (self.bot_id, guild_id, condition_id),
             )
             return fetch_one(cursor)

@@ -1,11 +1,13 @@
 from typing import Any, Dict, List, Optional
 
+from bot import config
 from bot.repositories.base import fetch_all, fetch_one
 
 
 class CounterRepository:
-    def __init__(self, connection) -> None:
+    def __init__(self, connection, bot_id: Optional[str] = None) -> None:
         self.connection = connection
+        self.bot_id = bot_id or config.BOT_INSTANCE_ID
 
     def get_counter(self, guild_id: str, count_key: str) -> Optional[Dict[str, Any]]:
         with self.connection.cursor() as cursor:
@@ -13,9 +15,9 @@ class CounterRepository:
                 """
                 SELECT *
                 FROM counters
-                WHERE guild_id = %s AND count_key = %s
+                WHERE bot_id = %s AND guild_id = %s AND count_key = %s
                 """,
-                (guild_id, count_key),
+                (self.bot_id, guild_id, count_key),
             )
             return fetch_one(cursor)
 
@@ -28,10 +30,10 @@ class CounterRepository:
                 """
                 SELECT *
                 FROM counters
-                WHERE guild_id = %s
+                WHERE bot_id = %s AND guild_id = %s
                 ORDER BY name ASC, count_key ASC
                 """,
-                (guild_id,),
+                (self.bot_id, guild_id),
             )
             return fetch_all(cursor)
 
@@ -49,6 +51,7 @@ class CounterRepository:
             cursor.execute(
                 """
                 INSERT INTO counters (
+                    bot_id,
                     guild_id,
                     count_key,
                     name,
@@ -57,8 +60,8 @@ class CounterRepository:
                     reset_type,
                     reset_day
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (guild_id, count_key) DO UPDATE
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (bot_id, guild_id, count_key) DO UPDATE
                 SET name = EXCLUDED.name,
                     description = EXCLUDED.description,
                     initial_value = EXCLUDED.initial_value,
@@ -68,6 +71,7 @@ class CounterRepository:
                 RETURNING *
                 """,
                 (
+                    self.bot_id,
                     guild_id,
                     count_key,
                     name,
@@ -107,9 +111,9 @@ class CounterRepository:
                 SELECT s.*
                 FROM counter_states s
                 JOIN counters c ON c.id = s.counter_id
-                WHERE s.guild_id = %s AND c.count_key = %s
+                WHERE s.bot_id = %s AND s.guild_id = %s AND c.bot_id = s.bot_id AND c.count_key = %s
                 """,
-                (guild_id, count_key),
+                (self.bot_id, guild_id, count_key),
             )
             return fetch_one(cursor)
 
@@ -137,19 +141,20 @@ class CounterRepository:
             cursor.execute(
                 """
                 INSERT INTO counter_states (
+                    bot_id,
                     guild_id,
                     counter_id,
                     current_value,
                     period_key
                 )
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (guild_id, counter_id) DO UPDATE
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (bot_id, guild_id, counter_id) DO UPDATE
                 SET current_value = EXCLUDED.current_value,
                     period_key = EXCLUDED.period_key,
                     updated_at = NOW()
                 RETURNING *
                 """,
-                (guild_id, counter["id"], value, period_key),
+                (self.bot_id, guild_id, counter["id"], value, period_key),
             )
             return fetch_one(cursor)
 
@@ -168,19 +173,20 @@ class CounterRepository:
             cursor.execute(
                 """
                 INSERT INTO counter_states (
+                    bot_id,
                     guild_id,
                     counter_id,
                     current_value,
                     period_key
                 )
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (guild_id, counter_id) DO UPDATE
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (bot_id, guild_id, counter_id) DO UPDATE
                 SET current_value = counter_states.current_value + EXCLUDED.current_value,
                     period_key = COALESCE(EXCLUDED.period_key, counter_states.period_key),
                     updated_at = NOW()
                 RETURNING *
                 """,
-                (guild_id, counter["id"], amount, period_key),
+                (self.bot_id, guild_id, counter["id"], amount, period_key),
             )
             return fetch_one(cursor)
 

@@ -1,12 +1,14 @@
 import json
 from typing import Any, Dict, List, Optional
 
+from bot import config
 from bot.repositories.base import fetch_all, fetch_one, json_dumps, normalize_reaction_kind
 
 
 class MentionReactionRepository:
-    def __init__(self, connection) -> None:
+    def __init__(self, connection, bot_id: Optional[str] = None) -> None:
         self.connection = connection
+        self.bot_id = bot_id or config.BOT_INSTANCE_ID
 
     def list_reactions(
         self,
@@ -15,8 +17,8 @@ class MentionReactionRepository:
         reaction_kind: Optional[str] = None,
         include_system: bool = True,
     ) -> List[Dict[str, Any]]:
-        params = [guild_id]
-        where = ["guild_id = %s"]
+        params = [self.bot_id, guild_id]
+        where = ["bot_id = %s", "guild_id = %s"]
 
         if enabled is not None:
             where.append("enabled = %s")
@@ -49,8 +51,8 @@ class MentionReactionRepository:
         reaction_kind: Optional[str] = None,
         is_system: Optional[bool] = None,
     ) -> List[Dict[str, Any]]:
-        params = [guild_id]
-        where = ["r.guild_id = %s"]
+        params = [self.bot_id, guild_id]
+        where = ["r.bot_id = %s", "r.guild_id = %s"]
 
         if query:
             like_query = "%{0}%".format(query)
@@ -78,7 +80,8 @@ class MentionReactionRepository:
                 COUNT(c.id) AS choice_count
             FROM mention_reactions r
             LEFT JOIN mention_reaction_choices c
-                ON c.guild_id = r.guild_id
+                ON c.bot_id = r.bot_id
+                AND c.guild_id = r.guild_id
                 AND c.mention_reaction_id = r.id
             WHERE {where}
             GROUP BY r.id
@@ -95,9 +98,9 @@ class MentionReactionRepository:
                 """
                 SELECT *
                 FROM mention_reactions
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 """,
-                (guild_id, reaction_id),
+                (self.bot_id, guild_id, reaction_id),
             )
             return fetch_one(cursor)
 
@@ -107,8 +110,8 @@ class MentionReactionRepository:
         keyword: str,
         exclude_reaction_id: Optional[int] = None,
     ) -> bool:
-        params = [guild_id, keyword]
-        where = ["guild_id = %s", "keyword = %s"]
+        params = [self.bot_id, guild_id, keyword]
+        where = ["bot_id = %s", "guild_id = %s", "keyword = %s"]
         if exclude_reaction_id is not None:
             where.append("id <> %s")
             params.append(exclude_reaction_id)
@@ -142,6 +145,7 @@ class MentionReactionRepository:
             cursor.execute(
                 """
                 INSERT INTO mention_reactions (
+                    bot_id,
                     guild_id,
                     reaction_key,
                     keyword,
@@ -155,10 +159,11 @@ class MentionReactionRepository:
                     config_json,
                     enabled
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, '{}'::JSONB, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, '{}'::JSONB, %s)
                 RETURNING *
                 """,
                 (
+                    self.bot_id,
                     guild_id,
                     reaction_key,
                     keyword,
@@ -196,7 +201,7 @@ class MentionReactionRepository:
                     admin_only = %s,
                     enabled = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
                 """,
                 (
@@ -206,6 +211,7 @@ class MentionReactionRepository:
                     description,
                     admin_only,
                     enabled,
+                    self.bot_id,
                     guild_id,
                     reaction_id,
                 ),
@@ -232,7 +238,8 @@ class MentionReactionRepository:
                     enabled = %s,
                     config_json = %s::JSONB,
                     updated_at = NOW()
-                WHERE guild_id = %s
+                WHERE bot_id = %s
+                  AND guild_id = %s
                   AND id = %s
                   AND reaction_kind = 'search'
                 RETURNING *
@@ -243,6 +250,7 @@ class MentionReactionRepository:
                     description,
                     enabled,
                     json_dumps(config_json),
+                    self.bot_id,
                     guild_id,
                     reaction_id,
                 ),
@@ -291,6 +299,7 @@ class MentionReactionRepository:
             cursor.execute(
                 """
                 INSERT INTO mention_reactions (
+                    bot_id,
                     guild_id,
                     reaction_key,
                     keyword,
@@ -304,10 +313,11 @@ class MentionReactionRepository:
                     config_json,
                     enabled
                 )
-                VALUES (%s, 'deck_search', 'デッキ検索', 'prefix', 'search', 'デッキ検索', %s, FALSE, TRUE, FALSE, %s::JSONB, %s)
+                VALUES (%s, %s, 'deck_search', 'デッキ検索', 'prefix', 'search', 'デッキ検索', %s, FALSE, TRUE, FALSE, %s::JSONB, %s)
                 RETURNING *
                 """,
                 (
+                    self.bot_id,
                     guild_id,
                     "デッキ検索の固定検索型メンション反応です。",
                     json_dumps(config),
@@ -328,10 +338,10 @@ class MentionReactionRepository:
                 UPDATE mention_reactions
                 SET enabled = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
                 """,
-                (enabled, guild_id, reaction_id),
+                (enabled, self.bot_id, guild_id, reaction_id),
             )
             return fetch_one(cursor)
 
@@ -344,10 +354,11 @@ class MentionReactionRepository:
                 UPDATE mention_reactions
                 SET enabled = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s
+                WHERE bot_id = %s
+                  AND guild_id = %s
                   AND id = ANY(%s)
                 """,
-                (enabled, guild_id, reaction_ids),
+                (enabled, self.bot_id, guild_id, reaction_ids),
             )
             return cursor.rowcount
 
@@ -387,6 +398,7 @@ class MentionReactionRepository:
             cursor.execute(
                 """
                 INSERT INTO mention_reactions (
+                    bot_id,
                     guild_id,
                     reaction_key,
                     keyword,
@@ -400,10 +412,11 @@ class MentionReactionRepository:
                     config_json,
                     enabled
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, FALSE, TRUE, %s::JSONB, FALSE)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE, TRUE, %s::JSONB, FALSE)
                 RETURNING *
                 """,
                 (
+                    self.bot_id,
                     guild_id,
                     copied_key,
                     copied_keyword,
@@ -419,6 +432,7 @@ class MentionReactionRepository:
             cursor.execute(
                 """
                 INSERT INTO mention_reaction_choices (
+                    bot_id,
                     guild_id,
                     mention_reaction_id,
                     name,
@@ -429,7 +443,8 @@ class MentionReactionRepository:
                     result_label,
                     emoji_internal
                 )
-                SELECT guild_id,
+                SELECT bot_id,
+                       guild_id,
                        %s,
                        name,
                        body,
@@ -439,45 +454,48 @@ class MentionReactionRepository:
                        result_label,
                        emoji_internal
                 FROM mention_reaction_choices
-                WHERE guild_id = %s AND mention_reaction_id = %s
+                WHERE bot_id = %s AND guild_id = %s AND mention_reaction_id = %s
                 ORDER BY sort_order ASC, id ASC
                 RETURNING id
                 """,
-                (copied["id"], guild_id, reaction_id),
+                (copied["id"], self.bot_id, guild_id, reaction_id),
             )
             copied_choice_ids = [row[0] for row in cursor.fetchall()]
             cursor.execute(
                 """
                 SELECT id
                 FROM mention_reaction_choices
-                WHERE guild_id = %s AND mention_reaction_id = %s
+                WHERE bot_id = %s AND guild_id = %s AND mention_reaction_id = %s
                 ORDER BY sort_order ASC, id ASC
                 """,
-                (guild_id, reaction_id),
+                (self.bot_id, guild_id, reaction_id),
             )
             source_choice_ids = [row[0] for row in cursor.fetchall()]
             for source_choice_id, copied_choice_id in zip(source_choice_ids, copied_choice_ids):
                 cursor.execute(
                     """
                     INSERT INTO special_effect_assignments (
+                        bot_id,
                         guild_id,
                         special_effect_tag_id,
                         target_type,
                         target_id,
                         enabled
                     )
-                    SELECT guild_id,
+                    SELECT bot_id,
+                           guild_id,
                            special_effect_tag_id,
                            target_type,
                            %s,
                            enabled
                     FROM special_effect_assignments
-                    WHERE guild_id = %s
+                    WHERE bot_id = %s
+                      AND guild_id = %s
                       AND target_type = 'mention_reaction_choice'
                       AND target_id = %s
-                    ON CONFLICT (special_effect_tag_id, target_type, target_id) DO NOTHING
+                    ON CONFLICT (bot_id, special_effect_tag_id, target_type, target_id) DO NOTHING
                     """,
-                    (copied_choice_id, guild_id, source_choice_id),
+                    (copied_choice_id, self.bot_id, guild_id, source_choice_id),
                 )
             return copied
 
@@ -496,9 +514,9 @@ class MentionReactionRepository:
                 """
                 SELECT *
                 FROM mention_reactions
-                WHERE guild_id = %s AND reaction_key = %s
+                WHERE bot_id = %s AND guild_id = %s AND reaction_key = %s
                 """,
-                (guild_id, reaction_key),
+                (self.bot_id, guild_id, reaction_key),
             )
             return fetch_one(cursor)
 
@@ -508,8 +526,9 @@ class MentionReactionRepository:
         content: str,
         enabled: Optional[bool] = True,
     ) -> List[Dict[str, Any]]:
-        params = [guild_id, content, content, content, content]
+        params = [self.bot_id, guild_id, content, content, content, content]
         where = [
+            "bot_id = %s",
             "guild_id = %s",
             "((match_type = 'exact' AND %s = keyword) "
             "OR (match_type = 'prefix' AND POSITION(keyword IN %s) = 1) "
@@ -538,8 +557,8 @@ class MentionReactionRepository:
         keyword: str,
         enabled: Optional[bool] = None,
     ) -> List[Dict[str, Any]]:
-        params = [guild_id, "%{0}%".format(keyword)]
-        where = ["guild_id = %s", "keyword ILIKE %s"]
+        params = [self.bot_id, guild_id, "%{0}%".format(keyword)]
+        where = ["bot_id = %s", "guild_id = %s", "keyword ILIKE %s"]
 
         if enabled is not None:
             where.append("enabled = %s")
@@ -562,8 +581,8 @@ class MentionReactionRepository:
         mention_reaction_id: int,
         enabled: Optional[bool] = None,
     ) -> List[Dict[str, Any]]:
-        params = [guild_id, mention_reaction_id]
-        where = ["guild_id = %s", "mention_reaction_id = %s"]
+        params = [self.bot_id, guild_id, mention_reaction_id]
+        where = ["bot_id = %s", "guild_id = %s", "mention_reaction_id = %s"]
 
         if enabled is not None:
             where.append("enabled = %s")
@@ -586,9 +605,9 @@ class MentionReactionRepository:
                 """
                 SELECT *
                 FROM mention_reaction_choices
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 """,
-                (guild_id, choice_id),
+                (self.bot_id, guild_id, choice_id),
             )
             return fetch_one(cursor)
 
@@ -608,6 +627,7 @@ class MentionReactionRepository:
             cursor.execute(
                 """
                 INSERT INTO mention_reaction_choices (
+                    bot_id,
                     guild_id,
                     mention_reaction_id,
                     name,
@@ -618,10 +638,11 @@ class MentionReactionRepository:
                     result_label,
                     emoji_internal
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING *
                 """,
                 (
+                    self.bot_id,
                     guild_id,
                     mention_reaction_id,
                     name,
@@ -659,7 +680,7 @@ class MentionReactionRepository:
                     result_label = %s,
                     emoji_internal = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
                 """,
                 (
@@ -670,6 +691,7 @@ class MentionReactionRepository:
                     enabled,
                     result_label,
                     emoji_internal,
+                    self.bot_id,
                     guild_id,
                     choice_id,
                 ),
@@ -681,22 +703,23 @@ class MentionReactionRepository:
             cursor.execute(
                 """
                 DELETE FROM special_effect_assignments
-                WHERE guild_id = %s
+                WHERE bot_id = %s
+                  AND guild_id = %s
                   AND target_type = 'mention_reaction_choice'
                   AND target_id IN (
                       SELECT id
                       FROM mention_reaction_choices
-                      WHERE guild_id = %s AND mention_reaction_id = %s
+                      WHERE bot_id = %s AND guild_id = %s AND mention_reaction_id = %s
                   )
                 """,
-                (guild_id, guild_id, reaction_id),
+                (self.bot_id, guild_id, self.bot_id, guild_id, reaction_id),
             )
             cursor.execute(
                 """
                 DELETE FROM mention_reactions
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 """,
-                (guild_id, reaction_id),
+                (self.bot_id, guild_id, reaction_id),
             )
             return cursor.rowcount > 0
 
@@ -705,18 +728,19 @@ class MentionReactionRepository:
             cursor.execute(
                 """
                 DELETE FROM special_effect_assignments
-                WHERE guild_id = %s
+                WHERE bot_id = %s
+                  AND guild_id = %s
                   AND target_type = 'mention_reaction_choice'
                   AND target_id = %s
                 """,
-                (guild_id, choice_id),
+                (self.bot_id, guild_id, choice_id),
             )
             cursor.execute(
                 """
                 DELETE FROM mention_reaction_choices
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 """,
-                (guild_id, choice_id),
+                (self.bot_id, guild_id, choice_id),
             )
             return cursor.rowcount > 0
 
@@ -725,8 +749,8 @@ class MentionReactionRepository:
         guild_id: str,
         enabled: Optional[bool] = None,
     ) -> List[Dict[str, Any]]:
-        params = [guild_id]
-        where = ["guild_id = %s"]
+        params = [self.bot_id, guild_id]
+        where = ["bot_id = %s", "guild_id = %s"]
 
         if enabled is not None:
             where.append("enabled = %s")

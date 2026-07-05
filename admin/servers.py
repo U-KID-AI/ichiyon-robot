@@ -219,7 +219,7 @@ def register_server_routes(templates: Jinja2Templates) -> None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="feature toggle denied")
 
         with get_connection() as connection:
-            repository = FeatureFlagRepository(connection)
+            repository = FeatureFlagRepository(connection, bot_id=bot_id)
             repository.toggle_flag(
                 guild_id,
                 feature_key,
@@ -281,7 +281,7 @@ def build_feature_rows(
     bot_id: str = "ichiyon",
 ) -> List[Dict[str, Any]]:
     with get_connection() as connection:
-        repository = FeatureFlagRepository(connection)
+        repository = FeatureFlagRepository(connection, bot_id=bot_id)
         flags = {
             flag["feature_key"]: bool(flag["enabled"])
             for flag in repository.list_flags(guild_id)

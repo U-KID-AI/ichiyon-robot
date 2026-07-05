@@ -7,6 +7,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from admin.auth import get_current_user
+from admin.bot_context import current_selected_bot_id, selected_bot_id
 from admin.servers import can_access_guild, find_server, role_allows
 from admin.ux import (
     BEHAVIOR_LABELS,
@@ -50,10 +51,10 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         filters = normalize_filters(q, enabled, behavior_type, admin_only, show_test_data)
         modes = list_mode_rows(guild_id, server["role"], filters)
         return templates.TemplateResponse(
@@ -81,16 +82,16 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if not mode_ids:
             return RedirectResponse(url="/guilds/{0}/modes?error={1}".format(guild_id, quote("項目を選択してね")), status_code=303)
         if action not in ("on", "off"):
             return RedirectResponse(url="/guilds/{0}/modes?error={1}".format(guild_id, quote("操作を選んでね")), status_code=303)
         updated_count = 0
         with get_connection() as connection:
-            repository = ModeRepository(connection)
+            repository = ModeRepository(connection, bot_id=current_selected_bot_id())
             for mode_id in mode_ids:
                 mode = repository.get_by_id(guild_id, mode_id)
                 if mode is None or not can_edit_mode(server["role"], mode):
@@ -109,12 +110,12 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         with get_connection() as connection:
-            repository = ModeRepository(connection)
+            repository = ModeRepository(connection, bot_id=current_selected_bot_id())
             mode = repository.get_by_id(guild_id, mode_id)
             if mode is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mode not found")
@@ -129,11 +130,11 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         with get_connection() as connection:
-            repository = ModeRepository(connection)
+            repository = ModeRepository(connection, bot_id=current_selected_bot_id())
             mode = repository.get_by_id(guild_id, mode_id)
             if mode is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mode not found")
@@ -150,11 +151,11 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="サーバーを見る権限がありません。")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         with get_connection() as connection:
-            repository = ModeRepository(connection)
+            repository = ModeRepository(connection, bot_id=current_selected_bot_id())
             mode = repository.get_by_id(guild_id, mode_id)
             if mode is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="モードが見つかりません。")
@@ -171,10 +172,10 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="mode creation denied")
         return render_form(
@@ -232,17 +233,17 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         with get_connection() as connection:
-            repository = ModeRepository(connection)
+            repository = ModeRepository(connection, bot_id=current_selected_bot_id())
             mode = repository.get_by_id(guild_id, mode_id)
             if mode is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mode not found")
             form = build_mode_view(connection, guild_id, mode)
-            counters = CounterRepository(connection).list_counters(guild_id)
+            counters = CounterRepository(connection, bot_id=current_selected_bot_id()).list_counters(guild_id)
         return render_form(
             templates,
             request,
@@ -357,11 +358,11 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="サーバーを見る権限がありません。")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         with get_connection() as connection:
-            repository = ModeRepository(connection)
+            repository = ModeRepository(connection, bot_id=current_selected_bot_id())
             mode = repository.get_by_id(guild_id, mode_id)
             if mode is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="モードが見つかりません。")
@@ -509,7 +510,7 @@ def can_edit_mode(role: str, mode: Dict[str, Any]) -> bool:
 
 def list_mode_rows(guild_id: str, role: str, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
     with get_connection() as connection:
-        repository = ModeRepository(connection)
+        repository = ModeRepository(connection, bot_id=current_selected_bot_id())
         modes = repository.list_modes(
             guild_id,
             query=filters["q"] or None,
@@ -535,7 +536,7 @@ def build_mode_view(
     include_children: bool = True,
     role: str = "viewer",
 ) -> Dict[str, Any]:
-    repository = ModeRepository(connection)
+    repository = ModeRepository(connection, bot_id=current_selected_bot_id())
     row = default_mode_form()
     row.update(
         {
@@ -809,10 +810,10 @@ async def save_mode(
     user = get_current_user(request)
     if user is None:
         return RedirectResponse(url="/login", status_code=303)
-    if not can_access_guild(guild_id, user["user_id"]):
+    if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-    server = find_server(guild_id, user["user_id"])
+    server = find_server(guild_id, user["user_id"], selected_bot_id(request))
     upload_errors = []
     if values.get("delete_mode_icon"):
         values["mode_icon_path"] = ""
@@ -833,7 +834,7 @@ async def save_mode(
     form, errors, cooldown = build_mode_form(values)
     errors.extend(upload_errors)
     with get_connection() as connection:
-        repository = ModeRepository(connection)
+        repository = ModeRepository(connection, bot_id=current_selected_bot_id())
         existing = repository.get_by_id(guild_id, mode_id) if mode_id is not None else None
         if mode_id is not None and existing is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mode not found")
@@ -847,7 +848,7 @@ async def save_mode(
             errors.append("このモードキーは同じサーバーで使用済み。")
 
         if errors:
-            counters = CounterRepository(connection).list_counters(guild_id)
+            counters = CounterRepository(connection, bot_id=current_selected_bot_id()).list_counters(guild_id)
             return render_form(
                 templates,
                 request,
@@ -920,13 +921,13 @@ def get_edit_context(request: Request, guild_id: str, mode_id: int) -> Tuple[Dic
     user = get_current_user(request)
     if user is None:
         return {}, None, None
-    if not can_access_guild(guild_id, user["user_id"]):
+    if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-    server = find_server(guild_id, user["user_id"])
+    server = find_server(guild_id, user["user_id"], selected_bot_id(request))
     context = get_connection()
     connection = context.__enter__()
-    repository = ModeRepository(connection)
+    repository = ModeRepository(connection, bot_id=current_selected_bot_id())
     mode = repository.get_by_id(guild_id, mode_id)
     if mode is None:
         context.__exit__(None, None, None)
@@ -963,7 +964,7 @@ async def save_reply_choice(
             image_path = uploaded_path
         if not name.strip() or (not body.strip() and not image_path.strip()):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid reply choice")
-        repository = ModeRepository(connection)
+        repository = ModeRepository(connection, bot_id=current_selected_bot_id())
         rate = max(parse_int(appearance_rate, 1), 1)
         if choice_id is None:
             repository.create_reply_choice(
@@ -1016,7 +1017,7 @@ async def save_trigger_condition(
         if condition_type not in TRIGGER_TYPES:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid trigger type")
         config = parse_json_config(config_text)
-        counter_repository = CounterRepository(connection)
+        counter_repository = CounterRepository(connection, bot_id=current_selected_bot_id())
         if condition_type == "counter_threshold" and new_count_key.strip():
             counter_key = new_count_key.strip()
             if counter_repository.get_by_key(guild_id, counter_key) is not None:
@@ -1031,7 +1032,7 @@ async def save_trigger_condition(
             )
             config["counter_key"] = counter_key
 
-        repository = ModeRepository(connection)
+        repository = ModeRepository(connection, bot_id=current_selected_bot_id())
         op = group_operator if group_operator in ("AND", "OR") else "AND"
         if condition_id is None:
             repository.create_trigger_condition(guild_id, mode_id, condition_type, config, op, enabled == "on")
@@ -1063,7 +1064,7 @@ async def save_exit_condition(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid exit type")
         db_type = "duration_elapsed" if condition_type == "duration" else "manual"
         config = parse_json_config(config_text)
-        repository = ModeRepository(connection)
+        repository = ModeRepository(connection, bot_id=current_selected_bot_id())
         if condition_id is None:
             repository.create_exit_condition(guild_id, mode_id, db_type, config, enabled == "on")
         else:

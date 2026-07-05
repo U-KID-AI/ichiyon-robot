@@ -8,6 +8,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from admin.auth import get_current_user
+from admin.bot_context import current_selected_bot_id, selected_bot_id
 from admin.servers import can_access_guild, find_server, role_allows
 from admin.ux import (
     ADDITIONAL_POST_TIMING_LABELS,
@@ -66,10 +67,10 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         filters = normalize_filters(q, effect_type, enabled, admin_only, show_test_data)
         tags = list_tag_rows(guild_id, server["role"], filters)
         return templates.TemplateResponse(
@@ -99,9 +100,9 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="special effect bulk update denied")
         # TODO(v3): bot_id権限を導入したら、guild権限だけでなくBot単位の操作権限も確認する。
@@ -118,7 +119,7 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
 
         updated_count = 0
         with get_connection() as connection:
-            repository = SpecialEffectRepository(connection)
+            repository = SpecialEffectRepository(connection, bot_id=current_selected_bot_id())
             for tag_id in tag_ids:
                 tag = repository.get_by_id(guild_id, tag_id)
                 if tag is None or not can_edit_tag(server["role"], tag):
@@ -140,12 +141,12 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         with get_connection() as connection:
-            repository = SpecialEffectRepository(connection)
+            repository = SpecialEffectRepository(connection, bot_id=current_selected_bot_id())
             tag = repository.get_by_id(guild_id, tag_id)
             if tag is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="special effect tag not found")
@@ -161,12 +162,12 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         with get_connection() as connection:
-            repository = SpecialEffectRepository(connection)
+            repository = SpecialEffectRepository(connection, bot_id=current_selected_bot_id())
             tag = repository.get_by_id(guild_id, tag_id)
             if tag is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="special effect tag not found")
@@ -187,11 +188,11 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="サーバーを見る権限がありません。")
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         with get_connection() as connection:
-            repository = SpecialEffectRepository(connection)
+            repository = SpecialEffectRepository(connection, bot_id=current_selected_bot_id())
             tag = repository.get_by_id(guild_id, tag_id)
             if tag is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="特殊効果タグが見つかりません。")
@@ -208,10 +209,10 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="special effect creation denied")
 
@@ -251,10 +252,10 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="special effect creation denied")
 
@@ -294,7 +295,7 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
             )
 
         with get_connection() as connection:
-            repository = SpecialEffectRepository(connection)
+            repository = SpecialEffectRepository(connection, bot_id=current_selected_bot_id())
             tag = save_new_tag(repository, guild_id, form, user["user_id"])
             connection.commit()
 
@@ -308,12 +309,12 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         with get_connection() as connection:
-            repository = SpecialEffectRepository(connection)
+            repository = SpecialEffectRepository(connection, bot_id=current_selected_bot_id())
             tag = repository.get_by_id(guild_id, tag_id)
             if tag is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="special effect tag not found")
@@ -357,12 +358,12 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
-        if not can_access_guild(guild_id, user["user_id"]):
+        if not can_access_guild(guild_id, user["user_id"], selected_bot_id(request)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], selected_bot_id(request))
         with get_connection() as connection:
-            repository = SpecialEffectRepository(connection)
+            repository = SpecialEffectRepository(connection, bot_id=current_selected_bot_id())
             tag = repository.get_by_id(guild_id, tag_id)
             if tag is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="special effect tag not found")
@@ -430,7 +431,7 @@ def normalize_filters(
 
 def list_tag_rows(guild_id: str, role: str, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
     with get_connection() as connection:
-        repository = SpecialEffectRepository(connection)
+        repository = SpecialEffectRepository(connection, bot_id=current_selected_bot_id())
         tags = repository.list_tags(
             guild_id,
             query=filters["q"] or None,

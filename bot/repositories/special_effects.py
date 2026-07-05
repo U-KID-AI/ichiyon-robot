@@ -1,12 +1,14 @@
 import json
 from typing import Any, Dict, List, Optional
 
+from bot import config
 from bot.repositories.base import fetch_all, fetch_one, json_dumps, normalize_effect_target_type
 
 
 class SpecialEffectRepository:
-    def __init__(self, connection) -> None:
+    def __init__(self, connection, bot_id: Optional[str] = None) -> None:
         self.connection = connection
+        self.bot_id = bot_id or config.BOT_INSTANCE_ID
 
     def list_tags(
         self,
@@ -17,8 +19,8 @@ class SpecialEffectRepository:
         enabled: Optional[bool] = None,
         admin_only: Optional[bool] = None,
     ) -> List[Dict[str, Any]]:
-        params = [guild_id]
-        where = ["guild_id = %s"]
+        params = [self.bot_id, guild_id]
+        where = ["bot_id = %s", "guild_id = %s"]
 
         if query:
             like_query = "%{0}%".format(query)
@@ -58,9 +60,9 @@ class SpecialEffectRepository:
                 """
                 SELECT *
                 FROM special_effect_tags
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 """,
-                (guild_id, tag_id),
+                (self.bot_id, guild_id, tag_id),
             )
             return fetch_one(cursor)
 
@@ -90,6 +92,7 @@ class SpecialEffectRepository:
             cursor.execute(
                 """
                 INSERT INTO special_effect_tags (
+                    bot_id,
                     guild_id,
                     name,
                     description,
@@ -110,10 +113,11 @@ class SpecialEffectRepository:
                     max_multiplier,
                     multiplier_updated_by
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::JSONB, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::JSONB, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING *
                 """,
                 (
+                    self.bot_id,
                     guild_id,
                     name,
                     description,
@@ -183,7 +187,7 @@ class SpecialEffectRepository:
                     max_multiplier = %s,
                     multiplier_updated_by = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
                 """,
                 (
@@ -205,6 +209,7 @@ class SpecialEffectRepository:
                     cooldown_scope,
                     max_multiplier,
                     multiplier_updated_by,
+                    self.bot_id,
                     guild_id,
                     tag_id,
                 ),
@@ -223,10 +228,10 @@ class SpecialEffectRepository:
                 UPDATE special_effect_tags
                 SET enabled = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
                 """,
-                (enabled, guild_id, tag_id),
+                (enabled, self.bot_id, guild_id, tag_id),
             )
             return fetch_one(cursor)
 
@@ -239,10 +244,11 @@ class SpecialEffectRepository:
                 UPDATE special_effect_tags
                 SET enabled = %s,
                     updated_at = NOW()
-                WHERE guild_id = %s
+                WHERE bot_id = %s
+                  AND guild_id = %s
                   AND id = ANY(%s)
                 """,
-                (enabled, guild_id, tag_ids),
+                (enabled, self.bot_id, guild_id, tag_ids),
             )
             return cursor.rowcount
 
@@ -296,16 +302,16 @@ class SpecialEffectRepository:
             cursor.execute(
                 """
                 DELETE FROM special_effect_assignments
-                WHERE guild_id = %s AND special_effect_tag_id = %s
+                WHERE bot_id = %s AND guild_id = %s AND special_effect_tag_id = %s
                 """,
-                (guild_id, tag_id),
+                (self.bot_id, guild_id, tag_id),
             )
             cursor.execute(
                 """
                 DELETE FROM special_effect_tags
-                WHERE guild_id = %s AND id = %s
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
                 """,
-                (guild_id, tag_id),
+                (self.bot_id, guild_id, tag_id),
             )
             return cursor.rowcount > 0
 
@@ -316,8 +322,8 @@ class SpecialEffectRepository:
         target_id: Optional[int] = None,
         enabled: Optional[bool] = None,
     ) -> List[Dict[str, Any]]:
-        params = [guild_id]
-        where = ["a.guild_id = %s"]
+        params = [self.bot_id, guild_id]
+        where = ["a.bot_id = %s", "a.guild_id = %s", "t.bot_id = a.bot_id"]
 
         if target_type is not None:
             where.append("a.target_type = %s")
@@ -369,19 +375,20 @@ class SpecialEffectRepository:
             cursor.execute(
                 """
                 INSERT INTO special_effect_assignments (
+                    bot_id,
                     guild_id,
                     special_effect_tag_id,
                     target_type,
                     target_id,
                     enabled
                 )
-                VALUES (%s, %s, %s, %s, TRUE)
-                ON CONFLICT (special_effect_tag_id, target_type, target_id) DO UPDATE
+                VALUES (%s, %s, %s, %s, %s, TRUE)
+                ON CONFLICT (bot_id, special_effect_tag_id, target_type, target_id) DO UPDATE
                 SET enabled = TRUE,
                     updated_at = NOW()
                 RETURNING *
                 """,
-                (guild_id, special_effect_tag_id, target_type, target_id),
+                (self.bot_id, guild_id, special_effect_tag_id, target_type, target_id),
             )
             return fetch_one(cursor)
 
@@ -398,12 +405,13 @@ class SpecialEffectRepository:
                 UPDATE special_effect_assignments
                 SET enabled = FALSE,
                     updated_at = NOW()
-                WHERE guild_id = %s
+                WHERE bot_id = %s
+                    AND guild_id = %s
                     AND special_effect_tag_id = %s
                     AND target_type = %s
                     AND target_id = %s
                 RETURNING *
                 """,
-                (guild_id, special_effect_tag_id, target_type, target_id),
+                (self.bot_id, guild_id, special_effect_tag_id, target_type, target_id),
             )
             return fetch_one(cursor)
