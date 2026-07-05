@@ -666,43 +666,92 @@ a {
   }
 
   .feature-list {
-    gap: 8px;
+    display: block;
+    border-top: 1px solid var(--border-soft);
+    gap: 0;
   }
 
   .feature-item {
+    border-width: 0 0 1px;
+    border-radius: 0;
+    background: transparent;
     align-items: center;
-    gap: 10px;
-    padding: 10px;
+    gap: 8px;
+    justify-content: space-between;
+    min-height: 48px;
+    padding: 6px 0;
   }
 
   .feature-title-row {
-    gap: 8px;
+    gap: 7px;
+    margin-bottom: 0;
+    min-width: 0;
   }
 
   .feature-title-row h3 {
-    font-size: 15px;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    font-size: 14px;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .feature-title-row .status {
+    flex: 0 0 auto;
+    order: -1;
+    padding: 3px 6px;
+    font-size: 11px;
   }
 
   .feature-overview {
     display: none;
   }
 
+  .feature-main {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
   .feature-actions {
     flex: 0 0 auto;
     justify-content: flex-end;
-    gap: 6px;
+    flex-wrap: nowrap;
+    gap: 4px;
   }
 
   .feature-actions .button-link,
   .feature-actions button {
-    min-height: 32px;
-    padding: 6px 9px;
-    font-size: 13px;
+    min-height: 28px;
+    padding: 4px 7px;
+    font-size: 12px;
+    line-height: 1;
   }
 
   .info-button {
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
+  }
+
+  .feature-toggle-on button,
+  .feature-toggle-off button {
+    min-width: 38px;
+    font-size: 0;
+  }
+
+  .feature-toggle-on button::after,
+  .feature-toggle-off button::after {
+    font-size: 12px;
+  }
+
+  .feature-toggle-on button::after {
+    content: "ON";
+  }
+
+  .feature-toggle-off button::after {
+    content: "OFF";
   }
 
   .actions-row {

@@ -48,7 +48,7 @@
               aria-label="{{ feature.label }}の情報"
             >i</button>
             <a class="button-link secondary" href="{{ feature.edit_url }}">編集</a>
-            <form method="post" action="{{ feature.toggle_url }}">
+            <form class="{% if feature.enabled %}feature-toggle-off{% else %}feature-toggle-on{% endif %}" method="post" action="{{ feature.toggle_url }}">
               <button type="submit" {% if not feature.can_toggle %}disabled title="権限なし"{% endif %}>
                 {% if feature.enabled %}OFFにする{% else %}ONにする{% endif %}
               </button>
