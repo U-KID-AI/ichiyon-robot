@@ -13,6 +13,7 @@ from admin import servers
 REPOSITORY_PATH = PROJECT_ROOT / "bot" / "repositories" / "permissions.py"
 MIGRATION_028_PATH = PROJECT_ROOT / "migrations" / "028_register_irsia_production_guilds.sql"
 MIGRATION_029_PATH = PROJECT_ROOT / "migrations" / "029_fix_irsia_bot_guilds_and_voice_lines.sql"
+MIGRATION_030_PATH = PROJECT_ROOT / "migrations" / "030_correct_irsia_ichiyon_lab_guild_id.sql"
 
 
 class FakeConnection:
@@ -75,6 +76,7 @@ def main() -> int:
         repository_source = REPOSITORY_PATH.read_text(encoding="utf-8")
         migration_source = MIGRATION_028_PATH.read_text(encoding="utf-8")
         migration_029_source = MIGRATION_029_PATH.read_text(encoding="utf-8")
+        migration_030_source = MIGRATION_030_PATH.read_text(encoding="utf-8")
         record(
             results,
             "bot guild mapping table is declared",
@@ -92,8 +94,35 @@ def main() -> int:
         record(
             results,
             "irsia lab guild is mapped to bot",
-            "('irsia', '1392174489609179327', TRUE)" in migration_029_source,
+            "('irsia', '1515983621461245972', TRUE)" in migration_030_source,
             "irsia lab",
+        )
+        record(
+            results,
+            "wrong irsia lab guild is removed from bot mapping",
+            "DELETE FROM bot_guilds" in migration_030_source
+            and "bot_id = 'irsia'" in migration_030_source
+            and "guild_id = '1392174489609179327'" in migration_030_source,
+            "irsia wrong guild removed from bot_guilds",
+        )
+        record(
+            results,
+            "correct irsia lab guild exists in guilds",
+            "('1515983621461245972', 'いちよんラボ', TRUE)" in migration_030_source,
+            "guilds correct lab",
+        )
+        record(
+            results,
+            "wrong guild is not deleted from guilds",
+            "DELETE FROM guilds" not in migration_030_source,
+            "guilds wrong id retained",
+        )
+        record(
+            results,
+            "irsia voice line uses corrected lab guild",
+            "('irsia', '1515983621461245972', '', '', TRUE)" in migration_030_source
+            and "DELETE FROM bot_voice_lines" in migration_030_source,
+            "voice line corrected lab",
         )
         record(
             results,
