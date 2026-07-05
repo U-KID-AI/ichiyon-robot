@@ -284,6 +284,19 @@ textarea:disabled::placeholder {
   font-weight: 800;
 }
 
+.success-panel {
+  border-color: rgba(36, 128, 70, 0.6);
+  background: rgba(36, 128, 70, 0.14);
+  color: #7ee787;
+  font-weight: 800;
+}
+
+.error-panel {
+  border-color: rgba(218, 55, 60, 0.6);
+  background: rgba(218, 55, 60, 0.14);
+  color: #ffb4b7;
+}
+
 .status {
   display: inline-flex;
   align-items: center;
@@ -384,6 +397,16 @@ textarea:disabled::placeholder {
     linear-gradient(135deg, #5865f2, #3ba55d);
 }
 
+.server-icon.bot-placeholder {
+  background:
+    linear-gradient(135deg, #5865f2, #8ea1e1);
+}
+
+.server-icon.admin-placeholder {
+  background:
+    linear-gradient(135deg, #248046, #5865f2);
+}
+
 .page-summary {
   margin-bottom: 16px;
 }
@@ -399,6 +422,27 @@ textarea:disabled::placeholder {
   display: grid;
   grid-template-columns: repeat(2, minmax(180px, 1fr));
   gap: 12px;
+}
+
+.permission-list {
+  display: grid;
+  gap: 10px;
+}
+
+.permission-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(160px, 220px);
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--panel-soft);
+}
+
+.user-checks {
+  margin-top: 12px;
+  flex-wrap: wrap;
 }
 
 .feature-title-row {
@@ -816,8 +860,14 @@ a {
 
   .filter-form,
   .choice-grid,
-  .form-grid {
+  .form-grid,
+  .permission-row {
     grid-template-columns: 1fr;
+  }
+
+  .permission-row {
+    gap: 8px;
+    padding: 10px;
   }
 
   .admin-table,

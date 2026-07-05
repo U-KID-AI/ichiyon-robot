@@ -1,0 +1,41 @@
+{% extends "layout.html" %}
+
+{% block title %}入室時・復活時セリフ{% endblock %}
+{% block heading %}入室時・復活時セリフ{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="page-actions">
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+    </div>
+  </section>
+
+  {% if saved %}
+    <section class="panel success-panel">保存しました。</section>
+  {% endif %}
+
+  <form method="post">
+    <section class="panel">
+      <h2>基本</h2>
+      <label class="check-row"><input type="checkbox" name="enabled" {% if enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>有効</label>
+    </section>
+
+    <section class="panel">
+      <h2>セリフ</h2>
+      <div class="form-grid">
+        <label>入室時セリフ<textarea name="join_line" rows="3" {% if not can_edit %}disabled{% endif %}>{{ join_line }}</textarea></label>
+        <label>復活時セリフ<textarea name="revive_line" rows="3" {% if not can_edit %}disabled{% endif %}>{{ revive_line }}</textarea></label>
+      </div>
+      <p class="empty">既定の復活時セリフ: {{ default_revive_line }}</p>
+    </section>
+
+    <section class="panel actions-row">
+      {% if can_edit %}
+        <button type="submit">保存</button>
+      {% else %}
+        <p class="empty">閲覧のみ</p>
+      {% endif %}
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">戻る</a>
+    </section>
+  </form>
+{% endblock %}

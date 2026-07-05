@@ -12,13 +12,17 @@
         <p class="eyebrow">ver3.0 DB管理画面</p>
         <h1>{% block heading %}管理画面{% endblock %}</h1>
         <p class="topbar-server">
-          Bot: {{ current_bot_instance.display_name }} / {{ current_bot_instance.bot_id }}
+          {% set request_state = request|attr("state") %}
+          {% set selected_bot = request_state.selected_bot_instance if request_state is defined and request_state.selected_bot_instance is defined else current_bot_instance %}
+          Bot: {{ selected_bot.display_name }} / {{ selected_bot.bot_id }}
           {% if server is defined and server %}
             ・ {{ server.name }}
           {% endif %}
         </p>
       </div>
       <nav>
+        <a href="/admin">管理</a>
+        <a href="/bots">Bot選択</a>
         <a href="/servers">サーバー選択</a>
         {% if server is defined and server %}
           <a href="/guilds/{{ server.guild_id }}">機能一覧</a>

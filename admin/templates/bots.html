@@ -1,0 +1,30 @@
+{% extends "layout.html" %}
+
+{% block title %}Bot選択{% endblock %}
+{% block heading %}Bot選択{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <p class="hint">管理権限のあるBotだけを表示しています。</p>
+    <div class="server-list">
+      {% for bot in bots %}
+        <article class="server-item">
+          <div class="server-summary">
+            <div class="server-icon placeholder bot-placeholder"></div>
+            <div>
+              <h2>{{ bot.display_name or bot.bot_id }}</h2>
+              <p class="empty">Bot ID: {{ bot.bot_id }}</p>
+              {% if bot.description %}
+                <p class="empty mobile-hidden-description">{{ bot.description }}</p>
+              {% endif %}
+              <strong class="status enabled">{{ bot.role or "viewer" }}</strong>
+            </div>
+          </div>
+          <a class="button-link" href="/bots/{{ bot.bot_id }}/guilds">選択</a>
+        </article>
+      {% else %}
+        <p class="empty">管理できるBotがありません。</p>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

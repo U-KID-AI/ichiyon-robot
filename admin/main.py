@@ -19,6 +19,8 @@ from admin.auto_reactions import (
 )
 from admin.auto_posts import register_auto_post_routes, router as auto_post_router
 from admin.auth import get_session_secret, register_auth_routes, router as auth_router
+from admin.bots import register_bot_routes, router as bot_router
+from admin.bot_context import current_bot_instance_for_request
 from admin.mention_reactions import (
     register_mention_reaction_routes,
     router as mention_reaction_router,
@@ -38,6 +40,7 @@ from admin.special_effects import (
     register_special_effect_routes,
     router as special_effect_router,
 )
+from admin.voice_lines import register_voice_line_routes, router as voice_line_router
 from admin.x_updates import register_x_update_routes, router as x_update_router
 
 
@@ -66,7 +69,9 @@ app.mount("/assets", StaticFiles(directory=BASE_DIR / "assets"), name="assets")
 templates = Jinja2Templates(directory=Path(__file__).resolve().parent / "templates")
 templates.env.globals["current_bot_instance"] = bot_config.BOT_INSTANCE
 templates.env.globals["current_bot_instance_id"] = bot_config.BOT_INSTANCE_ID
+app.state.templates = templates
 register_auth_routes(templates)
+register_bot_routes(templates)
 register_server_routes(templates)
 register_mention_limited_effect_routes(templates)
 register_mention_reaction_routes(templates)
@@ -77,7 +82,9 @@ register_mode_routes(templates)
 register_auto_post_routes(templates)
 register_reaction_threshold_routes(templates)
 register_x_update_routes(templates)
+register_voice_line_routes(templates)
 app.include_router(auth_router)
+app.include_router(bot_router)
 app.include_router(server_router)
 app.include_router(mention_limited_effect_router)
 app.include_router(mention_reaction_router)
@@ -88,6 +95,7 @@ app.include_router(mode_router)
 app.include_router(auto_post_router)
 app.include_router(reaction_threshold_router)
 app.include_router(x_update_router)
+app.include_router(voice_line_router)
 
 
 LEGACY_JSON_PATHS = ("/quotes", "/reactions", "/ng-words", "/kuji")
@@ -108,6 +116,19 @@ def is_legacy_json_path(path: str) -> bool:
 async def redirect_legacy_json_pages(request: Request, call_next):
     if is_legacy_json_path(request.url.path) and not legacy_json_pages_enabled():
         return RedirectResponse(url="/servers", status_code=303)
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def inject_selected_bot_instance(request: Request, call_next):
+    try:
+        request.state.selected_bot_instance = current_bot_instance_for_request(request)
+    except Exception:
+        request.state.selected_bot_instance = {
+            "bot_id": bot_config.BOT_INSTANCE.bot_id,
+            "display_name": bot_config.BOT_INSTANCE.display_name,
+            "description": bot_config.BOT_INSTANCE.description,
+        }
     return await call_next(request)
 
 

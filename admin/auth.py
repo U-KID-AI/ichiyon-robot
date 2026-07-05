@@ -9,6 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from bot.db import get_connection
+from bot.repositories import PermissionRepository
+
 
 load_dotenv()
 
@@ -143,6 +146,12 @@ def register_auth_routes(templates: Jinja2Templates) -> None:
             "global_name": user_data.get("global_name"),
             "avatar_url": build_avatar_url(user_id, user_data.get("avatar")),
         }
+        try:
+            with get_connection() as connection:
+                PermissionRepository(connection).set_last_login(user_id)
+                connection.commit()
+        except Exception as exc:
+            print("[WARN] Failed to update admin last_login_at: {0}".format(exc))
         return RedirectResponse(url="/me", status_code=303)
 
     @router.api_route("/logout", methods=["GET", "POST"])

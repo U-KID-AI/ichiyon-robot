@@ -4,9 +4,10 @@ from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from admin.bot_context import selected_bot_id, set_selected_bot_id
 from admin.auth import get_current_user
 from bot.db import get_connection
-from bot.repositories import FeatureFlagRepository, PermissionRepository
+from bot.repositories import FeatureFlagRepository, PermissionRepository, VoiceLineRepository
 
 
 router = APIRouter()
@@ -119,6 +120,16 @@ DISPLAY_FEATURES = [
         "off_behavior": "OFFにすると、リアクション数による返信を行わない。",
         "notes": "同じメッセージと絵文字の組み合わせでは重複返信しない。",
     },
+    {
+        "key": "voice_lines",
+        "label": "入室時・復活時セリフ",
+        "edit_path": "voice-lines",
+        "required_role": "editor",
+        "overview": "Botの入室時・復活時に使うセリフを設定します。",
+        "settings": "Bot別、サーバー別の入室セリフと復活セリフ、有効/無効",
+        "off_behavior": "OFFにすると、この設定からのセリフ送信を止めます。",
+        "notes": "未設定のいちよんロボは既存の復活セリフを維持します。",
+    },
 ]
 
 
@@ -129,13 +140,15 @@ def register_server_routes(templates: Jinja2Templates) -> None:
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
 
-        servers = list_manageable_servers(user["user_id"])
+        bot_id = selected_bot_id(request)
+        servers = list_manageable_servers(user["user_id"], bot_id)
         return templates.TemplateResponse(
             request,
             "servers.html",
             {
                 "user": user,
                 "servers": servers,
+                "bot_id": bot_id,
             },
         )
 
@@ -148,11 +161,12 @@ def register_server_routes(templates: Jinja2Templates) -> None:
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
 
-        if not can_access_guild(guild_id, user["user_id"]):
+        bot_id = selected_bot_id(request)
+        if not can_access_guild(guild_id, user["user_id"], bot_id):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
-        features = build_feature_rows(guild_id, server["role"])
+        server = find_server(guild_id, user["user_id"], bot_id)
+        features = build_feature_rows(guild_id, server["role"], bot_id)
         return templates.TemplateResponse(
             request,
             "guild_top.html",
@@ -161,6 +175,7 @@ def register_server_routes(templates: Jinja2Templates) -> None:
                 "server": server,
                 "guild_id": guild_id,
                 "features": features,
+                "bot_id": bot_id,
                 "can_edit_any": role_allows(server["role"], "editor"),
             },
         )
@@ -175,7 +190,8 @@ def register_server_routes(templates: Jinja2Templates) -> None:
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
 
-        if not can_access_guild(guild_id, user["user_id"]):
+        bot_id = selected_bot_id(request)
+        if not can_access_guild(guild_id, user["user_id"], bot_id):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
         return RedirectResponse(url=legacy_mention_feature_redirect_url(guild_id, kind), status_code=303)
@@ -190,10 +206,11 @@ def register_server_routes(templates: Jinja2Templates) -> None:
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
 
-        if not can_access_guild(guild_id, user["user_id"]):
+        bot_id = selected_bot_id(request)
+        if not can_access_guild(guild_id, user["user_id"], bot_id):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-        server = find_server(guild_id, user["user_id"])
+        server = find_server(guild_id, user["user_id"], bot_id)
         feature = get_feature_definition(feature_key)
         if feature is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="feature not found")
@@ -214,20 +231,24 @@ def register_server_routes(templates: Jinja2Templates) -> None:
         return RedirectResponse(url="/guilds/{0}".format(guild_id), status_code=303)
 
 
-def list_manageable_servers(discord_user_id: str) -> List[Dict[str, Any]]:
+def list_manageable_servers(discord_user_id: str, bot_id: Optional[str] = None) -> List[Dict[str, Any]]:
     with get_connection() as connection:
         repository = PermissionRepository(connection)
+        if bot_id:
+            return repository.list_manageable_guilds_for_bot(bot_id, discord_user_id)
         return repository.list_manageable_guilds(discord_user_id)
 
 
-def can_access_guild(guild_id: str, discord_user_id: str) -> bool:
+def can_access_guild(guild_id: str, discord_user_id: str, bot_id: Optional[str] = None) -> bool:
     with get_connection() as connection:
         repository = PermissionRepository(connection)
+        if bot_id:
+            return repository.can_access_bot_guild(bot_id, guild_id, discord_user_id)
         return repository.can_access_guild(guild_id, discord_user_id)
 
 
-def find_server(guild_id: str, discord_user_id: str) -> Dict[str, Any]:
-    for server in list_manageable_servers(discord_user_id):
+def find_server(guild_id: str, discord_user_id: str, bot_id: Optional[str] = None) -> Dict[str, Any]:
+    for server in list_manageable_servers(discord_user_id, bot_id):
         if server["guild_id"] == guild_id:
             return server
     return {"guild_id": guild_id, "name": guild_id, "icon_url": None, "role": ""}
@@ -257,6 +278,7 @@ def role_allows(role: str, required_role: str) -> bool:
 def build_feature_rows(
     guild_id: str,
     role: str,
+    bot_id: str = "ichiyon",
 ) -> List[Dict[str, Any]]:
     with get_connection() as connection:
         repository = FeatureFlagRepository(connection)
@@ -268,10 +290,18 @@ def build_feature_rows(
     rows = []
     for feature in DISPLAY_FEATURES:
         row = dict(feature)
-        row["enabled"] = flags.get(feature["key"], True)
+        if feature["key"] == "voice_lines":
+            with get_connection() as connection:
+                voice_line = VoiceLineRepository(connection).get(bot_id, guild_id)
+            row["enabled"] = True if voice_line is None else bool(voice_line.get("enabled"))
+        else:
+            row["enabled"] = flags.get(feature["key"], True)
         row["can_toggle"] = role_allows(role, feature["required_role"])
         row["edit_url"] = "/guilds/{0}/{1}".format(guild_id, feature["edit_path"])
-        row["toggle_url"] = "/guilds/{0}/features/{1}/toggle".format(guild_id, feature["key"])
+        if feature["key"] == "voice_lines":
+            row["toggle_url"] = "/guilds/{0}/voice-lines/toggle".format(guild_id)
+        else:
+            row["toggle_url"] = "/guilds/{0}/features/{1}/toggle".format(guild_id, feature["key"])
         rows.append(row)
 
     return rows

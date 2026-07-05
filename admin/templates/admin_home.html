@@ -1,0 +1,36 @@
+{% extends "layout.html" %}
+
+{% block title %}管理メニュー{% endblock %}
+{% block heading %}管理メニュー{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <p class="hint">管理する対象を選んでください。</p>
+    <div class="server-list">
+      <article class="server-item">
+        <div class="server-summary">
+          <div class="server-icon placeholder"></div>
+          <div>
+            <h2>Bot選択</h2>
+            <p class="empty">管理するBotとサーバーを選びます。</p>
+            <strong class="status enabled">BOT</strong>
+          </div>
+        </div>
+        <a class="button-link" href="/bots">開く</a>
+      </article>
+      {% if can_manage_users %}
+        <article class="server-item">
+          <div class="server-summary">
+            <div class="server-icon placeholder admin-placeholder"></div>
+            <div>
+              <h2>ユーザー管理</h2>
+              <p class="empty">管理画面ユーザーと権限を編集します。</p>
+              <strong class="status enabled">ADMIN</strong>
+            </div>
+          </div>
+          <a class="button-link" href="/admin/users">開く</a>
+        </article>
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}
