@@ -1,4 +1,4 @@
--- Scope shared guild settings by bot_id.
+﻿-- Scope shared guild settings by bot_id.
 -- This migration does not delete table data. It replaces old guild-only uniqueness
 -- with bot_id + guild_id uniqueness so the same Discord guild can be configured
 -- independently for ichiyon and irsia.
@@ -63,6 +63,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_mode_states_bot_guild_unique
     ON mode_states(bot_id, guild_id);
 
 ALTER TABLE IF EXISTS mode_trigger_history
+    ADD COLUMN IF NOT EXISTS bot_id TEXT NOT NULL DEFAULT 'ichiyon';
+ALTER TABLE IF EXISTS mode_trigger_history
     DROP CONSTRAINT IF EXISTS mode_trigger_history_guild_id_mode_id_period_key_key;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_mode_trigger_history_bot_guild_mode_period_unique
     ON mode_trigger_history(bot_id, guild_id, mode_id, period_key);
@@ -76,3 +78,4 @@ ALTER TABLE IF EXISTS reaction_threshold_events
     DROP CONSTRAINT IF EXISTS reaction_threshold_events_guild_id_rule_id_message_id_emoji_key_threshold_key;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_reaction_threshold_events_bot_guild_rule_message_emoji_unique
     ON reaction_threshold_events(bot_id, guild_id, rule_id, message_id, emoji_key, threshold);
+
