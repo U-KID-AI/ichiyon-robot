@@ -374,6 +374,7 @@ class MentionReactionRepository:
             suffix += 1
         source_name = str(source.get("name") or "メンション反応").strip()
         source_keyword = str(source.get("keyword") or "").strip()
+        copied_keyword = self.build_unique_copy_keyword(guild_id, source_keyword, source_key)
         config = source.get("config_json") or {}
         if isinstance(config, str):
             try:
@@ -405,7 +406,7 @@ class MentionReactionRepository:
                 (
                     guild_id,
                     copied_key,
-                    source_keyword,
+                    copied_keyword,
                     str(source.get("match_type") or "exact"),
                     normalize_reaction_kind(source.get("reaction_kind")),
                     "{0} コピー".format(source_name),
@@ -479,6 +480,15 @@ class MentionReactionRepository:
                     (copied_choice_id, guild_id, source_choice_id),
                 )
             return copied
+
+    def build_unique_copy_keyword(self, guild_id: str, source_keyword: str, source_key: str) -> str:
+        base_keyword = "{0} コピー".format(source_keyword) if source_keyword else "{0}_copy".format(source_key)
+        copied_keyword = base_keyword
+        suffix = 2
+        while self.keyword_exists(guild_id, copied_keyword):
+            copied_keyword = "{0}_{1}".format(base_keyword, suffix)
+            suffix += 1
+        return copied_keyword
 
     def get_by_key(self, guild_id: str, reaction_key: str) -> Optional[Dict[str, Any]]:
         with self.connection.cursor() as cursor:

@@ -87,7 +87,7 @@
                       <button type="submit" {% if not can_create %}disabled title="讓ｩ髯舌↑縺・{% endif %}>繧ｳ繝斐・</button>
                     </form>
                     <form method="post" action="{{ item.toggle_url }}">
-                      <button type="submit" {% if not item.can_toggle %}disabled title="讓ｩ髯舌↑縺・{% endif %}>{% if item.enabled %}OFF縺ｫ縺吶ｋ{% else %}ON縺ｫ縺吶ｋ{% endif %}</button>
+                      <button type="submit" {% if not item.can_toggle %}disabled title="讓ｩ髯舌↑縺・{% endif %}>{% if item.enabled %}OFF{% else %}ON{% endif %}</button>
                     </form>
                     <form method="post" action="{{ item.delete_url }}" data-confirm="縺薙・繝｢繝ｼ繝峨ｒ蜑企勁縺吶ｋ・・>
                       <button class="danger" type="submit" {% if not item.can_delete %}disabled title="蝗ｺ螳壹Δ繝ｼ繝峨√∪縺溘・讓ｩ髯舌↑縺・{% endif %}>蜑企勁</button>

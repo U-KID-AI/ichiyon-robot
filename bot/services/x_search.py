@@ -94,6 +94,7 @@ def build_search_params(
     search_mode: str,
     lookback_days: int,
     start_time: Optional[str] = None,
+    since_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     endpoint_type = normalize_search_mode(search_mode)
     params = {
@@ -105,6 +106,8 @@ def build_search_params(
     }
     if start_time:
         params["start_time"] = start_time
+    if since_id:
+        params["since_id"] = since_id
     if endpoint_type == "full_archive":
         time_range = build_search_time_range(lookback_days)
         if start_time:
@@ -205,12 +208,13 @@ async def search_posts(
     search_mode: str = "recent",
     lookback_days: int = 14,
     start_time: Optional[str] = None,
+    since_id: Optional[str] = None,
 ) -> List[XPost]:
     bearer_token = get_bearer_token()
 
     endpoint_type = normalize_search_mode(search_mode)
     url = get_search_endpoint(endpoint_type)
-    params = build_search_params(query, max_results, endpoint_type, lookback_days, start_time)
+    params = build_search_params(query, max_results, endpoint_type, lookback_days, start_time, since_id)
     headers = {"Authorization": "Bearer {0}".format(bearer_token)}
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
@@ -293,5 +297,10 @@ async def get_user_posts(
     return parse_user_tweets_response(payload)
 
 
-async def search_recent_posts(query: str, max_results: int, timeout_seconds: int) -> List[XPost]:
-    return await search_posts(query, max_results, timeout_seconds, "recent", 14)
+async def search_recent_posts(
+    query: str,
+    max_results: int,
+    timeout_seconds: int,
+    since_id: Optional[str] = None,
+) -> List[XPost]:
+    return await search_posts(query, max_results, timeout_seconds, "recent", 14, None, since_id)

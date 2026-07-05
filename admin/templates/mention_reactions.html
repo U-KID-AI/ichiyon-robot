@@ -22,7 +22,6 @@
     <div class="page-actions">
       <a class="button-link secondary" href="/servers">サーバー選択へ戻る</a>
       <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
-      <a class="button-link secondary" href="/guilds/{{ guild_id }}/mention-reactions">種類選択へ戻る</a>
       {% if can_create_random %}
         <a class="button-link" href="/guilds/{{ guild_id }}/mention-reactions/new">+ ランダム抽選を追加</a>
       {% else %}
@@ -49,7 +48,6 @@
       <label>
         種類
         <select name="kind">
-          <option value="all" {% if filters.kind == "all" %}selected{% endif %}>すべて</option>
           <option value="random_draw" {% if filters.kind == "random_draw" %}selected{% endif %}>ランダム抽選</option>
           <option value="search" {% if filters.kind == "search" %}selected{% endif %}>検索</option>
         </select>
@@ -76,7 +74,7 @@
       </label>
       <div class="filter-actions">
         <button type="submit">絞り込む</button>
-        <a class="button-link secondary" href="/guilds/{{ guild_id }}/mention-reactions">解除</a>
+        <a class="button-link secondary" href="/guilds/{{ guild_id }}/mention-reactions?kind={{ filters.kind }}">解除</a>
       </div>
     </form>
   </section>
@@ -85,6 +83,7 @@
     <h2>一覧</h2>
     {% if reactions %}
       <form id="bulk-mention-reactions" method="post" action="/guilds/{{ guild_id }}/mention-reactions/bulk-enabled"></form>
+      <input form="bulk-mention-reactions" type="hidden" name="kind" value="{{ filters.kind }}">
       <div class="actions-row">
         <button form="bulk-mention-reactions" type="submit" name="action" value="on" onclick="return confirm('選択したメンション反応をONにする？');">選択をON</button>
         <button form="bulk-mention-reactions" type="submit" name="action" value="off" onclick="return confirm('選択したメンション反応をOFFにする？');">選択をOFF</button>
@@ -132,7 +131,7 @@
                     </form>
                     <form method="post" action="{{ reaction.toggle_url }}">
                       <button type="submit" {% if not reaction.can_toggle %}disabled title="権限なし"{% endif %}>
-                        {% if reaction.enabled %}OFFにする{% else %}ONにする{% endif %}
+                        {% if reaction.enabled %}OFF{% else %}ON{% endif %}
                       </button>
                     </form>
                     <form method="post" action="{{ reaction.delete_url }}" data-confirm="このメンション反応を削除する？">

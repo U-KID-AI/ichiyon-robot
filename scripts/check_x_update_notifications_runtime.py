@@ -120,6 +120,8 @@ def make_watch(**overrides) -> Dict[str, Any]:
         "last_seen_post_id": "100",
         "last_posted_post_id": None,
         "post_template": updates.DEFAULT_POST_TEMPLATE,
+        "include_keywords": "",
+        "exclude_keywords": "",
     }
     watch.update(overrides)
     return watch
@@ -145,6 +147,17 @@ def check_helpers(check: Check) -> None:
     check.add("repost is skipped by default", updates.should_post_update(make_post("104", ref_types=["retweeted"]), watch) is False)
     check.add("quote is skipped by default", updates.should_post_update(make_post("105", ref_types=["quoted"]), watch) is False)
     check.add("reply can be enabled", updates.should_post_update(make_post("106", ref_types=["replied_to"]), make_watch(include_replies=True)) is True)
+    keywords = updates.parse_keyword_list(" シャドバ,Shadowverse\nシャドバ\n  ")
+    check.add("keyword parser trims and deduplicates", keywords == ["シャドバ", "Shadowverse"], str(keywords))
+    include_watch = make_watch(include_keywords="シャドバ\nShadowverse")
+    check.add("include keyword allows matching japanese text", updates.should_post_update(make_post("107", "今日はシャドバ"), include_watch) is True)
+    check.add("include keyword is case insensitive", updates.should_post_update(make_post("108", "new shadowverse deck"), include_watch) is True)
+    check.add("include keyword blocks nonmatching text", updates.should_post_update(make_post("109", "雑談"), include_watch) is False)
+    exclude_watch = make_watch(include_keywords="シャドバ", exclude_keywords="PR\nキャンペーン")
+    check.add("exclude keyword wins over include", updates.should_post_update(make_post("110", "シャドバ PR"), exclude_watch) is False)
+    query = updates.build_x_update_search_query("example", ["シャドバ", "Shadowverse", "https://bad.example"], ["PR", "@bad"])
+    check.add("keyword query includes safe include terms", "(シャドバ OR Shadowverse)" in query and "https://" not in query, query)
+    check.add("keyword query includes safe exclude terms", "-PR" in query and "@bad" not in query, query)
 
 
 async def check_initial_sync(check: Check) -> None:
@@ -214,12 +227,57 @@ async def check_duplicate_history(check: Check) -> None:
         x_search.get_user_posts = original_posts
 
 
+async def check_keyword_search_query(check: Check) -> None:
+    original_recent = x_search.search_recent_posts
+    original_timeline = x_search.get_user_posts
+    repository = FakeRepository()
+    channel = FakeChannel()
+    bot = FakeBot(channel)
+    calls = []
+
+    async def fake_recent(query: str, max_results: int, timeout_seconds: int, since_id: Optional[str] = None):
+        calls.append(("recent", query, since_id))
+        return [
+            make_post("101", "シャドバ デッキ"),
+            make_post("102", "シャドバ PR"),
+            make_post("103", "雑談"),
+        ]
+
+    async def fake_timeline(user_id: str, since_id: Optional[str], max_results: int, timeout_seconds: int = 10):
+        calls.append(("timeline", user_id, since_id))
+        return [make_post("104", "シャドバ デッキ")]
+
+    try:
+        x_search.search_recent_posts = fake_recent
+        x_search.get_user_posts = fake_timeline
+        sent = await updates.process_x_update_watch(
+            bot,
+            repository,
+            make_watch(include_keywords="シャドバ", exclude_keywords="PR"),
+        )
+        check.add("keyword filter uses recent search query", calls and calls[0][0] == "recent", str(calls))
+        check.add("keyword query keeps since id", calls and calls[0][2] == "100", str(calls))
+        check.add("keyword filter posts only matching non-excluded updates", sent == 1 and len(channel.sent) == 1, str(channel.sent))
+        calls.clear()
+        channel.sent.clear()
+        await updates.process_x_update_watch(
+            bot,
+            repository,
+            make_watch(include_keywords="https://bad.example"),
+        )
+        check.add("unsafe keyword falls back to user timeline", calls and calls[0][0] == "timeline", str(calls))
+    finally:
+        x_search.search_recent_posts = original_recent
+        x_search.get_user_posts = original_timeline
+
+
 def main() -> None:
     check = Check()
     check_helpers(check)
     asyncio.run(check_initial_sync(check))
     asyncio.run(check_normal_posting(check))
     asyncio.run(check_duplicate_history(check))
+    asyncio.run(check_keyword_search_query(check))
     check.print_results()
     if not check.ok():
         raise SystemExit(1)

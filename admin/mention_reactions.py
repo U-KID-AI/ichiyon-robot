@@ -74,6 +74,12 @@ ASSIGNMENT_EFFECT_TYPES = (
 )
 
 
+def mention_reaction_kind_list_url(guild_id: str, reaction_kind: Optional[str]) -> str:
+    if reaction_kind == "search":
+        return "/guilds/{0}/mention-reactions?kind=search".format(guild_id)
+    return "/guilds/{0}/mention-reactions?kind=random_draw".format(guild_id)
+
+
 def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
     @router.get("/guilds/{guild_id}/mention-reactions")
     async def mention_reactions_page(
@@ -95,20 +101,12 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
         server = find_server(guild_id, user["user_id"])
+        if kind == "limited":
+            return RedirectResponse(url="/guilds/{0}/mention-reactions/limited".format(guild_id), status_code=303)
+        if kind not in ("random_draw", "search"):
+            return RedirectResponse(url="/guilds/{0}".format(guild_id), status_code=303)
+
         filters = normalize_filters(q, kind, system, enabled, show_test_data)
-        if is_category_landing(filters) and not message and not error:
-            return templates.TemplateResponse(
-                request,
-                "mention_reaction_categories.html",
-                {
-                    "user": user,
-                    "server": server,
-                    "guild_id": guild_id,
-                    "can_create_random": role_allows(server["role"], "editor"),
-                    "can_create_deck_search": role_allows(server["role"], "guild_admin"),
-                    "has_deck_search": has_deck_search_reaction(guild_id),
-                },
-            )
 
         reactions = list_reaction_rows(guild_id, server["role"], filters)
 
@@ -135,6 +133,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         guild_id: str,
         action: str = Form(""),
         reaction_ids: List[int] = Form([]),
+        kind: str = Form("random_draw"),
     ):
         user = get_current_user(request)
         if user is None:
@@ -142,10 +141,11 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         if not can_access_guild(guild_id, user["user_id"]):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
         server = find_server(guild_id, user["user_id"])
+        redirect_url = mention_reaction_kind_list_url(guild_id, kind)
         if not reaction_ids:
-            return RedirectResponse(url="/guilds/{0}/mention-reactions?error={1}".format(guild_id, quote("項目を選択してね")), status_code=303)
+            return RedirectResponse(url="{0}&error={1}".format(redirect_url, quote("項目を選択してね")), status_code=303)
         if action not in ("on", "off"):
-            return RedirectResponse(url="/guilds/{0}/mention-reactions?error={1}".format(guild_id, quote("操作を選んでね")), status_code=303)
+            return RedirectResponse(url="{0}&error={1}".format(redirect_url, quote("操作を選んでね")), status_code=303)
         updated_count = 0
         with get_connection() as connection:
             repository = MentionReactionRepository(connection)
@@ -158,7 +158,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
             connection.commit()
         failed_count = max(0, len(reaction_ids) - updated_count)
         return RedirectResponse(
-            url="/guilds/{0}/mention-reactions?message={1}".format(guild_id, quote("成功{0}件 / 失敗{1}件".format(updated_count, failed_count))),
+            url="{0}&message={1}".format(redirect_url, quote("成功{0}件 / 失敗{1}件".format(updated_count, failed_count))),
             status_code=303,
         )
 
@@ -199,11 +199,13 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
         server = find_server(guild_id, user["user_id"])
+        redirect_url = mention_reaction_kind_list_url(guild_id, None)
         with get_connection() as connection:
             repository = MentionReactionRepository(connection)
             reaction = repository.get_by_id(guild_id, reaction_id)
             if reaction is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mention reaction not found")
+            redirect_url = mention_reaction_kind_list_url(guild_id, reaction.get("reaction_kind"))
 
             required_role = required_toggle_role(reaction)
             if not role_allows(server["role"], required_role):
@@ -212,7 +214,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
             repository.toggle_enabled(guild_id, reaction_id)
             connection.commit()
 
-        return RedirectResponse(url="/guilds/{0}/mention-reactions".format(guild_id), status_code=303)
+        return RedirectResponse(url=redirect_url, status_code=303)
 
     @router.post("/guilds/{guild_id}/mention-reactions/{reaction_id}/copy")
     async def copy_mention_reaction(request: Request, guild_id: str, reaction_id: int):
@@ -249,11 +251,13 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="サーバーを見る権限がありません。")
 
         server = find_server(guild_id, user["user_id"])
+        redirect_url = mention_reaction_kind_list_url(guild_id, None)
         with get_connection() as connection:
             repository = MentionReactionRepository(connection)
             reaction = repository.get_by_id(guild_id, reaction_id)
             if reaction is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="メンション反応が見つかりません。")
+            redirect_url = mention_reaction_kind_list_url(guild_id, reaction.get("reaction_kind"))
             if not role_allows(server["role"], "editor"):
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="削除する権限がありません。")
             if reaction.get("admin_only") and not role_allows(server["role"], "guild_admin"):
@@ -264,7 +268,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
             repository.delete_reaction(guild_id, reaction_id)
             connection.commit()
 
-        return RedirectResponse(url="/guilds/{0}/mention-reactions".format(guild_id), status_code=303)
+        return RedirectResponse(url=redirect_url, status_code=303)
 
     @router.get("/guilds/{guild_id}/mention-reactions/new")
     async def new_mention_reaction_page(request: Request, guild_id: str):
@@ -936,7 +940,7 @@ def normalize_filters(
     show_test_data: str = "false",
 ) -> Dict[str, Any]:
     normalized_query = (query or "").strip()
-    normalized_kind = kind if kind in ("all", "random_draw", "search") else "all"
+    normalized_kind = kind if kind in ("random_draw", "search") else "random_draw"
     normalized_system = system if system in ("all", "system", "custom") else "all"
     normalized_enabled = enabled if enabled in ("all", "true", "false") else "all"
 
@@ -947,17 +951,6 @@ def normalize_filters(
         "enabled": normalized_enabled,
         "show_test_data": parse_show_test_data(show_test_data),
     }
-
-
-def is_category_landing(filters: Dict[str, Any]) -> bool:
-    return (
-        filters["q"] == ""
-        and filters["kind"] == "all"
-        and filters["system"] == "all"
-        and filters["enabled"] == "all"
-        and not filters["show_test_data"]
-    )
-
 
 def list_reaction_rows(
     guild_id: str,

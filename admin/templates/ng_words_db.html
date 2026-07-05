@@ -84,7 +84,7 @@
                       <button type="submit" {% if not can_create %}disabled{% endif %}>コピー</button>
                     </form>
                     <form method="post" action="{{ word.toggle_url }}">
-                      <button type="submit" {% if not can_create %}disabled title="権限なし"{% endif %}>{% if word.enabled %}OFFにする{% else %}ONにする{% endif %}</button>
+                      <button type="submit" {% if not can_create %}disabled title="権限なし"{% endif %}>{% if word.enabled %}OFF{% else %}ON{% endif %}</button>
                     </form>
                     <form method="post" action="{{ word.delete_url }}" data-confirm="このNGワードを削除する？">
                       <button class="danger" type="submit" {% if not word.can_delete %}disabled{% endif %}>削除</button>

@@ -622,3 +622,50 @@ migration:
 2. 次にRepository単位で `bot_id` 条件を追加する。
 3. UNIQUE制約の移行は、重複データと管理画面コピー機能の挙動を確認してから別migrationで行う。
 4. イルシアは `BOT_INSTANCE_ID=irsia` と `IRSIA_DISCORD_TOKEN` を持つ別Compose service/profileで起動する。
+
+## 2026-07-05 X更新通知キーワード絞り込み / 管理画面スマホUI
+
+今回入れたもの:
+
+- X更新通知設定に `include_keywords` / `exclude_keywords` を追加。
+- 管理画面のX更新通知作成/編集画面で、必須ワード・除外ワードを編集できる。
+- カンマ区切り、読点区切り、改行区切りを受け付ける。
+- 空白だけの語、重複語は保存時/実行時に整理する。
+- 必須ワードは、どれか1つを本文に含むPostだけ対象。
+- 除外ワードは、本文に含むPostを対象外にする。除外を優先する。
+- 大文字小文字は `casefold()` で区別しない。
+- 日本語はそのまま判定する。
+
+X API query側の絞り込み:
+
+- 安全にqueryへ入れられる語だけ、Recent Search queryへ反映する。
+- 例: `from:example (シャドバ OR Shadowverse) -PR -キャンペーン`
+- URL、メンション、制御文字、長すぎる語、不正記号を含む語はqueryへ入れない。
+- queryへ入れられない語がある場合も、Bot側フィルタで最終判定する。
+- include/excludeが未設定なら、従来通り user timeline + since_id の挙動を維持する。
+- X API実通信テストはしていない。
+
+migration:
+
+- `migrations/026_add_x_update_keyword_filters.sql`
+- `x_update_watches.include_keywords TEXT` を追加。
+- `x_update_watches.exclude_keywords TEXT` を追加。
+- 既存データのUPDATE/DELETE/DROP/TRUNCATEは含めない。
+- 本番DBへの適用は別作業。
+
+管理画面UI:
+
+- 機能一覧から「メンション機能」親項目を廃止し、以下を同列表示にした。
+  - メンション: ランダム抽選
+  - メンション: 検索
+  - メンション: 限定機能
+- 3項目は既存の `mention_reactions` feature flagを共有する。
+- 既存URL `/guilds/{guild_id}/mention-reactions` は維持する。
+- スマホ表示では機能概要をカード上から隠し、iボタンの詳細に寄せる。
+- スマホ表示のカードpadding、テーブル行、ボタンを少し圧縮した。
+
+未実装/注意:
+
+- X更新通知のキーワード検索はRecent Searchを使うため、X側の検索仕様に依存する。
+- 取得後フィルタは必ず併用する。
+- `bot_id` 権限スコープ、Bot横断表示は後続。

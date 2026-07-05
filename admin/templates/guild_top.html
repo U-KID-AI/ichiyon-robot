@@ -37,7 +37,7 @@
                   <strong class="status disabled">OFF</strong>
                 {% endif %}
               </div>
-              <p class="empty">{{ feature.overview }}</p>
+              <p class="empty feature-overview">{{ feature.overview }}</p>
             </div>
           </div>
           <div class="feature-actions">
@@ -48,9 +48,9 @@
               aria-label="{{ feature.label }}の情報"
             >i</button>
             <a class="button-link secondary" href="{{ feature.edit_url }}">編集</a>
-            <form method="post" action="{{ feature.toggle_url }}">
+            <form class="{% if feature.enabled %}feature-toggle-off{% else %}feature-toggle-on{% endif %}" method="post" action="{{ feature.toggle_url }}">
               <button type="submit" {% if not feature.can_toggle %}disabled title="権限なし"{% endif %}>
-                {% if feature.enabled %}OFFにする{% else %}ONにする{% endif %}
+                {% if feature.enabled %}OFF{% else %}ON{% endif %}
               </button>
             </form>
           </div>

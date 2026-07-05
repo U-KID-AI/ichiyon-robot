@@ -35,7 +35,9 @@ from bot.services.deck_search_settings import (
 )
 
 
-FEATURE_MENTION_REACTIONS = "mention_reactions"
+FEATURE_MENTION_RANDOM_DRAW = "mention_random_draw"
+FEATURE_MENTION_SEARCH = "mention_search"
+FEATURE_MENTION_LIMITED = "mention_limited"
 FEATURE_AUTO_REACTIONS = "reactions"
 FEATURE_NG_WORDS = "ng_words"
 JST = timezone(timedelta(hours=9))
@@ -83,6 +85,10 @@ def get_message_guild_id(message: discord.Message) -> Optional[str]:
 def feature_enabled(connection, guild_id: str, feature_key: str) -> bool:
     repository = FeatureFlagRepository(connection)
     return repository.is_enabled(guild_id, feature_key, default=True)
+
+
+def mention_feature_enabled(connection, guild_id: str, feature_key: str) -> bool:
+    return feature_enabled(connection, guild_id, feature_key)
 
 
 def can_update_deck_fetch_since(connection, guild_id: str, message: discord.Message) -> bool:
@@ -1278,15 +1284,18 @@ def message_has_ng_word(connection, guild_id: str, content: str) -> bool:
 
 
 async def process_db_mention(message: discord.Message, guild_id: str, connection) -> RuntimeAction:
-    if not feature_enabled(connection, guild_id, FEATURE_MENTION_REACTIONS):
-        return RuntimeAction(False)
-
     command_text = get_mention_command_text(message)
     if command_text is None:
         return RuntimeAction(False)
 
     repository = MentionReactionRepository(connection)
-    limited_effects = list_limited_effects(connection, guild_id, message)
+    limited_enabled = mention_feature_enabled(connection, guild_id, FEATURE_MENTION_LIMITED)
+    search_enabled = mention_feature_enabled(connection, guild_id, FEATURE_MENTION_SEARCH)
+    random_draw_enabled = mention_feature_enabled(connection, guild_id, FEATURE_MENTION_RANDOM_DRAW)
+    if not (limited_enabled or search_enabled or random_draw_enabled):
+        return RuntimeAction(False)
+
+    limited_effects = list_limited_effects(connection, guild_id, message) if limited_enabled else []
     suffix_guard_result = await apply_mention_suffix_guards(
         connection,
         guild_id,
@@ -1297,19 +1306,21 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
     if suffix_guard_result is not None:
         return suffix_guard_result
     command_text = normalize_command_after_mention_suffix_guard(limited_effects, message, command_text)
-    deck_settings_action = await handle_deck_fetch_since_command(connection, guild_id, message, command_text)
-    if deck_settings_action is not None:
-        return deck_settings_action
+    if search_enabled:
+        deck_settings_action = await handle_deck_fetch_since_command(connection, guild_id, message, command_text)
+        if deck_settings_action is not None:
+            return deck_settings_action
     pending_effects = pop_pending_next_effects(guild_id, message)
     search_matches = []
-    for reaction in repository.list_reactions(guild_id, enabled=True, reaction_kind="search"):
-        groups = match_pattern(
-            reaction.get("keyword") or "",
-            reaction.get("match_type") or "exact",
-            command_text,
-        )
-        if groups is not None:
-            search_matches.append(MatchResult(reaction, groups))
+    if search_enabled:
+        for reaction in repository.list_reactions(guild_id, enabled=True, reaction_kind="search"):
+            groups = match_pattern(
+                reaction.get("keyword") or "",
+                reaction.get("match_type") or "exact",
+                command_text,
+            )
+            if groups is not None:
+                search_matches.append(MatchResult(reaction, groups))
     if search_matches:
         selected_search = sort_mention_matches(search_matches)[0]
         values = build_template_values(message, command_text, selected_search.groups)
@@ -1333,6 +1344,10 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
         effect_result = await execute_effects(connection, guild_id, limited_effects, message, values)
         store_pending_next_effects(guild_id, message, effect_result.pending_effects)
         return RuntimeAction(bool(limited_effects), effect_result.count_changed, effect_result.pending_effects)
+
+    if not random_draw_enabled:
+        store_pending_next_effects(guild_id, message, pending_effects)
+        return RuntimeAction(False)
 
     reactions = repository.list_reactions(guild_id, enabled=True, reaction_kind="random_draw")
     matches = []

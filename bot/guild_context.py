@@ -4,7 +4,9 @@ from bot.repositories.guilds import GuildRepository
 
 
 DEFAULT_FEATURE_KEYS = (
-    "mention_reactions",
+    "mention_random_draw",
+    "mention_search",
+    "mention_limited",
     "reactions",
     "ng_words",
     "modes",

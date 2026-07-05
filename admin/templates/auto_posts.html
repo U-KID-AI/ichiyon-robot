@@ -88,7 +88,7 @@
                       <button type="submit" {% if not can_create %}disabled{% endif %}>コピー</button>
                     </form>
                     <form method="post" action="{{ post.toggle_url }}">
-                      <button type="submit" {% if not can_create %}disabled title="権限なし"{% endif %}>{% if post.enabled %}OFFにする{% else %}ONにする{% endif %}</button>
+                      <button type="submit" {% if not can_create %}disabled title="権限なし"{% endif %}>{% if post.enabled %}OFF{% else %}ON{% endif %}</button>
                     </form>
                     <form method="post" action="{{ post.delete_url }}" data-confirm="この自動投稿を削除する？">
                       <button class="danger" type="submit" {% if not can_create %}disabled{% endif %}>削除</button>
