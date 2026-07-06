@@ -94,12 +94,15 @@ async def before_annual_message_task():
 
 @tasks.loop(minutes=1)
 async def db_auto_post_task():
-    try:
-        await expire_db_modes_once(bot)
-        await run_db_auto_posts_once(bot)
-        await run_x_update_notifications_once(bot)
-    except Exception as e:
-        print(f"[WARN] db_auto_post_task failed: {e}")
+    for task_name, task in (
+        ("expire_db_modes", expire_db_modes_once(bot)),
+        ("auto_posts", run_db_auto_posts_once(bot)),
+        ("x_update_notifications", run_x_update_notifications_once(bot)),
+    ):
+        try:
+            await task
+        except Exception as e:
+            print(f"[WARN] db_auto_post_task {task_name} failed: {e}")
 
 
 @db_auto_post_task.before_loop

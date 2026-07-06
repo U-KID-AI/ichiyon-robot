@@ -274,6 +274,13 @@ async def check_keyword_search_query(check: Check) -> None:
 def main() -> None:
     check = Check()
     check_helpers(check)
+    main_source = (ROOT_DIR / "main.py").read_text(encoding="utf-8")
+    check.add(
+        "x update task is isolated from other db tasks",
+        '"x_update_notifications", run_x_update_notifications_once(bot)' in main_source
+        and "db_auto_post_task {task_name} failed" in main_source,
+        "main.py",
+    )
     asyncio.run(check_initial_sync(check))
     asyncio.run(check_normal_posting(check))
     asyncio.run(check_duplicate_history(check))

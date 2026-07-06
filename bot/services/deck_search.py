@@ -818,29 +818,51 @@ async def search_decks(guild_id: str, channel_id: str, command_text: str, config
         image_scan_concurrency=image_scan_concurrency,
         high_accuracy=high_accuracy,
     )
-    try:
-        x_started_ms = monotonic_ms()
+    async def run_x_search(selected_mode: str) -> List[XPost]:
         if search_start_time:
-            posts = await search_posts(
+            return await search_posts(
                 query,
                 search_limit,
                 timeout_seconds,
-                search_mode,
+                selected_mode,
                 lookback_days,
                 search_start_time,
             )
-        else:
-            posts = await search_posts(query, search_limit, timeout_seconds, search_mode, lookback_days)
+        return await search_posts(query, search_limit, timeout_seconds, selected_mode, lookback_days)
+
+    try:
+        x_started_ms = monotonic_ms()
+        posts = await run_x_search(search_mode)
         stats.x_api_ms = elapsed_ms(x_started_ms)
     except XSearchDisabled:
         return DEFAULT_DISABLED_MESSAGE
     except XSearchError as exc:
-        stats.http_status = exc.status_code
-        stats.total_ms = elapsed_ms(total_started_ms)
-        print("[INFO] deck search stats: {0}".format(stats.to_log()))
         if search_mode == "full_archive" and exc.status_code in (401, 403, 404):
-            return DEFAULT_FULL_ARCHIVE_UNAVAILABLE_MESSAGE
-        return DEFAULT_ERROR_MESSAGE
+            print(
+                "[WARN] full_archive deck search unavailable; fallback to recent: status={0}".format(
+                    exc.status_code
+                )
+            )
+            try:
+                x_started_ms = monotonic_ms()
+                search_mode = "recent"
+                stats.search_mode = search_mode
+                stats.endpoint_type = search_mode
+                posts = await run_x_search(search_mode)
+                stats.http_status = None
+                stats.x_api_ms = elapsed_ms(x_started_ms)
+            except XSearchDisabled:
+                return DEFAULT_DISABLED_MESSAGE
+            except XSearchError as fallback_exc:
+                stats.http_status = fallback_exc.status_code
+                stats.total_ms = elapsed_ms(total_started_ms)
+                print("[INFO] deck search stats: {0}".format(stats.to_log()))
+                return DEFAULT_FULL_ARCHIVE_UNAVAILABLE_MESSAGE
+        else:
+            stats.http_status = exc.status_code
+            stats.total_ms = elapsed_ms(total_started_ms)
+            print("[INFO] deck search stats: {0}".format(stats.to_log()))
+            return DEFAULT_ERROR_MESSAGE
 
     stats.x_results = len(posts)
     image_started_ms = monotonic_ms()
