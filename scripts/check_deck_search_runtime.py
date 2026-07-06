@@ -537,8 +537,12 @@ async def check_full_archive_error(check: Check) -> None:
     token_before = config.X_BEARER_TOKEN
     original_search = deck_search.search_posts
     original_opencv = deck_search.opencv_available
+    called_modes = []
 
     async def fake_forbidden_search(query, max_results, timeout_seconds, search_mode, lookback_days):
+        called_modes.append(search_mode)
+        if search_mode == "recent":
+            return [XPost("111", "繧ｨ繝ｫ繝・繝・ャ繧ｭ QR", "2026-06-01T00:00:00Z", [XMedia("m1", "https://example.com/qr.png", "photo")])]
         raise XSearchError("api status 403", status_code=403, endpoint_type=search_mode)
 
     try:
@@ -549,7 +553,8 @@ async def check_full_archive_error(check: Check) -> None:
         full_archive_config = base_config()
         full_archive_config["search_mode"] = "full_archive"
         response = await search_decks("g", "123", "デッキ エルフ", full_archive_config)
-        check.add("full archive permission error is safe", response == "過去検索が使えません", response)
+        check.add("full archive permission error falls back to recent", called_modes == ["full_archive", "recent"], str(called_modes))
+        check.add("full archive fallback keeps deck search usable", "過去検索が使えません" not in response, response)
     finally:
         deck_search.search_posts = original_search
         deck_search.opencv_available = original_opencv
