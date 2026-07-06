@@ -19,6 +19,8 @@ DEFAULT_ERROR_MESSAGE = "検索でエラー"
 DEFAULT_NOT_FOUND_MESSAGE = "おい ないんだが"
 DEFAULT_ASK_FORMAT_MESSAGE = "クラス名も入れて"
 DEFAULT_FULL_ARCHIVE_UNAVAILABLE_MESSAGE = "過去検索が使えません"
+DEFAULT_X_AUTH_ERROR_MESSAGE = "X API認証に失敗しています。設定を確認してください。"
+DEFAULT_X_ACCESS_ERROR_MESSAGE = "X APIの権限またはプラン制限で検索できません。"
 DEFAULT_X_QUERY_TEMPLATE = "{class_search_query} {required_context_query} has:media"
 LEGACY_X_QUERY_TEMPLATES = [
     "({class_label} OR {class_en}) (シャドバ OR Shadowverse OR シャドウバース OR SV) (デッキ OR deck OR QR OR コード) has:images",
@@ -346,6 +348,16 @@ def normalize_search_mode(value: str) -> str:
     if normalized == "full_archive":
         return "full_archive"
     return "recent"
+
+
+def x_search_error_message(exc: XSearchError, attempted_full_archive_fallback: bool = False) -> str:
+    if exc.status_code == 401:
+        return DEFAULT_X_AUTH_ERROR_MESSAGE
+    if exc.status_code == 403:
+        return DEFAULT_X_ACCESS_ERROR_MESSAGE
+    if exc.status_code == 404 and not attempted_full_archive_fallback:
+        return DEFAULT_FULL_ARCHIVE_UNAVAILABLE_MESSAGE
+    return DEFAULT_ERROR_MESSAGE
 
 
 def get_excluded_keywords(config_json: Dict[str, Any]) -> List[str]:
@@ -857,12 +869,12 @@ async def search_decks(guild_id: str, channel_id: str, command_text: str, config
                 stats.http_status = fallback_exc.status_code
                 stats.total_ms = elapsed_ms(total_started_ms)
                 print("[INFO] deck search stats: {0}".format(stats.to_log()))
-                return DEFAULT_FULL_ARCHIVE_UNAVAILABLE_MESSAGE
+                return x_search_error_message(fallback_exc, attempted_full_archive_fallback=True)
         else:
             stats.http_status = exc.status_code
             stats.total_ms = elapsed_ms(total_started_ms)
             print("[INFO] deck search stats: {0}".format(stats.to_log()))
-            return DEFAULT_ERROR_MESSAGE
+            return x_search_error_message(exc)
 
     stats.x_results = len(posts)
     image_started_ms = monotonic_ms()

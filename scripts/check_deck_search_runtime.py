@@ -562,6 +562,43 @@ async def check_full_archive_error(check: Check) -> None:
         config.X_BEARER_TOKEN = token_before
 
 
+async def check_x_api_error_messages(check: Check) -> None:
+    disabled_before = config.X_SEARCH_ENABLED
+    token_before = config.X_BEARER_TOKEN
+    original_search = deck_search.search_posts
+    original_opencv = deck_search.opencv_available
+
+    async def fake_error_search(query, max_results, timeout_seconds, search_mode, lookback_days):
+        status_code = fake_error_search.status_code
+        raise XSearchError("api status {0}".format(status_code), status_code=status_code, endpoint_type=search_mode)
+
+    try:
+        deck_search.search_posts = fake_error_search
+        deck_search.opencv_available = lambda: True
+        config.X_SEARCH_ENABLED = True
+        config.X_BEARER_TOKEN = "dummy"
+
+        full_archive_config = base_config()
+        full_archive_config["search_mode"] = "full_archive"
+
+        fake_error_search.status_code = 401
+        response = await search_decks("g", "123", "デッキ エルフ", full_archive_config)
+        check.add("recent 401 after full archive fallback shows auth error", "認証" in response and "過去検索" not in response, response)
+
+        fake_error_search.status_code = 403
+        response = await search_decks("g", "123", "デッキ エルフ", full_archive_config)
+        check.add(
+            "recent 403 after full archive fallback shows access error",
+            ("権限" in response or "プラン" in response) and "過去検索" not in response,
+            response,
+        )
+    finally:
+        deck_search.search_posts = original_search
+        deck_search.opencv_available = original_opencv
+        config.X_SEARCH_ENABLED = disabled_before
+        config.X_BEARER_TOKEN = token_before
+
+
 async def check_high_accuracy_mode(check: Check) -> None:
     disabled_before = config.X_SEARCH_ENABLED
     token_before = config.X_BEARER_TOKEN
@@ -902,6 +939,7 @@ def main() -> None:
     check = Check()
     asyncio.run(check_search_flow(check))
     asyncio.run(check_full_archive_error(check))
+    asyncio.run(check_x_api_error_messages(check))
     asyncio.run(check_high_accuracy_mode(check))
     asyncio.run(check_lightweight_normal_search_settings(check))
     asyncio.run(check_fetch_since_search_flow(check))
