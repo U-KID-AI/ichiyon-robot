@@ -8,7 +8,12 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from admin.bots import parse_permission_value
+from admin.role_labels import role_description, role_label
 from bot.repositories.permissions import role_allows
+
+
+AUTH_PATH = PROJECT_ROOT / "admin" / "auth.py"
+PERMISSIONS_PATH = PROJECT_ROOT / "bot" / "repositories" / "permissions.py"
 
 
 def record(results: List[Tuple[str, bool, Any]], name: str, ok: bool, detail: Any = "") -> None:
@@ -49,6 +54,56 @@ def main() -> int:
         "role hierarchy blocks viewer from edit",
         not role_allows("viewer", "editor"),
         "viewer < editor",
+    )
+    record(
+        results,
+        "role labels are localized",
+        role_label("viewer") == "閲覧のみ"
+        and role_label("editor") == "編集者"
+        and role_label("guild_admin") == "サーバー管理者"
+        and role_label("global_admin") == "全体管理者",
+        "viewer={0} editor={1} guild_admin={2} global_admin={3}".format(
+            role_label("viewer"),
+            role_label("editor"),
+            role_label("guild_admin"),
+            role_label("global_admin"),
+        ),
+    )
+    record(
+        results,
+        "role descriptions are available",
+        "変更" in role_description("editor") and "ユーザー管理" in role_description("global_admin"),
+        role_description("global_admin"),
+    )
+
+    auth_source = AUTH_PATH.read_text(encoding="utf-8")
+    permission_source = PERMISSIONS_PATH.read_text(encoding="utf-8")
+    record(
+        results,
+        "oauth callback requires registered admin user",
+        "can_login_admin(user_id)" in auth_source and "error=access_denied" in auth_source,
+        "admin_users gate",
+    )
+    record(
+        results,
+        "existing session is revalidated against admin_users",
+        "Failed to validate admin session" in auth_source and "request.session.pop(SESSION_USER_KEY, None)" in auth_source,
+        "session gate",
+    )
+    record(
+        results,
+        "developer env ids are not admin login bypass",
+        "developer_user_ids" not in permission_source
+        and "DEVELOPER_USER_ID" not in permission_source
+        and "ADMIN_DEVELOPER_USER_IDS" not in permission_source,
+        "admin_users is source of truth",
+    )
+    record(
+        results,
+        "legacy guild permissions do not grant bot access",
+        "return bot_id == \"ichiyon\" and bool(self.list_guild_permissions(discord_user_id))" not in permission_source
+        and "if self.list_guild_permissions(discord_user_id):" not in permission_source,
+        "no guild_permissions fallback",
     )
 
     ok_count = sum(1 for _, ok, _ in results if ok)

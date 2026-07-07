@@ -15,7 +15,7 @@
         <h2>{{ server.name }}</h2>
         <p class="empty">メンションに反応して返す内容を管理。</p>
         {% if server.role %}
-          <strong class="status enabled">{{ server.role }}</strong>
+          <strong class="status enabled" title="{{ server.role|role_description }}">{{ server.role|role_label }}</strong>
         {% endif %}
       </div>
     </div>

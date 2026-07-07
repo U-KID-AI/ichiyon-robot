@@ -30,11 +30,15 @@
         <label>
           管理画面ロール
           <select name="role">
-            <option value="viewer" {% if form.role == "viewer" %}selected{% endif %}>viewer</option>
-            <option value="global_admin" {% if form.role == "global_admin" %}selected{% endif %}>global_admin</option>
+            <option value="viewer" {% if form.role == "viewer" %}selected{% endif %}>{{ "viewer"|role_label }}</option>
+            <option value="global_admin" {% if form.role == "global_admin" %}selected{% endif %}>{{ "global_admin"|role_label }}</option>
           </select>
         </label>
       </div>
+      <ul class="compact-help-list">
+        <li><strong>{{ "viewer"|role_label }}</strong>: {{ "viewer"|role_description }}</li>
+        <li><strong>{{ "global_admin"|role_label }}</strong>: {{ "global_admin"|role_description }}</li>
+      </ul>
       <div class="check-row user-checks">
         <label class="check-row"><input type="checkbox" name="enabled" {% if form.enabled %}checked{% endif %}>有効</label>
         <label class="check-row"><input type="checkbox" name="can_manage_users" {% if form.can_manage_users %}checked{% endif %}>ユーザー管理</label>
@@ -54,7 +58,7 @@
               <option value="">なし</option>
               {% for role in valid_roles %}
                 {% set value = bot.bot_id ~ ":" ~ role %}
-                <option value="{{ value }}" {% if selected_bot_roles.get(bot.bot_id) == role %}selected{% endif %}>{{ role }}</option>
+                <option value="{{ value }}" {% if selected_bot_roles.get(bot.bot_id) == role %}selected{% endif %}>{{ role|role_label }}</option>
               {% endfor %}
             </select>
           </div>
@@ -77,7 +81,7 @@
                 <option value="">なし</option>
                 {% for role in valid_roles %}
                   {% set value = bot.bot_id ~ ":" ~ guild.guild_id ~ ":" ~ role %}
-                  <option value="{{ value }}" {% if selected_guild_roles.get(key) == role %}selected{% endif %}>{{ role }}</option>
+                  <option value="{{ value }}" {% if selected_guild_roles.get(key) == role %}selected{% endif %}>{{ role|role_label }}</option>
                 {% endfor %}
               </select>
             </div>

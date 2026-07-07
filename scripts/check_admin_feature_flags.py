@@ -12,6 +12,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from admin import servers
 from admin import mention_reactions
+from admin.role_labels import role_description, role_label
 from bot import guild_context
 from bot.repositories.mention_reactions import MentionReactionRepository
 from bot.services import runtime_db
@@ -308,6 +309,8 @@ def check_admin_templates_parse() -> int:
 def check_mode_templates_render() -> int:
     template_dir = ROOT_DIR / "admin" / "templates"
     env = Environment(loader=FileSystemLoader(str(template_dir)))
+    env.filters["role_label"] = role_label
+    env.filters["role_description"] = role_description
     env.globals["url_for"] = lambda name, **kwargs: "/static/style.css"
     env.globals["current_bot_instance"] = SimpleNamespace(display_name="いちよんロボ", bot_id="ichiyon")
     env.globals["current_bot_instance_id"] = "ichiyon"
