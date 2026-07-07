@@ -209,7 +209,7 @@ class PermissionRepository:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT DISTINCT
+                SELECT
                     b.*,
                     p.role
                 FROM bot_permissions p
@@ -221,7 +221,21 @@ class PermissionRepository:
                 (discord_user_id,),
             )
             rows = fetch_all(cursor)
-        return rows
+        bots_by_id: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            bot_id = str(row.get("bot_id") or "")
+            if not bot_id:
+                continue
+            current = bots_by_id.get(bot_id)
+            if current is None or ROLE_LEVELS.get(row.get("role") or "", 0) > ROLE_LEVELS.get(current.get("role") or "", 0):
+                bots_by_id[bot_id] = row
+        return sorted(
+            bots_by_id.values(),
+            key=lambda item: (
+                str(item.get("display_name") or ""),
+                str(item.get("bot_id") or ""),
+            ),
+        )
 
     def can_access_bot(self, bot_id: str, discord_user_id: str) -> bool:
         if self.has_global_admin(discord_user_id):

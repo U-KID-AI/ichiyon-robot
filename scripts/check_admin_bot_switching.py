@@ -8,6 +8,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from admin import servers
+from admin.role_labels import role_description
 
 
 REPOSITORY_PATH = PROJECT_ROOT / "bot" / "repositories" / "permissions.py"
@@ -137,6 +138,27 @@ def main() -> int:
             "list_configured_guilds_for_bot" in repository_source
             and "FROM bot_guilds bg" in repository_source,
             "repository",
+        )
+        record(
+            results,
+            "bot list deduplicates by bot_id",
+            "bots_by_id" in repository_source
+            and "ROLE_LEVELS.get(row.get(\"role\") or \"\", 0)" in repository_source
+            and "return sorted(" in repository_source,
+            "highest role per bot_id",
+        )
+        record(
+            results,
+            "bot list no longer uses distinct role rows",
+            "SELECT DISTINCT\n                    b.*,\n                    p.role" not in repository_source,
+            "role rows are collapsed in repository",
+        )
+        record(
+            results,
+            "role descriptions explain editor and guild admin difference",
+            "通常設定を変更できる" in role_description("editor")
+            and "管理者向け設定まで変更できる" in role_description("guild_admin"),
+            "editor={0} guild_admin={1}".format(role_description("editor"), role_description("guild_admin")),
         )
     finally:
         servers.get_connection = original_get_connection
