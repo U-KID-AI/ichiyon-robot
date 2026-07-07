@@ -422,6 +422,80 @@ class PermissionRepository:
             )
             return fetch_one(cursor)
 
+    def count_enabled_global_admins(self, exclude_discord_user_id: Optional[str] = None) -> int:
+        with self.connection.cursor() as cursor:
+            if exclude_discord_user_id:
+                normalized = str(exclude_discord_user_id or "").strip()
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM admin_users
+                    WHERE role = 'global_admin'
+                      AND enabled = TRUE
+                      AND NOT (discord_user_id = %s OR TRIM(discord_user_id) = %s)
+                    """,
+                    (normalized, normalized),
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM admin_users
+                    WHERE role = 'global_admin'
+                      AND enabled = TRUE
+                    """
+                )
+            row = cursor.fetchone()
+            return int(row[0] if row else 0)
+
+    def admin_user_exists(self, discord_user_id: str) -> bool:
+        return self.get_admin_user(discord_user_id) is not None
+
+    def update_admin_user_id(self, old_discord_user_id: str, new_discord_user_id: str) -> None:
+        old_id = str(old_discord_user_id or "").strip()
+        new_id = str(new_discord_user_id or "").strip()
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE admin_users
+                SET discord_user_id = %s,
+                    updated_at = NOW()
+                WHERE discord_user_id = %s
+                   OR TRIM(discord_user_id) = %s
+                """,
+                (new_id, old_id, old_id),
+            )
+            cursor.execute(
+                """
+                UPDATE bot_permissions
+                SET discord_user_id = %s,
+                    updated_at = NOW()
+                WHERE discord_user_id = %s
+                   OR TRIM(discord_user_id) = %s
+                """,
+                (new_id, old_id, old_id),
+            )
+
+    def delete_admin_user_with_permissions(self, discord_user_id: str) -> None:
+        normalized = str(discord_user_id or "").strip()
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM bot_permissions
+                WHERE discord_user_id = %s
+                   OR TRIM(discord_user_id) = %s
+                """,
+                (normalized, normalized),
+            )
+            cursor.execute(
+                """
+                DELETE FROM admin_users
+                WHERE discord_user_id = %s
+                   OR TRIM(discord_user_id) = %s
+                """,
+                (normalized, normalized),
+            )
+
     def set_last_login(self, discord_user_id: str) -> None:
         with self.connection.cursor() as cursor:
             cursor.execute(

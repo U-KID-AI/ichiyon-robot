@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Form, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
@@ -87,7 +88,7 @@ def register_bot_routes(templates: Jinja2Templates) -> None:
         return RedirectResponse(url="/guilds/{0}".format(guild_id), status_code=303)
 
     @router.get("/admin/users")
-    async def user_list(request: Request):
+    async def user_list(request: Request, message: Optional[str] = None, error: Optional[str] = None):
         user = get_current_user(request)
         if user is None:
             return RedirectResponse(url="/login", status_code=303)
@@ -100,10 +101,12 @@ def register_bot_routes(templates: Jinja2Templates) -> None:
             request,
             "admin_users.html",
             {
-                "user": user,
-                "users": rows,
-            },
-        )
+                    "user": user,
+                    "users": rows,
+                    "message": message,
+                    "error": error,
+                },
+            )
 
     @router.get("/admin/users/new")
     async def new_user(request: Request):
@@ -124,7 +127,7 @@ def register_bot_routes(templates: Jinja2Templates) -> None:
         bot_roles: List[str] = Form([]),
         guild_roles: List[str] = Form([]),
     ):
-        return await save_user(
+        return await save_user_with_id_edit(
             request,
             discord_user_id,
             display_name,
@@ -133,6 +136,7 @@ def register_bot_routes(templates: Jinja2Templates) -> None:
             can_manage_users,
             bot_roles,
             guild_roles,
+            original_discord_user_id=None,
         )
 
     @router.post("/admin/users/{discord_user_id}")
@@ -146,7 +150,7 @@ def register_bot_routes(templates: Jinja2Templates) -> None:
         bot_roles: List[str] = Form([]),
         guild_roles: List[str] = Form([]),
     ):
-        return await save_user(
+        return await save_user_with_id_edit(
             request,
             discord_user_id,
             display_name,
@@ -155,7 +159,31 @@ def register_bot_routes(templates: Jinja2Templates) -> None:
             can_manage_users,
             bot_roles,
             guild_roles,
+            original_discord_user_id=discord_user_id,
         )
+
+    @router.post("/admin/users/{discord_user_id}/delete")
+    async def delete_user(request: Request, discord_user_id: str, confirm_delete: Optional[str] = Form(None)):
+        user = get_current_user(request)
+        if user is None:
+            return RedirectResponse(url="/login", status_code=303)
+        target_id = discord_user_id.strip()
+        if confirm_delete != "on":
+            return RedirectResponse(url="/admin/users?error={0}".format(quote("削除確認にチェックしてください。")), status_code=303)
+        if target_id == str(user["user_id"]):
+            return RedirectResponse(url="/admin/users?error={0}".format(quote("自分自身は削除できません。")), status_code=303)
+        with get_connection() as connection:
+            permissions = PermissionRepository(connection)
+            if not permissions.can_manage_users(user["user_id"]):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="user management denied")
+            target_user = permissions.get_admin_user(target_id)
+            if not target_user:
+                return RedirectResponse(url="/admin/users?error={0}".format(quote("対象ユーザーが見つかりません。")), status_code=303)
+            if target_user.get("role") == "global_admin" and permissions.count_enabled_global_admins(exclude_discord_user_id=target_id) <= 0:
+                return RedirectResponse(url="/admin/users?error={0}".format(quote("最後の全体管理者は削除できません。")), status_code=303)
+            permissions.delete_admin_user_with_permissions(target_id)
+            connection.commit()
+        return RedirectResponse(url="/admin/users?message={0}".format(quote("ユーザーを削除しました。")), status_code=303)
 
 
 async def render_user_form(
@@ -268,6 +296,84 @@ async def save_user(
         permissions.replace_bot_permissions(discord_user_id, parsed_permissions)
         connection.commit()
     return RedirectResponse(url="/admin/users/{0}".format(discord_user_id), status_code=303)
+
+
+async def save_user_with_id_edit(
+    request: Request,
+    discord_user_id: str,
+    display_name: str,
+    role: str,
+    enabled: Optional[str],
+    can_manage_users: Optional[str],
+    bot_roles: List[str],
+    guild_roles: List[str],
+    original_discord_user_id: Optional[str] = None,
+):
+    user = get_current_user(request)
+    if user is None:
+        return RedirectResponse(url="/login", status_code=303)
+
+    discord_user_id = discord_user_id.strip()
+    original_discord_user_id = (original_discord_user_id or "").strip()
+    is_edit = bool(original_discord_user_id)
+    id_changed = is_edit and discord_user_id != original_discord_user_id
+    form = {
+        "discord_user_id": discord_user_id,
+        "display_name": display_name.strip(),
+        "role": role,
+        "enabled": enabled == "on",
+        "can_manage_users": can_manage_users == "on",
+    }
+    errors: List[str] = []
+    if not discord_user_id:
+        errors.append("Discord user ID is required.")
+    if role not in VALID_ADMIN_ROLES:
+        errors.append("管理画面ロールが不正です。")
+    if id_changed and original_discord_user_id == str(user["user_id"]):
+        errors.append("自分自身のDiscord User IDは変更できません。")
+
+    parsed_permissions: List[Dict[str, Any]] = []
+    for value in bot_roles + guild_roles:
+        parsed = parse_permission_value(value)
+        if parsed is None:
+            continue
+        parsed_permissions.append(parsed)
+
+    if errors:
+        templates = request.app.state.templates
+        return await render_user_form(templates, request, original_discord_user_id or None, errors, form)
+
+    with get_connection() as connection:
+        permissions = PermissionRepository(connection)
+        if not permissions.can_manage_users(user["user_id"]):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="user management denied")
+        existing_target = permissions.get_admin_user(original_discord_user_id) if is_edit else None
+        if is_edit and not existing_target:
+            templates = request.app.state.templates
+            return await render_user_form(templates, request, original_discord_user_id, ["対象ユーザーが見つかりません。"], form)
+        if id_changed and permissions.admin_user_exists(discord_user_id):
+            templates = request.app.state.templates
+            return await render_user_form(templates, request, original_discord_user_id, ["変更先Discord User IDは既に登録されています。"], form)
+        if not is_edit and permissions.admin_user_exists(discord_user_id):
+            templates = request.app.state.templates
+            return await render_user_form(templates, request, None, ["このDiscord User IDは既に登録されています。"], form)
+        if existing_target and existing_target.get("role") == "global_admin":
+            will_remain_global_admin = role == "global_admin" and form["enabled"]
+            if not will_remain_global_admin and permissions.count_enabled_global_admins(exclude_discord_user_id=original_discord_user_id) <= 0:
+                templates = request.app.state.templates
+                return await render_user_form(templates, request, original_discord_user_id, ["最後の全体管理者を無効化・降格できません。"], form)
+        if id_changed:
+            permissions.update_admin_user_id(original_discord_user_id, discord_user_id)
+        permissions.upsert_admin_user(
+            discord_user_id,
+            form["display_name"],
+            role,
+            form["enabled"],
+            form["can_manage_users"],
+        )
+        permissions.replace_bot_permissions(discord_user_id, parsed_permissions)
+        connection.commit()
+    return RedirectResponse(url="/admin/users?message={0}".format(quote("ユーザーを保存しました。")), status_code=303)
 
 
 def parse_permission_value(value: str) -> Optional[Dict[str, Any]]:

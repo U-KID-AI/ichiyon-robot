@@ -11,6 +11,18 @@
     </div>
   </section>
 
+  {% if message %}
+    <section class="panel success-panel">
+      <p>{{ message }}</p>
+    </section>
+  {% endif %}
+
+  {% if error %}
+    <section class="panel error-panel">
+      <p>{{ error }}</p>
+    </section>
+  {% endif %}
+
   <section class="panel">
     <div class="table-wrap">
       <table class="admin-table compact-table">
@@ -34,6 +46,10 @@
               <td>{{ item.last_login_at or "-" }}</td>
               <td class="actions-cell">
                 <a class="button-link secondary" href="/admin/users/{{ item.discord_user_id }}">編集</a>
+                <form method="post" action="/admin/users/{{ item.discord_user_id }}/delete" data-confirm="このユーザーを削除します。Bot権限・サーバー権限も削除されます。">
+                  <input type="hidden" name="confirm_delete" value="on">
+                  <button class="danger" type="submit">削除</button>
+                </form>
               </td>
             </tr>
           {% else %}

@@ -25,7 +25,7 @@
     <section class="panel">
       <h2>基本</h2>
       <div class="form-grid">
-        <label>Discord user ID<input name="discord_user_id" value="{{ form.discord_user_id }}" {% if target_user %}readonly{% endif %} required></label>
+        <label>Discord user ID<input name="discord_user_id" value="{{ form.discord_user_id }}" required></label>
         <label>表示名<input name="display_name" value="{{ form.display_name or '' }}"></label>
         <label>
           管理画面ロール
@@ -35,6 +35,7 @@
           </select>
         </label>
       </div>
+      <p class="hint">Discord User IDを変更すると、このユーザーのBot権限・サーバー権限も新しいIDへ引き継がれます。</p>
       <ul class="compact-help-list">
         <li><strong>{{ "viewer"|role_label }}</strong>: {{ "viewer"|role_description }}</li>
         <li><strong>{{ "global_admin"|role_label }}</strong>: {{ "global_admin"|role_description }}</li>
