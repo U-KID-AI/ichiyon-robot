@@ -15,19 +15,33 @@ def role_allows(role: Optional[str], required_role: str) -> bool:
     return ROLE_LEVELS.get(role or "", 0) >= ROLE_LEVELS.get(required_role, 0)
 
 
+def enabled_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, int):
+        return value != 0
+    return str(value).strip().lower() in ("1", "true", "t", "yes", "on")
+
+
 class PermissionRepository:
     def __init__(self, connection) -> None:
         self.connection = connection
 
     def get_admin_user(self, discord_user_id: str) -> Optional[Dict[str, Any]]:
+        discord_user_id = str(discord_user_id or "").strip()
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
                 SELECT *
                 FROM admin_users
                 WHERE discord_user_id = %s
+                   OR TRIM(discord_user_id) = %s
+                ORDER BY CASE WHEN discord_user_id = %s THEN 0 ELSE 1 END
+                LIMIT 1
                 """,
-                (discord_user_id,),
+                (discord_user_id, discord_user_id, discord_user_id),
             )
             return fetch_one(cursor)
 
@@ -64,17 +78,70 @@ class PermissionRepository:
         admin_user = self.get_admin_user(discord_user_id)
         if not admin_user:
             return False
-        if admin_user.get("enabled") is False:
+        if not enabled_value(admin_user.get("enabled")):
             return False
         return bool(admin_user.get("role") == "global_admin")
 
-    def can_login_admin(self, discord_user_id: str) -> bool:
-        admin_user = self.get_admin_user(discord_user_id)
+    def get_admin_login_status(self, discord_user_id: str) -> Dict[str, Any]:
+        normalized_user_id = str(discord_user_id or "").strip()
+        if not normalized_user_id:
+            return {
+                "can_login": False,
+                "reason": "empty_user_id",
+                "discord_user_id": normalized_user_id,
+                "registered": False,
+                "enabled": False,
+                "role": "",
+                "bot_permission_count": 0,
+            }
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    au.discord_user_id,
+                    au.display_name,
+                    au.role,
+                    au.enabled,
+                    au.can_manage_users,
+                    (
+                        SELECT COUNT(*)
+                        FROM bot_permissions bp
+                        WHERE bp.discord_user_id = au.discord_user_id
+                           OR TRIM(bp.discord_user_id) = TRIM(au.discord_user_id)
+                    ) AS bot_permission_count
+                FROM admin_users au
+                WHERE au.discord_user_id = %s
+                   OR TRIM(au.discord_user_id) = %s
+                ORDER BY CASE WHEN au.discord_user_id = %s THEN 0 ELSE 1 END
+                LIMIT 1
+                """,
+                (normalized_user_id, normalized_user_id, normalized_user_id),
+            )
+            admin_user = fetch_one(cursor)
         if not admin_user:
-            return False
-        if admin_user.get("enabled") is False:
-            return False
-        return True
+            return {
+                "can_login": False,
+                "reason": "not_registered",
+                "discord_user_id": normalized_user_id,
+                "registered": False,
+                "enabled": False,
+                "role": "",
+                "bot_permission_count": 0,
+            }
+        is_enabled = enabled_value(admin_user.get("enabled"))
+        return {
+            "can_login": is_enabled,
+            "reason": "ok" if is_enabled else "disabled",
+            "discord_user_id": str(admin_user.get("discord_user_id") or normalized_user_id),
+            "registered": True,
+            "enabled": is_enabled,
+            "role": admin_user.get("role") or "",
+            "display_name": admin_user.get("display_name") or "",
+            "bot_permission_count": int(admin_user.get("bot_permission_count") or 0),
+        }
+
+    def can_login_admin(self, discord_user_id: str) -> bool:
+        return bool(self.get_admin_login_status(discord_user_id).get("can_login"))
 
     def can_manage_users(self, discord_user_id: str) -> bool:
         if self.has_global_admin(discord_user_id):
@@ -82,7 +149,7 @@ class PermissionRepository:
         admin_user = self.get_admin_user(discord_user_id)
         if not admin_user:
             return False
-        if admin_user.get("enabled") is False:
+        if not enabled_value(admin_user.get("enabled")):
             return False
         return bool(admin_user.get("can_manage_users"))
 
@@ -363,8 +430,9 @@ class PermissionRepository:
                 SET last_login_at = NOW(),
                     updated_at = NOW()
                 WHERE discord_user_id = %s
+                   OR TRIM(discord_user_id) = %s
                 """,
-                (discord_user_id,),
+                (str(discord_user_id or "").strip(), str(discord_user_id or "").strip()),
             )
 
     def list_bot_permissions(self, discord_user_id: str) -> List[Dict[str, Any]]:

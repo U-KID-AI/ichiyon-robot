@@ -9,7 +9,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from admin.bots import parse_permission_value
 from admin.role_labels import role_description, role_label
-from bot.repositories.permissions import role_allows
+from bot.repositories.permissions import enabled_value, role_allows
 
 
 AUTH_PATH = PROJECT_ROOT / "admin" / "auth.py"
@@ -57,6 +57,12 @@ def main() -> int:
     )
     record(
         results,
+        "enabled parser accepts postgres-style values",
+        enabled_value(True) and enabled_value("t") and enabled_value("true") and enabled_value(1) and not enabled_value(False),
+        "enabled parser",
+    )
+    record(
+        results,
         "role labels are localized",
         role_label("viewer") == "閲覧のみ"
         and role_label("editor") == "編集者"
@@ -78,11 +84,21 @@ def main() -> int:
 
     auth_source = AUTH_PATH.read_text(encoding="utf-8")
     permission_source = PERMISSIONS_PATH.read_text(encoding="utf-8")
+    login_log_source = auth_source.split("def log_admin_login_decision", 1)[1].split("def register_auth_routes", 1)[0]
     record(
         results,
         "oauth callback requires registered admin user",
-        "can_login_admin(user_id)" in auth_source and "error=access_denied" in auth_source,
+        "get_admin_login_status(user_id)" in auth_source and "error=access_denied" in auth_source,
         "admin_users gate",
+    )
+    record(
+        results,
+        "oauth callback logs safe login decision",
+        "Admin OAuth login decision" in auth_source
+        and "discord_user_id={1}" in login_log_source
+        and "bot_permissions={8}" in login_log_source
+        and "token" not in login_log_source.lower(),
+        "safe oauth decision log",
     )
     record(
         results,
