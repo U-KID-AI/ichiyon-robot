@@ -58,7 +58,7 @@ MAX_IMAGE_SIZE = 8 * 1024 * 1024
 for image_category in ("quotes", "kuji", "reactions"):
     (IMAGE_ROOT / image_category).mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="いちよんロボ 管理画面")
+app = FastAPI(title="Bot管理画面")
 app.add_middleware(
     SessionMiddleware,
     secret_key=get_session_secret(),
