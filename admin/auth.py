@@ -101,6 +101,22 @@ def require_login(request: Request) -> Dict[str, Any]:
     return user
 
 
+def log_admin_login_decision(prefix: str, user_id: str, username: str, status_map: Dict[str, Any]) -> None:
+    print(
+        "[INFO] {0}: discord_user_id={1} username={2} can_login={3} reason={4} registered={5} enabled={6} role={7} bot_permissions={8}".format(
+            prefix,
+            user_id,
+            username or "",
+            bool(status_map.get("can_login")),
+            status_map.get("reason") or "",
+            bool(status_map.get("registered")),
+            bool(status_map.get("enabled")),
+            status_map.get("role") or "",
+            int(status_map.get("bot_permission_count") or 0),
+        )
+    )
+
+
 def register_auth_routes(templates: Jinja2Templates) -> None:
     @router.get("/login")
     async def login_page(request: Request, error: Optional[str] = None):
@@ -153,7 +169,14 @@ def register_auth_routes(templates: Jinja2Templates) -> None:
 
         try:
             with get_connection() as connection:
-                if not PermissionRepository(connection).can_login_admin(user_id):
+                login_status = PermissionRepository(connection).get_admin_login_status(user_id)
+                log_admin_login_decision(
+                    "Admin OAuth login decision",
+                    user_id,
+                    str(user_data.get("username", "")),
+                    login_status,
+                )
+                if not login_status.get("can_login"):
                     return RedirectResponse(url="/login?error=access_denied", status_code=303)
         except Exception as exc:
             print("[WARN] Failed to validate admin login: {0}".format(exc))
