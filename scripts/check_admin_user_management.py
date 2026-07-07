@@ -13,6 +13,9 @@ from bot.repositories.permissions import enabled_value, role_allows
 
 
 AUTH_PATH = PROJECT_ROOT / "admin" / "auth.py"
+ADMIN_BOTS_PATH = PROJECT_ROOT / "admin" / "bots.py"
+ADMIN_USERS_TEMPLATE_PATH = PROJECT_ROOT / "admin" / "templates" / "admin_users.html"
+ADMIN_USER_FORM_TEMPLATE_PATH = PROJECT_ROOT / "admin" / "templates" / "admin_user_form.html"
 PERMISSIONS_PATH = PROJECT_ROOT / "bot" / "repositories" / "permissions.py"
 
 
@@ -83,6 +86,9 @@ def main() -> int:
     )
 
     auth_source = AUTH_PATH.read_text(encoding="utf-8")
+    admin_bots_source = ADMIN_BOTS_PATH.read_text(encoding="utf-8")
+    admin_users_template = ADMIN_USERS_TEMPLATE_PATH.read_text(encoding="utf-8")
+    admin_user_form_template = ADMIN_USER_FORM_TEMPLATE_PATH.read_text(encoding="utf-8")
     permission_source = PERMISSIONS_PATH.read_text(encoding="utf-8")
     login_log_source = auth_source.split("def log_admin_login_decision", 1)[1].split("def register_auth_routes", 1)[0]
     record(
@@ -120,6 +126,58 @@ def main() -> int:
         "return bot_id == \"ichiyon\" and bool(self.list_guild_permissions(discord_user_id))" not in permission_source
         and "if self.list_guild_permissions(discord_user_id):" not in permission_source,
         "no guild_permissions fallback",
+    )
+    record(
+        results,
+        "admin user id edit moves bot permissions",
+        "def update_admin_user_id" in permission_source
+        and "UPDATE admin_users" in permission_source
+        and "UPDATE bot_permissions" in permission_source,
+        "admin_users and bot_permissions are updated together",
+    )
+    record(
+        results,
+        "admin user delete removes bot permissions",
+        "def delete_admin_user_with_permissions" in permission_source
+        and "DELETE FROM bot_permissions" in permission_source
+        and "DELETE FROM admin_users" in permission_source,
+        "permissions are deleted before admin user",
+    )
+    record(
+        results,
+        "user management has delete route",
+        "/admin/users/{discord_user_id}/delete" in admin_bots_source
+        and "delete_admin_user_with_permissions" in admin_bots_source,
+        "delete route",
+    )
+    record(
+        results,
+        "self destructive user operations are blocked",
+        "自分自身は削除できません" in admin_bots_source
+        and "自分自身のDiscord User IDは変更できません" in admin_bots_source,
+        "self delete and self id edit guards",
+    )
+    record(
+        results,
+        "last global admin is protected",
+        "count_enabled_global_admins" in admin_bots_source
+        and "最後の全体管理者" in admin_bots_source,
+        "global admin guard",
+    )
+    record(
+        results,
+        "admin users list exposes guarded delete action",
+        "confirm_delete" in admin_users_template
+        and "/delete" in admin_users_template
+        and "削除" in admin_users_template,
+        "delete form",
+    )
+    record(
+        results,
+        "discord user id is editable with warning",
+        "{% if target_user %}readonly{% endif %}" not in admin_user_form_template
+        and "Bot権限・サーバー権限も新しいIDへ引き継がれます" in admin_user_form_template,
+        "editable id warning",
     )
 
     ok_count = sum(1 for _, ok, _ in results if ok)

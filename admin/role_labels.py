@@ -11,9 +11,9 @@ ROLE_LABELS: Dict[str, str] = {
 
 ROLE_DESCRIPTIONS: Dict[str, str] = {
     "viewer": "設定を見るだけ。変更はできない。",
-    "editor": "対象Bot・対象サーバーの多くの設定を変更できる。",
-    "guild_admin": "対象Bot・対象サーバーの管理者向け設定まで変更できる。",
-    "admin": "管理者。現在の権限判定では既存互換用の表示名。",
+    "editor": "許可されたBot・サーバーの通常設定を変更できる。",
+    "guild_admin": "許可されたBot・サーバーの管理者向け設定まで変更できる。",
+    "admin": "管理者。現在の権限設計では既存互換用の表示名。",
     "global_admin": "全Bot・全サーバーを管理できる。ユーザー管理も可能。",
 }
 
