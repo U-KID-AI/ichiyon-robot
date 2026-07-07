@@ -1,4 +1,3 @@
-import os
 from typing import Any, Dict, List, Optional
 
 from bot.repositories.base import fetch_all, fetch_one
@@ -14,20 +13,6 @@ ROLE_LEVELS = {
 
 def role_allows(role: Optional[str], required_role: str) -> bool:
     return ROLE_LEVELS.get(role or "", 0) >= ROLE_LEVELS.get(required_role, 0)
-
-
-def developer_user_ids() -> List[str]:
-    raw_values = [
-        os.getenv("DEVELOPER_USER_ID", ""),
-        os.getenv("ADMIN_DEVELOPER_USER_IDS", ""),
-    ]
-    ids: List[str] = []
-    for value in raw_values:
-        for item in value.replace("\n", ",").split(","):
-            item = item.strip()
-            if item:
-                ids.append(item)
-    return ids
 
 
 class PermissionRepository:
@@ -76,14 +61,20 @@ class PermissionRepository:
             return fetch_one(cursor)
 
     def has_global_admin(self, discord_user_id: str) -> bool:
-        if discord_user_id in developer_user_ids():
-            return True
         admin_user = self.get_admin_user(discord_user_id)
         if not admin_user:
             return False
         if admin_user.get("enabled") is False:
             return False
         return bool(admin_user.get("role") == "global_admin")
+
+    def can_login_admin(self, discord_user_id: str) -> bool:
+        admin_user = self.get_admin_user(discord_user_id)
+        if not admin_user:
+            return False
+        if admin_user.get("enabled") is False:
+            return False
+        return True
 
     def can_manage_users(self, discord_user_id: str) -> bool:
         if self.has_global_admin(discord_user_id):
@@ -163,21 +154,7 @@ class PermissionRepository:
                 (discord_user_id,),
             )
             rows = fetch_all(cursor)
-        if rows:
-            return rows
-
-        if self.list_guild_permissions(discord_user_id):
-            with self.connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT b.*, 'viewer' AS role
-                    FROM bot_instances b
-                    WHERE b.bot_id = 'ichiyon'
-                      AND b.enabled = TRUE
-                    """
-                )
-                return fetch_all(cursor)
-        return []
+        return rows
 
     def can_access_bot(self, bot_id: str, discord_user_id: str) -> bool:
         if self.has_global_admin(discord_user_id):
@@ -195,7 +172,7 @@ class PermissionRepository:
             )
             if cursor.fetchone() is not None:
                 return True
-        return bot_id == "ichiyon" and bool(self.list_guild_permissions(discord_user_id))
+        return False
 
     def list_configured_guilds_for_bot(self, bot_id: str, role: str) -> List[Dict[str, Any]]:
         with self.connection.cursor() as cursor:
@@ -321,8 +298,6 @@ class PermissionRepository:
                 )
                 return fetch_all(cursor)
 
-        if bot_id == "ichiyon":
-            return self.list_manageable_guilds(discord_user_id)
         return []
 
     def can_access_bot_guild(self, bot_id: str, guild_id: str, discord_user_id: str) -> bool:

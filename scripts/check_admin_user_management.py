@@ -11,6 +11,10 @@ from admin.bots import parse_permission_value
 from bot.repositories.permissions import role_allows
 
 
+AUTH_PATH = PROJECT_ROOT / "admin" / "auth.py"
+PERMISSIONS_PATH = PROJECT_ROOT / "bot" / "repositories" / "permissions.py"
+
+
 def record(results: List[Tuple[str, bool, Any]], name: str, ok: bool, detail: Any = "") -> None:
     results.append((name, ok, detail))
     print("[{0}] {1} - {2}".format("OK" if ok else "NG", name, detail))
@@ -49,6 +53,36 @@ def main() -> int:
         "role hierarchy blocks viewer from edit",
         not role_allows("viewer", "editor"),
         "viewer < editor",
+    )
+
+    auth_source = AUTH_PATH.read_text(encoding="utf-8")
+    permission_source = PERMISSIONS_PATH.read_text(encoding="utf-8")
+    record(
+        results,
+        "oauth callback requires registered admin user",
+        "can_login_admin(user_id)" in auth_source and "error=access_denied" in auth_source,
+        "admin_users gate",
+    )
+    record(
+        results,
+        "existing session is revalidated against admin_users",
+        "Failed to validate admin session" in auth_source and "request.session.pop(SESSION_USER_KEY, None)" in auth_source,
+        "session gate",
+    )
+    record(
+        results,
+        "developer env ids are not admin login bypass",
+        "developer_user_ids" not in permission_source
+        and "DEVELOPER_USER_ID" not in permission_source
+        and "ADMIN_DEVELOPER_USER_IDS" not in permission_source,
+        "admin_users is source of truth",
+    )
+    record(
+        results,
+        "legacy guild permissions do not grant bot access",
+        "return bot_id == \"ichiyon\" and bool(self.list_guild_permissions(discord_user_id))" not in permission_source
+        and "if self.list_guild_permissions(discord_user_id):" not in permission_source,
+        "no guild_permissions fallback",
     )
 
     ok_count = sum(1 for _, ok, _ in results if ok)

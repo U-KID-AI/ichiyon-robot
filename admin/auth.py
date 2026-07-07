@@ -78,8 +78,19 @@ def build_avatar_url(user_id: str, avatar_hash: Optional[str]) -> Optional[str]:
 
 def get_current_user(request: Request) -> Optional[Dict[str, Any]]:
     user = request.session.get(SESSION_USER_KEY)
-    if isinstance(user, dict):
-        return user
+    if not isinstance(user, dict):
+        return None
+    user_id = str(user.get("user_id", ""))
+    if not user_id:
+        request.session.pop(SESSION_USER_KEY, None)
+        return None
+    try:
+        with get_connection() as connection:
+            if PermissionRepository(connection).can_login_admin(user_id):
+                return user
+    except Exception as exc:
+        print("[WARN] Failed to validate admin session: {0}".format(exc))
+    request.session.pop(SESSION_USER_KEY, None)
     return None
 
 
@@ -139,6 +150,14 @@ def register_auth_routes(templates: Jinja2Templates) -> None:
         user_id = str(user_data.get("id", ""))
         if not user_id:
             return RedirectResponse(url="/login?error=oauth_failed", status_code=303)
+
+        try:
+            with get_connection() as connection:
+                if not PermissionRepository(connection).can_login_admin(user_id):
+                    return RedirectResponse(url="/login?error=access_denied", status_code=303)
+        except Exception as exc:
+            print("[WARN] Failed to validate admin login: {0}".format(exc))
+            return RedirectResponse(url="/login?error=access_denied", status_code=303)
 
         request.session[SESSION_USER_KEY] = {
             "user_id": user_id,
