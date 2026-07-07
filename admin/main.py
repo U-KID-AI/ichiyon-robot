@@ -35,6 +35,7 @@ from admin.reaction_thresholds import (
     register_reaction_threshold_routes,
     router as reaction_threshold_router,
 )
+from admin.role_labels import ROLE_DESCRIPTIONS, ROLE_LABELS, role_description, role_label
 from admin.servers import register_server_routes, router as server_router
 from admin.special_effects import (
     register_special_effect_routes,
@@ -69,6 +70,10 @@ app.mount("/assets", StaticFiles(directory=BASE_DIR / "assets"), name="assets")
 templates = Jinja2Templates(directory=Path(__file__).resolve().parent / "templates")
 templates.env.globals["current_bot_instance"] = bot_config.BOT_INSTANCE
 templates.env.globals["current_bot_instance_id"] = bot_config.BOT_INSTANCE_ID
+templates.env.globals["role_labels"] = ROLE_LABELS
+templates.env.globals["role_descriptions"] = ROLE_DESCRIPTIONS
+templates.env.filters["role_label"] = role_label
+templates.env.filters["role_description"] = role_description
 app.state.templates = templates
 register_auth_routes(templates)
 register_bot_routes(templates)

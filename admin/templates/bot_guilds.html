@@ -21,7 +21,7 @@
             <div>
               <h2>{{ server.name or server.guild_id }}</h2>
               <p class="empty">サーバーID: {{ server.guild_id }}</p>
-              <strong class="status enabled">{{ server.role }}</strong>
+              <strong class="status enabled" title="{{ server.role|role_description }}">{{ server.role|role_label }}</strong>
             </div>
           </div>
           <a class="button-link" href="/bots/{{ bot.bot_id }}/guilds/{{ server.guild_id }}">管理へ</a>

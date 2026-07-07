@@ -8,6 +8,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from admin.bots import parse_permission_value
+from admin.role_labels import role_description, role_label
 from bot.repositories.permissions import role_allows
 
 
@@ -53,6 +54,26 @@ def main() -> int:
         "role hierarchy blocks viewer from edit",
         not role_allows("viewer", "editor"),
         "viewer < editor",
+    )
+    record(
+        results,
+        "role labels are localized",
+        role_label("viewer") == "閲覧のみ"
+        and role_label("editor") == "編集者"
+        and role_label("guild_admin") == "サーバー管理者"
+        and role_label("global_admin") == "全体管理者",
+        "viewer={0} editor={1} guild_admin={2} global_admin={3}".format(
+            role_label("viewer"),
+            role_label("editor"),
+            role_label("guild_admin"),
+            role_label("global_admin"),
+        ),
+    )
+    record(
+        results,
+        "role descriptions are available",
+        "変更" in role_description("editor") and "ユーザー管理" in role_description("global_admin"),
+        role_description("global_admin"),
     )
 
     auth_source = AUTH_PATH.read_text(encoding="utf-8")

@@ -17,7 +17,7 @@
               {% if bot.description %}
                 <p class="empty mobile-hidden-description">{{ bot.description }}</p>
               {% endif %}
-              <strong class="status enabled">{{ bot.role or "viewer" }}</strong>
+              <strong class="status enabled" title="{{ (bot.role or 'viewer')|role_description }}">{{ (bot.role or "viewer")|role_label }}</strong>
             </div>
           </div>
           <a class="button-link" href="/bots/{{ bot.bot_id }}/guilds">選択</a>

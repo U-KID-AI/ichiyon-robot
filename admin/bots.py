@@ -6,6 +6,7 @@ from fastapi.templating import Jinja2Templates
 
 from admin.auth import get_current_user
 from admin.bot_context import set_selected_bot_id
+from admin.role_labels import ROLE_DESCRIPTIONS, ROLE_LABELS
 from bot.db import get_connection
 from bot.repositories import PermissionRepository
 from bot.repositories.bot_instances import BotInstanceRepository
@@ -207,6 +208,8 @@ async def render_user_form(
             "selected_bot_roles": selected_bot_roles,
             "selected_guild_roles": selected_guild_roles,
             "valid_roles": sorted(VALID_PERMISSION_ROLES),
+            "role_labels": ROLE_LABELS,
+            "role_descriptions": ROLE_DESCRIPTIONS,
         },
         status_code=400 if errors else 200,
     )

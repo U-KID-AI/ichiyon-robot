@@ -10,7 +10,7 @@
       <div>
         <h2>{{ server.name }}</h2>
         <p class="empty">特殊効果タグをNGワードに付与。</p>
-        {% if server.role %}<strong class="status enabled">{{ server.role }}</strong>{% endif %}
+        {% if server.role %}<strong class="status enabled" title="{{ server.role|role_description }}">{{ server.role|role_label }}</strong>{% endif %}
       </div>
     </div>
     <div class="page-actions">
