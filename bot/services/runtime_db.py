@@ -1087,100 +1087,6 @@ async def execute_destroy_effect(
     return result
 
 
-def find_mode_for_effect_config(connection, guild_id: str, config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    repository = ModeRepository(connection)
-    mode_id = get_config_int(config, ["mode_id", "target_mode_id"], 0)
-    if mode_id > 0:
-        mode = repository.get_by_id(guild_id, mode_id)
-        if mode is not None and mode.get("enabled"):
-            return mode
-        return None
-
-    mode_key = get_config_text(config, ["mode_key", "target_mode_key", "target_mode", "key"])
-    if not mode_key:
-        return None
-    for mode in repository.list_enabled_modes(guild_id):
-        if str(mode.get("mode_key") or "") == mode_key:
-            return mode
-    return None
-
-
-def normalize_mode_roll_choices(config: Dict[str, Any]) -> List[Dict[str, Any]]:
-    raw_choices = config.get("modes") or config.get("choices") or config.get("mode_choices")
-    if isinstance(raw_choices, list):
-        choices = [item for item in raw_choices if isinstance(item, dict)]
-        if choices:
-            return choices
-    return [config]
-
-
-def choose_mode_roll_config(config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    choices = normalize_mode_roll_choices(config)
-    weighted = [
-        (choice, get_config_int(choice, ["weight", "appearance_rate", "rate"], 1))
-        for choice in choices
-    ]
-    return choose_weighted_item(weighted)
-
-
-async def enter_mode_from_effect(
-    connection,
-    guild_id: str,
-    effect: Dict[str, Any],
-    config: Dict[str, Any],
-    message: discord.Message,
-) -> bool:
-    if connection is None:
-        print("[WARN] mode effect skipped without DB connection: id={0}".format(effect.get("id")))
-        return False
-
-    repository = ModeRepository(connection)
-    state = repository.get_mode_state(guild_id)
-    if state and state.get("current_mode_id"):
-        print("[INFO] mode effect skipped because mode is already active: id={0}".format(effect.get("id")))
-        return False
-
-    mode = find_mode_for_effect_config(connection, guild_id, config)
-    if mode is None:
-        print("[WARN] mode effect skipped without enabled target mode: id={0}".format(effect.get("id")))
-        return False
-    if not mode_cooldown_allows_trigger(connection, guild_id, mode):
-        print(
-            "[INFO] mode effect skipped by mode cooldown: id={0} mode_key={1}".format(
-                effect.get("id"),
-                mode.get("mode_key"),
-            )
-        )
-        return False
-
-    duration = get_mode_duration_seconds(connection, guild_id, mode)
-    active_until = utc_now() + timedelta(seconds=duration) if duration else None
-    repository.enter_mode(
-        guild_id,
-        int(mode["id"]),
-        active_until,
-        {
-            "entered_by": "special_effect",
-            "effect_id": effect.get("id"),
-            "effect_type": effect.get("effect_type"),
-            "mode_key": mode.get("mode_key"),
-            "channel_id": str(getattr(message.channel, "id", "") or ""),
-        },
-    )
-    record_mode_period_trigger(connection, guild_id, mode)
-    reset_counter_thresholds(connection, guild_id, int(mode["id"]))
-    connection.commit()
-    await send_mode_enter_message(message, mode)
-    await apply_mode_identity(message, mode)
-    print(
-        "[INFO] mode effect entered mode: id={0} mode_key={1}".format(
-            effect.get("id"),
-            mode.get("mode_key"),
-        )
-    )
-    return True
-
-
 async def execute_effects(
     connection,
     guild_id: str,
@@ -1299,21 +1205,6 @@ async def execute_effects(
                         multiplier,
                         multiplier,
                     )
-            elif effect_type == "mode_enter":
-                await enter_mode_from_effect(connection, guild_id, effect, config, message)
-            elif effect_type == "mode_roll":
-                multiplier = get_probability_multiplier_for_target(
-                    pending,
-                    "special_effect_tag",
-                    int(effect.get("id") or 0),
-                )
-                if not probability_hit_with_multiplier(config, multiplier):
-                    continue
-                mode_config = choose_mode_roll_config(config)
-                if mode_config is None:
-                    print("[WARN] mode_roll skipped without mode choices: id={0}".format(effect.get("id")))
-                    continue
-                await enter_mode_from_effect(connection, guild_id, effect, mode_config, message)
             elif effect_type == "probability_multiplier":
                 multiplier = get_config_float(config, ["multiplier", "rate", "factor"], 1.0)
                 if multiplier <= 0:
