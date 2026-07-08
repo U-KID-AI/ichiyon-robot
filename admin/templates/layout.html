@@ -14,7 +14,7 @@
         <p class="topbar-server">
           {% set request_state = request|attr("state") %}
           {% set selected_bot = request_state.selected_bot_instance if request_state is defined and request_state.selected_bot_instance is defined else current_bot_instance %}
-          Bot: {{ selected_bot.display_name }} / {{ selected_bot.bot_id }}
+          選択中Bot: {{ selected_bot.display_name }} / {{ selected_bot.bot_id }}
           {% if server is defined and server %}
             ・ {{ server.name }}
           {% endif %}

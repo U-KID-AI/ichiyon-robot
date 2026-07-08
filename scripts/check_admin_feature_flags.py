@@ -417,6 +417,7 @@ def check_layout_bot_context() -> int:
     main_source = (ROOT_DIR / "admin" / "main.py").read_text(encoding="utf-8")
     bot_context_source = (ROOT_DIR / "admin" / "bot_context.py").read_text(encoding="utf-8")
     layout_source = (ROOT_DIR / "admin" / "templates" / "layout.html").read_text(encoding="utf-8")
+    style_source = (ROOT_DIR / "admin" / "static" / "style.css").read_text(encoding="utf-8")
     results = []
     results.append(
         check(
@@ -439,12 +440,20 @@ def check_layout_bot_context() -> int:
             "layout eyebrow",
         )
     )
+    eyebrow_block = style_source.split(".eyebrow", 1)[1].split("}", 1)[0] if ".eyebrow" in style_source else ""
+    results.append(
+        check(
+            "text-transform" not in eyebrow_block,
+            "layout brand is not forced uppercase",
+            "eyebrow text-transform",
+        )
+    )
     return sum(1 for result in results if result)
 
 
 def main() -> int:
     template_count = len(list((ROOT_DIR / "admin" / "templates").glob("*.html")))
-    total = 9 + 9 + 6 + 6 + 3 + 4 + 3 + template_count + 2 + 3
+    total = 9 + 9 + 6 + 6 + 3 + 4 + 3 + template_count + 2 + 4
     passed = (
         check_display_definitions()
         + check_build_feature_rows()
