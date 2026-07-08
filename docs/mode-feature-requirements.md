@@ -2,232 +2,343 @@
 
 ## 前提
 
-本メモは、既存の `modes` / `mode_trigger_conditions` / `mode_exit_conditions` / `mode_reply_choices` と Bot 実行時処理だけで、追加要望をどこまで実現できるかを調査したものです。実装変更は行っていません。
+本メモは、モード要望を `mode_trigger_conditions` へ直接追加する前に、既存の特殊効果基盤でどこまで実現できるかを調査したものです。実装変更は行っていません。
 
-調査対象の主な実装:
+調査対象:
 
-- `admin/modes.py`
-- `admin/templates/mode_form.html`
-- `bot/repositories/modes.py`
-- `bot/services/runtime_db.py`
-- `bot/messages.py`
-- `migrations/001_initial_schema.sql`
+- `special_effect_tags`
+- `special_effect_assignments`
+- 自動反応 / メンション反応 / NGワードからの特殊効果発火
+- `modes`
+- `mode_trigger_conditions`
+- `mode_exit_conditions`
+- `mode_reply_choices`
+- Bot実行時の `bot/services/runtime_db.py`
+- 管理画面の `admin/special_effects.py`, `admin/auto_reactions.py`, `admin/mention_reactions.py`, `admin/ng_words_db.py`, `admin/modes.py`
 
-## 既存モード機能の範囲
+## 重要な調査結果
 
-### モード定義
+### 特殊効果の付与先
 
-`modes` は Bot別・サーバー別に分離されています。現在のRepositoryは `bot_id` と `guild_id` を条件にしてモード、返信候補、発動条件、終了条件を取得します。
+特殊効果タグは管理画面から以下へ付与できます。
 
-主な設定:
+- メンション反応の抽選候補
+- 自動反応
+- NGワード
 
-- `behavior_type`
-  - `reply`: モード中、`mode_reply_choices` から返信する
-  - `offline`: モード中、通常処理を止める
-- `duration_seconds`
-  - モード継続秒数。未設定時は `mode_exit_conditions` の duration が fallback
-- `enter_message` / `exit_message`
-- ニックネーム、アイコン、疑似オフライン表示
-- `reaction_channel_ids` / `ignore_channel_ids`
-- `cooldown_config_json`
+したがって、「特定キーワードを含む投稿」を自動反応で拾い、その自動反応に特殊効果を付ける流れは既存の管理画面導線で作れます。
 
-### 発動条件
+### mode_enter / mode_roll の状態
 
-管理画面で選べる発動条件は以下です。
+DB制約、管理画面の選択肢、ラベルには `mode_enter` / `mode_roll` が存在します。
 
-- `probability`
-- `counter_threshold`
-- `period_not_triggered`
-- `manual`
-- `schedule`
+ただし、実行時の `execute_effects()` には `mode_enter` / `mode_roll` の処理が見当たりません。現状では、これらを特殊効果タグとして作れても、タグ発火時に直接モードへ入る処理は動かない可能性が高いです。
 
-実行時に実際の発動判定として評価されているのは以下です。
+現時点で実運用上確実なルートは、既存のしこっち方式です。
 
-- `probability`
-- `counter_threshold`
-- `period_not_triggered`
+1. 自動反応やメンション反応で特殊効果を発火
+2. 特殊効果 `counter_set` または `counter_delta` でカウンターを変更
+3. モード側の `counter_threshold` 条件が満たされる
+4. メッセージ処理の最後で `enter_mode_if_needed()` がモードへ入る
 
-`manual` / `schedule` はUI・DB定義にはありますが、通常メッセージ処理時の `mode_triggers_met()` では actionable 条件に含まれていません。
+### 特殊効果側の確率
 
-### 確率指定
-
-確率はJSONで指定できます。
+一部の特殊効果は `probability` を持てます。特に `counter_set` は `probability_hit_with_multiplier()` を通っており、以下のような分数確率を扱えます。
 
 ```json
 {
   "probability": {
     "numerator": 14,
     "denominator": 141414
-  }
+  },
+  "counter_key": "ichiyon_almost_count",
+  "value": 1
 }
 ```
 
-`parse_probability()` は `numerator` / `denominator` を整数として読み、`probability_hit_with_multiplier()` が判定します。したがって、`14/141414` のような分数確率は既存実装だけで表現できます。
+したがって、「何かの発火を起点に、14/141414でカウンターを立て、モードへ入る」は既存特殊効果で表現できます。
 
-### 終了条件・自動解除
+ただし、「全投稿に対して常に14/141414で抽選する」には、全投稿に必ず反応する安全なトリガーが必要です。現状の自動反応は呼び出しワードが必要で、空トリガーの常時発火は通常設定としては用意されていません。
+
+### モード中の返信
+
+`behavior_type=reply` のモード中は、`mode_reply_choices` から返信候補を重み付き抽選して送ります。候補を1件だけにすれば固定文言モードになります。
+
+特定Discordユーザーの投稿をオウム返しする `echo_user_message` / `mimic_user` 相当の返信タイプは未実装です。
+
+### duration
 
 `modes.duration_seconds` が主設定です。`duration_seconds=180` で3分モードを表現できます。
 
-期限切れ復帰は既存の期限切れ監視・メッセージ処理時判定の両方で扱われています。
+### bot_id + guild_id 分離
 
-### モード中返信
-
-`behavior_type=reply` のモード中は、`mode_reply_choices` から重み付きで1件選び、本文/画像を送ります。候補を1件だけ登録すれば、固定文言のみ返すモードとして使えます。
-
-現状の返信タイプは「登録済み本文/画像の送信」のみです。特定Discordユーザーの発言をオウム返しする `mimic_user` / `echo_user_message` のような reply type はありません。
+モード、特殊効果、自動反応、メンション反応、NGワードはいずれもRepository側で `bot_id` + `guild_id` を見ています。少なくともコード上は、Bot別・サーバー別の設定分離に乗せられます。
 
 ### メンション事故対策
 
-`send_text_or_image()` は通常の `channel.send(content)` を使っています。現状では `discord.AllowedMentions.none()` のような全体的なメンション抑止は見当たりません。
+`send_text_or_image()` は現状 `channel.send(content)` を使っています。`discord.AllowedMentions.none()` のような全体的なメンション抑止は見当たりません。
 
-固定文言を管理者が安全に書く限り大きな問題にはなりにくいですが、ユーザー発言をオウム返しする機能を追加する場合は、`@everyone` / `@here` / ユーザーメンションの事故防止が必須です。
+固定文言を管理者が安全に書く場合は運用で避けられますが、ユーザー発言をコピーするオウム返し機能を追加する場合は、以下が必須です。
+
+- `@everyone` / `@here` 抑止
+- ユーザーメンション、ロールメンションの抑止
+- Bot自身や他Botの投稿をコピーしない
+- 対象ユーザーIDを明示する
 
 ## 要望別の実現可否
 
 ### 1. 「記憶パ」の話題が出た瞬間にタケツミロボモードになる
 
-結論: 現状のモード設定だけでは不可です。
+結論: `mode_enter` 直結ではなく、既存特殊効果のカウンター経由なら設定だけで実現できる可能性が高いです。
 
-理由:
+想定設定:
 
-- `mode_trigger_conditions` にキーワード条件がありません。
-- 実行時の `mode_triggers_met()` はメッセージ本文を見ず、確率・カウンター・期間内未発動だけを評価しています。
-- 自動反応で「記憶パ」を検知することは既存機能で可能ですが、それを直接「モード突入」に接続する設定が、通常管理画面だけで完結するかは限定的です。
+1. モード作成
+   - `mode_key`: `taketsumi`
+   - `name`: `タケツミロボモード`
+   - `behavior_type`: 必要に応じて `reply` または `offline`
+   - `duration_seconds`: 任意
+   - `enabled`: ON
 
-既存特殊効果に `mode_enter` / `mode_roll` があるため、もし自動反応の特殊効果割り当てで `mode_enter` が正しく対象モードを指定できるなら、「自動反応: 記憶パ」→「特殊効果: mode_enter」で代替できる可能性があります。ただし、純粋な `mode_trigger_conditions` のキーワード条件では実現できません。
-
-追加実装候補:
-
-- `mode_trigger_conditions.condition_type = "keyword"` を追加
-- 設定例:
+2. モード発動条件
+   - 条件種類: `counter_threshold`
+   - 条件JSON:
 
 ```json
 {
-  "keywords": ["記憶パ"],
-  "match_type": "contains",
-  "ignore_bots": true
+  "counter_key": "taketsumi_count",
+  "operator": ">=",
+  "threshold": 1
 }
 ```
 
-- `mode_triggers_met()` またはその前段に、メッセージ本文を渡して判定する
-- 管理画面の発動条件UIに「キーワード」を追加
+3. 自動反応作成
+   - 呼び出しワード: `記憶パ`
+   - 一致方式: `contains`
+   - 返信文言: 空または運用上問題ない文言
+   - 有効: ON
 
-DB migrationは必要です。既存CHECK制約に `keyword` を追加する必要があります。
+4. 特殊効果タグ作成
+   - 付与できる対象: `auto_reaction`
+   - 発動タイミング: `auto_reaction_triggered`
+   - 効果の種類: `counter_set`
+   - 詳細設定:
+
+```json
+{
+  "counter_key": "taketsumi_count",
+  "value": 1
+}
+```
+
+5. 自動反応「記憶パ」に上記特殊効果タグを付与
+
+この流れなら、`記憶パ` を含む通常投稿 → 自動反応発火 → `taketsumi_count=1` → モードの `counter_threshold` 成立 → `enter_mode_if_needed()` でモード突入、という既存ルートに乗ります。
+
+注意:
+
+- 自動反応が空返信を許すか、または返信なしで特殊効果だけ動かせるかは実データで確認が必要です。既存処理上は `send_text_or_image()` が空なら送らず、効果は実行される流れです。
+- 使い終わったカウンターはモード突入時に `reset_counter_thresholds()` でリセットされます。
+- `mode_enter` 効果を使う設定は現状おすすめしません。選択肢はありますが実行処理が未実装です。
+
+追加実装が必要になる場合:
+
+- `mode_enter` / `mode_roll` を本来の特殊効果として実装する場合
+- 自動反応を完全な「無言トリガー」として管理画面上わかりやすく扱いたい場合
 
 ### 2. 14/141414 の確率でいちよんほぼモードになる
 
-結論: 確率発動そのものは既存設定で可能です。オウム返しは追加実装が必要です。
+結論: 何かのトリガーに紐づく低確率モード発動は、既存特殊効果のカウンター経由で実現できます。全投稿常時抽選は追加設計が必要です。オウム返しは未実装です。
 
 設定だけでできる部分:
 
-- モードを `behavior_type=reply` で作成
-- 発動条件に `probability` を追加
-- 条件JSONに `{"probability":{"numerator":14,"denominator":141414}}` を設定
-- 必要なら `duration_seconds` を設定
-- 固定返信候補を `mode_reply_choices` に登録
+1. モード作成
+   - `mode_key`: `ichiyon_almost`
+   - `name`: `いちよんほぼモード`
+   - `behavior_type`: 既存固定返信なら `reply`
+   - `duration_seconds`: 任意
+   - `enabled`: ON
 
-既存のはゆすモード系との関係:
+2. モード発動条件
+   - 条件種類: `counter_threshold`
+   - 条件JSON:
 
-- 旧 `bot/hayusu.py` には `random.randrange(config.HAYUSU_TRIGGER_RATE)` のJSON外ロジックがあります。
-- DBモード側にはより汎用的な `probability` 条件があります。
-- v3系ではDBモードの `probability` 条件を使う方が自然です。
+```json
+{
+  "counter_key": "ichiyon_almost_count",
+  "operator": ">=",
+  "threshold": 1
+}
+```
 
-足りない部分:
+3. 特殊効果タグ作成
+   - 付与できる対象: 自動反応、メンション反応候補、NGワードのいずれか
+   - 効果の種類: `counter_set`
+   - 詳細設定:
 
-- 「いちよん本人の発言をオウム返しする返答タイプ」は未実装です。
-- 現状の `mode_reply_choices` は固定本文/画像の選択のみです。
+```json
+{
+  "probability": {
+    "numerator": 14,
+    "denominator": 141414
+  },
+  "counter_key": "ichiyon_almost_count",
+  "value": 1
+}
+```
+
+4. 抽選を行いたい対象へ特殊効果を付与
+
+既存のはゆすモードとの違い:
+
+- 旧 `bot/hayusu.py` はJSON外の専用ロジックで確率発動します。
+- v3 DB基盤では、しこっち系のように特殊効果 `counter_set` + モード `counter_threshold` の方が自然です。
+
+既存だけでは難しい部分:
+
+- 「全投稿ごとに14/141414で抽選する」には、全投稿に安全に紐づくトリガーが必要です。
+- 現状の自動反応は呼び出しワード前提です。
+- 特定ユーザーの発言をオウム返しする返信タイプは未実装です。
 
 追加実装候補:
 
-- `modes.behavior_type` に `mimic_user` を追加する、または `appearance_config_json` / `mode_reply_choices` に `reply_type` を持たせる
-- 設定例:
+- 特殊効果 `mode_enter` / `mode_roll` の実行処理を実装
+- もしくは「全投稿トリガー」専用の安全な特殊効果発火ポイントを追加
+- `echo_user_message` / `mimic_user` 返信タイプを追加
+- 送信時に `AllowedMentions.none()` 相当を使う
+
+### 3. ヒイロロボモードになり、3分間「シャドバすっげー楽しい！」しか言わなくなる
+
+結論: モード中の3分固定返信は既存設定だけで可能です。突入も、何らかの自動反応やメンション反応を起点にするなら特殊効果カウンター経由で可能です。
+
+設定だけでできる部分:
+
+1. モード作成
+   - `mode_key`: `hiiro`
+   - `name`: `ヒイロロボモード`
+   - `behavior_type`: `reply`
+   - `duration_seconds`: `180`
+   - `enabled`: ON
+
+2. モード返信候補
+   - 候補名: 任意
+   - 本文: `シャドバすっげー楽しい！`
+   - 出やすさ: `1`
+   - 有効: ON
+
+3. モード発動条件
+   - 条件種類: `counter_threshold`
+   - 条件JSON:
+
+```json
+{
+  "counter_key": "hiiro_count",
+  "operator": ">=",
+  "threshold": 1
+}
+```
+
+4. 特殊効果タグ
+   - 効果の種類: `counter_set`
+   - 詳細設定:
+
+```json
+{
+  "counter_key": "hiiro_count",
+  "value": 1
+}
+```
+
+5. 発動元の自動反応・メンション候補・NGワードに特殊効果タグを付与
+
+この設定により、特殊効果発火後に3分間は固定文言だけ返すモードにできます。
+
+## 管理画面から設定できるか
+
+設定可能です。
+
+- 自動反応の作成・編集
+- 自動反応への特殊効果付与
+- 特殊効果タグ作成
+- モード作成
+- モード発動条件作成
+- モード返答候補作成
+- モード duration 設定
+
+ただし、条件JSONや効果JSONは手入力です。管理画面UIとしては作れますが、事故防止のためにはプリセット化・フォーム化した方が安全です。
+
+## 追加実装の最小案
+
+### A. mode_enter / mode_roll を特殊効果として実装
+
+最小変更:
+
+- `execute_effects()` に `mode_enter` を追加
+- `effect_config_json` 例:
+
+```json
+{
+  "mode_key": "taketsumi"
+}
+```
+
+- 対象モードを `bot_id + guild_id + mode_key` で取得
+- 既にモード中なら何もしない
+- `duration_seconds` を見て `mode_states` に入れる
+- `enter_message` / ニックネーム / アイコン / ステータス変更を既存関数で実行
+
+メリット:
+
+- 「自動反応 → 特殊効果 → モード突入」が直感的になる
+- カウンター用の中間設定が不要になる
+
+DB migration:
+
+- 既に `mode_enter` はDB制約・管理画面選択肢にあるため、基本的には不要です。
+
+### B. echo_user_message / mimic_user を追加
+
+最小変更候補:
+
+- `modes.behavior_type` は増やさず、`appearance_config_json` に `reply_type` を持たせる
 
 ```json
 {
   "reply_type": "echo_user_message",
   "target_user_ids": ["..."],
-  "sanitize_mentions": true,
   "ignore_bots": true,
-  "ignore_self": true,
-  "fallback_body": ""
+  "sanitize_mentions": true
 }
 ```
 
-- 実行時は対象ユーザーの投稿だけをコピーし、それ以外は無視または固定返信に fallback
-- 送信時は `AllowedMentions.none()` 相当、または本文中の `@everyone` / `@here` を無害化
+- `handle_active_mode()` で `reply_type` を見て分岐
+- 対象外ユーザー、Bot、自分自身は無視
+- `@everyone` / `@here` / ユーザー/ロールメンションを無害化
+- 送信時は `discord.AllowedMentions.none()` 相当
 
-DB migrationは設計次第です。`behavior_type` のCHECK制約へ値を追加する場合はmigrationが必要です。JSON設定だけで表現するならmigrationなしでも可能ですが、管理画面のUI追加は必要です。
+DB migration:
 
-### 3. ヒイロロボモードになり、3分間「シャドバすっげー楽しい！」しか言わなくなる
+- JSON設定で始めるなら不要です。
+- `behavior_type` に新値を追加するならCHECK制約変更が必要です。
 
-結論: モード突入条件次第ですが、モード中の3分固定返信は既存設定だけで可能です。
+### C. 管理画面フォーム改善
 
-設定だけでできる部分:
+最小変更:
 
-- モード:
-  - `mode_key = hiiro` など
-  - `behavior_type = reply`
-  - `duration_seconds = 180`
-- 返信候補:
-  - `mode_reply_choices` を1件だけ作成
-  - `body = "シャドバすっげー楽しい！"`
-  - `appearance_rate = 1`
-  - `enabled = true`
+- 特殊効果 `counter_set` の確率・カウンターキー・値をフォーム化
+- モード発動条件 `counter_threshold` と `probability` をフォーム化
+- `mode_enter` 実装後は `mode_key` 選択UIを追加
 
-これにより、モード中の通常メッセージに対して固定文言のみ返す挙動になります。
+DB migration:
 
-注意:
-
-- モード突入条件を「確率」「カウンター」「期間内未発動」でよいなら既存設定で可能です。
-- 「特定キーワードでヒイロロボモードへ突入」したい場合は、要望1と同じくキーワード発動条件または自動反応＋特殊効果連携の確認/実装が必要です。
-
-## bot_id + guild_id 分離
-
-モード関連Repositoryは `bot_id` + `guild_id` をWHERE条件に含めています。
-
-確認済みの範囲:
-
-- `modes`
-- `mode_reply_choices`
-- `mode_trigger_conditions`
-- `mode_exit_conditions`
-- `mode_states`
-- `mode_trigger_history`
-
-したがって、同一 `guild_id` でも `ichiyon` と `irsia` で別モード設定として扱える設計です。
-
-## 追加実装候補まとめ
-
-優先度高:
-
-1. キーワード発動条件
-   - `condition_type = "keyword"`
-   - メッセージ本文・match_type・除外bot・対象チャンネル設定
-   - 管理画面UI追加
-   - CHECK制約migrationが必要
-
-2. オウム返し返信タイプ
-   - `echo_user_message` / `mimic_user`
-   - 対象DiscordユーザーID
-   - bot/self除外
-   - `@everyone` / `@here` / メンション抑止
-   - 送信時 `AllowedMentions.none()` 相当
-
-優先度中:
-
-3. モード返信の送信安全化
-   - 固定文言・画像送信も含めて `allowed_mentions` を明示
-   - 既存挙動への影響確認が必要
-
-4. 管理画面の発動条件フォーム改善
-   - 現状は条件JSONを直接入力する形
-   - probability / counter / keyword などをフォームで入力できると事故が減る
+- 不要です。
 
 ## 要望別まとめ
 
-| 要望 | 既存設定だけで可能か | 補足 |
-| --- | --- | --- |
-| 「記憶パ」でタケツミロボモード | 不可 | モード条件にキーワード判定がない。自動反応＋特殊効果で代替可能か追加確認が必要 |
-| 14/141414でいちよんほぼモード | 一部可能 | 確率発動は可能。オウム返しは未実装 |
-| 3分間固定文言のヒイロロボモード | 可能 | `duration_seconds=180` + 返信候補1件で実現可能。突入条件がキーワードなら追加実装が必要 |
+| 要望 | 特殊効果で実現できるか | 設定だけでできるか | 補足 |
+| --- | --- | --- | --- |
+| 「記憶パ」でタケツミロボモード | 可能 | 可能性高 | 自動反応「記憶パ」+ 特殊効果 `counter_set` + モード `counter_threshold` |
+| 14/141414でいちよんほぼモード | 一部可能 | トリガーがあるなら可能 | `counter_set` に `probability` を設定。全投稿常時抽選は追加設計が必要 |
+| 3分固定文言のヒイロロボモード | 可能 | 可能 | `duration_seconds=180` + 返信候補1件。突入は特殊効果カウンター経由 |
+| いちよん本人の発言をオウム返し | 不可 | 不可 | `echo_user_message` / `mimic_user` 追加が必要 |
 
