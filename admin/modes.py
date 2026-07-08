@@ -27,6 +27,11 @@ from bot.repositories import CounterRepository, ModeRepository
 router = APIRouter()
 
 BEHAVIOR_TYPES = ("reply", "offline")
+MODE_REPLY_TYPES = ("choice", "echo_user_message")
+MODE_REPLY_TYPE_LABELS = {
+    "choice": "返答候補から返信",
+    "echo_user_message": "指定ユーザーをオウム返し",
+}
 COOLDOWN_TYPES = ("none", "duration", "once_per_period")
 COOLDOWN_PERIODS = ("none", "monthly")
 COOLDOWN_RESETS = ("none", "month_start", "day")
@@ -202,6 +207,8 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
         admin_only: Optional[str] = Form(None),
         is_deletable: Optional[str] = Form(None),
         mode_nickname: str = Form(""),
+        mode_reply_type: str = Form("choice"),
+        echo_target_user_ids: str = Form(""),
         mode_icon_path: str = Form(""),
         mode_icon_upload: Optional[UploadFile] = File(None),
         delete_mode_icon: Optional[str] = Form(None),
@@ -271,6 +278,8 @@ def register_mode_routes(templates: Jinja2Templates) -> None:
         admin_only: Optional[str] = Form(None),
         is_deletable: Optional[str] = Form(None),
         mode_nickname: str = Form(""),
+        mode_reply_type: str = Form("choice"),
+        echo_target_user_ids: str = Form(""),
         mode_icon_path: str = Form(""),
         mode_icon_upload: Optional[UploadFile] = File(None),
         delete_mode_icon: Optional[str] = Form(None),
@@ -538,6 +547,7 @@ def build_mode_view(
 ) -> Dict[str, Any]:
     repository = ModeRepository(connection, bot_id=current_selected_bot_id())
     row = default_mode_form()
+    mode_reply_type, echo_target_user_ids = get_mode_reply_config_from_config(mode)
     row.update(
         {
             "id": mode.get("id"),
@@ -546,6 +556,8 @@ def build_mode_view(
             "description": mode.get("description") or "",
             "behavior_type": mode.get("behavior_type") or "reply",
             "mode_nickname": get_mode_nickname_from_config(mode),
+            "mode_reply_type": mode_reply_type,
+            "echo_target_user_ids": echo_target_user_ids,
             "mode_icon_path": mode.get("mode_icon_path") or "",
             "enter_message": mode.get("enter_message") or "",
             "exit_message": mode.get("exit_message") or "",
@@ -616,6 +628,10 @@ def split_csv(value: str) -> List[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def split_id_lines(value: str) -> List[str]:
+    return [item.strip() for item in str(value or "").replace(",", "\n").splitlines() if item.strip()]
+
+
 def summarize_cooldown(config: Dict[str, Any]) -> str:
     if not config or config.get("type", "none") == "none":
         return "なし"
@@ -673,6 +689,8 @@ def default_mode_form() -> Dict[str, Any]:
         "admin_only": False,
         "is_deletable": True,
         "mode_nickname": "",
+        "mode_reply_type": "choice",
+        "echo_target_user_ids": "",
         "mode_icon_path": "",
         "enter_message": "",
         "exit_message": "",
@@ -704,6 +722,8 @@ def build_mode_form(values: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str], 
     form["name"] = str(values.get("name", "")).strip()
     form["description"] = str(values.get("description", "")).strip()
     form["behavior_type"] = values.get("behavior_type") if values.get("behavior_type") in BEHAVIOR_TYPES else "reply"
+    form["mode_reply_type"] = values.get("mode_reply_type") if values.get("mode_reply_type") in MODE_REPLY_TYPES else "choice"
+    form["echo_target_user_ids"] = str(values.get("echo_target_user_ids", "")).strip()
     form["enabled"] = values.get("enabled") == "on"
     form["admin_only"] = values.get("admin_only") == "on"
     form["is_deletable"] = values.get("is_deletable") == "on"
@@ -738,6 +758,12 @@ def build_mode_form(values: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str], 
         errors.append("モードキーを入力。")
     if not form["name"]:
         errors.append("モード名を入力。")
+    if form["behavior_type"] == "reply" and form["mode_reply_type"] == "echo_user_message":
+        target_ids = split_id_lines(form["echo_target_user_ids"])
+        if not target_ids:
+            errors.append("オウム返し対象のDiscord User IDを入力。")
+        elif any(not item.isdigit() for item in target_ids):
+            errors.append("オウム返し対象のDiscord User IDは数字で入力。")
     return form, errors, cooldown
 
 
@@ -763,13 +789,56 @@ def get_mode_nickname_from_config(mode: Dict[str, Any]) -> str:
     return ""
 
 
-def build_appearance_config(existing: Optional[Dict[str, Any]], mode_nickname: str) -> Dict[str, Any]:
+def get_mode_reply_config_from_config(mode: Dict[str, Any]) -> Tuple[str, str]:
+    appearance = normalize_json_dict(mode.get("appearance_config_json"))
+    reply_type = str(appearance.get("reply_type") or "choice")
+    if reply_type == "mimic_user":
+        reply_type = "echo_user_message"
+    if reply_type not in MODE_REPLY_TYPES:
+        reply_type = "choice"
+
+    target_value = appearance.get("target_user_ids") or appearance.get("echo_target_user_ids") or []
+    if isinstance(target_value, list):
+        target_text = "\n".join(str(item) for item in target_value if str(item).strip())
+    elif isinstance(target_value, str):
+        target_text = target_value
+    else:
+        target_text = ""
+
+    single = appearance.get("target_user_id") or appearance.get("echo_target_user_id")
+    if single:
+        single_text = str(single).strip()
+        if single_text and single_text not in split_id_lines(target_text):
+            target_text = "\n".join([item for item in (target_text, single_text) if item])
+    return reply_type, target_text
+
+
+def build_appearance_config(
+    existing: Optional[Dict[str, Any]],
+    mode_nickname: str,
+    mode_reply_type: str = "choice",
+    echo_target_user_ids: str = "",
+) -> Dict[str, Any]:
     appearance = normalize_json_dict((existing or {}).get("appearance_config_json"))
     nickname = mode_nickname.strip()
     if nickname:
         appearance["nickname"] = nickname
     else:
         appearance.pop("nickname", None)
+    if mode_reply_type == "echo_user_message":
+        appearance["reply_type"] = "echo_user_message"
+        appearance["target_user_ids"] = split_id_lines(echo_target_user_ids)
+        appearance.pop("target_user_id", None)
+        appearance.pop("echo_target_user_id", None)
+        appearance.pop("echo_target_user_ids", None)
+        appearance.pop("mode_reply_type", None)
+    else:
+        appearance.pop("reply_type", None)
+        appearance.pop("mode_reply_type", None)
+        appearance.pop("target_user_ids", None)
+        appearance.pop("target_user_id", None)
+        appearance.pop("echo_target_user_ids", None)
+        appearance.pop("echo_target_user_id", None)
     return appearance
 
 
@@ -865,7 +934,12 @@ async def save_mode(
             )
 
         if mode_id is None:
-            appearance_config = build_appearance_config(existing, form["mode_nickname"])
+            appearance_config = build_appearance_config(
+                existing,
+                form["mode_nickname"],
+                form["mode_reply_type"],
+                form["echo_target_user_ids"],
+            )
             created = repository.create_mode(
                 guild_id,
                 form["mode_key"],
@@ -890,7 +964,12 @@ async def save_mode(
             connection.commit()
             return RedirectResponse(url="/guilds/{0}/modes/{1}".format(guild_id, created["id"]), status_code=303)
 
-        appearance_config = build_appearance_config(existing, form["mode_nickname"])
+        appearance_config = build_appearance_config(
+            existing,
+            form["mode_nickname"],
+            form["mode_reply_type"],
+            form["echo_target_user_ids"],
+        )
         repository.update_mode(
             guild_id,
             mode_id,
@@ -1117,6 +1196,8 @@ def render_form(
             "can_set_admin_only": can_set_admin_only,
             "behavior_types": BEHAVIOR_TYPES,
             "behavior_labels": BEHAVIOR_LABELS,
+            "mode_reply_types": MODE_REPLY_TYPES,
+            "mode_reply_type_labels": MODE_REPLY_TYPE_LABELS,
             "cooldown_types": COOLDOWN_TYPES,
             "cooldown_type_labels": COOLDOWN_TYPE_LABELS,
             "cooldown_periods": COOLDOWN_PERIODS,

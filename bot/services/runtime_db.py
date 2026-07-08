@@ -1866,6 +1866,56 @@ def get_mode_nickname(mode: Dict[str, Any]) -> str:
     return str(mode.get("name") or "")
 
 
+def get_mode_reply_type(mode: Dict[str, Any]) -> str:
+    appearance = normalize_json(mode.get("appearance_config_json"))
+    reply_type = get_config_text(appearance, ["reply_type", "mode_reply_type"]) or "choice"
+    if reply_type in ("echo_user_message", "mimic_user"):
+        return "echo_user_message"
+    return "choice"
+
+
+def get_echo_target_user_ids(mode: Dict[str, Any]) -> List[str]:
+    appearance = normalize_json(mode.get("appearance_config_json"))
+    user_ids = get_config_list(appearance, ["target_user_ids", "echo_target_user_ids", "user_ids"])
+    single = get_config_text(appearance, ["target_user_id", "echo_target_user_id", "user_id"])
+    if single:
+        user_ids.append(single)
+    seen = set()
+    normalized = []
+    for user_id in user_ids:
+        text = str(user_id).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        normalized.append(text)
+    return normalized
+
+
+def sanitize_echo_message_text(content: str) -> str:
+    return (content or "").replace("@everyone", "@\u200beveryone").replace("@here", "@\u200bhere").strip()
+
+
+async def handle_echo_user_message_mode(message: discord.Message, mode: Dict[str, Any]) -> bool:
+    author = getattr(message, "author", None)
+    if author is None:
+        return True
+    if bool(getattr(author, "bot", False)):
+        return True
+    bot_user = getattr(get_bot(), "user", None)
+    if bot_user is not None and str(getattr(author, "id", "")) == str(getattr(bot_user, "id", "")):
+        return True
+
+    target_ids = get_echo_target_user_ids(mode)
+    if str(getattr(author, "id", "")) not in target_ids:
+        return True
+
+    content = sanitize_echo_message_text(getattr(message, "content", ""))
+    if not content:
+        return True
+    await message.channel.send(content, allowed_mentions=discord.AllowedMentions.none())
+    return True
+
+
 async def update_bot_status(status: discord.Status) -> None:
     try:
         await get_bot().change_presence(status=status)
@@ -2098,6 +2148,8 @@ async def handle_active_mode(message: discord.Message, guild_id: str, connection
     if behavior == "offline":
         return True
     if behavior == "reply":
+        if get_mode_reply_type(mode) == "echo_user_message":
+            return await handle_echo_user_message_mode(message, mode)
         pending_effects = pop_pending_next_effects(guild_id, message)
         choices = repository.list_reply_choices(guild_id, int(mode["id"]), enabled=True)
         choice = choose_weighted_row_with_effects(choices, "mode_reply_choice", pending_effects)

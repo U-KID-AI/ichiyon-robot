@@ -17,10 +17,12 @@ class FakeChannel:
     def __init__(self) -> None:
         self.id = 12345
         self.sent = []
+        self.send_kwargs = []
         self.guild = FakeGuild()
 
     async def send(self, content=None, **kwargs):
         self.sent.append(content)
+        self.send_kwargs.append(kwargs)
 
 
 class FakeBotUser:
@@ -68,20 +70,22 @@ class FakeIdentity:
 
 
 class FakeAuthor:
-    id = 100
-    name = "Tester"
-    display_name = "Tester"
+    def __init__(self, user_id: int = 100, bot: bool = False) -> None:
+        self.id = user_id
+        self.bot = bot
+        self.name = "Tester"
+        self.display_name = "Tester"
 
     @property
     def mention(self) -> str:
-        return "<@100>"
+        return "<@{0}>".format(self.id)
 
 
 class FakeMessage:
-    def __init__(self, content: str = "hello") -> None:
+    def __init__(self, content: str = "hello", author: Optional[FakeAuthor] = None) -> None:
         self.content = content
         self.channel = FakeChannel()
-        self.author = FakeAuthor()
+        self.author = author or FakeAuthor()
 
 
 class FakeConnection:
@@ -180,6 +184,18 @@ class FakeModeRepository:
             "enter_message": "narita entered",
             "duration_seconds": 60,
             "cooldown_config_json": {"type": "once_per_period", "period": "monthly", "reset": {"day": 22}},
+        },
+        8: {
+            "id": 8,
+            "mode_key": "ichiyon_almost",
+            "name": "ichiyon almost",
+            "enabled": True,
+            "behavior_type": "reply",
+            "duration_seconds": 60,
+            "appearance_config_json": {
+                "reply_type": "echo_user_message",
+                "target_user_ids": ["1414"],
+            },
         },
     }
 
@@ -403,6 +419,34 @@ async def run_checks(check: Check) -> None:
             "reply mode stops other features and replies",
             handled is True and reply_message.channel.sent == ["reply ok"],
             str(reply_message.channel.sent),
+        )
+
+        FakeModeRepository.state = {"guild_id": "guild", "current_mode_id": 8, "active_until": None}
+        echo_message = FakeMessage("@everyone @here hello", FakeAuthor(1414))
+        handled = await runtime_db.handle_active_mode(echo_message, "guild", connection)
+        check.add(
+            "echo user mode repeats target user text safely",
+            handled is True
+            and echo_message.channel.sent == ["@\u200beveryone @\u200bhere hello"]
+            and echo_message.channel.send_kwargs
+            and echo_message.channel.send_kwargs[0].get("allowed_mentions") is not None,
+            "sent={0} kwargs={1}".format(echo_message.channel.sent, echo_message.channel.send_kwargs),
+        )
+
+        non_target_message = FakeMessage("do not echo", FakeAuthor(9999))
+        handled = await runtime_db.handle_active_mode(non_target_message, "guild", connection)
+        check.add(
+            "echo user mode ignores non-target user",
+            handled is True and non_target_message.channel.sent == [],
+            str(non_target_message.channel.sent),
+        )
+
+        bot_message = FakeMessage("do not echo bot", FakeAuthor(1414, bot=True))
+        handled = await runtime_db.handle_active_mode(bot_message, "guild", connection)
+        check.add(
+            "echo user mode ignores bot messages",
+            handled is True and bot_message.channel.sent == [],
+            str(bot_message.channel.sent),
         )
 
         FakeModeRepository.state = {"guild_id": "guild", "current_mode_id": 2, "active_until": None}

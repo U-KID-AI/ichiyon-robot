@@ -423,6 +423,8 @@ def check_mode_templates_render() -> int:
             can_set_admin_only=True,
             behavior_types=("reply", "offline"),
             behavior_labels={"reply": "返信", "offline": "反応しない"},
+            mode_reply_types=("choice", "echo_user_message"),
+            mode_reply_type_labels={"choice": "返答候補から返信", "echo_user_message": "指定ユーザーをオウム返し"},
             cooldown_types=("none", "duration", "once_per_period"),
             cooldown_type_labels={},
             cooldown_periods=("none", "monthly"),

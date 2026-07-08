@@ -46,6 +46,18 @@
             {% endfor %}
           </select>
         </label>
+        <label>
+          返信タイプ
+          <select name="mode_reply_type" {% if not can_edit or mode_data.behavior_type != "reply" %}disabled{% endif %}>
+            {% for item in mode_reply_types %}
+              <option value="{{ item }}" {% if mode_data.mode_reply_type == item %}selected{% endif %}>{{ mode_reply_type_labels.get(item, item) }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          オウム返し対象Discord User ID
+          <textarea name="echo_target_user_ids" placeholder="例: 123456789012345678" {% if not can_edit or mode_data.behavior_type != "reply" %}disabled{% endif %}>{{ mode_data.echo_target_user_ids }}</textarea>
+        </label>
         <div class="image-field">
           <input type="hidden" name="mode_icon_path" value="{{ mode_data.mode_icon_path }}">
           {% if mode_data.mode_icon_path %}
@@ -55,6 +67,7 @@
           <label>モード時アイコンを選ぶ<input type="file" name="mode_icon_upload" accept="image/*" {% if not can_edit %}disabled{% endif %}></label>
         </div>
       </div>
+      <p class="empty">返信タイプ「指定ユーザーをオウム返し」は、指定したDiscordユーザーの本文だけをモード中に返します。Bot投稿と空本文は無視し、メンション通知は抑止します。</p>
       <div class="form-grid">
         <label class="check-row"><input type="checkbox" name="enabled" {% if mode_data.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>有効</label>
         <label class="check-row"><input type="checkbox" name="admin_only" {% if mode_data.admin_only %}checked{% endif %} {% if not can_edit or not can_set_admin_only %}disabled{% endif %}>管理者限定</label>
