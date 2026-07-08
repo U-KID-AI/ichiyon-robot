@@ -413,9 +413,38 @@ def check_mode_templates_render() -> int:
     return sum(1 for result in results if result)
 
 
+def check_layout_bot_context() -> int:
+    main_source = (ROOT_DIR / "admin" / "main.py").read_text(encoding="utf-8")
+    bot_context_source = (ROOT_DIR / "admin" / "bot_context.py").read_text(encoding="utf-8")
+    layout_source = (ROOT_DIR / "admin" / "templates" / "layout.html").read_text(encoding="utf-8")
+    results = []
+    results.append(
+        check(
+            "bot_id_from_path(request.url.path)" in main_source,
+            "middleware reads bot id from bot route path",
+            "url bot_id is reflected before route handler mutates session",
+        )
+    )
+    results.append(
+        check(
+            "def bot_id_from_path" in bot_context_source and "parts[0] == \"bots\"" in bot_context_source,
+            "bot path parser recognizes bot pages",
+            "bot_id_from_path",
+        )
+    )
+    results.append(
+        check(
+            "Bot管理画面" in layout_source and "ver3.0 DB管理画面" not in layout_source,
+            "layout brand uses common bot management name",
+            "layout eyebrow",
+        )
+    )
+    return sum(1 for result in results if result)
+
+
 def main() -> int:
     template_count = len(list((ROOT_DIR / "admin" / "templates").glob("*.html")))
-    total = 9 + 9 + 6 + 6 + 3 + 4 + 3 + template_count + 2
+    total = 9 + 9 + 6 + 6 + 3 + 4 + 3 + template_count + 2 + 3
     passed = (
         check_display_definitions()
         + check_build_feature_rows()
@@ -426,6 +455,7 @@ def main() -> int:
         + check_runtime_flags()
         + check_admin_templates_parse()
         + check_mode_templates_render()
+        + check_layout_bot_context()
     )
     print("summary: {0}/{1} OK".format(passed, total))
     return 0 if passed == total else 1

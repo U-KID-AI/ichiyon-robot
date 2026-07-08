@@ -13,6 +13,13 @@ SESSION_BOT_ID_KEY = "selected_bot_id"
 CURRENT_BOT_ID: ContextVar[Optional[str]] = ContextVar("current_admin_bot_id", default=None)
 
 
+def bot_id_from_path(path: str) -> Optional[str]:
+    parts = [part for part in (path or "").split("/") if part]
+    if len(parts) >= 2 and parts[0] == "bots":
+        return parts[1].strip() or None
+    return None
+
+
 def selected_bot_id(request: Request) -> str:
     value = request.session.get(SESSION_BOT_ID_KEY)
     if isinstance(value, str) and value.strip():
@@ -31,8 +38,9 @@ def set_selected_bot_id(request: Request, bot_id: str) -> None:
     request.session[SESSION_BOT_ID_KEY] = bot_id
 
 
-def current_bot_instance_for_request(request: Request) -> Dict[str, Any]:
-    bot_id = selected_bot_id(request)
+def current_bot_instance_for_request(request: Request, bot_id: Optional[str] = None) -> Dict[str, Any]:
+    bot_id = (bot_id or "").strip() or selected_bot_id(request)
+    CURRENT_BOT_ID.set(bot_id)
     with get_connection() as connection:
         row = BotInstanceRepository(connection).get(bot_id)
     if row:
