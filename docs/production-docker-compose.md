@@ -54,6 +54,8 @@ nano .env
 ```text
 APP_ENV=production
 ENABLE_DEV_COMMANDS=false
+BOT_DATA_BACKEND=db
+# Compatibility fallback for existing env files. Prefer BOT_DATA_BACKEND.
 ICHIYON_DATA_BACKEND=db
 ADMIN_PORT=8000
 ADMIN_BASE_URL=http://138.2.57.139:8000

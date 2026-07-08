@@ -12,6 +12,8 @@ if str(PROJECT_ROOT) not in sys.path:
 
 TOKEN_ENV_KEYS = (
     "BOT_INSTANCE_ID",
+    "BOT_DATA_BACKEND",
+    "ICHIYON_DATA_BACKEND",
     "ICHIYON_DISCORD_TOKEN",
     "IRSIA_DISCORD_TOKEN",
     "DISCORD_TOKEN",
@@ -176,6 +178,42 @@ def main() -> int:
         "invalid instance falls back safely",
         config.BOT_INSTANCE_ID == "ichiyon" and not config.TOKEN,
         "bot_id={0} token_present={1}".format(config.BOT_INSTANCE_ID, bool(config.TOKEN)),
+        results,
+    )
+
+    config = load_config(
+        {
+            "BOT_INSTANCE_ID": "ichiyon",
+            "BOT_DATA_BACKEND": "db",
+            "ICHIYON_DATA_BACKEND": "json",
+            "ICHIYON_DISCORD_TOKEN": None,
+            "IRSIA_DISCORD_TOKEN": None,
+            "DISCORD_TOKEN": None,
+            "DISCORD_BOT_TOKEN": None,
+        }
+    )
+    check(
+        "BOT_DATA_BACKEND takes priority",
+        config.DATA_BACKEND == "db",
+        "data_backend={0}".format(config.DATA_BACKEND),
+        results,
+    )
+
+    config = load_config(
+        {
+            "BOT_INSTANCE_ID": "ichiyon",
+            "BOT_DATA_BACKEND": None,
+            "ICHIYON_DATA_BACKEND": "db",
+            "ICHIYON_DISCORD_TOKEN": None,
+            "IRSIA_DISCORD_TOKEN": None,
+            "DISCORD_TOKEN": None,
+            "DISCORD_BOT_TOKEN": None,
+        }
+    )
+    check(
+        "ICHIYON_DATA_BACKEND remains fallback",
+        config.DATA_BACKEND == "db",
+        "data_backend={0}".format(config.DATA_BACKEND),
         results,
     )
 

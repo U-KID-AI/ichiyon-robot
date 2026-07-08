@@ -74,11 +74,18 @@ def get_app_env() -> str:
 
 
 def get_data_backend() -> str:
-    value = os.getenv("ICHIYON_DATA_BACKEND", "json").strip().lower()
+    bot_backend = os.getenv("BOT_DATA_BACKEND")
+    legacy_backend = os.getenv("ICHIYON_DATA_BACKEND")
+    if bot_backend is not None and bot_backend.strip():
+        value = bot_backend.strip().lower()
+    elif legacy_backend is not None and legacy_backend.strip():
+        value = legacy_backend.strip().lower()
+    else:
+        value = "json"
     if value in ("json", "db"):
         return value
 
-    print("[WARN] ICHIYON_DATA_BACKEND must be json or db")
+    print("[WARN] BOT_DATA_BACKEND must be json or db")
     return "json"
 
 

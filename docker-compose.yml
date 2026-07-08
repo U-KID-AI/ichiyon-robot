@@ -29,6 +29,7 @@ services:
     environment:
       APP_ENV: ${APP_ENV:-development}
       BOT_INSTANCE_ID: ${BOT_INSTANCE_ID:-ichiyon}
+      BOT_DATA_BACKEND: ${BOT_DATA_BACKEND:-${ICHIYON_DATA_BACKEND:-db}}
       ICHIYON_DATA_BACKEND: ${ICHIYON_DATA_BACKEND:-db}
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://ichiyon_robot:ichiyon_robot_password@db:5432/ichiyon_robot}
       ADMIN_BASE_URL: ${ADMIN_BASE_URL:-http://localhost:8080}
@@ -60,6 +61,7 @@ services:
       APP_ENV: ${APP_ENV:-development}
       BOT_INSTANCE_ID: ${BOT_INSTANCE_ID:-ichiyon}
       ENABLE_DEV_COMMANDS: ${ENABLE_DEV_COMMANDS:-true}
+      BOT_DATA_BACKEND: ${BOT_DATA_BACKEND:-${ICHIYON_DATA_BACKEND:-db}}
       ICHIYON_DATA_BACKEND: ${ICHIYON_DATA_BACKEND:-db}
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://ichiyon_robot:ichiyon_robot_password@db:5432/ichiyon_robot}
       ICHIYON_DISCORD_TOKEN: ${ICHIYON_DISCORD_TOKEN:-}
@@ -90,6 +92,7 @@ services:
       APP_ENV: ${APP_ENV:-development}
       BOT_INSTANCE_ID: irsia
       ENABLE_DEV_COMMANDS: ${ENABLE_DEV_COMMANDS:-true}
+      BOT_DATA_BACKEND: ${BOT_DATA_BACKEND:-${ICHIYON_DATA_BACKEND:-db}}
       ICHIYON_DATA_BACKEND: ${ICHIYON_DATA_BACKEND:-db}
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://ichiyon_robot:ichiyon_robot_password@db:5432/ichiyon_robot}
       IRSIA_DISCORD_TOKEN: ${IRSIA_DISCORD_TOKEN:-}
