@@ -32,9 +32,14 @@
 
 DB制約、管理画面の選択肢、ラベルには `mode_enter` / `mode_roll` が存在します。
 
-ただし、実行時の `execute_effects()` には `mode_enter` / `mode_roll` の処理が見当たりません。現状では、これらを特殊効果タグとして作れても、タグ発火時に直接モードへ入る処理は動かない可能性が高いです。
+実行時の `execute_effects()` でも `mode_enter` / `mode_roll` を有効化済みです。
 
-現時点で実運用上確実なルートは、既存のしこっち方式です。
+- `mode_enter`: `effect_config_json` の `mode_key` または `mode_id` で指定した有効モードへ入る
+- `mode_roll`: `probability` 判定後、`modes` / `choices` / `mode_choices` の重み付き候補からモードを選んで入る
+
+いずれも既にモード中の場合は二重突入しません。モード側の `cooldown_config_json` による `once_per_period` も尊重します。
+
+カウンター経由の既存しこっち方式も引き続き利用できます。
 
 1. 自動反応やメンション反応で特殊効果を発火
 2. 特殊効果 `counter_set` または `counter_delta` でカウンターを変更
@@ -89,7 +94,7 @@ DB制約、管理画面の選択肢、ラベルには `mode_enter` / `mode_roll`
 
 ### 1. 「記憶パ」の話題が出た瞬間にタケツミロボモードになる
 
-結論: `mode_enter` 直結ではなく、既存特殊効果のカウンター経由なら設定だけで実現できる可能性が高いです。
+結論: 特殊効果 `mode_enter` で設定だけで実現できます。既存のカウンター経由でも実現可能です。
 
 想定設定:
 
@@ -100,55 +105,41 @@ DB制約、管理画面の選択肢、ラベルには `mode_enter` / `mode_roll`
    - `duration_seconds`: 任意
    - `enabled`: ON
 
-2. モード発動条件
-   - 条件種類: `counter_threshold`
-   - 条件JSON:
-
-```json
-{
-  "counter_key": "taketsumi_count",
-  "operator": ">=",
-  "threshold": 1
-}
-```
-
-3. 自動反応作成
+2. 自動反応作成
    - 呼び出しワード: `記憶パ`
    - 一致方式: `contains`
    - 返信文言: 空または運用上問題ない文言
    - 有効: ON
 
-4. 特殊効果タグ作成
+3. 特殊効果タグ作成
    - 付与できる対象: `auto_reaction`
    - 発動タイミング: `auto_reaction_triggered`
-   - 効果の種類: `counter_set`
+   - 効果の種類: `mode_enter`
    - 詳細設定:
 
 ```json
 {
-  "counter_key": "taketsumi_count",
-  "value": 1
+  "mode_key": "taketsumi"
 }
 ```
 
-5. 自動反応「記憶パ」に上記特殊効果タグを付与
+4. 自動反応「記憶パ」に上記特殊効果タグを付与
 
-この流れなら、`記憶パ` を含む通常投稿 → 自動反応発火 → `taketsumi_count=1` → モードの `counter_threshold` 成立 → `enter_mode_if_needed()` でモード突入、という既存ルートに乗ります。
+この流れなら、`記憶パ` を含む通常投稿 → 自動反応発火 → `mode_enter` → タケツミロボモード突入になります。
 
 注意:
 
 - 自動反応が空返信を許すか、または返信なしで特殊効果だけ動かせるかは実データで確認が必要です。既存処理上は `send_text_or_image()` が空なら送らず、効果は実行される流れです。
-- 使い終わったカウンターはモード突入時に `reset_counter_thresholds()` でリセットされます。
-- `mode_enter` 効果を使う設定は現状おすすめしません。選択肢はありますが実行処理が未実装です。
+- 既にモード中の場合は二重突入しません。
+- モード側の `cooldown_config_json` が `once_per_period` の場合は、期間内2回目の突入は抑止されます。
 
 追加実装が必要になる場合:
 
-- `mode_enter` / `mode_roll` を本来の特殊効果として実装する場合
 - 自動反応を完全な「無言トリガー」として管理画面上わかりやすく扱いたい場合
 
 ### 2. 14/141414 の確率でいちよんほぼモードになる
 
-結論: 何かのトリガーに紐づく低確率モード発動は、既存特殊効果のカウンター経由で実現できます。全投稿常時抽選は追加設計が必要です。オウム返しは未実装です。
+結論: 何かのトリガーに紐づく低確率モード発動は、特殊効果 `mode_roll` で実現できます。全投稿常時抽選は追加設計が必要です。オウム返しは未実装です。
 
 設定だけでできる部分:
 
@@ -159,21 +150,9 @@ DB制約、管理画面の選択肢、ラベルには `mode_enter` / `mode_roll`
    - `duration_seconds`: 任意
    - `enabled`: ON
 
-2. モード発動条件
-   - 条件種類: `counter_threshold`
-   - 条件JSON:
-
-```json
-{
-  "counter_key": "ichiyon_almost_count",
-  "operator": ">=",
-  "threshold": 1
-}
-```
-
-3. 特殊効果タグ作成
+2. 特殊効果タグ作成
    - 付与できる対象: 自動反応、メンション反応候補、NGワードのいずれか
-   - 効果の種類: `counter_set`
+   - 効果の種類: `mode_roll`
    - 詳細設定:
 
 ```json
@@ -182,12 +161,28 @@ DB制約、管理画面の選択肢、ラベルには `mode_enter` / `mode_roll`
     "numerator": 14,
     "denominator": 141414
   },
-  "counter_key": "ichiyon_almost_count",
-  "value": 1
+  "mode_key": "ichiyon_almost"
 }
 ```
 
-4. 抽選を行いたい対象へ特殊効果を付与
+複数候補から選ぶ場合:
+
+```json
+{
+  "probability": {
+    "numerator": 14,
+    "denominator": 141414
+  },
+  "modes": [
+    {
+      "mode_key": "ichiyon_almost",
+      "weight": 1
+    }
+  ]
+}
+```
+
+3. 抽選を行いたい対象へ特殊効果を付与
 
 既存のはゆすモードとの違い:
 
@@ -202,14 +197,13 @@ DB制約、管理画面の選択肢、ラベルには `mode_enter` / `mode_roll`
 
 追加実装候補:
 
-- 特殊効果 `mode_enter` / `mode_roll` の実行処理を実装
-- もしくは「全投稿トリガー」専用の安全な特殊効果発火ポイントを追加
+- 「全投稿トリガー」専用の安全な特殊効果発火ポイントを追加
 - `echo_user_message` / `mimic_user` 返信タイプを追加
 - 送信時に `AllowedMentions.none()` 相当を使う
 
 ### 3. ヒイロロボモードになり、3分間「シャドバすっげー楽しい！」しか言わなくなる
 
-結論: モード中の3分固定返信は既存設定だけで可能です。突入も、何らかの自動反応やメンション反応を起点にするなら特殊効果カウンター経由で可能です。
+結論: モード中の3分固定返信は既存設定だけで可能です。突入も、何らかの自動反応やメンション反応を起点にするなら特殊効果 `mode_enter` で可能です。
 
 設定だけでできる部分:
 
@@ -226,30 +220,17 @@ DB制約、管理画面の選択肢、ラベルには `mode_enter` / `mode_roll`
    - 出やすさ: `1`
    - 有効: ON
 
-3. モード発動条件
-   - 条件種類: `counter_threshold`
-   - 条件JSON:
-
-```json
-{
-  "counter_key": "hiiro_count",
-  "operator": ">=",
-  "threshold": 1
-}
-```
-
-4. 特殊効果タグ
-   - 効果の種類: `counter_set`
+3. 特殊効果タグ
+   - 効果の種類: `mode_enter`
    - 詳細設定:
 
 ```json
 {
-  "counter_key": "hiiro_count",
-  "value": 1
+  "mode_key": "hiiro"
 }
 ```
 
-5. 発動元の自動反応・メンション候補・NGワードに特殊効果タグを付与
+4. 発動元の自動反応・メンション候補・NGワードに特殊効果タグを付与
 
 この設定により、特殊効果発火後に3分間は固定文言だけ返すモードにできます。
 
@@ -269,11 +250,13 @@ DB制約、管理画面の選択肢、ラベルには `mode_enter` / `mode_roll`
 
 ## 追加実装の最小案
 
-### A. mode_enter / mode_roll を特殊効果として実装
+### A. mode_enter / mode_roll の管理画面フォーム改善
 
 最小変更:
 
-- `execute_effects()` に `mode_enter` を追加
+- `mode_enter` / `mode_roll` の `effect_config_json` を手入力ではなくフォーム化
+- `mode_key` を既存モード一覧から選択
+- `mode_roll` の `probability` と候補リストをフォーム化
 - `effect_config_json` 例:
 
 ```json
@@ -282,11 +265,6 @@ DB制約、管理画面の選択肢、ラベルには `mode_enter` / `mode_roll`
 }
 ```
 
-- 対象モードを `bot_id + guild_id + mode_key` で取得
-- 既にモード中なら何もしない
-- `duration_seconds` を見て `mode_states` に入れる
-- `enter_message` / ニックネーム / アイコン / ステータス変更を既存関数で実行
-
 メリット:
 
 - 「自動反応 → 特殊効果 → モード突入」が直感的になる
@@ -294,7 +272,7 @@ DB制約、管理画面の選択肢、ラベルには `mode_enter` / `mode_roll`
 
 DB migration:
 
-- 既に `mode_enter` はDB制約・管理画面選択肢にあるため、基本的には不要です。
+- 不要です。
 
 ### B. echo_user_message / mimic_user を追加
 
@@ -327,7 +305,7 @@ DB migration:
 
 - 特殊効果 `counter_set` の確率・カウンターキー・値をフォーム化
 - モード発動条件 `counter_threshold` と `probability` をフォーム化
-- `mode_enter` 実装後は `mode_key` 選択UIを追加
+- `mode_enter` / `mode_roll` の `mode_key` 選択UIを追加
 
 DB migration:
 
@@ -337,8 +315,7 @@ DB migration:
 
 | 要望 | 特殊効果で実現できるか | 設定だけでできるか | 補足 |
 | --- | --- | --- | --- |
-| 「記憶パ」でタケツミロボモード | 可能 | 可能性高 | 自動反応「記憶パ」+ 特殊効果 `counter_set` + モード `counter_threshold` |
-| 14/141414でいちよんほぼモード | 一部可能 | トリガーがあるなら可能 | `counter_set` に `probability` を設定。全投稿常時抽選は追加設計が必要 |
-| 3分固定文言のヒイロロボモード | 可能 | 可能 | `duration_seconds=180` + 返信候補1件。突入は特殊効果カウンター経由 |
+| 「記憶パ」でタケツミロボモード | 可能 | 可能 | 自動反応「記憶パ」+ 特殊効果 `mode_enter` |
+| 14/141414でいちよんほぼモード | 一部可能 | トリガーがあるなら可能 | `mode_roll` に `probability` を設定。全投稿常時抽選は追加設計が必要 |
+| 3分固定文言のヒイロロボモード | 可能 | 可能 | `duration_seconds=180` + 返信候補1件。突入は特殊効果 `mode_enter` |
 | いちよん本人の発言をオウム返し | 不可 | 不可 | `echo_user_message` / `mimic_user` 追加が必要 |
-

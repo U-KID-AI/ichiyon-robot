@@ -33,6 +33,19 @@ class FakeMessage:
         self.reactions.append(str(emoji))
 
 
+class FakeConnection(dict):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.commits = 0
+        self.rollbacks = 0
+
+    def commit(self) -> None:
+        self.commits += 1
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
+
+
 class FakeCounterRepository:
     def __init__(self, connection) -> None:
         self.connection = connection
@@ -58,21 +71,39 @@ class FakeCounterRepository:
 
 
 class FakeModeRepository:
-    mode: Dict[str, Any] = {
-        "id": 44,
-        "mode_key": "shikocchi",
-        "enabled": True,
-        "cooldown_config_json": {"type": "none"},
-    }
+    modes: List[Dict[str, Any]] = []
+    mode: Dict[str, Any] = {}
     history: Dict[str, Dict[str, Any]] = {}
 
     def __init__(self, connection) -> None:
         self.connection = connection
 
     def list_enabled_modes(self, guild_id: str) -> List[Dict[str, Any]]:
-        return [self.mode]
+        if self.modes:
+            return [mode for mode in self.modes if mode.get("enabled", True)]
+        return [self.mode] if self.mode else []
+
+    def get_by_id(self, guild_id: str, mode_id: int):
+        for mode in self.list_enabled_modes(guild_id):
+            if int(mode.get("id") or 0) == mode_id:
+                return mode
+        return None
+
+    def get_mode_state(self, guild_id: str):
+        return self.connection.get("mode_state")
+
+    def enter_mode(self, guild_id: str, mode_id: int, active_until, state_json=None) -> None:
+        self.connection["mode_state"] = {
+            "guild_id": guild_id,
+            "current_mode_id": mode_id,
+            "active_until": active_until,
+            "state_json": state_json or {},
+        }
 
     def list_trigger_conditions(self, guild_id: str, mode_id: int, enabled: bool = True) -> List[Dict[str, Any]]:
+        mode = self.get_by_id(guild_id, mode_id) or self.mode
+        if (mode.get("mode_key") or "") != "shikocchi":
+            return []
         return [
             {
                 "id": 440,
@@ -87,8 +118,14 @@ class FakeModeRepository:
             }
         ]
 
+    def list_exit_conditions(self, guild_id: str, mode_id: int, enabled: bool = True) -> List[Dict[str, Any]]:
+        return []
+
     def get_trigger_history(self, guild_id: str, mode_id: int, period_key: str):
         return self.history.get("{0}:{1}:{2}".format(guild_id, mode_id, period_key))
+
+    def record_trigger_history(self, guild_id: str, mode_id: int, period_key: str, state_json: Dict[str, Any]) -> None:
+        self.history["{0}:{1}:{2}".format(guild_id, mode_id, period_key)] = state_json
 
 
 class Check:
@@ -564,6 +601,118 @@ async def check_shikocchi_monthly_limit(check: Check) -> None:
         runtime_db.ModeRepository = original_mode_repository
 
 
+async def check_mode_effect_execution(check: Check) -> None:
+    original_counter_repository = runtime_db.CounterRepository
+    original_mode_repository = runtime_db.ModeRepository
+    runtime_db.CounterRepository = FakeCounterRepository
+    runtime_db.ModeRepository = FakeModeRepository
+    try:
+        values = {"match_1": "mode"}
+        FakeModeRepository.mode = {}
+        FakeModeRepository.modes = [
+            {
+                "id": 71,
+                "mode_key": "taketsumi",
+                "name": "",
+                "enabled": True,
+                "behavior_type": "reply",
+                "duration_seconds": 180,
+                "enter_message": "タケツミロボ起動",
+                "cooldown_config_json": {"type": "none"},
+            },
+            {
+                "id": 72,
+                "mode_key": "hiiro",
+                "name": "",
+                "enabled": True,
+                "behavior_type": "reply",
+                "duration_seconds": 180,
+                "enter_message": "ヒイロロボ起動",
+                "cooldown_config_json": {"type": "none"},
+            },
+        ]
+        FakeModeRepository.history = {}
+
+        enter_connection = FakeConnection()
+        enter_message = FakeMessage()
+        await execute_effects(
+            enter_connection,
+            "guild",
+            [effect("mode_enter", {"mode_key": "taketsumi"})],
+            enter_message,
+            values,
+        )
+        check.add(
+            "mode_enter enters target mode by mode_key",
+            enter_connection.get("mode_state", {}).get("current_mode_id") == 71
+            and enter_message.channel.sent == ["タケツミロボ起動"]
+            and enter_connection.commits == 1,
+            "state={0} sent={1} commits={2}".format(
+                enter_connection.get("mode_state"),
+                enter_message.channel.sent,
+                enter_connection.commits,
+            ),
+        )
+
+        active_connection = FakeConnection(
+            {
+                "mode_state": {
+                    "guild_id": "guild",
+                    "current_mode_id": 71,
+                }
+            }
+        )
+        active_message = FakeMessage()
+        await execute_effects(
+            active_connection,
+            "guild",
+            [effect("mode_enter", {"mode_key": "hiiro"})],
+            active_message,
+            values,
+        )
+        check.add(
+            "mode_enter does not replace active mode",
+            active_connection.get("mode_state", {}).get("current_mode_id") == 71
+            and active_message.channel.sent == []
+            and active_connection.commits == 0,
+            "state={0} sent={1} commits={2}".format(
+                active_connection.get("mode_state"),
+                active_message.channel.sent,
+                active_connection.commits,
+            ),
+        )
+
+        roll_connection = FakeConnection()
+        roll_message = FakeMessage()
+        await execute_effects(
+            roll_connection,
+            "guild",
+            [
+                effect(
+                    "mode_roll",
+                    {
+                        "probability": {"numerator": 1, "denominator": 1},
+                        "modes": [
+                            {"mode_key": "hiiro", "weight": 1},
+                        ],
+                    },
+                )
+            ],
+            roll_message,
+            values,
+        )
+        check.add(
+            "mode_roll applies probability and enters selected mode",
+            roll_connection.get("mode_state", {}).get("current_mode_id") == 72
+            and roll_message.channel.sent == ["ヒイロロボ起動"],
+            "state={0} sent={1}".format(roll_connection.get("mode_state"), roll_message.channel.sent),
+        )
+    finally:
+        FakeModeRepository.modes = []
+        runtime_db.CounterRepository = original_counter_repository
+        runtime_db.ModeRepository = original_mode_repository
+
+
 def main() -> None:
     check = Check()
     asyncio.run(check_execute_effects(check))
@@ -571,6 +720,7 @@ def main() -> None:
     asyncio.run(check_probability_multiplier_effect_execution(check))
     asyncio.run(check_additional_text_placeholders(check))
     asyncio.run(check_shikocchi_monthly_limit(check))
+    asyncio.run(check_mode_effect_execution(check))
     check.print_results()
     if not check.ok():
         raise SystemExit(1)
