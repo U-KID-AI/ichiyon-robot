@@ -260,6 +260,35 @@ def check_mention_reaction_copy_keywords() -> int:
     return sum(1 for result in results if result)
 
 
+def check_quote_empty_keyword_form() -> int:
+    quote_form = mention_reactions.build_reaction_form("名言", "", "", "exact", "on", None)
+    omikuji_form = mention_reactions.build_reaction_form("おみくじ", "", "", "exact", "on", None)
+    normal_form = mention_reactions.build_reaction_form("おみくじ", "", "おみくじ", "exact", "on", None)
+    template_source = (ROOT_DIR / "admin" / "templates" / "mention_reaction_form.html").read_text(encoding="utf-8")
+    results = []
+    results.append(check(
+        mention_reactions.validate_reaction_form(quote_form, allow_empty_keyword=True) == [],
+        "quote reaction allows empty keyword",
+        quote_form,
+    ))
+    results.append(check(
+        "呼び出しワードを入力。" in mention_reactions.validate_reaction_form(omikuji_form),
+        "non-quote reaction still requires keyword",
+        omikuji_form,
+    ))
+    results.append(check(
+        mention_reactions.validate_reaction_form(normal_form) == [],
+        "non-quote reaction accepts non-empty keyword",
+        normal_form,
+    ))
+    results.append(check(
+        'href="#add-choice-form"' in template_source and 'id="add-choice-form"' in template_source,
+        "choice add form has top shortcut",
+        "add-choice-form",
+    ))
+    return sum(1 for result in results if result)
+
+
 def check_default_feature_keys() -> int:
     keys = list(guild_context.DEFAULT_FEATURE_KEYS)
     results = []
@@ -453,13 +482,14 @@ def check_layout_bot_context() -> int:
 
 def main() -> int:
     template_count = len(list((ROOT_DIR / "admin" / "templates").glob("*.html")))
-    total = 9 + 9 + 6 + 6 + 3 + 4 + 3 + template_count + 2 + 4
+    total = 9 + 9 + 6 + 6 + 3 + 4 + 4 + 3 + template_count + 2 + 4
     passed = (
         check_display_definitions()
         + check_build_feature_rows()
         + check_legacy_redirects()
         + check_mention_reaction_action_urls()
         + check_mention_reaction_copy_keywords()
+        + check_quote_empty_keyword_form()
         + check_default_feature_keys()
         + check_runtime_flags()
         + check_admin_templates_parse()

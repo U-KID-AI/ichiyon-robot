@@ -56,6 +56,7 @@ REACTION_MATCH_TYPES = ("exact", "prefix", "regex")
 SEARCH_MATCH_TYPES = ("exact", "prefix", "regex")
 MISSING_FORMAT_BEHAVIORS = ("ask_format", "latest", "reject")
 DECK_SEARCH_KEY = "deck_search"
+QUOTE_REACTION_KEYS = ("quote", "quotes", "meigen")
 KEYWORD_DUPLICATE_ERROR = "この呼び出しワードは使用済み。"
 ASSIGNMENT_TARGET_TYPE = "mention_reaction_choice"
 ASSIGNMENT_EFFECT_TYPES = (
@@ -609,7 +610,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="mention reaction editing denied")
 
             form = build_reaction_form(name, description, keyword, match_type, enabled, admin_only)
-            errors = validate_reaction_form(form)
+            errors = validate_reaction_form(form, allow_empty_keyword=is_quote_reaction(reaction))
             if form["admin_only"] != bool(reaction["admin_only"]) and not role_allows(server["role"], "guild_admin"):
                 errors.append("管理者限定の変更はサーバー管理者以上だけ。")
             if not errors and repository.keyword_exists(guild_id, form["keyword"], reaction_id):
@@ -638,6 +639,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         form.update(
             {
                 "id": reaction_id,
+                "reaction_key": reaction["reaction_key"],
                 "reaction_kind": reaction["reaction_kind"],
                 "is_system": reaction["is_system"],
                 "is_deletable": reaction["is_deletable"],
@@ -1192,6 +1194,10 @@ def is_deck_search_reaction(reaction: Dict[str, Any]) -> bool:
     )
 
 
+def is_quote_reaction(reaction: Dict[str, Any]) -> bool:
+    return (reaction.get("reaction_key") or "").lower() in QUOTE_REACTION_KEYS
+
+
 def normalize_config_json(value) -> Dict[str, Any]:
     if isinstance(value, dict):
         return value
@@ -1537,11 +1543,11 @@ def build_reaction_form(
     return form
 
 
-def validate_reaction_form(form: Dict[str, Any]) -> List[str]:
+def validate_reaction_form(form: Dict[str, Any], allow_empty_keyword: bool = False) -> List[str]:
     errors = []
     if not form["name"]:
         errors.append("反応名を入力。")
-    if not form["keyword"]:
+    if not form["keyword"] and not allow_empty_keyword:
         errors.append("呼び出しワードを入力。")
     if form["match_type"] not in REACTION_MATCH_TYPES:
         errors.append("一致方式を選択。")
