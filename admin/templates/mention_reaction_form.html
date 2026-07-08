@@ -23,6 +23,9 @@
       <a class="button-link secondary" href="/servers">サーバー選択へ戻る</a>
       <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
       <a class="button-link secondary" href="/guilds/{{ guild_id }}/mention-reactions?kind={% if reaction.reaction_kind == 'search' %}search{% else %}random_draw{% endif %}">メンション反応一覧へ戻る</a>
+      {% if mode == "edit" and reaction.reaction_kind != "search" %}
+        <a class="button-link" href="#add-choice-form">新規ワード追加</a>
+      {% endif %}
     </div>
     <p class="hint">検索型は固定機能。新規作成はランダム抽選だけ。</p>
   </section>
@@ -60,6 +63,9 @@
         呼び出しワード
         <input type="text" name="keyword" value="{{ reaction.keyword }}" {% if not can_edit_reaction %}disabled{% endif %}>
       </label>
+      {% if reaction.reaction_key in ["quote", "quotes", "meigen"] %}
+        <p class="hint">名言は空白保存可。空白の場合はメンションのみで反応します。</p>
+      {% endif %}
       <label>
         一致方式
         <select name="match_type" {% if not can_edit_reaction %}disabled{% endif %}>
@@ -250,7 +256,7 @@
           <p class="empty">抽選候補はまだありません。</p>
         {% endif %}
 
-        <section class="subpanel">
+        <section class="subpanel" id="add-choice-form">
           <h3>候補を追加</h3>
           <form class="choice-item" method="post" action="/guilds/{{ guild_id }}/mention-reactions/{{ reaction.id }}/choices" enctype="multipart/form-data">
             <div class="choice-grid">
