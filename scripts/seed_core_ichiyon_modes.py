@@ -60,7 +60,7 @@ def upsert_mode(connection, guild_id: str, spec: Dict[str, Any]) -> int:
             json_dumps(spec.get("appearance_config_json", {})),
             True,
             False,
-            False,
+            True,
         )
         if row:
             mode_id = int(row[0])
@@ -110,7 +110,7 @@ def upsert_mode(connection, guild_id: str, spec: Dict[str, Any]) -> int:
                 json_dumps(spec.get("appearance_config_json", {})),
                 True,
                 False,
-                False,
+                True,
             ),
         )
         return int(cursor.fetchone()[0])
@@ -162,6 +162,181 @@ def upsert_trigger_condition(
             """,
             (BOT_ID, guild_id, mode_id, group_key, condition_type, json_dumps(config), group_operator, enabled),
         )
+
+
+def upsert_auto_reaction(connection, guild_id: str, spec: Dict[str, Any]) -> int:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT id
+            FROM reactions
+            WHERE bot_id = %s
+              AND guild_id = %s
+              AND trigger_text = %s
+              AND match_type = %s
+            ORDER BY id ASC
+            LIMIT 1
+            """,
+            (BOT_ID, guild_id, spec["trigger_text"], spec["match_type"]),
+        )
+        row = cursor.fetchone()
+        params = (
+            spec.get("response_text"),
+            spec.get("image_path"),
+            spec.get("emoji_internal"),
+            spec.get("priority", 0),
+            spec.get("enabled", True),
+        )
+        if row:
+            reaction_id = int(row[0])
+            cursor.execute(
+                """
+                UPDATE reactions
+                SET response_text = %s,
+                    image_path = %s,
+                    emoji_internal = %s,
+                    priority = %s,
+                    enabled = %s,
+                    updated_at = NOW()
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
+                """,
+                params + (BOT_ID, guild_id, reaction_id),
+            )
+            return reaction_id
+
+        cursor.execute(
+            """
+            INSERT INTO reactions (
+                bot_id, guild_id, trigger_text, response_text, image_path,
+                emoji_internal, match_type, priority, enabled
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (
+                BOT_ID,
+                guild_id,
+                spec["trigger_text"],
+                spec.get("response_text"),
+                spec.get("image_path"),
+                spec.get("emoji_internal"),
+                spec["match_type"],
+                spec.get("priority", 0),
+                spec.get("enabled", True),
+            ),
+        )
+        return int(cursor.fetchone()[0])
+
+
+def upsert_special_effect_tag(connection, guild_id: str, spec: Dict[str, Any]) -> int:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT id
+            FROM special_effect_tags
+            WHERE bot_id = %s AND guild_id = %s AND name = %s
+            """,
+            (BOT_ID, guild_id, spec["name"]),
+        )
+        row = cursor.fetchone()
+        params = (
+            spec.get("description", ""),
+            spec.get("color", "#6B7280"),
+            spec.get("admin_only", False),
+            spec.get("enabled", True),
+            spec.get("is_deletable", True),
+            spec.get("priority", 0),
+            spec["target_type"],
+            spec["trigger_timing"],
+            spec["effect_type"],
+            json_dumps(spec.get("effect_config_json", {})),
+            spec.get("additional_text", ""),
+            spec.get("additional_post_timing", "none"),
+            spec.get("expires_type", "immediate"),
+            spec.get("expires_value"),
+            spec.get("cooldown_seconds", 0),
+            spec.get("cooldown_scope", "none"),
+        )
+        if row:
+            tag_id = int(row[0])
+            cursor.execute(
+                """
+                UPDATE special_effect_tags
+                SET description = %s,
+                    color = %s,
+                    admin_only = %s,
+                    enabled = %s,
+                    is_deletable = %s,
+                    priority = %s,
+                    target_type = %s,
+                    trigger_timing = %s,
+                    effect_type = %s,
+                    effect_config_json = %s::JSONB,
+                    additional_text = %s,
+                    additional_post_timing = %s,
+                    expires_type = %s,
+                    expires_value = %s,
+                    cooldown_seconds = %s,
+                    cooldown_scope = %s,
+                    updated_at = NOW()
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
+                """,
+                params + (BOT_ID, guild_id, tag_id),
+            )
+            return tag_id
+
+        cursor.execute(
+            """
+            INSERT INTO special_effect_tags (
+                bot_id, guild_id, name, description, color, admin_only, enabled,
+                is_deletable, priority, target_type, trigger_timing, effect_type,
+                effect_config_json, additional_text, additional_post_timing,
+                expires_type, expires_value, cooldown_seconds, cooldown_scope
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::JSONB, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (
+                BOT_ID,
+                guild_id,
+                spec["name"],
+                spec.get("description", ""),
+                spec.get("color", "#6B7280"),
+                spec.get("admin_only", False),
+                spec.get("enabled", True),
+                spec.get("is_deletable", True),
+                spec.get("priority", 0),
+                spec["target_type"],
+                spec["trigger_timing"],
+                spec["effect_type"],
+                json_dumps(spec.get("effect_config_json", {})),
+                spec.get("additional_text", ""),
+                spec.get("additional_post_timing", "none"),
+                spec.get("expires_type", "immediate"),
+                spec.get("expires_value"),
+                spec.get("cooldown_seconds", 0),
+                spec.get("cooldown_scope", "none"),
+            ),
+        )
+        return int(cursor.fetchone()[0])
+
+
+def upsert_special_effect_assignment(connection, guild_id: str, tag_id: int, target_type: str, target_id: int) -> int:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO special_effect_assignments (
+                bot_id, guild_id, special_effect_tag_id, target_type, target_id, enabled
+            )
+            VALUES (%s, %s, %s, %s, %s, TRUE)
+            ON CONFLICT (bot_id, special_effect_tag_id, target_type, target_id) DO UPDATE
+            SET enabled = TRUE,
+                updated_at = NOW()
+            RETURNING id
+            """,
+            (BOT_ID, guild_id, tag_id, target_type, target_id),
+        )
+        return int(cursor.fetchone()[0])
 
 
 def upsert_exit_condition(
@@ -336,8 +511,40 @@ def build_mode_specs(ichiyon_user_id: str, coconuts_user_id: str) -> List[Dict[s
             "cooldown_config_json": monthly,
             "appearance_config_json": {"reply_type": "choice"},
             "probability_config": {
-                "probability": {"numerator": 1, "denominator": 1},
-                "keywords": ["記憶パ"],
+                "counter_key": "taketsumi_count",
+                "operator": ">=",
+                "value": 1,
+            },
+            "trigger_condition_type": "counter_threshold",
+            "trigger_effect": {
+                "auto_reaction": {
+                    "trigger_text": "記憶パ",
+                    "response_text": "",
+                    "image_path": None,
+                    "emoji_internal": None,
+                    "match_type": "contains",
+                    "priority": 100,
+                    "enabled": True,
+                },
+                "tag": {
+                    "name": "タケツミロボ突入カウンター",
+                    "description": "自動反応「記憶パ」発火時にtaketsumi_countを1にして、タケツミロボの突入条件を満たします。",
+                    "color": "#B7791F",
+                    "admin_only": False,
+                    "enabled": True,
+                    "is_deletable": True,
+                    "priority": 100,
+                    "target_type": "auto_reaction",
+                    "trigger_timing": "auto_reaction_triggered",
+                    "effect_type": "counter_set",
+                    "effect_config_json": {"counter_key": "taketsumi_count", "value": 1},
+                    "additional_text": "",
+                    "additional_post_timing": "none",
+                    "expires_type": "immediate",
+                    "expires_value": None,
+                    "cooldown_seconds": 0,
+                    "cooldown_scope": "none",
+                },
             },
             "reply_choices": [
                 ("タケツミ01", "おっ、新入りか？", 1),
@@ -367,12 +574,17 @@ def build_mode_specs(ichiyon_user_id: str, coconuts_user_id: str) -> List[Dict[s
 def seed_guild(connection, guild_id: str, specs: List[Dict[str, Any]]) -> None:
     for spec in specs:
         mode_id = upsert_mode(connection, guild_id, spec)
+        trigger_effect = spec.get("trigger_effect")
+        if trigger_effect:
+            reaction_id = upsert_auto_reaction(connection, guild_id, trigger_effect["auto_reaction"])
+            tag_id = upsert_special_effect_tag(connection, guild_id, trigger_effect["tag"])
+            upsert_special_effect_assignment(connection, guild_id, tag_id, "auto_reaction", reaction_id)
         upsert_trigger_condition(
             connection,
             guild_id,
             mode_id,
             "core_probability",
-            "probability",
+            spec.get("trigger_condition_type", "probability"),
             spec["probability_config"],
             "AND",
             True,
