@@ -30,14 +30,16 @@ WEEKDAY_LABELS = ("月", "火", "水", "木", "金", "土", "日")
 USAGE_MESSAGE = (
     "使い方:\n"
     "@Bot スケジュール 7/6から1W レイド\n"
-    "@Bot スケジュール 7/6から2W レイド\n\n"
-    "期間は1Wまたは2W、最大14日までです。"
+    "@Bot スケジュール 7/6から2W レイド\n"
+    "@Bot スケジュール 7/6から3D レイド\n"
+    "@Bot スケジュール 7/6から3D\n\n"
+    "期間は1W、2W、または1D〜14Dです。最大14日までです。"
 )
 COMMAND_PATTERN = re.compile(
     r"^スケジュール\s+"
     r"(?:(?P<year>\d{4})[/-])?"
     r"(?P<month>\d{1,2})[/-](?P<day>\d{1,2})"
-    r"\s*から\s*(?P<weeks>[12])\s*[WwＷｗ]"
+    r"\s*から\s*(?P<amount>\d{1,2})\s*(?P<unit>[WwＷｗDdＤｄ])"
     r"(?:\s+(?P<title>.+))?$"
 )
 
@@ -70,16 +72,20 @@ def parse_schedule_command(command_text: str, now: Optional[datetime] = None) ->
     year = int(match.group("year") or current.year)
     month = int(match.group("month"))
     day = int(match.group("day"))
-    weeks = int(match.group("weeks"))
+    amount = int(match.group("amount"))
+    unit = match.group("unit")
     title = (match.group("title") or "").strip()
-    if not title:
-        return None, USAGE_MESSAGE
     try:
         start_date = date(year, month, day)
     except ValueError:
         return None, "日付が正しくありません。\n\n{0}".format(USAGE_MESSAGE)
 
-    days = weeks * 7
+    if unit in ("W", "w", "Ｗ", "ｗ"):
+        if amount not in (1, 2):
+            return None, USAGE_MESSAGE
+        days = amount * 7
+    else:
+        days = amount
     if days < 1 or days > MAX_SCHEDULE_DAYS:
         return None, USAGE_MESSAGE
     return ScheduleCommand(start_date=start_date, days=days, title=title), ""
@@ -88,7 +94,8 @@ def parse_schedule_command(command_text: str, now: Optional[datetime] = None) ->
 def format_schedule_line(day_number: int, target_date: date, content: str) -> str:
     mark = NUMBER_MARKS[day_number]
     weekday = WEEKDAY_LABELS[target_date.weekday()]
-    return "{0}{1}/{2}({3}) {4}".format(mark, target_date.month, target_date.day, weekday, content)
+    suffix = " {0}".format(content.strip()) if content.strip() else ""
+    return "{0}{1}/{2}({3}){4}".format(mark, target_date.month, target_date.day, weekday, suffix)
 
 
 def normalize_template_items(items: List[Dict]) -> Dict[int, str]:
@@ -120,6 +127,8 @@ def build_schedule_from_repository(
     command: ScheduleCommand,
 ) -> ScheduleBuildResult:
     repository = ScheduleTemplateRepository(connection, bot_id=bot_id)
+    if not command.title:
+        return ScheduleBuildResult(messages=build_schedule_messages(command))
     template = repository.get_by_name(guild_id, command.title, enabled=True)
     if template is None:
         return ScheduleBuildResult(messages=build_schedule_messages(command))
