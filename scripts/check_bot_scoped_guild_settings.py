@@ -109,6 +109,14 @@ def main() -> int:
                 "ON CONFLICT (bot_id, guild_id, rule_id, message_id, emoji_key, threshold)",
             ],
         ),
+        (
+            "bot/repositories/schedule_templates.py",
+            [
+                "self.bot_id = bot_id or config.BOT_INSTANCE_ID",
+                "WHERE bot_id = %s AND guild_id = %s",
+                "lower(name) = lower(%s)",
+            ],
+        ),
     ]
 
     for path, snippets in repository_requirements:
@@ -124,6 +132,7 @@ def main() -> int:
         "admin/ng_words_db.py",
         "admin/reaction_thresholds.py",
         "admin/special_effects.py",
+        "admin/schedule_templates.py",
     ]
     for path in admin_requirements:
         source = read(path)

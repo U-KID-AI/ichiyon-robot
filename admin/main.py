@@ -37,6 +37,10 @@ from admin.reaction_thresholds import (
 )
 from admin.role_labels import ROLE_DESCRIPTIONS, ROLE_LABELS, role_description, role_label
 from admin.servers import register_server_routes, router as server_router
+from admin.schedule_templates import (
+    register_schedule_template_routes,
+    router as schedule_template_router,
+)
 from admin.special_effects import (
     register_special_effect_routes,
     router as special_effect_router,
@@ -88,6 +92,7 @@ register_auto_post_routes(templates)
 register_reaction_threshold_routes(templates)
 register_x_update_routes(templates)
 register_voice_line_routes(templates)
+register_schedule_template_routes(templates)
 app.include_router(auth_router)
 app.include_router(bot_router)
 app.include_router(server_router)
@@ -101,6 +106,7 @@ app.include_router(auto_post_router)
 app.include_router(reaction_threshold_router)
 app.include_router(x_update_router)
 app.include_router(voice_line_router)
+app.include_router(schedule_template_router)
 
 
 LEGACY_JSON_PATHS = ("/quotes", "/reactions", "/ng-words", "/kuji")

@@ -11,6 +11,7 @@ from bot.repositories.mention_limited_effects import MentionLimitedEffectReposit
 from bot.repositories.ng_words import NgWordRepository
 from bot.repositories.permissions import PermissionRepository
 from bot.repositories.reaction_thresholds import ReactionThresholdRepository
+from bot.repositories.schedule_templates import ScheduleTemplateRepository
 from bot.repositories.special_effects import SpecialEffectRepository
 from bot.repositories.voice_lines import VoiceLineRepository
 from bot.repositories.x_update_notifications import XUpdateWatchRepository
@@ -31,6 +32,7 @@ __all__ = [
     "NgWordRepository",
     "PermissionRepository",
     "ReactionThresholdRepository",
+    "ScheduleTemplateRepository",
     "SpecialEffectRepository",
     "VoiceLineRepository",
     "XUpdateWatchRepository",

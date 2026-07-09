@@ -1,0 +1,53 @@
+{% extends "layout.html" %}
+
+{% block title %}{% if mode == 'new' %}スケジュールテンプレート作成{% else %}スケジュールテンプレート編集{% endif %} - Bot管理画面{% endblock %}
+{% block heading %}{% if mode == 'new' %}スケジュールテンプレート作成{% else %}スケジュールテンプレート編集{% endif %}{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="actions-row">
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}/schedule-templates">一覧へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+    </div>
+  </section>
+
+  {% if errors %}
+    <section class="panel error-panel">
+      <ul>
+        {% for error in errors %}
+          <li>{{ error }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  <form method="post">
+    <section class="panel">
+      <h2>基本</h2>
+      <div class="form-grid">
+        <label>テンプレート名<input name="name" value="{{ form.name }}" placeholder="レイド" {% if not can_edit %}disabled{% endif %}></label>
+        <label>説明<input name="description" value="{{ form.description }}" {% if not can_edit %}disabled{% endif %}></label>
+      </div>
+      <label class="check-row"><input type="checkbox" name="is_enabled" {% if form.is_enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>ON</label>
+    </section>
+
+    <section class="panel">
+      <h2>日別本文</h2>
+      <p class="empty">1Wでは1〜7日目、2Wでは1〜14日目を使います。テンプレート利用時は必要日数分を入力してください。</p>
+      <div class="form-grid">
+        {% for day_index, value in day_values.items() %}
+          <label>{{ day_index }}日目<input name="day_{{ day_index }}" value="{{ value }}" placeholder="21:30~随時:花NM" {% if not can_edit %}disabled{% endif %}></label>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="panel actions-row">
+      {% if can_edit %}
+        <button type="submit">保存</button>
+      {% else %}
+        <p class="empty">閲覧のみ</p>
+      {% endif %}
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}/schedule-templates">戻る</a>
+    </section>
+  </form>
+{% endblock %}
