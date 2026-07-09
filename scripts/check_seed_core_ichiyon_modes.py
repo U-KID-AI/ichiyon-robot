@@ -25,7 +25,8 @@ def record(results: List[Tuple[str, bool, Any]], name: str, ok: bool, detail: An
 def main() -> int:
     results: List[Tuple[str, bool, Any]] = []
     specs = {spec["mode_key"]: spec for spec in build_mode_specs(ICHIYON_USER_ID, COCONUTS_USER_ID)}
-    source = SCRIPT_PATH.read_text(encoding="utf-8").upper()
+    raw_source = SCRIPT_PATH.read_text(encoding="utf-8")
+    source = raw_source.upper()
 
     record(
         results,
@@ -54,10 +55,47 @@ def main() -> int:
     )
     record(
         results,
-        "taketsumi is keyword scoped and certain",
-        specs["taketsumi_robot"]["probability_config"].get("keywords") == ["記憶パ"]
-        and specs["taketsumi_robot"]["probability_config"].get("probability") == {"numerator": 1, "denominator": 1},
+        "all modes are deletable in seed",
+        "is_deletable = %s" in raw_source
+        and "True,\n            False,\n            True," in raw_source
+        and "True,\n                False,\n                True," in raw_source,
+    )
+    record(
+        results,
+        "taketsumi uses counter threshold trigger",
+        specs["taketsumi_robot"].get("trigger_condition_type") == "counter_threshold"
+        and specs["taketsumi_robot"]["probability_config"] == {
+            "counter_key": "taketsumi_count",
+            "operator": ">=",
+            "value": 1,
+        },
         specs["taketsumi_robot"]["probability_config"],
+    )
+    trigger_effect = specs["taketsumi_robot"].get("trigger_effect") or {}
+    auto_reaction = trigger_effect.get("auto_reaction") or {}
+    tag = trigger_effect.get("tag") or {}
+    record(
+        results,
+        "taketsumi auto reaction is seeded",
+        auto_reaction.get("trigger_text") == "記憶パ"
+        and auto_reaction.get("match_type") == "contains"
+        and auto_reaction.get("enabled") is True,
+        auto_reaction,
+    )
+    record(
+        results,
+        "taketsumi counter_set special effect is seeded",
+        tag.get("target_type") == "auto_reaction"
+        and tag.get("trigger_timing") == "auto_reaction_triggered"
+        and tag.get("effect_type") == "counter_set"
+        and tag.get("effect_config_json") == {"counter_key": "taketsumi_count", "value": 1},
+        tag,
+    )
+    record(
+        results,
+        "taketsumi uses special effect assignment",
+        "upsert_special_effect_assignment" in raw_source
+        and '"auto_reaction"' in raw_source,
     )
     record(
         results,
