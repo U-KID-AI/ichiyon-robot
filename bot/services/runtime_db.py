@@ -1554,6 +1554,25 @@ def compare_counter(value: int, operator: str, threshold: int) -> bool:
     return value >= threshold
 
 
+def mode_condition_message_scope_matches(config: Dict[str, Any], message: Optional[discord.Message]) -> bool:
+    author_ids = get_config_list(
+        config,
+        ["author_user_ids", "author_user_id", "target_user_ids", "target_user_id", "discord_user_ids"],
+    )
+    keywords = get_config_list(config, ["keywords", "keyword", "include_keywords", "contains_any"])
+    if not author_ids and not keywords:
+        return True
+    if message is None:
+        return False
+    if author_ids and get_message_author_id(message) not in set(author_ids):
+        return False
+    if keywords:
+        content = str(getattr(message, "content", "") or "").lower()
+        if not any(keyword.lower() in content for keyword in keywords):
+            return False
+    return True
+
+
 def normalize_period_config(config: Dict[str, Any], mode: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     fallback = normalize_json(mode.get("cooldown_config_json")) if mode is not None else {}
     period = config.get("period") or fallback.get("period") or "monthly"
@@ -1828,6 +1847,7 @@ def trigger_condition_met(
     mode: Dict[str, Any],
     condition: Dict[str, Any],
     pending_effects: Optional[List[Dict[str, Any]]] = None,
+    message: Optional[discord.Message] = None,
 ) -> bool:
     condition_type = condition.get("condition_type")
     config = get_condition_config(condition)
@@ -1838,6 +1858,8 @@ def trigger_condition_met(
         value = CounterRepository(connection).get_value(guild_id, counter_key, 0)
         return compare_counter(value, config.get("operator", ">="), get_threshold_value(config))
     if condition_type == "probability":
+        if not mode_condition_message_scope_matches(config, message):
+            return False
         multiplier = get_probability_multiplier_for_target(
             pending_effects or [],
             "mode_trigger_condition",
@@ -1854,6 +1876,7 @@ def mode_triggers_met(
     guild_id: str,
     mode: Dict[str, Any],
     pending_effects: Optional[List[Dict[str, Any]]] = None,
+    message: Optional[discord.Message] = None,
 ) -> bool:
     repository = ModeRepository(connection)
     conditions = repository.list_trigger_conditions(guild_id, int(mode["id"]), enabled=True)
@@ -1868,7 +1891,10 @@ def mode_triggers_met(
     reset_counter_thresholds_on_period_change(connection, guild_id, mode, actionable)
 
     operator = actionable[0].get("group_operator") or "AND"
-    results = [trigger_condition_met(connection, guild_id, mode, condition, pending_effects) for condition in actionable]
+    results = [
+        trigger_condition_met(connection, guild_id, mode, condition, pending_effects, message)
+        for condition in actionable
+    ]
     if operator == "OR":
         trigger_allowed = any(results)
     else:
@@ -2054,7 +2080,7 @@ async def enter_mode_if_needed(
 
     for mode in repository.list_enabled_modes(guild_id):
         try:
-            if not mode_triggers_met(connection, guild_id, mode, pending_effects):
+            if not mode_triggers_met(connection, guild_id, mode, pending_effects, message):
                 continue
             duration = get_mode_duration_seconds(connection, guild_id, mode)
             active_until = utc_now() + timedelta(seconds=duration) if duration else None
