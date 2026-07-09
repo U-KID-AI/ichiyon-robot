@@ -449,6 +449,71 @@ async def run_checks(check: Check) -> None:
             str(bot_message.channel.sent),
         )
 
+        author_probability_condition = {
+            "id": 900,
+            "mode_id": 8,
+            "condition_type": "probability",
+            "condition_config_json": {
+                "probability": {"numerator": 1, "denominator": 1},
+                "author_user_ids": ["1414"],
+            },
+            "group_operator": "AND",
+        }
+        check.add(
+            "probability trigger can be scoped to author user",
+            runtime_db.trigger_condition_met(
+                connection,
+                "guild",
+                FakeModeRepository.modes[8],
+                author_probability_condition,
+                message=FakeMessage("hello", FakeAuthor(1414)),
+            )
+            is True,
+        )
+        check.add(
+            "probability trigger ignores other authors",
+            runtime_db.trigger_condition_met(
+                connection,
+                "guild",
+                FakeModeRepository.modes[8],
+                author_probability_condition,
+                message=FakeMessage("hello", FakeAuthor(9999)),
+            )
+            is False,
+        )
+        keyword_probability_condition = {
+            "id": 901,
+            "mode_id": 8,
+            "condition_type": "probability",
+            "condition_config_json": {
+                "probability": {"numerator": 1, "denominator": 1},
+                "keywords": ["シャドバ", "スマホ"],
+            },
+            "group_operator": "AND",
+        }
+        check.add(
+            "probability trigger can be scoped to keywords",
+            runtime_db.trigger_condition_met(
+                connection,
+                "guild",
+                FakeModeRepository.modes[8],
+                keyword_probability_condition,
+                message=FakeMessage("シャドバやろう", FakeAuthor(100)),
+            )
+            is True,
+        )
+        check.add(
+            "probability trigger ignores messages without keyword",
+            runtime_db.trigger_condition_met(
+                connection,
+                "guild",
+                FakeModeRepository.modes[8],
+                keyword_probability_condition,
+                message=FakeMessage("別の話題", FakeAuthor(100)),
+            )
+            is False,
+        )
+
         FakeModeRepository.state = {"guild_id": "guild", "current_mode_id": 2, "active_until": None}
         offline_message = FakeMessage("offline")
         handled = await runtime_db.handle_active_mode(offline_message, "guild", connection)
