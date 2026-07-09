@@ -98,8 +98,42 @@ def main() -> int:
         lines = build_schedule_messages(two_week)
         check.add("2W creates 14 messages", len(lines) == 14 and lines[-1].startswith("⑭"), lines[-1])
 
+    one_day, error = parse_schedule_command("スケジュール 7/6から1D レイド", now)
+    check.add("1D command parses", one_day is not None and one_day.days == 1 and not error, one_day)
+    if one_day:
+        lines = build_schedule_messages(one_day)
+        check.add("1D creates 1 message", len(lines) == 1, lines)
+
+    three_day, error = parse_schedule_command("スケジュール 7/6から3d レイド", now)
+    check.add("3D command parses with lowercase d", three_day is not None and three_day.days == 3 and not error, three_day)
+    if three_day:
+        lines = build_schedule_messages(three_day)
+        check.add("3D creates 3 messages", len(lines) == 3 and lines[-1] == "③7/8(水) レイド", lines)
+
+    fourteen_day, error = parse_schedule_command("スケジュール 7/6から14D レイド", now)
+    check.add(
+        "14D command parses",
+        fourteen_day is not None and fourteen_day.days == 14 and not error,
+        fourteen_day,
+    )
+    if fourteen_day:
+        lines = build_schedule_messages(fourteen_day)
+        check.add("14D creates 14 messages", len(lines) == 14 and lines[-1].startswith("⑭"), lines[-1])
+
     invalid, error = parse_schedule_command("スケジュール 7/6から3W レイド", now)
     check.add("invalid week is rejected", invalid is None and "最大14日" in error, error)
+
+    zero_day, error = parse_schedule_command("スケジュール 7/6から0D レイド", now)
+    check.add("0D is rejected", zero_day is None and "最大14日" in error, error)
+
+    fifteen_day, error = parse_schedule_command("スケジュール 7/6から15D レイド", now)
+    check.add("15D is rejected", fifteen_day is None and "最大14日" in error, error)
+
+    empty_title, error = parse_schedule_command("スケジュール 7/6から3D", now)
+    check.add("empty title command parses", empty_title is not None and empty_title.days == 3 and not error, empty_title)
+    if empty_title:
+        lines = build_schedule_messages(empty_title)
+        check.add("empty title has no trailing space", lines[0] == "①7/6(月)" and lines[-1] == "③7/8(水)", lines)
 
     no_template = build_schedule_from_repository(FakeConnection(), "ichiyon", "guild", one_week)
     check.add(
