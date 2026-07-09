@@ -130,6 +130,16 @@ DISPLAY_FEATURES = [
         "off_behavior": "OFFにすると、この設定からのセリフ送信を止めます。",
         "notes": "未設定のいちよんロボは既存の復活セリフを維持します。",
     },
+    {
+        "key": "schedule_templates",
+        "label": "スケジュール募集",
+        "edit_path": "schedule-templates",
+        "required_role": "editor",
+        "overview": "メンションコマンドで日別の募集投稿を作成します。",
+        "settings": "テンプレート名、1〜14日目の本文、有効/無効",
+        "off_behavior": "OFFにすると、スケジュール募集コマンドを実行しません。",
+        "notes": "投稿先はコマンドを実行したチャンネルです。各投稿に⭕/❌を付けます。",
+    },
 ]
 
 

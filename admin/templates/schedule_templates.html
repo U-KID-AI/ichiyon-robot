@@ -1,0 +1,59 @@
+{% extends "layout.html" %}
+
+{% block title %}スケジュールテンプレート - Bot管理画面{% endblock %}
+{% block heading %}スケジュールテンプレート{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="actions-row">
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+      {% if can_edit %}
+        <a class="button-link" href="/guilds/{{ guild_id }}/schedule-templates/new">新規作成</a>
+      {% endif %}
+    </div>
+  </section>
+
+  {% if message %}
+    <section class="panel success-panel">{{ message }}</section>
+  {% endif %}
+  {% if error %}
+    <section class="panel error-panel">{{ error }}</section>
+  {% endif %}
+
+  <section class="panel">
+    {% if templates %}
+      <div class="feature-list">
+        {% for template in templates %}
+          <article class="feature-item">
+            <div class="feature-main">
+              <div class="feature-title-row">
+                <h3>{{ template.name }}</h3>
+                {% if template.is_enabled %}
+                  <span class="status on">ON</span>
+                {% else %}
+                  <span class="status off">OFF</span>
+                {% endif %}
+              </div>
+              {% if template.description %}
+                <p class="empty feature-overview">{{ template.description }}</p>
+              {% endif %}
+            </div>
+            <div class="feature-actions">
+              <a class="button-link secondary" href="/guilds/{{ guild_id }}/schedule-templates/{{ template.id }}">編集</a>
+              {% if can_edit %}
+                <form method="post" action="/guilds/{{ guild_id }}/schedule-templates/{{ template.id }}/toggle">
+                  <button type="submit">{% if template.is_enabled %}OFF{% else %}ON{% endif %}</button>
+                </form>
+                <form method="post" action="/guilds/{{ guild_id }}/schedule-templates/{{ template.id }}/delete" onsubmit="return confirm('削除しますか？');">
+                  <button type="submit" class="danger">削除</button>
+                </form>
+              {% endif %}
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="empty">テンプレートはまだありません。</p>
+    {% endif %}
+  </section>
+{% endblock %}

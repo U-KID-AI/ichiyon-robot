@@ -35,6 +35,12 @@ from bot.services.deck_search_settings import (
     settings_max_lookback_days,
     validate_fetch_since_date,
 )
+from bot.services.schedule_recruitment import (
+    REACTION_EMOJIS,
+    build_schedule_from_repository,
+    is_schedule_command,
+    parse_schedule_command,
+)
 
 
 FEATURE_MENTION_RANDOM_DRAW = "mention_random_draw"
@@ -42,6 +48,7 @@ FEATURE_MENTION_SEARCH = "mention_search"
 FEATURE_MENTION_LIMITED = "mention_limited"
 FEATURE_AUTO_REACTIONS = "reactions"
 FEATURE_NG_WORDS = "ng_words"
+FEATURE_SCHEDULE_TEMPLATES = "schedule_templates"
 JST = timezone(timedelta(hours=9))
 
 MATCH_TYPE_RANK = {
@@ -1290,6 +1297,10 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
     if command_text is None:
         return RuntimeAction(False)
 
+    schedule_action = await handle_schedule_recruitment_command(connection, guild_id, message, command_text)
+    if schedule_action is not None:
+        return schedule_action
+
     repository = MentionReactionRepository(connection)
     limited_enabled = mention_feature_enabled(connection, guild_id, FEATURE_MENTION_LIMITED)
     search_enabled = mention_feature_enabled(connection, guild_id, FEATURE_MENTION_SEARCH)
@@ -1390,6 +1401,55 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
         repeated = await repeat_text_image_action(message, text, image_path, emoji, effect_result.repeat_count)
         handled = handled or repeated
     return RuntimeAction(handled or bool(effects), effect_result.count_changed, effect_result.pending_effects)
+
+
+async def add_schedule_reactions_safe(sent_message: discord.Message) -> None:
+    for emoji in REACTION_EMOJIS:
+        try:
+            await sent_message.add_reaction(emoji)
+        except Exception as exc:
+            print("[WARN] schedule recruitment reaction failed: emoji={0} error={1}".format(emoji, exc))
+
+
+async def handle_schedule_recruitment_command(
+    connection,
+    guild_id: str,
+    message: discord.Message,
+    command_text: str,
+) -> Optional[RuntimeAction]:
+    if not is_schedule_command(command_text):
+        return None
+    if not feature_enabled(connection, guild_id, FEATURE_SCHEDULE_TEMPLATES):
+        await message.channel.send("スケジュール募集機能はOFFです。")
+        return RuntimeAction(True)
+
+    parsed, error = parse_schedule_command(command_text, utc_now())
+    if parsed is None:
+        await message.channel.send(error)
+        return RuntimeAction(True)
+
+    result = build_schedule_from_repository(connection, config.BOT_INSTANCE_ID, guild_id, parsed)
+    if result.error:
+        await message.channel.send(result.error)
+        return RuntimeAction(True)
+
+    posted_count = 0
+    for body in result.messages:
+        try:
+            sent_message = await message.channel.send(body)
+            posted_count += 1
+            await add_schedule_reactions_safe(sent_message)
+        except Exception as exc:
+            print("[WARN] schedule recruitment post failed: index={0} error={1}".format(posted_count + 1, exc))
+            await message.channel.send(
+                "スケジュール募集の投稿中に失敗しました。投稿済み: {0}/{1}".format(
+                    posted_count,
+                    len(result.messages),
+                )
+            )
+            return RuntimeAction(True)
+
+    return RuntimeAction(True)
 
 
 async def handle_db_mention(message: discord.Message, guild_id: str, connection) -> bool:
