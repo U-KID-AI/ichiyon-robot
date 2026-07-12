@@ -10,6 +10,7 @@ from bot.reactions import handle_word_response
 from bot.services.auto_posts import run_db_auto_posts_once
 from bot.services.reaction_thresholds import handle_db_reaction_threshold
 from bot.services.runtime_db import expire_db_modes_once, get_message_guild_id, handle_db_runtime_message
+from bot.services.voice_control import handle_voice_command
 from bot.services.x_update_notifications import run_x_update_notifications_once
 
 
@@ -126,6 +127,9 @@ async def on_message(message: discord.Message):
         return
 
     command_text = messages.get_mention_command_text(message)
+    if await handle_voice_command(message, command_text):
+        return
+
     if await handle_developer_command(message, command_text):
         return
 
