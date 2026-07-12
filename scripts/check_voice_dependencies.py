@@ -36,6 +36,9 @@ def main() -> int:
 
     results.append(check("Dockerfile uses Python 3.11 slim", "FROM python:3.11-slim" in dockerfile))
     results.append(check("Dockerfile installs ffmpeg", "ffmpeg" in dockerfile))
+    results.append(check("Dockerfile installs Deno prerequisites", "curl" in dockerfile and "unzip" in dockerfile))
+    results.append(check("Dockerfile installs Deno", "deno.land/install.sh" in dockerfile and "deno --version" in dockerfile))
+    results.append(check("Dockerfile does not rely on nodejs for yt-dlp JS runtime", "nodejs" not in dockerfile.lower()))
     results.append(check("discord.py voice extra is pinned", "discord.py[voice]==2.7.1" in requirements))
     results.append(check("PyNaCl is declared", "PyNaCl" in requirements))
     results.append(check("davey is declared", "davey" in requirements))

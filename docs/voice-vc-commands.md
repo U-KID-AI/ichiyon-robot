@@ -66,7 +66,7 @@ VC未接続、再生中、ファイル未存在、再生開始失敗の場合、
 
 実行者がVCにいる場合、Botが未接続ならそのVCへ接続して再生します。再生中の場合はguild単位のキューに追加します。URL情報の取得には `yt-dlp` を使います。
 
-YouTube側の確認要求で取得できない場合は、サーバー上にcookiesファイルを配置し、`.env` に `YTDLP_COOKIES_FILE=/app/secrets/youtube-cookies.txt` のように設定します。cookieファイルはGit管理しません。playlist付きURLは1曲再生のため展開しません。
+YouTube側の確認要求で取得できない場合は、サーバー上にcookiesファイルを配置し、`.env` に `YTDLP_COOKIES_FILE=/app/secrets/youtube-cookies.txt` のように設定します。cookieファイルはGit管理しません。実行時は読み取り専用の `/app/secrets` から `/tmp` へコピーした一時ファイルを `yt-dlp` に渡します。playlist付きURLは1曲再生のため展開しません。
 
 ## 音楽キュー操作
 
@@ -89,7 +89,7 @@ YouTube側の確認要求で取得できない場合は、サーバー上にcook
 
 ## 依存関係
 
-Discord VC接続のため `PyNaCl` が必要です。ローカル音声再生とURL音楽再生は `discord.FFmpegPCMAudio` を使うため、Dockerイメージには `ffmpeg` を入れます。URL情報の取得には `yt-dlp` を使います。
+Discord VC接続のため `PyNaCl` が必要です。ローカル音声再生とURL音楽再生は `discord.FFmpegPCMAudio` を使うため、Dockerイメージには `ffmpeg` を入れます。URL情報の取得には `yt-dlp` を使います。YouTubeのEJS challenge解決用に、DockerイメージへDenoを入れます。
 
 ## 手動確認
 

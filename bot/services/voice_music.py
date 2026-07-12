@@ -1,7 +1,9 @@
 import asyncio
 import os
+import shutil
 from collections import deque
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Deque, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -31,11 +33,14 @@ DISCORD_CONNECTION_CLOSED = getattr(discord, "ConnectionClosed", discord.ClientE
 STREAM_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
 STREAM_OPTIONS = "-vn"
 YTDLP_COOKIES_FILE_ENV = "YTDLP_COOKIES_FILE"
+YTDLP_COOKIES_TMP_DIR = Path("/tmp")
 YTDL_OPTIONS = {
     "format": "bestaudio/best",
     "quiet": True,
     "no_warnings": True,
     "noplaylist": True,
+    "js_runtimes": ["deno"],
+    "remote_components": ["ejs:github"],
 }
 
 
@@ -98,11 +103,29 @@ def is_http_url(value: str) -> bool:
     return parsed.scheme in ("http", "https") and bool(parsed.netloc)
 
 
-def build_ytdl_options() -> Dict[str, object]:
+def _safe_cookie_suffix(guild_id: Optional[str]) -> str:
+    raw = str(guild_id or "global")
+    safe = "".join(char if char.isalnum() or char in ("-", "_") else "_" for char in raw)
+    return safe or "global"
+
+
+def get_ytdlp_cookie_tmp_path(guild_id: Optional[str] = None) -> Path:
+    return YTDLP_COOKIES_TMP_DIR / "ichiyon-ytdlp-cookies-{0}.txt".format(_safe_cookie_suffix(guild_id))
+
+
+def prepare_ytdlp_cookie_file(cookies_file: str, guild_id: Optional[str] = None) -> str:
+    source_path = Path(cookies_file)
+    target_path = get_ytdlp_cookie_tmp_path(guild_id)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source_path, target_path)
+    return str(target_path)
+
+
+def build_ytdl_options(guild_id: Optional[str] = None, copy_cookies: bool = True) -> Dict[str, object]:
     options: Dict[str, object] = dict(YTDL_OPTIONS)
     cookies_file = str(os.getenv(YTDLP_COOKIES_FILE_ENV) or "").strip()
     if cookies_file:
-        options["cookiefile"] = cookies_file
+        options["cookiefile"] = prepare_ytdlp_cookie_file(cookies_file, guild_id) if copy_cookies else str(get_ytdlp_cookie_tmp_path(guild_id))
     return options
 
 
@@ -192,10 +215,10 @@ def format_now_playing(state: MusicState) -> str:
     return "現在再生中:\n{0}\nリクエスト: <@{1}>".format(format_track(state.current), state.current.requester_id)
 
 
-def extract_track_info(url: str, requester_id: str) -> MusicTrack:
+def extract_track_info(url: str, requester_id: str, guild_id: Optional[str] = None) -> MusicTrack:
     if yt_dlp is None:
         raise RuntimeError("yt-dlp is not installed")
-    with yt_dlp.YoutubeDL(build_ytdl_options()) as ydl:
+    with yt_dlp.YoutubeDL(build_ytdl_options(guild_id)) as ydl:
         info = ydl.extract_info(url, download=False)
     if info is None:
         raise RuntimeError("URL情報を取得できませんでした")
@@ -364,7 +387,7 @@ async def enqueue_music_url(message: discord.Message, url: str) -> bool:
         return True
 
     try:
-        track = await asyncio.to_thread(extract_track_info, url, requester_id)
+        track = await asyncio.to_thread(extract_track_info, url, requester_id, guild_id)
     except Exception as exc:
         print("[WARN] voice music extract failed: guild_id={0} requester_id={1} error={2}".format(guild_id, requester_id, exc))
         if is_youtube_cookie_required_error(exc):

@@ -14,6 +14,7 @@ from bot.services.voice_music import (
     build_ytdl_options,
     format_now_playing,
     format_queue,
+    get_ytdlp_cookie_tmp_path,
     is_youtube_cookie_required_error,
     is_http_url,
     parse_music_command,
@@ -65,17 +66,21 @@ def main() -> int:
         os.environ.pop(YTDLP_COOKIES_FILE_ENV, None)
         options_without_cookies = build_ytdl_options()
         results.append(check("yt-dlp keeps playlist disabled", options_without_cookies.get("noplaylist") is True, str(options_without_cookies)))
+        results.append(check("yt-dlp uses deno JS runtime", options_without_cookies.get("js_runtimes") == ["deno"], str(options_without_cookies)))
+        results.append(check("yt-dlp enables ejs remote component", options_without_cookies.get("remote_components") == ["ejs:github"], str(options_without_cookies)))
         results.append(check("yt-dlp omits cookiefile when env is empty", "cookiefile" not in options_without_cookies, str(options_without_cookies)))
 
         os.environ[YTDLP_COOKIES_FILE_ENV] = "/app/secrets/youtube-cookies.txt"
-        options_with_cookies = build_ytdl_options()
+        options_with_cookies = build_ytdl_options("12345", copy_cookies=False)
+        expected_cookiefile = str(get_ytdlp_cookie_tmp_path("12345"))
         results.append(
             check(
-                "yt-dlp uses cookiefile from env",
-                options_with_cookies.get("cookiefile") == "/app/secrets/youtube-cookies.txt",
+                "yt-dlp copies cookiefile to tmp path",
+                options_with_cookies.get("cookiefile") == expected_cookiefile,
                 str(options_with_cookies),
             )
         )
+        results.append(check("yt-dlp does not use read-only secrets path directly", options_with_cookies.get("cookiefile") != "/app/secrets/youtube-cookies.txt"))
     finally:
         if original_cookies_file is None:
             os.environ.pop(YTDLP_COOKIES_FILE_ENV, None)
