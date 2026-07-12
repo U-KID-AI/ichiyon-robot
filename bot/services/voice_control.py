@@ -1,14 +1,16 @@
-from pathlib import Path
-from typing import Any, List, Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import discord
 
 from bot import config
-
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-AUDIO_ROOT = (PROJECT_ROOT / "assets" / "audio").resolve()
-SUPPORTED_AUDIO_EXTENSIONS = {".mp3", ".wav", ".ogg"}
+from bot.services.voice_audio import (
+    AUDIO_ROOT,
+    format_audio_file_list,
+    get_guild_voice_client,
+    list_audio_files,
+    play_audio_on_voice_client,
+    resolve_audio_file,
+)
 
 VOICE_JOIN_COMMANDS = {
     "入って",
@@ -93,63 +95,6 @@ def log_voice_action(
     )
 
 
-def list_audio_files() -> List[Path]:
-    if not AUDIO_ROOT.exists() or not AUDIO_ROOT.is_dir():
-        return []
-    files = [
-        path
-        for path in AUDIO_ROOT.iterdir()
-        if path.is_file() and path.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS
-    ]
-    return sorted(files, key=lambda path: path.name.lower())
-
-
-def format_audio_file_list(files: List[Path]) -> str:
-    if not files:
-        return "登録されている音声ファイルがありません。"
-    lines = ["登録されている音声ファイル:"]
-    lines.extend("- {0} ({1})".format(path.stem, path.name) for path in files)
-    return "\n".join(lines)
-
-
-def resolve_audio_file(name: str) -> Optional[Path]:
-    requested = str(name or "").strip()
-    if not requested:
-        return None
-    raw_path = Path(requested)
-    if raw_path.name != requested or raw_path.is_absolute():
-        return None
-
-    candidates: List[Path]
-    suffix = raw_path.suffix.lower()
-    if suffix:
-        if suffix not in SUPPORTED_AUDIO_EXTENSIONS:
-            return None
-        candidates = [AUDIO_ROOT / raw_path.name]
-    else:
-        candidates = [AUDIO_ROOT / "{0}{1}".format(requested, ext) for ext in sorted(SUPPORTED_AUDIO_EXTENSIONS)]
-
-    for candidate in candidates:
-        resolved = candidate.resolve()
-        try:
-            resolved.relative_to(AUDIO_ROOT)
-        except ValueError:
-            continue
-        if resolved.is_file() and resolved.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS:
-            return resolved
-    return None
-
-
-def get_guild_voice_client(message: discord.Message) -> Optional[discord.VoiceClient]:
-    guild = message.guild
-    if guild is None:
-        return None
-    voice_client = guild.voice_client
-    if isinstance(voice_client, discord.VoiceClient):
-        return voice_client
-    return voice_client
-
-
 async def join_author_voice_channel(message: discord.Message) -> None:
     guild = message.guild
     if guild is None:
@@ -225,7 +170,7 @@ async def play_audio_file(message: discord.Message, name: str) -> None:
         await message.channel.send("再生する音声ファイル名を指定してください。")
         return
 
-    voice_client = get_guild_voice_client(message)
+    voice_client = get_guild_voice_client(guild)
     if voice_client is None:
         await message.channel.send("先にVCへ呼んでください。")
         return
@@ -243,35 +188,13 @@ async def play_audio_file(message: discord.Message, name: str) -> None:
     channel_id = str(getattr(current_channel, "id", "") or "")
     filename = audio_path.name
 
-    def after_playback(error: Optional[Exception]) -> None:
-        if error is not None:
-            print(
-                "[WARN] voice playback error: guild_id={0} channel_id={1} bot_instance_id={2} filename={3} error={4}".format(
-                    guild_id,
-                    channel_id,
-                    config.BOT_INSTANCE_ID,
-                    filename,
-                    error,
-                )
-            )
-            return
-        log_voice_action("play_complete", guild_id, channel_id, filename)
-
-    try:
-        source = discord.FFmpegPCMAudio(str(audio_path))
-        voice_client.play(source, after=after_playback)
+    played, reason = play_audio_on_voice_client(voice_client, audio_path, guild_id, channel_id)
+    if played:
         log_voice_action("play_start", guild_id, channel_id, filename)
         await message.channel.send("再生します: {0}".format(filename))
-    except (discord.ClientException, discord.OpusNotLoaded, OSError) as exc:
-        log_voice_action("play_failed", guild_id, channel_id, filename)
-        print(
-            "[WARN] voice playback start failed: guild_id={0} channel_id={1} filename={2} error={3}".format(
-                guild_id,
-                channel_id,
-                filename,
-                exc,
-            )
-        )
+        return
+    log_voice_action("play_failed", guild_id, channel_id, filename)
+    if reason == "playback_error":
         await message.channel.send("音声の再生開始に失敗しました。ffmpegや音声ファイルを確認してください。")
 
 
@@ -281,7 +204,7 @@ async def stop_audio(message: discord.Message) -> None:
         await message.channel.send("音声コマンドはサーバー内で使ってください。")
         return
 
-    voice_client = get_guild_voice_client(message)
+    voice_client = get_guild_voice_client(guild)
     if voice_client is None or not (voice_client.is_playing() or voice_client.is_paused()):
         await message.channel.send("現在再生していません。")
         return

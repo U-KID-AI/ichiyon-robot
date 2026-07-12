@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional
 
 from bot import config
-from bot.repositories.base import fetch_all, fetch_one
+from bot.repositories.base import fetch_all, fetch_one, json_dumps
 
 
 class AutoReactionRepository:
@@ -227,6 +227,15 @@ class AutoReactionRepository:
             False,
         )
         with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE reactions
+                SET audio_config_json = COALESCE(%s::JSONB, '{}'::JSONB),
+                    updated_at = NOW()
+                WHERE bot_id = %s AND guild_id = %s AND id = %s
+                """,
+                (json_dumps(source.get("audio_config_json") or {}), self.bot_id, guild_id, copied["id"]),
+            )
             cursor.execute(
                 """
                 INSERT INTO special_effect_assignments (

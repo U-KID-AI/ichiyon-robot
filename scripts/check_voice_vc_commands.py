@@ -6,13 +6,15 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from bot.services import voice_control
+from bot.services import voice_audio
 from bot.services.voice_control import (
-    AUDIO_ROOT,
     classify_voice_command,
-    format_audio_file_list,
     normalize_voice_command,
     parse_voice_command,
+)
+from bot.services.voice_audio import (
+    AUDIO_ROOT,
+    format_audio_file_list,
     resolve_audio_file,
 )
 
@@ -75,11 +77,11 @@ def main() -> int:
     results.append(check("normalizer removes spaces and lowercases", normalize_voice_command(" VC 入って ") == "vc入って"))
     results.append(check("audio list empty message is clear", format_audio_file_list([]) == "登録されている音声ファイルがありません。"))
 
-    original_root = voice_control.AUDIO_ROOT
+    original_root = voice_audio.AUDIO_ROOT
     try:
-        voice_control.AUDIO_ROOT = (ROOT_DIR / "assets" / "audio").resolve()
-        voice_control.AUDIO_ROOT.mkdir(parents=True, exist_ok=True)
-        dummy_path = voice_control.AUDIO_ROOT / "dummy_check.wav"
+        voice_audio.AUDIO_ROOT = (ROOT_DIR / "assets" / "audio").resolve()
+        voice_audio.AUDIO_ROOT.mkdir(parents=True, exist_ok=True)
+        dummy_path = voice_audio.AUDIO_ROOT / "dummy_check.wav"
         dummy_path.write_bytes(b"not real audio")
         try:
             results.append(check("audio file resolves without extension", resolve_audio_file("dummy_check") == dummy_path.resolve()))
@@ -89,7 +91,7 @@ def main() -> int:
         finally:
             dummy_path.unlink(missing_ok=True)
     finally:
-        voice_control.AUDIO_ROOT = original_root
+        voice_audio.AUDIO_ROOT = original_root
 
     results.append(check("standard audio root is assets/audio", AUDIO_ROOT.name == "audio"))
 
