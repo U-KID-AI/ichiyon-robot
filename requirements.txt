@@ -1,4 +1,6 @@
-discord.py
+discord.py[voice]==2.7.1
+PyNaCl
+davey
 python-dotenv
 fastapi
 uvicorn[standard]
@@ -10,3 +12,4 @@ httpx
 itsdangerous
 numpy==1.24.4
 opencv-python-headless==4.10.0.84
+yt-dlp

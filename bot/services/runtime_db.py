@@ -41,6 +41,7 @@ from bot.services.schedule_recruitment import (
     is_schedule_command,
     parse_schedule_command,
 )
+from bot.services.voice_audio import extract_reaction_audio_file, play_reaction_audio
 
 
 FEATURE_MENTION_RANDOM_DRAW = "mention_random_draw"
@@ -228,6 +229,27 @@ def match_pattern(pattern: str, match_type: str, content: str) -> Optional[Dict[
             return None
         return regex_groups(matched)
     return None
+
+
+async def play_configured_reaction_audio(
+    message: discord.Message,
+    row: Dict[str, Any],
+    reaction_type: str,
+    fallback_key: str = "",
+) -> bool:
+    audio_file = extract_reaction_audio_file(row)
+    if not audio_file:
+        return False
+    reaction_key = str(
+        row.get("id")
+        or row.get("reaction_key")
+        or row.get("trigger_text")
+        or row.get("keyword")
+        or fallback_key
+        or ""
+    )
+    played, _reason = await play_reaction_audio(message, audio_file, reaction_type, reaction_key)
+    return played
 
 
 def sort_mention_matches(matches: List[MatchResult]) -> List[MatchResult]:
@@ -1387,6 +1409,8 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
     image_path = choice.get("image_path") or ""
     emoji = choice.get("emoji_internal") or ""
     handled = await send_text_or_image(message.channel, text, image_path)
+    if await play_configured_reaction_audio(message, selected.row, "mention_reaction", selected.row.get("reaction_key") or ""):
+        handled = True
     if await add_message_reaction_safe(message, emoji, "mention reaction choice"):
         handled = True
     pending_repeats = get_next_action_extra_repeats(pending_effects, "mention_reaction_choice")
@@ -1491,6 +1515,8 @@ async def process_db_auto_reaction(message: discord.Message, guild_id: str, conn
             return RuntimeAction(True, True, effect_result.pending_effects)
 
     sent = await send_text_or_image(message.channel, text, image_path)
+    if await play_configured_reaction_audio(message, selected.row, "auto_reaction", selected.row.get("trigger_text") or ""):
+        sent = True
 
     emoji = selected.row.get("emoji_internal") or ""
     if await add_message_reaction_safe(message, emoji, "auto reaction"):

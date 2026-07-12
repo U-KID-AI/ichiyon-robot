@@ -1,0 +1,2 @@
+ALTER TABLE IF EXISTS reactions
+    ADD COLUMN IF NOT EXISTS audio_config_json JSONB NOT NULL DEFAULT '{}'::JSONB;
