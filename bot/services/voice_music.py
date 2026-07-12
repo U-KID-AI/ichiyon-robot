@@ -7,7 +7,12 @@ from urllib.parse import urlparse
 import discord
 
 from bot import config
-from bot.services.voice_audio import get_guild_voice_client
+from bot.services.voice_audio import (
+    cleanup_stale_voice_client,
+    get_guild_voice_client,
+    get_raw_guild_voice_client,
+    is_voice_client_connected,
+)
 
 try:
     import yt_dlp
@@ -21,6 +26,7 @@ MUSIC_PAUSE_COMMANDS = {"一時停止", "pause"}
 MUSIC_RESUME_COMMANDS = {"再開", "resume"}
 MUSIC_QUEUE_COMMANDS = {"キュー", "queue", "再生予定"}
 MUSIC_NOW_COMMANDS = {"今何", "now", "nowplaying"}
+DISCORD_CONNECTION_CLOSED = getattr(discord, "ConnectionClosed", discord.ClientException)
 STREAM_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
 STREAM_OPTIONS = "-vn"
 YTDL_OPTIONS = {
@@ -199,16 +205,21 @@ async def ensure_music_voice_client(message: discord.Message) -> Optional[discor
 
     guild_id = str(guild.id)
     target_channel_id = str(getattr(target_channel, "id", "") or "")
-    voice_client = get_guild_voice_client(guild)
+    voice_client = get_raw_guild_voice_client(guild)
     state = get_music_state(guild_id)
     try:
+        if voice_client is not None and not is_voice_client_connected(voice_client):
+            log_music_action("join_stale_cleanup", guild_id, target_channel_id, str(getattr(message.author, "id", "") or ""))
+            await cleanup_stale_voice_client(voice_client)
+            voice_client = None
+
         if voice_client is None:
             voice_client = await target_channel.connect()
             log_music_action("join", guild_id, target_channel_id, str(getattr(message.author, "id", "") or ""))
             return voice_client
 
         current_channel = getattr(voice_client, "channel", None)
-        if getattr(current_channel, "id", None) == getattr(target_channel, "id", None):
+        if is_voice_client_connected(voice_client) and getattr(current_channel, "id", None) == getattr(target_channel, "id", None):
             return voice_client
 
         if state.current is not None or voice_client.is_playing() or voice_client.is_paused():
@@ -219,9 +230,22 @@ async def ensure_music_voice_client(message: discord.Message) -> Optional[discor
         await voice_client.move_to(target_channel)
         log_music_action("move", guild_id, target_channel_id, str(getattr(message.author, "id", "") or ""))
         return voice_client
-    except (discord.ClientException, discord.Forbidden, discord.HTTPException) as exc:
+    except (
+        RuntimeError,
+        asyncio.TimeoutError,
+        discord.ClientException,
+        discord.Forbidden,
+        discord.HTTPException,
+        DISCORD_CONNECTION_CLOSED,
+    ) as exc:
         print("[WARN] voice music connect failed: guild_id={0} channel_id={1} error={2}".format(guild_id, target_channel_id, exc))
-        await message.channel.send("VCへの接続に失敗しました。権限を確認してください。")
+        await cleanup_stale_voice_client(get_raw_guild_voice_client(guild))
+        await message.channel.send("VCへの接続に失敗しました。権限や接続状態を確認してください。")
+        return None
+    except Exception as exc:
+        print("[WARN] unexpected voice music connect failed: guild_id={0} channel_id={1} error={2}".format(guild_id, target_channel_id, exc))
+        await cleanup_stale_voice_client(get_raw_guild_voice_client(guild))
+        await message.channel.send("VCへの接続に失敗しました。")
         return None
 
 
@@ -264,6 +288,10 @@ async def _handle_track_finished(
 
 async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> bool:
     state = get_music_state(guild_id)
+    if not is_voice_client_connected(voice_client):
+        state.current = None
+        log_music_action("queue_empty", guild_id, voice_channel_id(voice_client), reason="not_connected")
+        return False
     if not state.queue:
         state.current = None
         log_music_action("queue_empty", guild_id, voice_channel_id(voice_client))

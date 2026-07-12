@@ -1,5 +1,7 @@
+import asyncio
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -14,7 +16,10 @@ from bot.services.voice_control import (
 )
 from bot.services.voice_audio import (
     AUDIO_ROOT,
+    cleanup_stale_voice_client,
     format_audio_file_list,
+    get_guild_voice_client,
+    is_voice_client_connected,
     resolve_audio_file,
 )
 
@@ -22,6 +27,25 @@ from bot.services.voice_audio import (
 def check(name: str, ok: bool, detail: str = "") -> bool:
     print("[{0}] {1}{2}".format("OK" if ok else "NG", name, " - {0}".format(detail) if detail else ""))
     return ok
+
+
+class FakeVoiceClient:
+    def __init__(self, connected: bool) -> None:
+        self.connected = connected
+        self.disconnected = False
+        self.channel = SimpleNamespace(id=123)
+
+    def is_connected(self) -> bool:
+        return self.connected
+
+    async def disconnect(self, force: bool = False) -> None:
+        self.disconnected = True
+
+
+async def check_stale_cleanup() -> bool:
+    stale = FakeVoiceClient(False)
+    await cleanup_stale_voice_client(stale)
+    return check("stale voice client is cleaned up", stale.disconnected is True)
 
 
 def main() -> int:
@@ -94,6 +118,13 @@ def main() -> int:
         voice_audio.AUDIO_ROOT = original_root
 
     results.append(check("standard audio root is assets/audio", AUDIO_ROOT.name == "audio"))
+    stale = FakeVoiceClient(False)
+    connected = FakeVoiceClient(True)
+    results.append(check("stale voice client is not treated as connected", is_voice_client_connected(stale) is False))
+    results.append(check("connected voice client is recognized", is_voice_client_connected(connected) is True))
+    results.append(check("get_guild_voice_client hides stale client", get_guild_voice_client(SimpleNamespace(voice_client=stale)) is None))
+    results.append(check("get_guild_voice_client returns connected client", get_guild_voice_client(SimpleNamespace(voice_client=connected)) is connected))
+    results.append(asyncio.run(check_stale_cleanup()))
 
     ok_count = sum(1 for item in results if item)
     print("summary: {0}/{1} OK".format(ok_count, len(results)))

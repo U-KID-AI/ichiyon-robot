@@ -59,12 +59,45 @@ def resolve_audio_file(name: str) -> Optional[Path]:
 
 
 def get_guild_voice_client(guild: Optional[discord.Guild]) -> Optional[discord.VoiceClient]:
+    voice_client = get_raw_guild_voice_client(guild)
+    if not is_voice_client_connected(voice_client):
+        return None
+    return voice_client
+
+
+def get_raw_guild_voice_client(guild: Optional[discord.Guild]) -> Optional[discord.VoiceClient]:
     if guild is None:
         return None
     voice_client = getattr(guild, "voice_client", None)
     if isinstance(voice_client, discord.VoiceClient):
         return voice_client
     return voice_client
+
+
+def is_voice_client_connected(voice_client: Optional[discord.VoiceClient]) -> bool:
+    if voice_client is None:
+        return False
+    is_connected = getattr(voice_client, "is_connected", None)
+    if not callable(is_connected):
+        return False
+    try:
+        return bool(is_connected())
+    except Exception:
+        return False
+
+
+async def cleanup_stale_voice_client(voice_client: Optional[discord.VoiceClient]) -> None:
+    if voice_client is None or is_voice_client_connected(voice_client):
+        return
+    try:
+        await voice_client.disconnect(force=True)
+    except TypeError:
+        try:
+            await voice_client.disconnect()
+        except Exception as exc:
+            print("[WARN] stale voice client cleanup failed: error={0}".format(exc))
+    except Exception as exc:
+        print("[WARN] stale voice client cleanup failed: error={0}".format(exc))
 
 
 def log_voice_audio(
@@ -138,6 +171,17 @@ def play_audio_on_voice_client(
     reaction_key: Optional[str] = None,
 ) -> Tuple[bool, str]:
     filename = audio_path.name
+    if not is_voice_client_connected(voice_client):
+        log_voice_audio(
+            "play_skipped",
+            guild_id,
+            channel_id,
+            filename,
+            reaction_type,
+            reaction_key,
+            "not_connected",
+        )
+        return False, "not_connected"
 
     def after_playback(error: Optional[Exception]) -> None:
         if error is not None:

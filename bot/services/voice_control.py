@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any, Optional, Tuple
 
 import discord
@@ -5,8 +6,11 @@ import discord
 from bot import config
 from bot.services.voice_audio import (
     AUDIO_ROOT,
+    cleanup_stale_voice_client,
     format_audio_file_list,
     get_guild_voice_client,
+    get_raw_guild_voice_client,
+    is_voice_client_connected,
     list_audio_files,
     play_audio_on_voice_client,
     resolve_audio_file,
@@ -47,6 +51,7 @@ VOICE_STOP_COMMANDS = {
     "stop",
 }
 VOICE_PLAY_PREFIXES = ("鳴らして", "再生", "ボイス", "sound")
+DISCORD_CONNECTION_CLOSED = getattr(discord, "ConnectionClosed", discord.ClientException)
 
 
 def normalize_voice_command(command_text: Optional[str]) -> str:
@@ -121,8 +126,13 @@ async def join_author_voice_channel(message: discord.Message) -> None:
 
     guild_id = str(guild.id)
     target_channel_id = str(getattr(target_channel, "id", "") or "")
-    voice_client = guild.voice_client
+    voice_client = get_raw_guild_voice_client(guild)
     try:
+        if voice_client is not None and not is_voice_client_connected(voice_client):
+            log_voice_action("join_stale_cleanup", guild_id, target_channel_id)
+            await cleanup_stale_voice_client(voice_client)
+            voice_client = None
+
         if voice_client is None:
             await target_channel.connect()
             log_voice_action("join", guild_id, target_channel_id)
@@ -130,7 +140,7 @@ async def join_author_voice_channel(message: discord.Message) -> None:
             return
 
         current_channel = getattr(voice_client, "channel", None)
-        if getattr(current_channel, "id", None) == getattr(target_channel, "id", None):
+        if is_voice_client_connected(voice_client) and getattr(current_channel, "id", None) == getattr(target_channel, "id", None):
             log_voice_action("join_already_connected", guild_id, target_channel_id)
             await message.channel.send("もう同じVCにいます。")
             return
@@ -138,10 +148,23 @@ async def join_author_voice_channel(message: discord.Message) -> None:
         await voice_client.move_to(target_channel)
         log_voice_action("move", guild_id, target_channel_id)
         await message.channel.send("VCを移動しました。")
-    except (discord.ClientException, discord.Forbidden, discord.HTTPException) as exc:
+    except (
+        RuntimeError,
+        asyncio.TimeoutError,
+        discord.ClientException,
+        discord.Forbidden,
+        discord.HTTPException,
+        DISCORD_CONNECTION_CLOSED,
+    ) as exc:
         log_voice_action("join_failed", guild_id, target_channel_id)
         print("[WARN] voice join failed: guild_id={0} channel_id={1} error={2}".format(guild_id, target_channel_id, exc))
-        await message.channel.send("VCへの接続に失敗しました。権限を確認してください。")
+        await cleanup_stale_voice_client(get_raw_guild_voice_client(guild))
+        await message.channel.send("VCへの接続に失敗しました。権限や接続状態を確認してください。")
+    except Exception as exc:
+        log_voice_action("join_failed", guild_id, target_channel_id)
+        print("[WARN] unexpected voice join failed: guild_id={0} channel_id={1} error={2}".format(guild_id, target_channel_id, exc))
+        await cleanup_stale_voice_client(get_raw_guild_voice_client(guild))
+        await message.channel.send("VCへの接続に失敗しました。")
 
 
 async def leave_voice_channel(message: discord.Message) -> None:
@@ -151,8 +174,13 @@ async def leave_voice_channel(message: discord.Message) -> None:
         return
 
     guild_id = str(guild.id)
-    voice_client = guild.voice_client
+    voice_client = get_raw_guild_voice_client(guild)
     if voice_client is None:
+        log_voice_action("leave_not_connected", guild_id, None)
+        await message.channel.send("いまVCには入っていません。")
+        return
+    if not is_voice_client_connected(voice_client):
+        await cleanup_stale_voice_client(voice_client)
         log_voice_action("leave_not_connected", guild_id, None)
         await message.channel.send("いまVCには入っていません。")
         return
