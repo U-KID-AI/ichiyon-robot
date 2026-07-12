@@ -27,18 +27,10 @@ from bot.services.voice_music import (
 )
 
 VOICE_JOIN_COMMANDS = {
-    "入って",
-    "来て",
-    "参加",
-    "vc入って",
-    "ボイス入って",
+    "もしもししよ",
 }
 VOICE_LEAVE_COMMANDS = {
-    "出て",
-    "抜けて",
-    "退出",
-    "vc出て",
-    "ボイス出て",
+    "二度と来るな",
 }
 VOICE_LIST_COMMANDS = {
     "音声一覧",

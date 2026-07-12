@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -50,8 +51,10 @@ async def check_stale_cleanup() -> bool:
 
 def main() -> int:
     results = []
-    join_examples = ["入って", "来て", "参加", "vc入って", "VC 入って", "ボイス入って"]
-    leave_examples = ["出て", "抜けて", "退出", "vc出て", "VC 出て", "ボイス出て"]
+    join_examples = ["もしもししよ"]
+    leave_examples = ["二度と来るな"]
+    legacy_join_examples = ["入って", "来て", "参加", "vc入って", "VC 入って", "ボイス入って"]
+    legacy_leave_examples = ["出て", "抜けて", "退出", "vc出て", "VC 出て", "ボイス出て"]
     list_examples = ["音声一覧", "ボイス一覧", "sound list"]
     play_examples = {
         "鳴らして test": ("play", "test"),
@@ -77,6 +80,20 @@ def main() -> int:
     )
     results.append(
         check(
+            "legacy join commands are ignored",
+            all(classify_voice_command(command) != "join" for command in legacy_join_examples),
+            str({command: classify_voice_command(command) for command in legacy_join_examples}),
+        )
+    )
+    results.append(
+        check(
+            "legacy leave commands are ignored",
+            all(classify_voice_command(command) != "leave" for command in legacy_leave_examples),
+            str({command: classify_voice_command(command) for command in legacy_leave_examples}),
+        )
+    )
+    results.append(
+        check(
             "list commands are recognized",
             all(classify_voice_command(command) == "list" for command in list_examples),
             str(list_examples),
@@ -98,22 +115,19 @@ def main() -> int:
     )
     results.append(check("unknown command is ignored", classify_voice_command("スケジュール 7/6から1W") is None))
     results.append(check("empty command is ignored", classify_voice_command("") is None))
-    results.append(check("normalizer removes spaces and lowercases", normalize_voice_command(" VC 入って ") == "vc入って"))
+    results.append(check("normalizer removes spaces", normalize_voice_command(" もしもし しよ ") == "もしもししよ"))
     results.append(check("audio list empty message is clear", format_audio_file_list([]) == "登録されている音声ファイルがありません。"))
 
     original_root = voice_audio.AUDIO_ROOT
     try:
-        voice_audio.AUDIO_ROOT = (ROOT_DIR / "assets" / "audio").resolve()
-        voice_audio.AUDIO_ROOT.mkdir(parents=True, exist_ok=True)
-        dummy_path = voice_audio.AUDIO_ROOT / "dummy_check.wav"
-        dummy_path.write_bytes(b"not real audio")
-        try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            voice_audio.AUDIO_ROOT = Path(tmp_dir).resolve()
+            dummy_path = voice_audio.AUDIO_ROOT / "dummy_check.wav"
+            dummy_path.write_bytes(b"not real audio")
             results.append(check("audio file resolves without extension", resolve_audio_file("dummy_check") == dummy_path.resolve()))
             results.append(check("audio file resolves with extension", resolve_audio_file("dummy_check.wav") == dummy_path.resolve()))
             results.append(check("unsupported extension is rejected", resolve_audio_file("dummy_check.txt") is None))
             results.append(check("path traversal is rejected", resolve_audio_file("../dummy_check.wav") is None))
-        finally:
-            dummy_path.unlink(missing_ok=True)
     finally:
         voice_audio.AUDIO_ROOT = original_root
 

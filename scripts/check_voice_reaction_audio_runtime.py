@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -67,16 +68,13 @@ def main() -> int:
 
     original_root = voice_audio.AUDIO_ROOT
     try:
-        voice_audio.AUDIO_ROOT = (ROOT_DIR / "assets" / "audio").resolve()
-        voice_audio.AUDIO_ROOT.mkdir(parents=True, exist_ok=True)
-        dummy_path = voice_audio.AUDIO_ROOT / "dummy_reaction_check.ogg"
-        dummy_path.write_bytes(b"not real audio")
-        try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            voice_audio.AUDIO_ROOT = Path(tmp_dir).resolve()
+            dummy_path = voice_audio.AUDIO_ROOT / "dummy_reaction_check.ogg"
+            dummy_path.write_bytes(b"not real audio")
             results.append(check("reaction audio resolves without extension", resolve_audio_file("dummy_reaction_check") == dummy_path.resolve()))
             results.append(check("reaction audio rejects traversal", resolve_audio_file("../dummy_reaction_check.ogg") is None))
             results.append(check("reaction audio rejects unsupported extension", resolve_audio_file("dummy_reaction_check.txt") is None))
-        finally:
-            dummy_path.unlink(missing_ok=True)
     finally:
         voice_audio.AUDIO_ROOT = original_root
 
