@@ -11,6 +11,16 @@ from bot.services.voice_audio import (
     play_audio_on_voice_client,
     resolve_audio_file,
 )
+from bot.services.voice_music import (
+    enqueue_music_url,
+    parse_music_command,
+    pause_music,
+    resume_music,
+    send_music_queue,
+    send_now_playing,
+    skip_music,
+    stop_music,
+)
 
 VOICE_JOIN_COMMANDS = {
     "入って",
@@ -44,6 +54,9 @@ def normalize_voice_command(command_text: Optional[str]) -> str:
 
 
 def classify_voice_command(command_text: Optional[str]) -> Optional[str]:
+    action, _ = parse_music_command(command_text)
+    if action is not None:
+        return action
     action, _ = parse_voice_command(command_text)
     return action
 
@@ -217,6 +230,20 @@ async def stop_audio(message: discord.Message) -> None:
 
 
 async def handle_voice_command(message: discord.Message, command_text: Optional[str]) -> bool:
+    music_command, music_argument = parse_music_command(command_text)
+    if music_command == "music_play":
+        return await enqueue_music_url(message, music_argument)
+    if music_command == "music_skip":
+        return await skip_music(message)
+    if music_command == "music_pause":
+        return await pause_music(message)
+    if music_command == "music_resume":
+        return await resume_music(message)
+    if music_command == "music_queue":
+        return await send_music_queue(message)
+    if music_command == "music_now":
+        return await send_now_playing(message)
+
     command, argument = parse_voice_command(command_text)
     if command is None:
         return False
@@ -233,6 +260,8 @@ async def handle_voice_command(message: discord.Message, command_text: Optional[
         await play_audio_file(message, argument)
         return True
     if command == "stop":
+        if await stop_music(message):
+            return True
         await stop_audio(message)
         return True
     return False
