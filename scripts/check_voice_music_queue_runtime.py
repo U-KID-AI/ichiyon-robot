@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -9,8 +10,11 @@ if str(ROOT_DIR) not in sys.path:
 from bot.services.voice_music import (
     MusicState,
     MusicTrack,
+    YTDLP_COOKIES_FILE_ENV,
+    build_ytdl_options,
     format_now_playing,
     format_queue,
+    is_youtube_cookie_required_error,
     is_http_url,
     parse_music_command,
 )
@@ -55,6 +59,31 @@ def main() -> int:
     results.append(check("http url is accepted", is_http_url("https://example.com/watch?v=1")))
     results.append(check("non-url is rejected", not is_http_url("not-a-url")))
     results.append(check("javascript url is rejected", not is_http_url("javascript:alert(1)")))
+
+    original_cookies_file = os.environ.get(YTDLP_COOKIES_FILE_ENV)
+    try:
+        os.environ.pop(YTDLP_COOKIES_FILE_ENV, None)
+        options_without_cookies = build_ytdl_options()
+        results.append(check("yt-dlp keeps playlist disabled", options_without_cookies.get("noplaylist") is True, str(options_without_cookies)))
+        results.append(check("yt-dlp omits cookiefile when env is empty", "cookiefile" not in options_without_cookies, str(options_without_cookies)))
+
+        os.environ[YTDLP_COOKIES_FILE_ENV] = "/app/secrets/youtube-cookies.txt"
+        options_with_cookies = build_ytdl_options()
+        results.append(
+            check(
+                "yt-dlp uses cookiefile from env",
+                options_with_cookies.get("cookiefile") == "/app/secrets/youtube-cookies.txt",
+                str(options_with_cookies),
+            )
+        )
+    finally:
+        if original_cookies_file is None:
+            os.environ.pop(YTDLP_COOKIES_FILE_ENV, None)
+        else:
+            os.environ[YTDLP_COOKIES_FILE_ENV] = original_cookies_file
+
+    bot_check_error = RuntimeError("Sign in to confirm you're not a bot. Use --cookies-from-browser or --cookies for the authentication.")
+    results.append(check("youtube bot check error is detected", is_youtube_cookie_required_error(bot_check_error)))
 
     state = MusicState()
     first = MusicTrack("一曲目", "https://example.com/1", "https://stream.example.com/1", "111", 125)

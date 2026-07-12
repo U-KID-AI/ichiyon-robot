@@ -71,11 +71,13 @@ services:
       X_BEARER_TOKEN: ${X_BEARER_TOKEN:-}
       X_SEARCH_MODE: ${X_SEARCH_MODE:-recent}
       X_SEARCH_LOOKBACK_DAYS: ${X_SEARCH_LOOKBACK_DAYS:-14}
+      YTDLP_COOKIES_FILE: ${YTDLP_COOKIES_FILE:-}
       STARTUP_CHANNEL_ID: ${STARTUP_CHANNEL_ID:-0}
       SCHEDULE_CHANNEL_ID: ${SCHEDULE_CHANNEL_ID:-0}
     command: python main.py
     volumes:
       - .:/app
+      - ./secrets:/app/secrets:ro
 
   bot-irsia:
     profiles:
@@ -100,6 +102,7 @@ services:
       X_BEARER_TOKEN: ${X_BEARER_TOKEN:-}
       X_SEARCH_MODE: ${X_SEARCH_MODE:-recent}
       X_SEARCH_LOOKBACK_DAYS: ${X_SEARCH_LOOKBACK_DAYS:-14}
+      YTDLP_COOKIES_FILE: ${YTDLP_COOKIES_FILE:-}
       STARTUP_CHANNEL_ID: ${IRSIA_STARTUP_CHANNEL_ID:-0}
       SCHEDULE_CHANNEL_ID: ${IRSIA_SCHEDULE_CHANNEL_ID:-0}
       NORMAL_BOT_NICKNAME: ${IRSIA_NORMAL_BOT_NICKNAME:-イルシア}
@@ -107,6 +110,7 @@ services:
     command: python main.py
     volumes:
       - .:/app
+      - ./secrets:/app/secrets:ro
 
 volumes:
   postgres_data:

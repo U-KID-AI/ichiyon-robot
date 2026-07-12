@@ -1,4 +1,5 @@
 import asyncio
+import os
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Deque, Dict, List, Optional, Tuple
@@ -29,6 +30,7 @@ MUSIC_NOW_COMMANDS = {"今何", "now", "nowplaying"}
 DISCORD_CONNECTION_CLOSED = getattr(discord, "ConnectionClosed", discord.ClientException)
 STREAM_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
 STREAM_OPTIONS = "-vn"
+YTDLP_COOKIES_FILE_ENV = "YTDLP_COOKIES_FILE"
 YTDL_OPTIONS = {
     "format": "bestaudio/best",
     "quiet": True,
@@ -94,6 +96,29 @@ def parse_music_command(command_text: Optional[str]) -> Tuple[Optional[str], str
 def is_http_url(value: str) -> bool:
     parsed = urlparse(str(value or "").strip())
     return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+def build_ytdl_options() -> Dict[str, object]:
+    options: Dict[str, object] = dict(YTDL_OPTIONS)
+    cookies_file = str(os.getenv(YTDLP_COOKIES_FILE_ENV) or "").strip()
+    if cookies_file:
+        options["cookiefile"] = cookies_file
+    return options
+
+
+def is_youtube_cookie_required_error(error: Exception) -> bool:
+    message = str(error or "").lower()
+    return any(
+        marker in message
+        for marker in (
+            "sign in to confirm",
+            "not a bot",
+            "cookies-from-browser",
+            "use --cookies",
+            "cookie settings",
+            "authentication",
+        )
+    )
 
 
 def get_author_voice_channel(message: discord.Message):
@@ -170,7 +195,7 @@ def format_now_playing(state: MusicState) -> str:
 def extract_track_info(url: str, requester_id: str) -> MusicTrack:
     if yt_dlp is None:
         raise RuntimeError("yt-dlp is not installed")
-    with yt_dlp.YoutubeDL(YTDL_OPTIONS) as ydl:
+    with yt_dlp.YoutubeDL(build_ytdl_options()) as ydl:
         info = ydl.extract_info(url, download=False)
     if info is None:
         raise RuntimeError("URL情報を取得できませんでした")
@@ -342,7 +367,10 @@ async def enqueue_music_url(message: discord.Message, url: str) -> bool:
         track = await asyncio.to_thread(extract_track_info, url, requester_id)
     except Exception as exc:
         print("[WARN] voice music extract failed: guild_id={0} requester_id={1} error={2}".format(guild_id, requester_id, exc))
-        await message.channel.send("URL情報を取得できませんでした。URLや対応サイトを確認してください。")
+        if is_youtube_cookie_required_error(exc):
+            await message.channel.send("YouTube側の確認要求により取得できませんでした。Cookie設定が必要な可能性があります。")
+        else:
+            await message.channel.send("URL情報を取得できませんでした。URLや対応サイトを確認してください。")
         return True
 
     should_start = state.current is None and not (voice_client.is_playing() or voice_client.is_paused())

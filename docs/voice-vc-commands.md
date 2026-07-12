@@ -66,6 +66,8 @@ VC未接続、再生中、ファイル未存在、再生開始失敗の場合、
 
 実行者がVCにいる場合、Botが未接続ならそのVCへ接続して再生します。再生中の場合はguild単位のキューに追加します。URL情報の取得には `yt-dlp` を使います。
 
+YouTube側の確認要求で取得できない場合は、サーバー上にcookiesファイルを配置し、`.env` に `YTDLP_COOKIES_FILE=/app/secrets/youtube-cookies.txt` のように設定します。cookieファイルはGit管理しません。playlist付きURLは1曲再生のため展開しません。
+
 ## 音楽キュー操作
 
 - スキップ: `@Bot スキップ` / `@Bot skip` / `@Bot 次` / `@Bot 次の曲`
