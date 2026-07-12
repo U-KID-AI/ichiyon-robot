@@ -66,7 +66,7 @@ def main() -> int:
         os.environ.pop(YTDLP_COOKIES_FILE_ENV, None)
         options_without_cookies = build_ytdl_options()
         results.append(check("yt-dlp keeps playlist disabled", options_without_cookies.get("noplaylist") is True, str(options_without_cookies)))
-        results.append(check("yt-dlp uses deno JS runtime", options_without_cookies.get("js_runtimes") == ["deno"], str(options_without_cookies)))
+        results.append(check("yt-dlp uses deno JS runtime config dict", options_without_cookies.get("js_runtimes") == {"deno": {}}, str(options_without_cookies)))
         results.append(check("yt-dlp enables ejs remote component", options_without_cookies.get("remote_components") == ["ejs:github"], str(options_without_cookies)))
         results.append(check("yt-dlp omits cookiefile when env is empty", "cookiefile" not in options_without_cookies, str(options_without_cookies)))
 

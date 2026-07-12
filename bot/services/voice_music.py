@@ -39,7 +39,7 @@ YTDL_OPTIONS = {
     "quiet": True,
     "no_warnings": True,
     "noplaylist": True,
-    "js_runtimes": ["deno"],
+    "js_runtimes": {"deno": {}},
     "remote_components": ["ejs:github"],
 }
 
