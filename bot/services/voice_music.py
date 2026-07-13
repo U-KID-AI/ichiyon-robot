@@ -1,8 +1,10 @@
 import asyncio
 import os
+import random
 import shutil
+import tempfile
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Deque, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
@@ -10,6 +12,18 @@ from urllib.parse import urlparse
 import discord
 
 from bot import config
+from bot.db import get_connection
+from bot.messages import get_bot
+from bot.repositories.music_settings import (
+    DEFAULT_MUSIC_VOLUME_PERCENT,
+    MusicSettingsRepository,
+)
+from bot.services.youtube_cookie_monitor import (
+    AUTH_FAILURE_STATUSES,
+    classify_ytdlp_error,
+    format_cookie_monitor_status,
+    handle_transient_auth_failure,
+)
 from bot.services.voice_audio import (
     cleanup_stale_voice_client,
     get_guild_voice_client,
@@ -29,11 +43,21 @@ MUSIC_PAUSE_COMMANDS = {"一時停止", "pause"}
 MUSIC_RESUME_COMMANDS = {"再開", "resume"}
 MUSIC_QUEUE_COMMANDS = {"キュー", "queue", "再生予定"}
 MUSIC_NOW_COMMANDS = {"今何", "now", "nowplaying"}
+MUSIC_LOOP_STATUS_COMMANDS = {"ループ"}
+MUSIC_LOOP_ONE_COMMANDS = {"1曲ループ"}
+MUSIC_LOOP_QUEUE_COMMANDS = {"キューループ"}
+MUSIC_LOOP_OFF_COMMANDS = {"ループ解除"}
+MUSIC_SHUFFLE_COMMANDS = {"シャッフル"}
+MUSIC_VOLUME_COMMAND = "音量"
+MUSIC_YOUTUBE_STATUS_COMMAND = "youtube状態"
+MUSIC_LOOP_OFF = "off"
+MUSIC_LOOP_ONE = "one"
+MUSIC_LOOP_QUEUE = "queue"
 DISCORD_CONNECTION_CLOSED = getattr(discord, "ConnectionClosed", discord.ClientException)
 STREAM_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
 STREAM_OPTIONS = "-vn"
 YTDLP_COOKIES_FILE_ENV = "YTDLP_COOKIES_FILE"
-YTDLP_COOKIES_TMP_DIR = Path("/tmp")
+YTDLP_COOKIES_TMP_DIR = Path(tempfile.gettempdir())
 YTDL_OPTIONS = {
     "format": "bestaudio/best",
     "quiet": True,
@@ -51,6 +75,8 @@ class MusicTrack:
     stream_url: str
     requester_id: str
     duration: Optional[int] = None
+    source_url: Optional[str] = None
+    refresh_required: bool = False
 
 
 @dataclass
@@ -59,15 +85,27 @@ class MusicState:
     current: Optional[MusicTrack] = None
     text_channel: Optional[discord.abc.Messageable] = None
     stopping: bool = False
+    skip_requested: bool = False
+    loop_mode: str = MUSIC_LOOP_OFF
+    music_volume_percent: Optional[int] = None
 
 
 _MUSIC_STATES: Dict[str, MusicState] = {}
 
 
+def music_state_key(guild_id: str) -> str:
+    return "{0}:{1}".format(config.BOT_INSTANCE_ID, guild_id)
+
+
 def get_music_state(guild_id: str) -> MusicState:
-    if guild_id not in _MUSIC_STATES:
-        _MUSIC_STATES[guild_id] = MusicState()
-    return _MUSIC_STATES[guild_id]
+    key = music_state_key(guild_id)
+    if key not in _MUSIC_STATES:
+        _MUSIC_STATES[key] = MusicState()
+    return _MUSIC_STATES[key]
+
+
+def clear_music_state(guild_id: str) -> None:
+    _MUSIC_STATES.pop(music_state_key(guild_id), None)
 
 
 def normalize_music_command(command_text: Optional[str]) -> str:
@@ -87,6 +125,23 @@ def parse_music_command(command_text: Optional[str]) -> Tuple[Optional[str], str
         return "music_queue", ""
     if normalized in MUSIC_NOW_COMMANDS:
         return "music_now", ""
+    if normalized in MUSIC_LOOP_STATUS_COMMANDS:
+        return "music_loop_status", ""
+    if normalized in MUSIC_LOOP_ONE_COMMANDS:
+        return "music_loop_one", ""
+    if normalized in MUSIC_LOOP_QUEUE_COMMANDS:
+        return "music_loop_queue", ""
+    if normalized in MUSIC_LOOP_OFF_COMMANDS:
+        return "music_loop_off", ""
+    if normalized in MUSIC_SHUFFLE_COMMANDS:
+        return "music_shuffle", ""
+
+    if raw == MUSIC_VOLUME_COMMAND:
+        return "music_volume", ""
+    if raw.startswith(MUSIC_VOLUME_COMMAND + " "):
+        return "music_volume", raw[len(MUSIC_VOLUME_COMMAND) :].strip()
+    if normalized == MUSIC_YOUTUBE_STATUS_COMMAND:
+        return "youtube_status", ""
 
     raw_lower = raw.lower()
     for prefix in MUSIC_PLAY_PREFIXES:
@@ -121,10 +176,10 @@ def prepare_ytdlp_cookie_file(cookies_file: str, guild_id: Optional[str] = None)
     return str(target_path)
 
 
-def build_ytdl_options(guild_id: Optional[str] = None, copy_cookies: bool = True) -> Dict[str, object]:
+def build_ytdl_options(guild_id: Optional[str] = None, copy_cookies: bool = True, use_cookies: bool = True) -> Dict[str, object]:
     options: Dict[str, object] = dict(YTDL_OPTIONS)
     cookies_file = str(os.getenv(YTDLP_COOKIES_FILE_ENV) or "").strip()
-    if cookies_file:
+    if use_cookies and cookies_file:
         options["cookiefile"] = prepare_ytdlp_cookie_file(cookies_file, guild_id) if copy_cookies else str(get_ytdlp_cookie_tmp_path(guild_id))
     return options
 
@@ -215,10 +270,85 @@ def format_now_playing(state: MusicState) -> str:
     return "現在再生中:\n{0}\nリクエスト: <@{1}>".format(format_track(state.current), state.current.requester_id)
 
 
-def extract_track_info(url: str, requester_id: str, guild_id: Optional[str] = None) -> MusicTrack:
+def clamp_volume_percent(value: int) -> int:
+    return max(0, min(100, int(value)))
+
+
+def volume_factor(percent: int) -> float:
+    return clamp_volume_percent(percent) / 100.0
+
+
+def parse_volume_percent(argument: str) -> Tuple[Optional[int], str]:
+    text = str(argument or "").strip()
+    if not text:
+        return None, ""
+    try:
+        value = int(text)
+    except ValueError:
+        return None, "音量は0〜100の数値で指定してください。"
+    if value < 0 or value > 100:
+        return None, "音量は0〜100の範囲で指定してください。"
+    return value, ""
+
+
+def load_music_volume_percent(guild_id: str, state: Optional[MusicState] = None) -> int:
+    current_state = state or get_music_state(guild_id)
+    if current_state.music_volume_percent is not None:
+        return current_state.music_volume_percent
+    try:
+        with get_connection() as connection:
+            settings = MusicSettingsRepository(connection).get(guild_id)
+            current_state.music_volume_percent = int(settings.get("music_volume_percent") or DEFAULT_MUSIC_VOLUME_PERCENT)
+    except Exception as exc:
+        print("[WARN] music volume settings unavailable: guild_id={0} error={1}".format(guild_id, exc))
+        current_state.music_volume_percent = DEFAULT_MUSIC_VOLUME_PERCENT
+    return current_state.music_volume_percent
+
+
+def save_music_volume_percent(guild_id: str, percent: int, state: Optional[MusicState] = None) -> Tuple[int, bool]:
+    value = clamp_volume_percent(percent)
+    current_state = state or get_music_state(guild_id)
+    saved = True
+    try:
+        with get_connection() as connection:
+            MusicSettingsRepository(connection).upsert(guild_id, music_volume_percent=value)
+            connection.commit()
+    except Exception as exc:
+        print("[WARN] music volume settings save failed: guild_id={0} error={1}".format(guild_id, exc))
+        saved = False
+    current_state.music_volume_percent = value
+    return value, saved
+
+
+def apply_music_volume_to_voice_client(voice_client: Optional[discord.VoiceClient], percent: int) -> bool:
+    source = getattr(voice_client, "source", None)
+    if source is None or not hasattr(source, "volume"):
+        return False
+    try:
+        source.volume = volume_factor(percent)
+        return True
+    except Exception:
+        return False
+
+
+def loop_status_text(loop_mode: str) -> str:
+    if loop_mode == MUSIC_LOOP_ONE:
+        return "1曲ループ中です。"
+    if loop_mode == MUSIC_LOOP_QUEUE:
+        return "キュー全体をループ中です。"
+    return "ループは無効です。"
+
+
+def make_loop_track(track: MusicTrack) -> MusicTrack:
+    if track.source_url:
+        return replace(track, stream_url="", refresh_required=True)
+    return replace(track)
+
+
+def extract_track_info(url: str, requester_id: str, guild_id: Optional[str] = None, use_cookies: bool = True) -> MusicTrack:
     if yt_dlp is None:
         raise RuntimeError("yt-dlp is not installed")
-    with yt_dlp.YoutubeDL(build_ytdl_options(guild_id)) as ydl:
+    with yt_dlp.YoutubeDL(build_ytdl_options(guild_id, use_cookies=use_cookies)) as ydl:
         info = ydl.extract_info(url, download=False)
     if info is None:
         raise RuntimeError("URL情報を取得できませんでした")
@@ -237,7 +367,53 @@ def extract_track_info(url: str, requester_id: str, guild_id: Optional[str] = No
         duration_value = int(duration) if duration is not None else None
     except (TypeError, ValueError):
         duration_value = None
-    return MusicTrack(title=title, webpage_url=webpage_url, stream_url=stream_url, requester_id=requester_id, duration=duration_value)
+    return MusicTrack(
+        title=title,
+        webpage_url=webpage_url,
+        stream_url=stream_url,
+        requester_id=requester_id,
+        duration=duration_value,
+        source_url=url,
+    )
+
+
+async def refresh_track_for_playback(track: MusicTrack, guild_id: str) -> Optional[MusicTrack]:
+    if not track.refresh_required:
+        return track
+    if not track.source_url:
+        return replace(track, refresh_required=False)
+
+    try:
+        refreshed = await asyncio.to_thread(extract_track_info, track.source_url, track.requester_id, guild_id)
+    except Exception as exc:
+        error_status = classify_ytdlp_error(exc)
+        if error_status in AUTH_FAILURE_STATUSES:
+            await handle_transient_auth_failure(get_bot(), error_status)
+            try:
+                refreshed = await asyncio.to_thread(extract_track_info, track.source_url, track.requester_id, guild_id, False)
+            except Exception as fallback_exc:
+                print(
+                    "[WARN] voice music loop refresh cookie-less fallback failed: guild_id={0} title={1} error={2}".format(
+                        guild_id,
+                        track.title,
+                        fallback_exc,
+                    )
+                )
+                log_music_action("loop_refresh_failed", guild_id, requester_id=track.requester_id, title=track.title, reason=classify_ytdlp_error(fallback_exc))
+                return None
+        else:
+            print("[WARN] voice music loop refresh failed: guild_id={0} title={1} error={2}".format(guild_id, track.title, exc))
+            log_music_action("loop_refresh_failed", guild_id, requester_id=track.requester_id, title=track.title, reason=error_status)
+            return None
+
+    refreshed.title = track.title or refreshed.title
+    refreshed.webpage_url = track.webpage_url or refreshed.webpage_url
+    refreshed.requester_id = track.requester_id
+    refreshed.duration = track.duration if track.duration is not None else refreshed.duration
+    refreshed.source_url = track.source_url
+    refreshed.refresh_required = False
+    log_music_action("loop_refresh", guild_id, requester_id=track.requester_id, title=refreshed.title)
+    return refreshed
 
 
 async def ensure_music_voice_client(message: discord.Message) -> Optional[discord.VoiceClient]:
@@ -321,6 +497,9 @@ async def _handle_track_finished(
 ) -> None:
     state = get_music_state(guild_id)
     channel_id = voice_channel_id(voice_client)
+    finished_track = state.current
+    skip_requested = state.skip_requested
+    state.skip_requested = False
     if error is not None:
         print("[WARN] voice music playback error: guild_id={0} channel_id={1} error={2}".format(guild_id, channel_id, error))
         log_music_action("playback_error", guild_id, channel_id, reason=str(error))
@@ -331,6 +510,10 @@ async def _handle_track_finished(
         state.stopping = False
         log_music_action("queue_empty", guild_id, channel_id, reason="stopped")
         return
+    if finished_track is not None and state.loop_mode == MUSIC_LOOP_ONE and not skip_requested:
+        state.queue.appendleft(make_loop_track(finished_track))
+    elif finished_track is not None and state.loop_mode == MUSIC_LOOP_QUEUE:
+        state.queue.append(make_loop_track(finished_track))
     await play_next_track(voice_client, guild_id)
 
 
@@ -340,28 +523,32 @@ async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> b
         state.current = None
         log_music_action("queue_empty", guild_id, voice_channel_id(voice_client), reason="not_connected")
         return False
-    if not state.queue:
-        state.current = None
-        log_music_action("queue_empty", guild_id, voice_channel_id(voice_client))
-        return False
-
-    track = state.queue.popleft()
-    state.current = track
     channel_id = voice_channel_id(voice_client)
-    try:
-        source = discord.FFmpegPCMAudio(
-            track.stream_url,
-            before_options=STREAM_BEFORE_OPTIONS,
-            options=STREAM_OPTIONS,
-        )
-        voice_client.play(source, after=lambda error: _schedule_after_callback(voice_client, guild_id, error))
-        log_music_action("play_start", guild_id, channel_id, track.requester_id, track.title)
-        return True
-    except (discord.ClientException, discord.OpusNotLoaded, OSError) as exc:
-        print("[WARN] voice music play start failed: guild_id={0} title={1} error={2}".format(guild_id, track.title, exc))
-        log_music_action("playback_error", guild_id, channel_id, track.requester_id, track.title, str(exc))
-        state.current = None
-        return await play_next_track(voice_client, guild_id)
+    while state.queue:
+        track = state.queue.popleft()
+        refreshed_track = await refresh_track_for_playback(track, guild_id)
+        if refreshed_track is None:
+            continue
+
+        state.current = refreshed_track
+        try:
+            raw_source = discord.FFmpegPCMAudio(
+                refreshed_track.stream_url,
+                before_options=STREAM_BEFORE_OPTIONS,
+                options=STREAM_OPTIONS,
+            )
+            source = discord.PCMVolumeTransformer(raw_source, volume=volume_factor(load_music_volume_percent(guild_id, state)))
+            voice_client.play(source, after=lambda error: _schedule_after_callback(voice_client, guild_id, error))
+            log_music_action("play_start", guild_id, channel_id, refreshed_track.requester_id, refreshed_track.title)
+            return True
+        except (discord.ClientException, discord.OpusNotLoaded, OSError) as exc:
+            print("[WARN] voice music play start failed: guild_id={0} title={1} error={2}".format(guild_id, refreshed_track.title, exc))
+            log_music_action("playback_error", guild_id, channel_id, refreshed_track.requester_id, refreshed_track.title, str(exc))
+            state.current = None
+
+    state.current = None
+    log_music_action("queue_empty", guild_id, channel_id)
+    return False
 
 
 async def enqueue_music_url(message: discord.Message, url: str) -> bool:
@@ -390,11 +577,22 @@ async def enqueue_music_url(message: discord.Message, url: str) -> bool:
         track = await asyncio.to_thread(extract_track_info, url, requester_id, guild_id)
     except Exception as exc:
         print("[WARN] voice music extract failed: guild_id={0} requester_id={1} error={2}".format(guild_id, requester_id, exc))
-        if is_youtube_cookie_required_error(exc):
+        error_status = classify_ytdlp_error(exc)
+        if error_status in AUTH_FAILURE_STATUSES:
+            await handle_transient_auth_failure(get_bot(), error_status)
+            try:
+                track = await asyncio.to_thread(extract_track_info, url, requester_id, guild_id, False)
+                log_music_action("extract_cookie_fallback", guild_id, voice_channel_id(voice_client), requester_id, track.title, "cookie_less")
+            except Exception as fallback_exc:
+                print("[WARN] voice music cookie-less fallback failed: guild_id={0} requester_id={1} error={2}".format(guild_id, requester_id, fallback_exc))
+                await message.channel.send("YouTube側の確認要求により取得できませんでした。Cookie設定が必要な可能性があります。")
+                return True
+        elif is_youtube_cookie_required_error(exc):
             await message.channel.send("YouTube側の確認要求により取得できませんでした。Cookie設定が必要な可能性があります。")
+            return True
         else:
             await message.channel.send("URL情報を取得できませんでした。URLや対応サイトを確認してください。")
-        return True
+            return True
 
     should_start = state.current is None and not (voice_client.is_playing() or voice_client.is_paused())
     state.queue.append(track)
@@ -418,6 +616,7 @@ async def skip_music(message: discord.Message) -> bool:
         await message.channel.send("現在再生中の曲はありません。")
         return True
     log_music_action("skip", str(guild.id), voice_channel_id(voice_client), str(getattr(message.author, "id", "") or ""), state.current.title)
+    state.skip_requested = True
     voice_client.stop()
     await message.channel.send("スキップしました。")
     return True
@@ -430,17 +629,82 @@ async def stop_music(message: discord.Message) -> bool:
     guild_id = str(guild.id)
     state = get_music_state(guild_id)
     voice_client = get_guild_voice_client(guild)
-    has_music = state.current is not None or bool(state.queue)
+    has_music = state.current is not None or bool(state.queue) or state.loop_mode != MUSIC_LOOP_OFF
     if not has_music:
         return False
     state.queue.clear()
     state.stopping = True
+    state.skip_requested = False
+    state.loop_mode = MUSIC_LOOP_OFF
     current_title = state.current.title if state.current else ""
     state.current = None
     if voice_client is not None and (voice_client.is_playing() or voice_client.is_paused()):
         voice_client.stop()
     log_music_action("stop", guild_id, voice_channel_id(voice_client), str(getattr(message.author, "id", "") or ""), current_title)
     await message.channel.send("再生を停止し、キューをクリアしました。")
+    return True
+
+
+async def send_or_update_music_volume(message: discord.Message, argument: str) -> bool:
+    guild = message.guild
+    if guild is None:
+        await message.channel.send("音量コマンドはサーバー内で使ってください。")
+        return True
+    guild_id = str(guild.id)
+    state = get_music_state(guild_id)
+    if not str(argument or "").strip():
+        await message.channel.send("現在の音楽音量は {0}% です。".format(load_music_volume_percent(guild_id, state)))
+        return True
+    value, error = parse_volume_percent(argument)
+    if error:
+        await message.channel.send(error)
+        return True
+    saved, persisted = save_music_volume_percent(guild_id, int(value), state)
+    voice_client = get_guild_voice_client(guild)
+    applied = apply_music_volume_to_voice_client(voice_client, saved)
+    suffix = " 現在再生中の音量にも反映しました。" if applied else ""
+    if persisted:
+        await message.channel.send("音楽音量を {0}% に変更しました。{1}".format(saved, suffix).strip())
+    else:
+        await message.channel.send(
+            "音楽音量を {0}% に一時的に変更しましたが、設定を保存できませんでした。Botを再起動すると元に戻る可能性があります。{1}".format(
+                saved,
+                suffix,
+            ).strip()
+        )
+    return True
+
+
+async def send_music_loop_status(message: discord.Message) -> bool:
+    guild = message.guild
+    if guild is None:
+        await message.channel.send("音楽コマンドはサーバー内で使ってください。")
+        return True
+    await message.channel.send(loop_status_text(get_music_state(str(guild.id)).loop_mode))
+    return True
+
+
+async def set_music_loop(message: discord.Message, loop_mode: str) -> bool:
+    guild = message.guild
+    if guild is None:
+        await message.channel.send("音楽コマンドはサーバー内で使ってください。")
+        return True
+    state = get_music_state(str(guild.id))
+    state.loop_mode = loop_mode
+    await message.channel.send(loop_status_text(loop_mode))
+    return True
+
+
+async def shuffle_music_queue(message: discord.Message) -> bool:
+    guild = message.guild
+    if guild is None:
+        await message.channel.send("音楽コマンドはサーバー内で使ってください。")
+        return True
+    state = get_music_state(str(guild.id))
+    waiting = list(state.queue)
+    random.shuffle(waiting)
+    state.queue = deque(waiting)
+    await message.channel.send("待機中のキューをシャッフルしました。対象: {0}件".format(len(waiting)))
     return True
 
 
@@ -489,4 +753,9 @@ async def send_now_playing(message: discord.Message) -> bool:
         await message.channel.send("音楽コマンドはサーバー内で使ってください。")
         return True
     await message.channel.send(format_now_playing(get_music_state(str(guild.id))))
+    return True
+
+
+async def send_youtube_status(message: discord.Message) -> bool:
+    await message.channel.send(format_cookie_monitor_status())
     return True

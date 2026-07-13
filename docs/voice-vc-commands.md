@@ -60,6 +60,19 @@ VC未接続、再生中、ファイル未存在、再生開始失敗の場合、
 
 YouTube側の確認要求で取得できない場合は、サーバー上にcookiesファイルを配置し、`.env` に `YTDLP_COOKIES_FILE=/app/secrets/youtube-cookies.txt` のように設定します。cookieファイルはGit管理しません。実行時は読み取り専用の `/app/secrets` から `/tmp` へコピーした一時ファイルを `yt-dlp` に渡します。playlist付きURLは1曲再生のため展開しません。
 
+Cookie状態監視を使う場合は、以下を設定します。`YTDLP_COOKIE_CHECK_URL` が未設定の場合、定期検査は安全にスキップされます。
+
+- `YTDLP_COOKIE_CHECK_ENABLED=true`
+- `YTDLP_COOKIE_CHECK_TIME=04:30`
+- `YTDLP_COOKIE_CHECK_TIMEZONE=Asia/Tokyo`
+- `YTDLP_COOKIE_CHECK_OWNER_BOT_ID=ichiyon`
+- `YTDLP_COOKIE_CHECK_URL=<公開されている検査用YouTube URL>`
+- `YTDLP_COOKIE_RETRY_COOLDOWN_SECONDS=1800`
+- `YTDLP_COOKIE_CHECK_OWNER_BOT_ID` に一致するBotだけが定期チェックを実行します。botとbot-irsiaで同じCookieを共有する場合は、担当Botを1体だけ指定してください。
+- `YTDLP_ALERT_CHANNEL_ID=<通知先DiscordチャンネルID>`
+
+現在の自動更新処理は、Cookie検査・分類・排他制御・通知の土台までです。専用Firefoxプロファイルなど安全な更新元が未設定のため、Cookie失効時は「自動更新未設定」として扱い、既存Cookieを変更しません。Cookie内容、Googleアカウント情報、長い例外スタックはログやDiscord通知に出しません。
+
 ## 音楽キュー操作
 
 - スキップ: `@Bot スキップ` / `@Bot skip` / `@Bot 次` / `@Bot 次の曲`
@@ -68,8 +81,17 @@ YouTube側の確認要求で取得できない場合は、サーバー上にcook
 - 再開: `@Bot 再開` / `@Bot resume`
 - キュー表示: `@Bot キュー` / `@Bot queue` / `@Bot 再生予定`
 - 現在再生中: `@Bot 今何` / `@Bot now` / `@Bot nowplaying`
+- 音量確認/変更: `@Bot 音量` / `@Bot 音量 40`
+- ループ確認: `@Bot ループ`
+- 1曲ループ: `@Bot 1曲ループ`
+- キューループ: `@Bot キューループ`
+- ループ解除: `@Bot ループ解除`
+- シャッフル: `@Bot シャッフル`
+- YouTube Cookie状態: `@Bot YouTube状態`
 
 停止は音楽キューがある場合、現在曲を停止してキューもクリアします。VCからは退出しません。キューがない場合は従来のローカル音声停止として扱います。
+
+音楽の初期音量は40%、ローカル音声や反応音声などの前景音声は50%です。音楽音量は `bot_id + guild_id` 単位でDBに保存され、再起動後も維持されます。ループとシャッフルは実行中のguild単位ランタイム状態で、停止またはVC退出時に解除されます。
 
 ## 停止
 

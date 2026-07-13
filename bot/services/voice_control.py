@@ -16,14 +16,23 @@ from bot.services.voice_audio import (
     resolve_audio_file,
 )
 from bot.services.voice_music import (
+    clear_music_state,
     enqueue_music_url,
     parse_music_command,
     pause_music,
     resume_music,
+    send_music_loop_status,
     send_music_queue,
+    send_or_update_music_volume,
     send_now_playing,
+    send_youtube_status,
+    set_music_loop,
+    shuffle_music_queue,
     skip_music,
     stop_music,
+    MUSIC_LOOP_OFF,
+    MUSIC_LOOP_ONE,
+    MUSIC_LOOP_QUEUE,
 )
 
 VOICE_JOIN_COMMANDS = {
@@ -168,11 +177,13 @@ async def leave_voice_channel(message: discord.Message) -> None:
     guild_id = str(guild.id)
     voice_client = get_raw_guild_voice_client(guild)
     if voice_client is None:
+        clear_music_state(guild_id)
         log_voice_action("leave_not_connected", guild_id, None)
         await message.channel.send("いまVCには入っていません。")
         return
     if not is_voice_client_connected(voice_client):
         await cleanup_stale_voice_client(voice_client)
+        clear_music_state(guild_id)
         log_voice_action("leave_not_connected", guild_id, None)
         await message.channel.send("いまVCには入っていません。")
         return
@@ -181,6 +192,7 @@ async def leave_voice_channel(message: discord.Message) -> None:
     channel_id = str(getattr(current_channel, "id", "") or "")
     try:
         await voice_client.disconnect()
+        clear_music_state(guild_id)
         log_voice_action("leave", guild_id, channel_id)
         await message.channel.send("VCから退出しました。")
     except (discord.ClientException, discord.HTTPException) as exc:
@@ -263,6 +275,20 @@ async def handle_voice_command(message: discord.Message, command_text: Optional[
         return await send_music_queue(message)
     if music_command == "music_now":
         return await send_now_playing(message)
+    if music_command == "music_volume":
+        return await send_or_update_music_volume(message, music_argument)
+    if music_command == "music_loop_status":
+        return await send_music_loop_status(message)
+    if music_command == "music_loop_one":
+        return await set_music_loop(message, MUSIC_LOOP_ONE)
+    if music_command == "music_loop_queue":
+        return await set_music_loop(message, MUSIC_LOOP_QUEUE)
+    if music_command == "music_loop_off":
+        return await set_music_loop(message, MUSIC_LOOP_OFF)
+    if music_command == "music_shuffle":
+        return await shuffle_music_queue(message)
+    if music_command == "youtube_status":
+        return await send_youtube_status(message)
 
     command, argument = parse_voice_command(command_text)
     if command is None:
