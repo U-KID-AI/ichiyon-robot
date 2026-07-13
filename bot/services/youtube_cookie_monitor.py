@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Callable, Optional
 from zoneinfo import ZoneInfo
 
+from bot import config
+
 
 COOKIE_STATUS_OK = "OK"
 COOKIE_STATUS_NOT_CONFIGURED = "COOKIE_NOT_CONFIGURED"
@@ -37,6 +39,7 @@ YTDLP_COOKIE_CHECK_TIMEZONE = "YTDLP_COOKIE_CHECK_TIMEZONE"
 YTDLP_COOKIE_CHECK_URL = "YTDLP_COOKIE_CHECK_URL"
 YTDLP_COOKIE_RETRY_COOLDOWN_SECONDS = "YTDLP_COOKIE_RETRY_COOLDOWN_SECONDS"
 YTDLP_ALERT_CHANNEL_ID = "YTDLP_ALERT_CHANNEL_ID"
+YTDLP_COOKIE_CHECK_OWNER_BOT_ID = "YTDLP_COOKIE_CHECK_OWNER_BOT_ID"
 YTDLP_COOKIES_FILE_ENV = "YTDLP_COOKIES_FILE"
 
 
@@ -83,6 +86,14 @@ def cookie_check_url() -> str:
 
 def alert_channel_id() -> str:
     return str(os.getenv(YTDLP_ALERT_CHANNEL_ID) or "").strip()
+
+
+def cookie_check_owner_bot_id() -> str:
+    return str(os.getenv(YTDLP_COOKIE_CHECK_OWNER_BOT_ID, "ichiyon") or "ichiyon").strip() or "ichiyon"
+
+
+def is_cookie_check_owner_bot() -> bool:
+    return config.BOT_INSTANCE_ID == cookie_check_owner_bot_id()
 
 
 def retry_cooldown_seconds() -> int:
@@ -219,6 +230,8 @@ async def check_youtube_cookie_status(
 async def maybe_run_scheduled_cookie_check(bot) -> None:
     if not cookie_check_enabled():
         return
+    if not is_cookie_check_owner_bot():
+        return
     tz = check_timezone()
     now_local = datetime.now(tz)
     scheduled_time = parse_check_time()
@@ -281,16 +294,27 @@ async def notify_youtube_cookie_status(bot, status: str) -> None:
 def format_cookie_monitor_status() -> str:
     path = cookie_file_path()
     configured = "あり" if path else "なし"
+    if not path:
+        file_status = "未設定"
+    else:
+        source = Path(path)
+        if source.is_file():
+            file_status = "利用可能"
+        elif source.exists():
+            file_status = "読み取り不可"
+        else:
+            file_status = "見つかりません"
     return "\n".join(
         [
             "YouTube状態",
             "- 通常抽出: {0}".format("利用可能" if COOKIE_MONITOR_STATE.status == COOKIE_STATUS_OK else "未確認または要確認"),
             "- Cookie設定: {0}".format(configured),
+            "- Cookieファイル: {0}".format(file_status),
             "- Cookie認証状態: {0}".format(COOKIE_MONITOR_STATE.status),
             "- 最終検査日時: {0}".format(COOKIE_MONITOR_STATE.last_checked_at.isoformat() if COOKIE_MONITOR_STATE.last_checked_at else "未実行"),
             "- 最終成功日時: {0}".format(COOKIE_MONITOR_STATE.last_success_at.isoformat() if COOKIE_MONITOR_STATE.last_success_at else "未実行"),
             "- 最後のエラー分類: {0}".format(COOKIE_MONITOR_STATE.last_error_status or "なし"),
             "- 自動更新: {0}".format("設定済み" if COOKIE_MONITOR_STATE.auto_update_configured else "未設定"),
-            "- Cookieパス: {0}".format(path or "未設定"),
+            "- 定期チェック担当Bot: {0}".format(cookie_check_owner_bot_id()),
         ]
     )

@@ -24,7 +24,14 @@ async def main_async() -> int:
     results.append(check("captcha is classified", monitor.classify_ytdlp_error(RuntimeError("captcha required")) == monitor.COOKIE_STATUS_CAPTCHA_REQUIRED))
     results.append(check("network is classified", monitor.classify_ytdlp_error(RuntimeError("connection timed out")) == monitor.COOKIE_STATUS_NETWORK_ERROR))
 
-    original_env = {key: os.environ.get(key) for key in (monitor.YTDLP_COOKIE_CHECK_URL, monitor.YTDLP_COOKIES_FILE_ENV)}
+    original_env = {
+        key: os.environ.get(key)
+        for key in (
+            monitor.YTDLP_COOKIE_CHECK_URL,
+            monitor.YTDLP_COOKIES_FILE_ENV,
+            monitor.YTDLP_COOKIE_CHECK_OWNER_BOT_ID,
+        )
+    }
     try:
         os.environ.pop(monitor.YTDLP_COOKIE_CHECK_URL, None)
         os.environ.pop(monitor.YTDLP_COOKIES_FILE_ENV, None)
@@ -57,6 +64,16 @@ async def main_async() -> int:
 
         update = await monitor.try_update_youtube_cookie()
         results.append(check("auto update is safely unconfigured", update.status == monitor.COOKIE_STATUS_UPDATE_NOT_CONFIGURED, update.status))
+        os.environ.pop(monitor.YTDLP_COOKIE_CHECK_OWNER_BOT_ID, None)
+        results.append(check("default cookie check owner is ichiyon", monitor.cookie_check_owner_bot_id() == "ichiyon", monitor.cookie_check_owner_bot_id()))
+        os.environ[monitor.YTDLP_COOKIE_CHECK_OWNER_BOT_ID] = "irsia"
+        results.append(check("non-owner bot can be detected", monitor.is_cookie_check_owner_bot() is False, monitor.cookie_check_owner_bot_id()))
+        os.environ[monitor.YTDLP_COOKIE_CHECK_OWNER_BOT_ID] = monitor.config.BOT_INSTANCE_ID
+        results.append(check("configured owner bot can be detected", monitor.is_cookie_check_owner_bot() is True, monitor.cookie_check_owner_bot_id()))
+        os.environ[monitor.YTDLP_COOKIES_FILE_ENV] = "/app/secrets/youtube-cookies.txt"
+        status_text = monitor.format_cookie_monitor_status()
+        results.append(check("status hides cookie file path", "/app/secrets/youtube-cookies.txt" not in status_text, status_text))
+        results.append(check("status shows owner bot", "定期チェック担当Bot" in status_text and monitor.cookie_check_owner_bot_id() in status_text, status_text))
     finally:
         for key, value in original_env.items():
             if value is None:

@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -7,6 +8,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+import bot.services.voice_music as voice_music
 from bot.services.voice_music import (
     MUSIC_LOOP_OFF,
     MUSIC_LOOP_ONE,
@@ -20,10 +22,13 @@ from bot.services.voice_music import (
     format_queue,
     get_ytdlp_cookie_tmp_path,
     loop_status_text,
+    make_loop_track,
     parse_volume_percent,
     is_youtube_cookie_required_error,
     is_http_url,
     parse_music_command,
+    refresh_track_for_playback,
+    save_music_volume_percent,
     volume_factor,
 )
 
@@ -84,6 +89,16 @@ def main() -> int:
     fake_source = type("FakeSource", (), {"volume": 1.0})()
     fake_voice = type("FakeVoice", (), {"source": fake_source})()
     results.append(check("playing volume can be updated", apply_music_volume_to_voice_client(fake_voice, 25) and fake_source.volume == 0.25))
+    original_get_connection = voice_music.get_connection
+    try:
+        def _failing_connection():
+            raise RuntimeError("db unavailable")
+
+        voice_music.get_connection = _failing_connection
+        temporary_volume, persisted = save_music_volume_percent("guild-check", 33, MusicState())
+        results.append(check("volume save failure still returns temporary value", temporary_volume == 33 and persisted is False, str((temporary_volume, persisted))))
+    finally:
+        voice_music.get_connection = original_get_connection
     results.append(check("loop off text", loop_status_text(MUSIC_LOOP_OFF) == "ループは無効です。"))
     results.append(check("loop one text", loop_status_text(MUSIC_LOOP_ONE) == "1曲ループ中です。"))
     results.append(check("loop queue text", loop_status_text(MUSIC_LOOP_QUEUE) == "キュー全体をループ中です。"))
@@ -120,6 +135,38 @@ def main() -> int:
     state = MusicState()
     first = MusicTrack("一曲目", "https://example.com/1", "https://stream.example.com/1", "111", 125)
     second = MusicTrack("二曲目", "https://example.com/2", "https://stream.example.com/2", "222", None)
+    source_track = MusicTrack("ループ曲", "https://example.com/watch", "https://old-stream.example.com/1", "111", 125, "https://example.com/watch")
+    loop_track = make_loop_track(source_track)
+    results.append(check("loop track requires stream refresh", loop_track.refresh_required and loop_track.stream_url == "", str(loop_track)))
+
+    original_extract = voice_music.extract_track_info
+    try:
+        def _fake_extract(url, requester_id, guild_id=None, use_cookies=True):
+            return MusicTrack("fresh", url, "https://fresh-stream.example.com/1", requester_id, 99, url)
+
+        voice_music.extract_track_info = _fake_extract
+        refreshed = asyncio.run(refresh_track_for_playback(loop_track, "guild-check"))
+        results.append(
+            check(
+                "loop refresh updates stream URL and preserves display data",
+                refreshed is not None
+                and refreshed.stream_url == "https://fresh-stream.example.com/1"
+                and refreshed.title == "ループ曲"
+                and refreshed.requester_id == "111"
+                and refreshed.refresh_required is False,
+                str(refreshed),
+            )
+        )
+
+        def _failing_extract(url, requester_id, guild_id=None, use_cookies=True):
+            raise RuntimeError("video unavailable")
+
+        voice_music.extract_track_info = _failing_extract
+        failed_refresh = asyncio.run(refresh_track_for_playback(loop_track, "guild-check"))
+        results.append(check("loop refresh failure skips only that track", failed_refresh is None, str(failed_refresh)))
+    finally:
+        voice_music.extract_track_info = original_extract
+
     state.current = first
     state.queue.append(second)
     queue_text = format_queue(state)
