@@ -12,6 +12,7 @@ from bot.services.reaction_thresholds import handle_db_reaction_threshold
 from bot.services.runtime_db import expire_db_modes_once, get_message_guild_id, handle_db_runtime_message
 from bot.services.voice_control import handle_voice_command
 from bot.services.x_update_notifications import run_x_update_notifications_once
+from bot.services.youtube_cookie_monitor import maybe_run_scheduled_cookie_check
 
 
 intents = discord.Intents.default()
@@ -99,6 +100,7 @@ async def db_auto_post_task():
         ("expire_db_modes", expire_db_modes_once(bot)),
         ("auto_posts", run_db_auto_posts_once(bot)),
         ("x_update_notifications", run_x_update_notifications_once(bot)),
+        ("youtube_cookie_check", maybe_run_scheduled_cookie_check(bot)),
     ):
         try:
             await task

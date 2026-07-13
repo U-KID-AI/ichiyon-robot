@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import discord
 
 from bot import config
+from bot.repositories.music_settings import DEFAULT_FOREGROUND_VOLUME_PERCENT
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -205,7 +206,8 @@ def play_audio_on_voice_client(
         )
 
     try:
-        source = discord.FFmpegPCMAudio(str(audio_path))
+        raw_source = discord.FFmpegPCMAudio(str(audio_path))
+        source = discord.PCMVolumeTransformer(raw_source, volume=DEFAULT_FOREGROUND_VOLUME_PERCENT / 100.0)
         voice_client.play(source, after=after_playback)
         log_voice_audio(
             "play_start",
