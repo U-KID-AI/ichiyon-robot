@@ -60,6 +60,56 @@ VC未接続、再生中、ファイル未存在、再生開始失敗の場合、
 
 YouTube側の確認要求で取得できない場合は、サーバー上にcookiesファイルを配置し、`.env` に `YTDLP_COOKIES_FILE=/app/secrets/youtube-cookies.txt` のように設定します。cookieファイルはGit管理しません。実行時は読み取り専用の `/app/secrets` から `/tmp` へコピーした一時ファイルを `yt-dlp` に渡します。playlist付きURLは1曲再生のため展開しません。
 
+## Spotifyリンク再生
+
+同じURL音楽再生コマンドでSpotifyの曲/アルバムリンクを受け付けます。
+
+- `@Bot 歌え https://open.spotify.com/track/...`
+- `@Bot 歌え https://open.spotify.com/album/...`
+- `@Bot 歌え spotify:track:...`
+- `@Bot 歌え spotify:album:...`
+
+Spotifyは曲名、アーティスト名、アルバム名、ISRC、曲の長さなどのメタデータ取得にだけ使います。Spotify上の音源やプレビュー音源を直接再生することはありません。実際の再生元は、取得した曲情報をもとに `yt-dlp` のYouTube検索で見つけたYouTube音源です。
+
+誤った曲を流さないため、曲名、アーティスト名、再生時間、official audio / Topic / VEVOなどの情報を使って候補を採点します。アーティストが確認できない候補は採用せず、cover、karaoke、instrumental、live、remix、sped up、slowed、nightcoreなど、Spotify側の曲名にない語がYouTube候補側だけにある場合は強く減点します。Spotify側がLive版やRemix版の場合は、YouTube候補側にも同じ版表記があるものを優先します。最低スコアを下回る場合や、1位と2位のスコア差が小さい場合は、その曲をスキップして「一致する音源が見つからない」扱いにします。
+
+Spotify曲から解決したYouTube URLはプロセス内メモリに一定時間キャッシュします。キャッシュ済みURLが削除、非公開、地域制限などで取得できなくなった場合は、該当曲だけキャッシュを無効化し、最大1回だけ再検索します。通常の一時的なネットワークエラーでは、不要な再検索を避けます。
+
+対応URL:
+
+- Spotify曲URL
+- SpotifyアルバムURL
+- `open.spotify.com/intl-ja/track/...` のようなロケール付きURL
+- `?si=...` などの共有パラメータ付きURL
+- `spotify:track:...`
+- `spotify:album:...`
+
+非対応URL:
+
+- Spotifyプレイリスト
+- Spotifyエピソード
+- Spotifyポッドキャスト/番組
+- Spotifyアーティストページ
+- Spotifyユーザー認証が必要な非公開データ
+
+プレイリストは、現在のSpotify API仕様では一般プレイリストから曲一覧を取得できないため、曲またはアルバムのリンクを送るよう案内します。将来、ユーザー認証やAPI仕様が変わった場合に拡張する想定です。
+
+アルバムリンクは全トラックをページネーションで取得し、曲ごとにYouTube音源を解決して既存のguild単位キューへ追加します。負荷を抑えるため、同時解決数はデフォルト1、曲数上限はデフォルト100です。ローカルトラック、利用不能トラック、null項目、一致スコア不足の曲はスキップします。
+
+必要な環境変数:
+
+- `SPOTIFY_CLIENT_ID`
+- `SPOTIFY_CLIENT_SECRET`
+- `SPOTIFY_MARKET=JP`
+- `SPOTIFY_MAX_ALBUM_TRACKS=100`
+- `SPOTIFY_RESOLVE_CONCURRENCY=1`
+- `SPOTIFY_RESOLVE_CACHE_TTL_SECONDS=86400`
+- `SPOTIFY_RESOLVE_CACHE_MAX_ENTRIES=1000`
+- `SPOTIFY_MATCH_MIN_SCORE=`
+- `SPOTIFY_MATCH_MIN_MARGIN=10`
+
+Spotify認証はClient Credentials方式です。Client Secret、access token、Cookie、YouTube一時stream URLはログやDiscordメッセージへ出しません。`SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` が未設定の場合もBot起動は止めず、Spotifyリンクが送られた時だけ設定不足を案内します。
+
 Cookie状態監視を使う場合は、以下を設定します。`YTDLP_COOKIE_CHECK_URL` が未設定の場合、定期検査は安全にスキップされます。
 
 - `YTDLP_COOKIE_CHECK_ENABLED=true`

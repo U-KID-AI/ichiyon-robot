@@ -18,8 +18,26 @@ from bot.repositories.music_settings import (
     DEFAULT_MUSIC_VOLUME_PERCENT,
     MusicSettingsRepository,
 )
+from bot.services.spotify_client import (
+    SpotifyApiError,
+    SpotifyCredentialsMissing,
+    SpotifyError,
+    SpotifyRateLimitedError,
+    SpotifyTrackMetadata,
+    get_spotify_client,
+)
+from bot.services.spotify_link import SpotifyLink, parse_spotify_link
+from bot.services.spotify_resolver import (
+    SpotifyResolveError,
+    get_album_lock,
+    invalidate_resolve_cache,
+    remove_album_lock,
+    resolve_concurrency,
+    resolve_spotify_track_to_youtube,
+)
 from bot.services.youtube_cookie_monitor import (
     AUTH_FAILURE_STATUSES,
+    COOKIE_STATUS_VIDEO_UNAVAILABLE,
     classify_ytdlp_error,
     format_cookie_monitor_status,
     handle_transient_auth_failure,
@@ -77,6 +95,10 @@ class MusicTrack:
     duration: Optional[int] = None
     source_url: Optional[str] = None
     refresh_required: bool = False
+    source_type: str = "youtube"
+    original_spotify_url: str = ""
+    spotify_title: str = ""
+    spotify_artists: str = ""
 
 
 @dataclass
@@ -156,6 +178,16 @@ def parse_music_command(command_text: Optional[str]) -> Tuple[Optional[str], str
 def is_http_url(value: str) -> bool:
     parsed = urlparse(str(value or "").strip())
     return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+def spotify_unsupported_message(link: SpotifyLink) -> str:
+    if link.kind == "playlist":
+        return "現在のSpotify API仕様では、一般のプレイリストから曲一覧を取得できないため、このリンクにはまだ対応していません。曲またはアルバムのリンクを送ってください。"
+    if link.kind == "invalid":
+        return "Spotifyリンクの形式が正しくありません。曲またはアルバムのリンクを送ってください。"
+    if link.kind in ("episode", "show", "artist"):
+        return "このSpotifyリンク種別にはまだ対応していません。曲またはアルバムのリンクを送ってください。"
+    return "このSpotifyリンクにはまだ対応していません。曲またはアルバムのリンクを送ってください。"
 
 
 def _safe_cookie_suffix(guild_id: Optional[str]) -> str:
@@ -377,6 +409,229 @@ def extract_track_info(url: str, requester_id: str, guild_id: Optional[str] = No
     )
 
 
+async def extract_track_info_with_cookie_fallback(
+    url: str,
+    requester_id: str,
+    guild_id: str,
+    voice_client: Optional[discord.VoiceClient] = None,
+) -> MusicTrack:
+    try:
+        return await asyncio.to_thread(extract_track_info, url, requester_id, guild_id)
+    except Exception as exc:
+        error_status = classify_ytdlp_error(exc)
+        if error_status in AUTH_FAILURE_STATUSES:
+            await handle_transient_auth_failure(get_bot(), error_status)
+            try:
+                track = await asyncio.to_thread(extract_track_info, url, requester_id, guild_id, False)
+                log_music_action(
+                    "extract_cookie_fallback",
+                    guild_id,
+                    voice_channel_id(voice_client),
+                    requester_id,
+                    track.title,
+                    "cookie_less",
+                )
+                return track
+            except Exception as fallback_exc:
+                print("[WARN] voice music cookie-less fallback failed: guild_id={0} requester_id={1} error={2}".format(guild_id, requester_id, fallback_exc))
+                raise fallback_exc
+        raise exc
+
+
+def spotify_error_message(error: Exception) -> str:
+    if isinstance(error, SpotifyCredentialsMissing):
+        return error.user_message
+    if isinstance(error, SpotifyRateLimitedError):
+        return error.user_message
+    if isinstance(error, SpotifyApiError):
+        return error.user_message
+    if isinstance(error, SpotifyError):
+        return error.user_message
+    if isinstance(error, SpotifyResolveError):
+        return "Spotify曲に一致するYouTube音源が見つかりませんでした。"
+    if is_youtube_cookie_required_error(error):
+        return "YouTube側の確認要求により取得できませんでした。Cookie設定が必要な可能性があります。"
+    return "Spotifyリンクから再生できる音源を特定できませんでした。"
+
+
+def should_retry_spotify_resolution(error: Exception) -> bool:
+    status = classify_ytdlp_error(error)
+    if status == COOKIE_STATUS_VIDEO_UNAVAILABLE:
+        return True
+    if status in AUTH_FAILURE_STATUSES:
+        return False
+    message = str(error or "").lower()
+    retry_markers = (
+        "private video",
+        "video unavailable",
+        "removed",
+        "deleted",
+        "region",
+        "not available",
+        "requested format is not available",
+        "only images are available",
+    )
+    return any(marker in message for marker in retry_markers)
+
+
+async def resolve_spotify_track_to_music_track(
+    spotify_track: SpotifyTrackMetadata,
+    requester_id: str,
+    guild_id: str,
+    voice_client: discord.VoiceClient,
+    original_spotify_url: str,
+) -> MusicTrack:
+    resolved = await resolve_spotify_track_to_youtube(spotify_track, guild_id)
+    try:
+        track = await extract_track_info_with_cookie_fallback(resolved.youtube_url, requester_id, guild_id, voice_client)
+    except Exception as exc:
+        if not should_retry_spotify_resolution(exc):
+            raise
+        invalidate_resolve_cache(spotify_track.track_id)
+        retry_resolved = await resolve_spotify_track_to_youtube(spotify_track, guild_id, bypass_cache=True)
+        if retry_resolved.youtube_url == resolved.youtube_url:
+            raise exc
+        try:
+            track = await extract_track_info_with_cookie_fallback(retry_resolved.youtube_url, requester_id, guild_id, voice_client)
+            resolved = retry_resolved
+        except Exception:
+            invalidate_resolve_cache(spotify_track.track_id)
+            raise
+    track.source_type = "spotify"
+    track.original_spotify_url = original_spotify_url or spotify_track.spotify_url
+    track.spotify_title = spotify_track.name
+    track.spotify_artists = spotify_track.display_artist
+    track.source_url = resolved.youtube_url
+    track.webpage_url = resolved.youtube_url
+    return track
+
+
+async def resolve_spotify_album_tracks(
+    album_tracks: List[SpotifyTrackMetadata],
+    requester_id: str,
+    guild_id: str,
+    voice_client: discord.VoiceClient,
+    original_spotify_url: str,
+) -> Tuple[List[MusicTrack], int]:
+    concurrency = min(resolve_concurrency(), max(1, len(album_tracks)))
+    results: List[Optional[MusicTrack]] = [None] * len(album_tracks)
+    failed_count = 0
+
+    if concurrency <= 1:
+        for index, item in enumerate(album_tracks):
+            try:
+                results[index] = await resolve_spotify_track_to_music_track(item, requester_id, guild_id, voice_client, original_spotify_url)
+            except Exception:
+                failed_count += 1
+        return [track for track in results if track is not None], failed_count
+
+    queue: asyncio.Queue = asyncio.Queue()
+    for index, item in enumerate(album_tracks):
+        queue.put_nowait((index, item))
+
+    async def _worker() -> None:
+        nonlocal failed_count
+        while True:
+            try:
+                index, item = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            try:
+                results[index] = await resolve_spotify_track_to_music_track(item, requester_id, guild_id, voice_client, original_spotify_url)
+            except Exception:
+                failed_count += 1
+            finally:
+                queue.task_done()
+
+    workers = [asyncio.create_task(_worker()) for _ in range(concurrency)]
+    try:
+        await queue.join()
+    finally:
+        for worker in workers:
+            if not worker.done():
+                worker.cancel()
+        await asyncio.gather(*workers, return_exceptions=True)
+    return [track for track in results if track is not None], failed_count
+
+
+async def enqueue_spotify_link(
+    message: discord.Message,
+    link: SpotifyLink,
+    voice_client: discord.VoiceClient,
+) -> bool:
+    guild = message.guild
+    if guild is None:
+        await message.channel.send("音楽コマンドはサーバー内で使ってください。")
+        return True
+
+    guild_id = str(guild.id)
+    requester_id = str(getattr(message.author, "id", "") or "")
+    state = get_music_state(guild_id)
+    client = get_spotify_client()
+
+    if link.kind == "track":
+        try:
+            spotify_track = await client.get_track(link.spotify_id)
+            track = await resolve_spotify_track_to_music_track(spotify_track, requester_id, guild_id, voice_client, link.original_url)
+        except Exception as exc:
+            print("[WARN] spotify track enqueue failed: bot_instance_id={0} guild_id={1} requester_id={2} kind=track error={3}".format(config.BOT_INSTANCE_ID, guild_id, requester_id, type(exc).__name__))
+            await message.channel.send(spotify_error_message(exc))
+            return True
+
+        should_start = state.current is None and not (voice_client.is_playing() or voice_client.is_paused())
+        state.queue.append(track)
+        log_music_action("enqueue_spotify", guild_id, voice_channel_id(voice_client), requester_id, track.title)
+        await message.channel.send("Spotifyから『{0} / {1}』を検索し、キューへ追加しました。".format(spotify_track.name, spotify_track.display_artist))
+        if should_start:
+            await play_next_track(voice_client, guild_id)
+        return True
+
+    lock_key = "{0}:{1}".format(config.BOT_INSTANCE_ID, guild_id)
+    lock = get_album_lock(lock_key)
+    if lock.locked():
+        await message.channel.send("このサーバーでは別のSpotifyアルバムを処理中です。完了後にもう一度試してください。")
+        return True
+
+    try:
+        async with lock:
+            try:
+                album = await client.get_album(link.spotify_id)
+            except Exception as exc:
+                print("[WARN] spotify album fetch failed: bot_instance_id={0} guild_id={1} requester_id={2} error={3}".format(config.BOT_INSTANCE_ID, guild_id, requester_id, type(exc).__name__))
+                await message.channel.send(spotify_error_message(exc))
+                return True
+
+            if not album.tracks:
+                await message.channel.send("Spotifyアルバムから追加できる曲が見つかりませんでした。")
+                return True
+
+            await message.channel.send("Spotifyアルバム『{0}』を処理中です。曲数によって少し時間がかかります。".format(album.name))
+            tracks, failed_count = await resolve_spotify_album_tracks(album.tracks, requester_id, guild_id, voice_client, link.original_url)
+            skipped_count = failed_count + album.skipped_tracks
+            if not tracks:
+                await message.channel.send("Spotifyアルバム『{0}』から一致するYouTube音源を見つけられませんでした。".format(album.name))
+                return True
+
+            should_start = state.current is None and not (voice_client.is_playing() or voice_client.is_paused())
+            for track in tracks:
+                state.queue.append(track)
+            log_music_action("enqueue_spotify_album", guild_id, voice_channel_id(voice_client), requester_id, album.name, "tracks={0} skipped={1}".format(len(tracks), skipped_count))
+            suffix = " 上限により一部の曲は処理していません。" if album.truncated else ""
+            await message.channel.send(
+                "Spotifyアルバム『{0}』から{1}曲をキューへ追加しました。{2}曲は音源を特定できなかったためスキップしました。{3}".format(
+                    album.name,
+                    len(tracks),
+                    skipped_count,
+                    suffix,
+                ).strip()
+            )
+            if should_start:
+                await play_next_track(voice_client, guild_id)
+            return True
+    finally:
+        remove_album_lock(lock_key, lock)
+
+
 async def refresh_track_for_playback(track: MusicTrack, guild_id: str) -> Optional[MusicTrack]:
     if not track.refresh_required:
         return track
@@ -556,7 +811,11 @@ async def enqueue_music_url(message: discord.Message, url: str) -> bool:
     if guild is None:
         await message.channel.send("音楽コマンドはサーバー内で使ってください。")
         return True
-    if not is_http_url(url):
+    spotify_link = parse_spotify_link(url)
+    if spotify_link is not None and not spotify_link.is_supported:
+        await message.channel.send(spotify_unsupported_message(spotify_link))
+        return True
+    if spotify_link is None and not is_http_url(url):
         await message.channel.send("再生するURLを指定してください。")
         return True
 
@@ -573,26 +832,18 @@ async def enqueue_music_url(message: discord.Message, url: str) -> bool:
         await message.channel.send("現在再生中です。")
         return True
 
+    if spotify_link is not None:
+        return await enqueue_spotify_link(message, spotify_link, voice_client)
+
     try:
-        track = await asyncio.to_thread(extract_track_info, url, requester_id, guild_id)
+        track = await extract_track_info_with_cookie_fallback(url, requester_id, guild_id, voice_client)
     except Exception as exc:
         print("[WARN] voice music extract failed: guild_id={0} requester_id={1} error={2}".format(guild_id, requester_id, exc))
-        error_status = classify_ytdlp_error(exc)
-        if error_status in AUTH_FAILURE_STATUSES:
-            await handle_transient_auth_failure(get_bot(), error_status)
-            try:
-                track = await asyncio.to_thread(extract_track_info, url, requester_id, guild_id, False)
-                log_music_action("extract_cookie_fallback", guild_id, voice_channel_id(voice_client), requester_id, track.title, "cookie_less")
-            except Exception as fallback_exc:
-                print("[WARN] voice music cookie-less fallback failed: guild_id={0} requester_id={1} error={2}".format(guild_id, requester_id, fallback_exc))
-                await message.channel.send("YouTube側の確認要求により取得できませんでした。Cookie設定が必要な可能性があります。")
-                return True
-        elif is_youtube_cookie_required_error(exc):
+        if classify_ytdlp_error(exc) in AUTH_FAILURE_STATUSES or is_youtube_cookie_required_error(exc):
             await message.channel.send("YouTube側の確認要求により取得できませんでした。Cookie設定が必要な可能性があります。")
             return True
-        else:
-            await message.channel.send("URL情報を取得できませんでした。URLや対応サイトを確認してください。")
-            return True
+        await message.channel.send("URL情報を取得できませんでした。URLや対応サイトを確認してください。")
+        return True
 
     should_start = state.current is None and not (voice_client.is_playing() or voice_client.is_paused())
     state.queue.append(track)
