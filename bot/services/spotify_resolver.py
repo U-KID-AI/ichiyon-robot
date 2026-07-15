@@ -26,25 +26,23 @@ DEFAULT_MATCH_MIN_MARGIN = 10
 DEFAULT_CACHE_MAX_ENTRIES = 1000
 DEFAULT_YOUTUBE_CANDIDATES = 5
 MAX_QUERY_LENGTH = 180
-VARIANT_WORDS = {
-    "cover",
-    "covered by",
-    "karaoke",
-    "instrumental",
-    "live",
-    "acoustic",
-    "remix",
-    "sped up",
-    "speed up",
-    "slowed",
-    "slowed reverb",
-    "nightcore",
-    "reaction",
-    "tutorial",
-    "lyric translation",
-    "8d",
-    "eight dimensional",
+VARIANT_PATTERNS = {
+    "cover": ("cover", "covered by", "カバー", "歌ってみた", "弾いてみた", "演奏してみた", "drum cover"),
+    "karaoke": ("karaoke", "カラオケ"),
+    "instrumental": ("instrumental", "インスト"),
+    "chiptune": ("chiptune", "chip tune", "8-bit", "8bit"),
+    "live": ("live", "ライブ"),
+    "acoustic": ("acoustic", "アコースティック"),
+    "remix": ("remix", "リミックス"),
+    "sped up": ("sped up", "speed up"),
+    "slowed": ("slowed", "slowed reverb"),
+    "nightcore": ("nightcore",),
+    "reaction": ("reaction",),
+    "tutorial": ("tutorial",),
+    "lyric translation": ("lyric translation",),
+    "8d": ("8d", "eight dimensional"),
 }
+VARIANT_WORDS = {alias for aliases in VARIANT_PATTERNS.values() for alias in aliases}
 OFFICIAL_WORDS = {"official audio", "official video", "topic", "vevo", "provided to youtube"}
 
 
@@ -167,13 +165,20 @@ def _compact_text(value: str) -> str:
 def _variant_flags(value: str) -> set:
     normalized = normalize_text(value)
     compact = _compact_text(value)
+    raw_normalized = unicodedata.normalize("NFKC", str(value or "")).lower()
+    raw_compact = re.sub(r"\s+", "", raw_normalized)
     flags = set()
-    for word in VARIANT_WORDS:
-        word_normalized = normalize_text(word)
-        if not word_normalized:
-            continue
-        if word_normalized in normalized or word_normalized.replace(" ", "") in compact:
-            flags.add(word)
+    for canonical, aliases in VARIANT_PATTERNS.items():
+        for word in aliases:
+            word_normalized = normalize_text(word)
+            word_raw = unicodedata.normalize("NFKC", word).lower()
+            word_raw_compact = re.sub(r"\s+", "", word_raw)
+            if word_normalized and (word_normalized in normalized or word_normalized.replace(" ", "") in compact):
+                flags.add(canonical)
+                break
+            if word_raw and (word_raw in raw_normalized or word_raw_compact in raw_compact):
+                flags.add(canonical)
+                break
     return flags
 
 
@@ -198,6 +203,49 @@ def _artist_match_score(track: SpotifyTrackMetadata, candidate: YouTubeCandidate
     if not matched_scores:
         return 0
     return max(matched_scores)
+
+
+def _source_quality_score(track: SpotifyTrackMetadata, candidate: YouTubeCandidate) -> int:
+    title_raw = unicodedata.normalize("NFKC", candidate.title or "").lower()
+    uploader_raw = unicodedata.normalize("NFKC", candidate.uploader or "").lower()
+    combined_raw = "{0} {1}".format(title_raw, uploader_raw)
+    uploader_normalized = normalize_text(candidate.uploader)
+    uploader_compact = _compact_text(candidate.uploader)
+    combined_normalized = normalize_text("{0} {1}".format(candidate.title, candidate.uploader))
+    combined_compact = _compact_text("{0} {1}".format(candidate.title, candidate.uploader))
+
+    artist_in_source = False
+    artist_in_uploader = False
+    primary_artist_compact = ""
+    for artist in track.artists or []:
+        artist_normalized = normalize_text(artist)
+        artist_compact = _compact_text(artist)
+        if not artist_normalized:
+            continue
+        if not primary_artist_compact:
+            primary_artist_compact = artist_compact
+        if artist_normalized in uploader_normalized or artist_compact in uploader_compact:
+            artist_in_uploader = True
+        if artist_normalized in combined_normalized or artist_compact in combined_compact:
+            artist_in_source = True
+
+    if not artist_in_source:
+        return 0
+
+    quality = 0
+    if primary_artist_compact and "{0}vevo".format(primary_artist_compact) in uploader_compact:
+        quality = max(quality, 45)
+    if " - topic" in uploader_raw or uploader_raw.endswith("topic"):
+        quality = max(quality, 40)
+    if artist_in_uploader and "official music video" in title_raw:
+        quality = max(quality, 35)
+    elif artist_in_uploader and "official video" in title_raw:
+        quality = max(quality, 32)
+    elif artist_in_uploader and "official audio" in title_raw:
+        quality = max(quality, 30)
+    if artist_in_uploader and "provided to youtube" in combined_raw:
+        quality = max(quality, 28)
+    return quality
 
 
 def score_candidate(track: SpotifyTrackMetadata, candidate: YouTubeCandidate) -> int:
@@ -235,6 +283,8 @@ def score_candidate(track: SpotifyTrackMetadata, candidate: YouTubeCandidate) ->
     candidate_variants = _variant_flags("{0} {1}".format(candidate.title, candidate.uploader))
     extra_variants = candidate_variants - track_variants
     missing_variants = track_variants - candidate_variants
+    if extra_variants or missing_variants:
+        return 0
     score -= 35 * len(extra_variants)
     score -= 25 * len(missing_variants)
 
@@ -292,15 +342,19 @@ def search_youtube_candidates(
 def select_best_candidate(track: SpotifyTrackMetadata, candidates: List[YouTubeCandidate]) -> Tuple[YouTubeCandidate, int]:
     if not candidates:
         raise SpotifyNoCandidateError()
-    scored = [(score_candidate(track, candidate), candidate) for candidate in candidates]
-    scored.sort(key=lambda item: item[0], reverse=True)
-    best_score, best_candidate = scored[0]
+    scored = [
+        (score_candidate(track, candidate), _source_quality_score(track, candidate), candidate)
+        for candidate in candidates
+    ]
+    scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    best_score, best_quality, best_candidate = scored[0]
     if best_score < match_min_score():
         raise SpotifyLowScoreError("best score={0}".format(best_score))
-    if len(scored) > 1:
-        second_score = scored[1][0]
+    eligible = [item for item in scored if item[0] >= match_min_score()]
+    if len(eligible) > 1:
+        second_score, second_quality, _second_candidate = eligible[1]
         margin = best_score - second_score
-        if margin < match_min_margin():
+        if best_quality == 0 and second_quality == 0 and 0 < margin < match_min_margin():
             raise SpotifyLowScoreError("score margin too small: best={0} second={1}".format(best_score, second_score))
     return best_candidate, best_score
 

@@ -186,11 +186,84 @@ def run_scoring_checks(results):
     ambiguous_a = YouTubeCandidate("RIP SLYME - 熱帯夜 Official Audio", "https://youtube.example/a", 240, "RIP SLYME")
     ambiguous_b = YouTubeCandidate("RIP SLYME - 熱帯夜 Official Video", "https://youtube.example/b", 241, "RIP SLYME")
     try:
-        select_best_candidate(track, [ambiguous_a, ambiguous_b])
-        margin_failed = False
+        ambiguous_best, ambiguous_score = select_best_candidate(track, [ambiguous_a, ambiguous_b])
+        margin_accepted = ambiguous_best.webpage_url in {ambiguous_a.webpage_url, ambiguous_b.webpage_url} and ambiguous_score >= 70
     except SpotifyLowScoreError:
-        margin_failed = True
-    results.append(check("small score margin rejects ambiguous candidates", margin_failed))
+        margin_accepted = False
+    results.append(check("small score margin allows same-song candidates", margin_accepted))
+
+    provant = SpotifyTrackMetadata(
+        track_id="PROVANTTRACK0000000001",
+        name="PROVANT",
+        artists=["SawanoHiroyuki[nZk]", "Jean-Ken Johnny", "TAKUMA"],
+        album_name="PROVANT",
+        duration_ms=171000,
+        isrc="",
+        explicit=False,
+        spotify_url="https://open.spotify.com/track/PROVANTTRACK0000000001",
+    )
+    provant_official_collab = YouTubeCandidate(
+        "SawanoHiroyuki[nZk]:Jean-Ken Johnny:TAKUMA - PROVANT",
+        "https://youtube.example/provant-collab",
+        171,
+        "SawanoHiroyuki[nZk]",
+    )
+    provant_official_mv = YouTubeCandidate(
+        "SawanoHiroyuki[nZk] - PROVANT feat. Jean-Ken Johnny & TAKUMA Official Music Video",
+        "https://youtube.example/provant-mv",
+        171,
+        "SawanoHiroyuki[nZk] Official YouTube Channel",
+    )
+    provant_lyrics = YouTubeCandidate(
+        "SawanoHiroyuki[nZk] - PROVANT Lyrics",
+        "https://youtube.example/provant-lyrics",
+        171,
+        "Lyrics Channel",
+    )
+    provant_best, provant_score = select_best_candidate(
+        provant,
+        [provant_official_collab, provant_official_mv, provant_lyrics],
+    )
+    results.append(check("PROVANT equal-score candidates do not fail margin", provant_score >= 70, str(provant_score)))
+    results.append(check("PROVANT official source is preferred", provant_best.webpage_url == provant_official_mv.webpage_url, provant_best.webpage_url))
+
+    beneath = SpotifyTrackMetadata(
+        track_id="BENEATHTHEMASK0000001",
+        name="Beneath the Mask -rain-",
+        artists=["Lyn"],
+        album_name="Beneath the Mask -rain-",
+        duration_ms=279000,
+        isrc="",
+        explicit=False,
+        spotify_url="https://open.spotify.com/track/BENEATHTHEMASK0000001",
+    )
+    beneath_sung_cover = YouTubeCandidate(
+        "Beneath the Mask -rain- - Lyn / REKA【歌ってみた】",
+        "https://youtube.example/beneath-cover",
+        279,
+        "REKA",
+    )
+    beneath_chiptune = YouTubeCandidate(
+        "Lyn - Beneath The Mask -rain- -chiptune-",
+        "https://youtube.example/beneath-chiptune",
+        279,
+        "Chiptune Channel",
+    )
+    beneath_drum_cover = YouTubeCandidate(
+        "Lyn - Beneath The Mask -rain- drum cover",
+        "https://youtube.example/beneath-drum-cover",
+        279,
+        "Drum Cover Channel",
+    )
+    results.append(check("Japanese sung cover candidate is rejected", score_candidate(beneath, beneath_sung_cover) < 70, str(score_candidate(beneath, beneath_sung_cover))))
+    results.append(check("chiptune candidate is rejected", score_candidate(beneath, beneath_chiptune) < 70, str(score_candidate(beneath, beneath_chiptune))))
+    results.append(check("drum cover candidate is rejected", score_candidate(beneath, beneath_drum_cover) < 70, str(score_candidate(beneath, beneath_drum_cover))))
+    try:
+        select_best_candidate(beneath, [beneath_sung_cover, beneath_chiptune, beneath_drum_cover])
+        beneath_failed = False
+    except SpotifyLowScoreError:
+        beneath_failed = True
+    results.append(check("Beneath the Mask derived-only candidates fail safely", beneath_failed))
 
 
 async def run_client_checks(results):
