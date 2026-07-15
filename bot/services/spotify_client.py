@@ -16,6 +16,7 @@ SPOTIFY_MARKET_ENV = "SPOTIFY_MARKET"
 SPOTIFY_MAX_ALBUM_TRACKS_ENV = "SPOTIFY_MAX_ALBUM_TRACKS"
 DEFAULT_SPOTIFY_MARKET = "JP"
 DEFAULT_MAX_ALBUM_TRACKS = 100
+_SHARED_SPOTIFY_CLIENT: Optional["SpotifyClient"] = None
 
 
 class SpotifyError(Exception):
@@ -204,6 +205,10 @@ class SpotifyClient:
         self._token = ""
         self._token_expires_at = 0.0
 
+    @property
+    def cache_key(self) -> tuple:
+        return (self.client_id, self.client_secret, self.market, self.timeout_seconds)
+
     async def _get_json(self, path: str, params: Optional[Dict[str, Any]] = None, retry_auth: bool = True) -> Dict[str, Any]:
         token = await self.get_token()
         try:
@@ -290,3 +295,16 @@ class SpotifyClient:
             skipped_tracks=skipped,
             truncated=truncated,
         )
+
+
+def get_spotify_client() -> SpotifyClient:
+    global _SHARED_SPOTIFY_CLIENT
+    candidate = SpotifyClient()
+    if _SHARED_SPOTIFY_CLIENT is None or _SHARED_SPOTIFY_CLIENT.cache_key != candidate.cache_key:
+        _SHARED_SPOTIFY_CLIENT = candidate
+    return _SHARED_SPOTIFY_CLIENT
+
+
+def reset_spotify_client_cache() -> None:
+    global _SHARED_SPOTIFY_CLIENT
+    _SHARED_SPOTIFY_CLIENT = None

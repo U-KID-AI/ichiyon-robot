@@ -67,4 +67,3 @@ def parse_spotify_link(value: str) -> Optional[SpotifyLink]:
     if not _valid_spotify_id(spotify_id):
         return SpotifyLink("invalid", spotify_id, text)
     return SpotifyLink(kind, spotify_id, text)
-

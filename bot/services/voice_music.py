@@ -20,21 +20,24 @@ from bot.repositories.music_settings import (
 )
 from bot.services.spotify_client import (
     SpotifyApiError,
-    SpotifyClient,
     SpotifyCredentialsMissing,
     SpotifyError,
     SpotifyRateLimitedError,
     SpotifyTrackMetadata,
+    get_spotify_client,
 )
 from bot.services.spotify_link import SpotifyLink, parse_spotify_link
 from bot.services.spotify_resolver import (
     SpotifyResolveError,
     get_album_lock,
+    invalidate_resolve_cache,
+    remove_album_lock,
     resolve_concurrency,
     resolve_spotify_track_to_youtube,
 )
 from bot.services.youtube_cookie_monitor import (
     AUTH_FAILURE_STATUSES,
+    COOKIE_STATUS_VIDEO_UNAVAILABLE,
     classify_ytdlp_error,
     format_cookie_monitor_status,
     handle_transient_auth_failure,
@@ -451,6 +454,26 @@ def spotify_error_message(error: Exception) -> str:
     return "Spotifyリンクから再生できる音源を特定できませんでした。"
 
 
+def should_retry_spotify_resolution(error: Exception) -> bool:
+    status = classify_ytdlp_error(error)
+    if status == COOKIE_STATUS_VIDEO_UNAVAILABLE:
+        return True
+    if status in AUTH_FAILURE_STATUSES:
+        return False
+    message = str(error or "").lower()
+    retry_markers = (
+        "private video",
+        "video unavailable",
+        "removed",
+        "deleted",
+        "region",
+        "not available",
+        "requested format is not available",
+        "only images are available",
+    )
+    return any(marker in message for marker in retry_markers)
+
+
 async def resolve_spotify_track_to_music_track(
     spotify_track: SpotifyTrackMetadata,
     requester_id: str,
@@ -459,7 +482,21 @@ async def resolve_spotify_track_to_music_track(
     original_spotify_url: str,
 ) -> MusicTrack:
     resolved = await resolve_spotify_track_to_youtube(spotify_track, guild_id)
-    track = await extract_track_info_with_cookie_fallback(resolved.youtube_url, requester_id, guild_id, voice_client)
+    try:
+        track = await extract_track_info_with_cookie_fallback(resolved.youtube_url, requester_id, guild_id, voice_client)
+    except Exception as exc:
+        if not should_retry_spotify_resolution(exc):
+            raise
+        invalidate_resolve_cache(spotify_track.track_id)
+        retry_resolved = await resolve_spotify_track_to_youtube(spotify_track, guild_id, bypass_cache=True)
+        if retry_resolved.youtube_url == resolved.youtube_url:
+            raise exc
+        try:
+            track = await extract_track_info_with_cookie_fallback(retry_resolved.youtube_url, requester_id, guild_id, voice_client)
+            resolved = retry_resolved
+        except Exception:
+            invalidate_resolve_cache(spotify_track.track_id)
+            raise
     track.source_type = "spotify"
     track.original_spotify_url = original_spotify_url or spotify_track.spotify_url
     track.spotify_title = spotify_track.name
@@ -467,6 +504,54 @@ async def resolve_spotify_track_to_music_track(
     track.source_url = resolved.youtube_url
     track.webpage_url = resolved.youtube_url
     return track
+
+
+async def resolve_spotify_album_tracks(
+    album_tracks: List[SpotifyTrackMetadata],
+    requester_id: str,
+    guild_id: str,
+    voice_client: discord.VoiceClient,
+    original_spotify_url: str,
+) -> Tuple[List[MusicTrack], int]:
+    concurrency = min(resolve_concurrency(), max(1, len(album_tracks)))
+    results: List[Optional[MusicTrack]] = [None] * len(album_tracks)
+    failed_count = 0
+
+    if concurrency <= 1:
+        for index, item in enumerate(album_tracks):
+            try:
+                results[index] = await resolve_spotify_track_to_music_track(item, requester_id, guild_id, voice_client, original_spotify_url)
+            except Exception:
+                failed_count += 1
+        return [track for track in results if track is not None], failed_count
+
+    queue: asyncio.Queue = asyncio.Queue()
+    for index, item in enumerate(album_tracks):
+        queue.put_nowait((index, item))
+
+    async def _worker() -> None:
+        nonlocal failed_count
+        while True:
+            try:
+                index, item = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            try:
+                results[index] = await resolve_spotify_track_to_music_track(item, requester_id, guild_id, voice_client, original_spotify_url)
+            except Exception:
+                failed_count += 1
+            finally:
+                queue.task_done()
+
+    workers = [asyncio.create_task(_worker()) for _ in range(concurrency)]
+    try:
+        await queue.join()
+    finally:
+        for worker in workers:
+            if not worker.done():
+                worker.cancel()
+        await asyncio.gather(*workers, return_exceptions=True)
+    return [track for track in results if track is not None], failed_count
 
 
 async def enqueue_spotify_link(
@@ -482,7 +567,7 @@ async def enqueue_spotify_link(
     guild_id = str(guild.id)
     requester_id = str(getattr(message.author, "id", "") or "")
     state = get_music_state(guild_id)
-    client = SpotifyClient()
+    client = get_spotify_client()
 
     if link.kind == "track":
         try:
@@ -507,52 +592,44 @@ async def enqueue_spotify_link(
         await message.channel.send("このサーバーでは別のSpotifyアルバムを処理中です。完了後にもう一度試してください。")
         return True
 
-    async with lock:
-        try:
-            album = await client.get_album(link.spotify_id)
-        except Exception as exc:
-            print("[WARN] spotify album fetch failed: bot_instance_id={0} guild_id={1} requester_id={2} error={3}".format(config.BOT_INSTANCE_ID, guild_id, requester_id, type(exc).__name__))
-            await message.channel.send(spotify_error_message(exc))
+    try:
+        async with lock:
+            try:
+                album = await client.get_album(link.spotify_id)
+            except Exception as exc:
+                print("[WARN] spotify album fetch failed: bot_instance_id={0} guild_id={1} requester_id={2} error={3}".format(config.BOT_INSTANCE_ID, guild_id, requester_id, type(exc).__name__))
+                await message.channel.send(spotify_error_message(exc))
+                return True
+
+            if not album.tracks:
+                await message.channel.send("Spotifyアルバムから追加できる曲が見つかりませんでした。")
+                return True
+
+            await message.channel.send("Spotifyアルバム『{0}』を処理中です。曲数によって少し時間がかかります。".format(album.name))
+            tracks, failed_count = await resolve_spotify_album_tracks(album.tracks, requester_id, guild_id, voice_client, link.original_url)
+            skipped_count = failed_count + album.skipped_tracks
+            if not tracks:
+                await message.channel.send("Spotifyアルバム『{0}』から一致するYouTube音源を見つけられませんでした。".format(album.name))
+                return True
+
+            should_start = state.current is None and not (voice_client.is_playing() or voice_client.is_paused())
+            for track in tracks:
+                state.queue.append(track)
+            log_music_action("enqueue_spotify_album", guild_id, voice_channel_id(voice_client), requester_id, album.name, "tracks={0} skipped={1}".format(len(tracks), skipped_count))
+            suffix = " 上限により一部の曲は処理していません。" if album.truncated else ""
+            await message.channel.send(
+                "Spotifyアルバム『{0}』から{1}曲をキューへ追加しました。{2}曲は音源を特定できなかったためスキップしました。{3}".format(
+                    album.name,
+                    len(tracks),
+                    skipped_count,
+                    suffix,
+                ).strip()
+            )
+            if should_start:
+                await play_next_track(voice_client, guild_id)
             return True
-
-        if not album.tracks:
-            await message.channel.send("Spotifyアルバムから追加できる曲が見つかりませんでした。")
-            return True
-
-        await message.channel.send("Spotifyアルバム『{0}』を処理中です。曲数によって少し時間がかかります。".format(album.name))
-        semaphore = asyncio.Semaphore(resolve_concurrency())
-
-        async def _resolve_one(item: SpotifyTrackMetadata) -> Tuple[Optional[MusicTrack], Optional[Exception]]:
-            async with semaphore:
-                try:
-                    return await resolve_spotify_track_to_music_track(item, requester_id, guild_id, voice_client, link.original_url), None
-                except Exception as exc:
-                    return None, exc
-
-        results = await asyncio.gather(*[_resolve_one(item) for item in album.tracks])
-        tracks = [track for track, error in results if track is not None]
-        failed_count = sum(1 for track, error in results if track is None)
-        skipped_count = failed_count + album.skipped_tracks
-        if not tracks:
-            await message.channel.send("Spotifyアルバム『{0}』から一致するYouTube音源を見つけられませんでした。".format(album.name))
-            return True
-
-        should_start = state.current is None and not (voice_client.is_playing() or voice_client.is_paused())
-        for track in tracks:
-            state.queue.append(track)
-        log_music_action("enqueue_spotify_album", guild_id, voice_channel_id(voice_client), requester_id, album.name, "tracks={0} skipped={1}".format(len(tracks), skipped_count))
-        suffix = " 上限により一部の曲は処理していません。" if album.truncated else ""
-        await message.channel.send(
-            "Spotifyアルバム『{0}』から{1}曲をキューへ追加しました。{2}曲は音源を特定できなかったためスキップしました。{3}".format(
-                album.name,
-                len(tracks),
-                skipped_count,
-                suffix,
-            ).strip()
-        )
-        if should_start:
-            await play_next_track(voice_client, guild_id)
-        return True
+    finally:
+        remove_album_lock(lock_key, lock)
 
 
 async def refresh_track_for_playback(track: MusicTrack, guild_id: str) -> Optional[MusicTrack]:

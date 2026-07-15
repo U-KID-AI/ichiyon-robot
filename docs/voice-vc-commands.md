@@ -71,7 +71,9 @@ YouTube側の確認要求で取得できない場合は、サーバー上にcook
 
 Spotifyは曲名、アーティスト名、アルバム名、ISRC、曲の長さなどのメタデータ取得にだけ使います。Spotify上の音源やプレビュー音源を直接再生することはありません。実際の再生元は、取得した曲情報をもとに `yt-dlp` のYouTube検索で見つけたYouTube音源です。
 
-誤った曲を流さないため、曲名、アーティスト名、再生時間、official audio / Topic / VEVOなどの情報を使って候補を採点します。cover、karaoke、instrumental、live、remix、sped up、slowed、nightcoreなど、Spotify側の曲名にない語がYouTube候補側だけにある場合は減点します。最低スコアを下回る場合は、その曲をスキップして「一致する音源が見つからない」扱いにします。
+誤った曲を流さないため、曲名、アーティスト名、再生時間、official audio / Topic / VEVOなどの情報を使って候補を採点します。アーティストが確認できない候補は採用せず、cover、karaoke、instrumental、live、remix、sped up、slowed、nightcoreなど、Spotify側の曲名にない語がYouTube候補側だけにある場合は強く減点します。Spotify側がLive版やRemix版の場合は、YouTube候補側にも同じ版表記があるものを優先します。最低スコアを下回る場合や、1位と2位のスコア差が小さい場合は、その曲をスキップして「一致する音源が見つからない」扱いにします。
+
+Spotify曲から解決したYouTube URLはプロセス内メモリに一定時間キャッシュします。キャッシュ済みURLが削除、非公開、地域制限などで取得できなくなった場合は、該当曲だけキャッシュを無効化し、最大1回だけ再検索します。通常の一時的なネットワークエラーでは、不要な再検索を避けます。
 
 対応URL:
 
@@ -102,7 +104,9 @@ Spotifyは曲名、アーティスト名、アルバム名、ISRC、曲の長さ
 - `SPOTIFY_MAX_ALBUM_TRACKS=100`
 - `SPOTIFY_RESOLVE_CONCURRENCY=1`
 - `SPOTIFY_RESOLVE_CACHE_TTL_SECONDS=86400`
+- `SPOTIFY_RESOLVE_CACHE_MAX_ENTRIES=1000`
 - `SPOTIFY_MATCH_MIN_SCORE=`
+- `SPOTIFY_MATCH_MIN_MARGIN=10`
 
 Spotify認証はClient Credentials方式です。Client Secret、access token、Cookie、YouTube一時stream URLはログやDiscordメッセージへ出しません。`SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` が未設定の場合もBot起動は止めず、Spotifyリンクが送られた時だけ設定不足を案内します。
 

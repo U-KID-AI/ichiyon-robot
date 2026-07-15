@@ -17,12 +17,34 @@ except ImportError:  # pragma: no cover
 SPOTIFY_RESOLVE_CONCURRENCY_ENV = "SPOTIFY_RESOLVE_CONCURRENCY"
 SPOTIFY_RESOLVE_CACHE_TTL_SECONDS_ENV = "SPOTIFY_RESOLVE_CACHE_TTL_SECONDS"
 SPOTIFY_MATCH_MIN_SCORE_ENV = "SPOTIFY_MATCH_MIN_SCORE"
+SPOTIFY_MATCH_MIN_MARGIN_ENV = "SPOTIFY_MATCH_MIN_MARGIN"
+SPOTIFY_RESOLVE_CACHE_MAX_ENTRIES_ENV = "SPOTIFY_RESOLVE_CACHE_MAX_ENTRIES"
 DEFAULT_RESOLVE_CONCURRENCY = 1
 DEFAULT_CACHE_TTL_SECONDS = 86400
-DEFAULT_MATCH_MIN_SCORE = 55
+DEFAULT_MATCH_MIN_SCORE = 70
+DEFAULT_MATCH_MIN_MARGIN = 10
+DEFAULT_CACHE_MAX_ENTRIES = 1000
 DEFAULT_YOUTUBE_CANDIDATES = 5
 MAX_QUERY_LENGTH = 180
-VARIANT_WORDS = {"cover", "karaoke", "instrumental", "live", "remix", "sped up", "slowed", "nightcore", "reaction", "tutorial"}
+VARIANT_WORDS = {
+    "cover",
+    "covered by",
+    "karaoke",
+    "instrumental",
+    "live",
+    "acoustic",
+    "remix",
+    "sped up",
+    "speed up",
+    "slowed",
+    "slowed reverb",
+    "nightcore",
+    "reaction",
+    "tutorial",
+    "lyric translation",
+    "8d",
+    "eight dimensional",
+}
 OFFICIAL_WORDS = {"official audio", "official video", "topic", "vevo", "provided to youtube"}
 
 
@@ -87,15 +109,38 @@ def match_min_score() -> int:
     return max(0, min(100, value))
 
 
+def match_min_margin() -> int:
+    raw = str(os.getenv(SPOTIFY_MATCH_MIN_MARGIN_ENV, str(DEFAULT_MATCH_MIN_MARGIN)) or str(DEFAULT_MATCH_MIN_MARGIN)).strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        value = DEFAULT_MATCH_MIN_MARGIN
+    return max(0, min(100, value))
+
+
+def resolve_cache_max_entries() -> int:
+    raw = str(os.getenv(SPOTIFY_RESOLVE_CACHE_MAX_ENTRIES_ENV, str(DEFAULT_CACHE_MAX_ENTRIES)) or str(DEFAULT_CACHE_MAX_ENTRIES)).strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        value = DEFAULT_CACHE_MAX_ENTRIES
+    return max(100, min(10000, value))
+
+
 def get_album_lock(guild_key: str) -> asyncio.Lock:
     if guild_key not in _ALBUM_LOCKS:
         _ALBUM_LOCKS[guild_key] = asyncio.Lock()
     return _ALBUM_LOCKS[guild_key]
 
 
+def remove_album_lock(guild_key: str, lock: asyncio.Lock) -> None:
+    if not lock.locked() and _ALBUM_LOCKS.get(guild_key) is lock:
+        _ALBUM_LOCKS.pop(guild_key, None)
+
+
 def normalize_text(value: str) -> str:
     text = unicodedata.normalize("NFKC", str(value or "")).lower()
-    text = re.sub(r"\b(feat|featuring|ft)\.?\b", " ", text)
+    text = re.sub(r"\b(feat|featuring|ft|with)\.?\b", " ", text)
     text = re.sub(r"\b(official\s+(audio|video|music\s+video)|audio|video|lyrics?)\b", " ", text)
     text = re.sub(r"[\[\]\(\)\{\}]", " ", text)
     text = re.sub(r"[^0-9a-zぁ-んァ-ン一-龥ー]+", " ", text)
@@ -115,19 +160,63 @@ def _contains_any(text: str, words: Iterable[str]) -> bool:
     return any(word in normalized for word in words)
 
 
+def _compact_text(value: str) -> str:
+    return re.sub(r"\s+", "", normalize_text(value))
+
+
+def _variant_flags(value: str) -> set:
+    normalized = normalize_text(value)
+    compact = _compact_text(value)
+    flags = set()
+    for word in VARIANT_WORDS:
+        word_normalized = normalize_text(word)
+        if not word_normalized:
+            continue
+        if word_normalized in normalized or word_normalized.replace(" ", "") in compact:
+            flags.add(word)
+    return flags
+
+
+def _artist_match_score(track: SpotifyTrackMetadata, candidate: YouTubeCandidate) -> int:
+    candidate_text = "{0} {1}".format(candidate.title, candidate.uploader)
+    normalized_candidate = normalize_text(candidate_text)
+    compact_candidate = _compact_text(candidate_text)
+    matched_scores = []
+    for index, artist in enumerate(track.artists or []):
+        normalized_artist = normalize_text(artist)
+        compact_artist = _compact_text(artist)
+        if not normalized_artist:
+            continue
+        if normalized_artist in normalized_candidate or compact_artist in compact_candidate:
+            matched_scores.append(35 if index == 0 else 20)
+            continue
+        if "{0} topic".format(normalized_artist) in normalized_candidate:
+            matched_scores.append(35 if index == 0 else 20)
+            continue
+        if compact_artist and "{0}vevo".format(compact_artist) in compact_candidate:
+            matched_scores.append(35 if index == 0 else 20)
+    if not matched_scores:
+        return 0
+    return max(matched_scores)
+
+
 def score_candidate(track: SpotifyTrackMetadata, candidate: YouTubeCandidate) -> int:
     track_title = normalize_text(track.name)
     candidate_title = normalize_text(candidate.title)
-    artist_tokens = [normalize_text(artist) for artist in track.artists if normalize_text(artist)]
+    artist_score = _artist_match_score(track, candidate)
+    if artist_score <= 0:
+        return 0
+
     score = 0
 
     if track_title and track_title in candidate_title:
         score += 35
     elif track_title and all(token in candidate_title for token in track_title.split()[:3]):
         score += 20
+    else:
+        return 0
 
-    if artist_tokens and any(token in candidate_title or token in normalize_text(candidate.uploader) for token in artist_tokens):
-        score += 25
+    score += artist_score
 
     if track.duration_seconds and candidate.duration:
         diff = abs(int(candidate.duration) - int(track.duration_seconds))
@@ -142,11 +231,12 @@ def score_candidate(track: SpotifyTrackMetadata, candidate: YouTubeCandidate) ->
     if any(word in lowered_raw for word in OFFICIAL_WORDS):
         score += 10
 
-    track_has_variant = _contains_any(track.name, VARIANT_WORDS)
-    if not track_has_variant:
-        for word in VARIANT_WORDS:
-            if word in lowered_raw:
-                score -= 12
+    track_variants = _variant_flags(track.name)
+    candidate_variants = _variant_flags("{0} {1}".format(candidate.title, candidate.uploader))
+    extra_variants = candidate_variants - track_variants
+    missing_variants = track_variants - candidate_variants
+    score -= 35 * len(extra_variants)
+    score -= 25 * len(missing_variants)
 
     if candidate.duration is not None and candidate.duration < 45 and (track.duration_seconds or 0) > 90:
         score -= 25
@@ -207,11 +297,47 @@ def select_best_candidate(track: SpotifyTrackMetadata, candidates: List[YouTubeC
     best_score, best_candidate = scored[0]
     if best_score < match_min_score():
         raise SpotifyLowScoreError("best score={0}".format(best_score))
+    if len(scored) > 1:
+        second_score = scored[1][0]
+        margin = best_score - second_score
+        if margin < match_min_margin():
+            raise SpotifyLowScoreError("score margin too small: best={0} second={1}".format(best_score, second_score))
     return best_candidate, best_score
 
 
-async def resolve_spotify_track_to_youtube(track: SpotifyTrackMetadata, guild_id: str) -> ResolvedYouTubeTrack:
-    cached = _RESOLVE_CACHE.get(track.track_id)
+def clear_resolve_cache() -> None:
+    _RESOLVE_CACHE.clear()
+
+
+def invalidate_resolve_cache(track_id: str) -> None:
+    _RESOLVE_CACHE.pop(track_id, None)
+
+
+def prune_resolve_cache(now: Optional[float] = None) -> None:
+    current_time = time.time() if now is None else now
+    ttl = resolve_cache_ttl_seconds()
+    expired = [track_id for track_id, item in _RESOLVE_CACHE.items() if current_time - item.resolved_at > ttl]
+    for track_id in expired:
+        _RESOLVE_CACHE.pop(track_id, None)
+
+    max_entries = resolve_cache_max_entries()
+    overflow = len(_RESOLVE_CACHE) - max_entries
+    if overflow <= 0:
+        return
+    oldest = sorted(_RESOLVE_CACHE.items(), key=lambda item: item[1].resolved_at)[:overflow]
+    for track_id, _item in oldest:
+        _RESOLVE_CACHE.pop(track_id, None)
+
+
+def _store_resolved_track(resolved: ResolvedYouTubeTrack) -> None:
+    prune_resolve_cache(resolved.resolved_at)
+    _RESOLVE_CACHE[resolved.spotify_track_id] = resolved
+    prune_resolve_cache(resolved.resolved_at)
+
+
+async def resolve_spotify_track_to_youtube(track: SpotifyTrackMetadata, guild_id: str, bypass_cache: bool = False) -> ResolvedYouTubeTrack:
+    prune_resolve_cache()
+    cached = None if bypass_cache else _RESOLVE_CACHE.get(track.track_id)
     now = time.time()
     if cached and now - cached.resolved_at <= resolve_cache_ttl_seconds():
         return cached
@@ -244,7 +370,7 @@ async def resolve_spotify_track_to_youtube(track: SpotifyTrackMetadata, guild_id
                 score=score,
                 resolved_at=now,
             )
-            _RESOLVE_CACHE[track.track_id] = resolved
+            _store_resolved_track(resolved)
             return resolved
         except SpotifyResolveError as exc:
             last_error = exc
