@@ -5,6 +5,7 @@ import time
 import unicodedata
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+from urllib.parse import parse_qs, urlparse
 
 from bot.services.spotify_client import SpotifyTrackMetadata
 
@@ -19,12 +20,13 @@ SPOTIFY_RESOLVE_CACHE_TTL_SECONDS_ENV = "SPOTIFY_RESOLVE_CACHE_TTL_SECONDS"
 SPOTIFY_MATCH_MIN_SCORE_ENV = "SPOTIFY_MATCH_MIN_SCORE"
 SPOTIFY_MATCH_MIN_MARGIN_ENV = "SPOTIFY_MATCH_MIN_MARGIN"
 SPOTIFY_RESOLVE_CACHE_MAX_ENTRIES_ENV = "SPOTIFY_RESOLVE_CACHE_MAX_ENTRIES"
+SPOTIFY_YOUTUBE_CANDIDATES_PER_QUERY_ENV = "SPOTIFY_YOUTUBE_CANDIDATES_PER_QUERY"
 DEFAULT_RESOLVE_CONCURRENCY = 1
 DEFAULT_CACHE_TTL_SECONDS = 86400
 DEFAULT_MATCH_MIN_SCORE = 70
 DEFAULT_MATCH_MIN_MARGIN = 10
 DEFAULT_CACHE_MAX_ENTRIES = 1000
-DEFAULT_YOUTUBE_CANDIDATES = 5
+DEFAULT_YOUTUBE_CANDIDATES = 10
 MAX_QUERY_LENGTH = 180
 VARIANT_PATTERNS = {
     "cover": ("cover", "covered by", "カバー", "歌ってみた", "弾いてみた", "演奏してみた", "drum cover"),
@@ -125,6 +127,15 @@ def resolve_cache_max_entries() -> int:
     return max(100, min(10000, value))
 
 
+def youtube_candidates_per_query() -> int:
+    raw = str(os.getenv(SPOTIFY_YOUTUBE_CANDIDATES_PER_QUERY_ENV, str(DEFAULT_YOUTUBE_CANDIDATES)) or str(DEFAULT_YOUTUBE_CANDIDATES)).strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        value = DEFAULT_YOUTUBE_CANDIDATES
+    return max(5, min(15, value))
+
+
 def get_album_lock(guild_key: str) -> asyncio.Lock:
     if guild_key not in _ALBUM_LOCKS:
         _ALBUM_LOCKS[guild_key] = asyncio.Lock()
@@ -146,11 +157,30 @@ def normalize_text(value: str) -> str:
 
 
 def build_search_queries(track: SpotifyTrackMetadata) -> List[str]:
-    artist = track.artists[0] if track.artists else ""
+    artists = [str(artist or "").strip() for artist in (track.artists or []) if str(artist or "").strip()]
+    primary_artist = artists[0] if artists else ""
     title = track.name
-    primary = "{0} - {1} official audio".format(artist, title).strip()
-    secondary = "{0} {1}".format(artist, title).strip()
-    return [primary[:MAX_QUERY_LENGTH], secondary[:MAX_QUERY_LENGTH]]
+    album = str(track.album_name or "").strip()
+    query_candidates = [
+        "{0} - {1}".format(primary_artist, title).strip(),
+        "{0} - {1} official audio".format(primary_artist, title).strip(),
+    ]
+    for artist in artists[1:]:
+        query_candidates.append("{0} - {1}".format(artist, title).strip())
+    query_candidates.append(title.strip())
+    if album:
+        query_candidates.append("{0} {1}".format(album, title).strip())
+
+    seen = set()
+    queries = []
+    for query in query_candidates:
+        normalized = re.sub(r"\s+", " ", query).strip()
+        key = unicodedata.normalize("NFKC", normalized).lower()
+        if not normalized or key in seen:
+            continue
+        seen.add(key)
+        queries.append(normalized[:MAX_QUERY_LENGTH])
+    return queries
 
 
 def _contains_any(text: str, words: Iterable[str]) -> bool:
@@ -205,6 +235,77 @@ def _artist_match_score(track: SpotifyTrackMetadata, candidate: YouTubeCandidate
     return max(matched_scores)
 
 
+def _title_match_score(track: SpotifyTrackMetadata, candidate: YouTubeCandidate) -> int:
+    track_title = normalize_text(track.name)
+    candidate_title = normalize_text(candidate.title)
+    if track_title and track_title in candidate_title:
+        return 35
+    title_tokens = track_title.split()
+    if title_tokens and all(token in candidate_title for token in title_tokens[:3]):
+        return 25
+    return 0
+
+
+def _duration_match_score(track: SpotifyTrackMetadata, candidate: YouTubeCandidate) -> int:
+    if not track.duration_seconds or not candidate.duration:
+        return 0
+    diff = abs(int(candidate.duration) - int(track.duration_seconds))
+    if diff <= 10:
+        return 20
+    if diff <= 20:
+        return 12
+    if diff > max(60, int(track.duration_seconds * 0.25)):
+        return -18
+    return 0
+
+
+def _version_compatible(track: SpotifyTrackMetadata, candidate: YouTubeCandidate) -> bool:
+    track_variants = _variant_flags(track.name)
+    candidate_variants = _variant_flags("{0} {1}".format(candidate.title, candidate.uploader))
+    return not (candidate_variants - track_variants or track_variants - candidate_variants)
+
+
+def _soundtrack_context_matches(track: SpotifyTrackMetadata, candidate: YouTubeCandidate) -> bool:
+    context = normalize_text(
+        "{0} {1} {2} {3}".format(
+            track.album_name,
+            " ".join(track.artists or []),
+            candidate.title,
+            candidate.uploader,
+        )
+    )
+    compact = re.sub(r"\s+", "", context)
+    markers = (
+        "soundtrack",
+        "ost",
+        "game music",
+        "original soundtrack",
+        "persona",
+        "p5",
+        "p5r",
+        "atlus",
+    )
+    return any(normalize_text(marker) in context or normalize_text(marker).replace(" ", "") in compact for marker in markers)
+
+
+def _soundtrack_fallback_score(track: SpotifyTrackMetadata, candidate: YouTubeCandidate) -> int:
+    if not _soundtrack_context_matches(track, candidate):
+        return 0
+    if not _version_compatible(track, candidate):
+        return 0
+    duration_score = _duration_match_score(track, candidate)
+    if duration_score < 12:
+        return 0
+    track_title = normalize_text(track.name)
+    candidate_title = normalize_text(candidate.title)
+    title_tokens = track_title.split()
+    if len(title_tokens) < 3 or not all(token in candidate_title for token in title_tokens[:3]):
+        return 0
+    if candidate.duration is not None and candidate.duration < 45 and (track.duration_seconds or 0) > 90:
+        return 0
+    return max(0, min(85, 55 + duration_score))
+
+
 def _source_quality_score(track: SpotifyTrackMetadata, candidate: YouTubeCandidate) -> int:
     title_raw = unicodedata.normalize("NFKC", candidate.title or "").lower()
     uploader_raw = unicodedata.normalize("NFKC", candidate.uploader or "").lower()
@@ -249,49 +350,67 @@ def _source_quality_score(track: SpotifyTrackMetadata, candidate: YouTubeCandida
 
 
 def score_candidate(track: SpotifyTrackMetadata, candidate: YouTubeCandidate) -> int:
-    track_title = normalize_text(track.name)
-    candidate_title = normalize_text(candidate.title)
     artist_score = _artist_match_score(track, candidate)
     if artist_score <= 0:
-        return 0
+        return _soundtrack_fallback_score(track, candidate)
 
     score = 0
 
-    if track_title and track_title in candidate_title:
-        score += 35
-    elif track_title and all(token in candidate_title for token in track_title.split()[:3]):
-        score += 20
-    else:
+    title_score = _title_match_score(track, candidate)
+    if title_score <= 0:
         return 0
+    score += title_score
 
     score += artist_score
 
-    if track.duration_seconds and candidate.duration:
-        diff = abs(int(candidate.duration) - int(track.duration_seconds))
-        if diff <= 10:
-            score += 20
-        elif diff <= 20:
-            score += 12
-        elif diff > max(60, int(track.duration_seconds * 0.25)):
-            score -= 18
+    score += _duration_match_score(track, candidate)
 
     lowered_raw = "{0} {1}".format(candidate.title, candidate.uploader).lower()
     if any(word in lowered_raw for word in OFFICIAL_WORDS):
         score += 10
 
-    track_variants = _variant_flags(track.name)
-    candidate_variants = _variant_flags("{0} {1}".format(candidate.title, candidate.uploader))
-    extra_variants = candidate_variants - track_variants
-    missing_variants = track_variants - candidate_variants
-    if extra_variants or missing_variants:
+    if not _version_compatible(track, candidate):
         return 0
-    score -= 35 * len(extra_variants)
-    score -= 25 * len(missing_variants)
 
     if candidate.duration is not None and candidate.duration < 45 and (track.duration_seconds or 0) > 90:
         score -= 25
 
     return max(0, min(100, score))
+
+
+def _candidate_key(candidate: YouTubeCandidate) -> str:
+    parsed = urlparse(candidate.webpage_url)
+    host = parsed.netloc.lower()
+    if host.endswith("youtu.be"):
+        video_id = parsed.path.strip("/")
+        if video_id:
+            return "youtube:{0}".format(video_id)
+    if "youtube.com" in host:
+        video_id = parse_qs(parsed.query).get("v", [""])[0]
+        if video_id:
+            return "youtube:{0}".format(video_id)
+    return candidate.webpage_url.strip()
+
+
+def deduplicate_candidates(candidates: Iterable[YouTubeCandidate]) -> List[YouTubeCandidate]:
+    deduped: Dict[str, YouTubeCandidate] = {}
+    for candidate in candidates:
+        key = _candidate_key(candidate)
+        if key and key not in deduped:
+            deduped[key] = candidate
+    return list(deduped.values())
+
+
+def log_candidate_rejection(track: SpotifyTrackMetadata, candidate_count: int, reason: str, best_score: int = 0) -> None:
+    print(
+        "[INFO] spotify candidate rejected: track_id={0} title={1} candidate_count={2} best_score={3} reason={4}".format(
+            track.track_id,
+            track.name,
+            candidate_count,
+            best_score,
+            reason,
+        )
+    )
 
 
 def _candidate_from_entry(entry: Dict[str, Any]) -> Optional[YouTubeCandidate]:
@@ -341,6 +460,7 @@ def search_youtube_candidates(
 
 def select_best_candidate(track: SpotifyTrackMetadata, candidates: List[YouTubeCandidate]) -> Tuple[YouTubeCandidate, int]:
     if not candidates:
+        log_candidate_rejection(track, 0, "no_candidates")
         raise SpotifyNoCandidateError()
     scored = [
         (score_candidate(track, candidate), _source_quality_score(track, candidate), candidate)
@@ -349,12 +469,14 @@ def select_best_candidate(track: SpotifyTrackMetadata, candidates: List[YouTubeC
     scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
     best_score, best_quality, best_candidate = scored[0]
     if best_score < match_min_score():
+        log_candidate_rejection(track, len(candidates), "low_score", best_score)
         raise SpotifyLowScoreError("best score={0}".format(best_score))
     eligible = [item for item in scored if item[0] >= match_min_score()]
     if len(eligible) > 1:
         second_score, second_quality, _second_candidate = eligible[1]
         margin = best_score - second_score
         if best_quality == 0 and second_quality == 0 and 0 < margin < match_min_margin():
+            log_candidate_rejection(track, len(candidates), "ambiguous_margin", best_score)
             raise SpotifyLowScoreError("score margin too small: best={0} second={1}".format(best_score, second_score))
     return best_candidate, best_score
 
@@ -397,9 +519,11 @@ async def resolve_spotify_track_to_youtube(track: SpotifyTrackMetadata, guild_id
         return cached
 
     last_error: Optional[Exception] = None
+    all_candidates: List[YouTubeCandidate] = []
+    candidate_limit = youtube_candidates_per_query()
     for query in build_search_queries(track):
         try:
-            candidates = await asyncio.to_thread(search_youtube_candidates, query, guild_id, DEFAULT_YOUTUBE_CANDIDATES)
+            candidates = await asyncio.to_thread(search_youtube_candidates, query, guild_id, candidate_limit)
         except Exception as exc:
             from bot.messages import get_bot
             from bot.services.youtube_cookie_monitor import AUTH_FAILURE_STATUSES, classify_ytdlp_error, handle_transient_auth_failure
@@ -410,24 +534,27 @@ async def resolve_spotify_track_to_youtube(track: SpotifyTrackMetadata, guild_id
                 continue
             await handle_transient_auth_failure(get_bot(), error_status)
             try:
-                candidates = await asyncio.to_thread(search_youtube_candidates, query, guild_id, DEFAULT_YOUTUBE_CANDIDATES, False)
+                candidates = await asyncio.to_thread(search_youtube_candidates, query, guild_id, candidate_limit, False)
             except Exception as fallback_exc:
                 last_error = fallback_exc
                 continue
-        try:
-            best, score = select_best_candidate(track, candidates)
-            resolved = ResolvedYouTubeTrack(
-                spotify_track_id=track.track_id,
-                youtube_url=best.webpage_url,
-                youtube_title=best.title,
-                duration=best.duration,
-                score=score,
-                resolved_at=now,
-            )
-            _store_resolved_track(resolved)
-            return resolved
-        except SpotifyResolveError as exc:
-            last_error = exc
+        all_candidates.extend(candidates)
+
+    candidates = deduplicate_candidates(all_candidates)
+    try:
+        best, score = select_best_candidate(track, candidates)
+        resolved = ResolvedYouTubeTrack(
+            spotify_track_id=track.track_id,
+            youtube_url=best.webpage_url,
+            youtube_title=best.title,
+            duration=best.duration,
+            score=score,
+            resolved_at=now,
+        )
+        _store_resolved_track(resolved)
+        return resolved
+    except SpotifyResolveError as exc:
+        last_error = exc
     if last_error is not None:
         raise last_error
     raise SpotifyNoCandidateError()
