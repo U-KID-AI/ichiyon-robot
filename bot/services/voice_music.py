@@ -76,6 +76,8 @@ STREAM_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max
 STREAM_OPTIONS = "-vn"
 YTDLP_COOKIES_FILE_ENV = "YTDLP_COOKIES_FILE"
 YTDLP_COOKIES_TMP_DIR = Path(tempfile.gettempdir())
+LOSER_PAPYRUS_TRIGGER_PHRASE = "バグってLOSER始まると見せかけてパピルス戦始まる動画ってどれだっけ"
+LOSER_PAPYRUS_YOUTUBE_URL = "https://youtu.be/16PQQoUpzbA"
 YTDL_OPTIONS = {
     "format": "bestaudio/best",
     "quiet": True,
@@ -178,6 +180,14 @@ def parse_music_command(command_text: Optional[str]) -> Tuple[Optional[str], str
 def is_http_url(value: str) -> bool:
     parsed = urlparse(str(value or "").strip())
     return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+def is_loser_papyrus_trigger_message(message: discord.Message) -> bool:
+    if getattr(getattr(message, "author", None), "bot", False):
+        return False
+    if getattr(message, "guild", None) is None:
+        return False
+    return str(getattr(message, "content", "") or "").strip() == LOSER_PAPYRUS_TRIGGER_PHRASE
 
 
 def spotify_unsupported_message(link: SpotifyLink) -> str:
@@ -853,6 +863,39 @@ async def enqueue_music_url(message: discord.Message, url: str) -> bool:
         await play_next_track(voice_client, guild_id)
     else:
         await message.channel.send("キューに追加しました: {0}".format(track.title))
+    return True
+
+
+async def enqueue_loser_papyrus_trigger(message: discord.Message) -> bool:
+    if not is_loser_papyrus_trigger_message(message):
+        return False
+
+    guild = message.guild
+    voice_client = get_guild_voice_client(guild)
+    guild_id = str(getattr(guild, "id", "") or "")
+    requester_id = str(getattr(message.author, "id", "") or "")
+    if voice_client is None:
+        log_music_action("fixed_trigger_skipped", guild_id, requester_id=requester_id, reason="not_connected")
+        return False
+
+    state = get_music_state(guild_id)
+    state.text_channel = message.channel
+    try:
+        track = await extract_track_info_with_cookie_fallback(
+            LOSER_PAPYRUS_YOUTUBE_URL,
+            requester_id,
+            guild_id,
+            voice_client,
+        )
+    except Exception as exc:
+        print("[WARN] loser papyrus trigger extract failed: bot_instance_id={0} guild_id={1} requester_id={2} error={3}".format(config.BOT_INSTANCE_ID, guild_id, requester_id, type(exc).__name__))
+        return True
+
+    should_start = state.current is None and not (voice_client.is_playing() or voice_client.is_paused())
+    state.queue.append(track)
+    log_music_action("fixed_trigger_enqueue", guild_id, voice_channel_id(voice_client), requester_id, track.title)
+    if should_start:
+        await play_next_track(voice_client, guild_id)
     return True
 
 

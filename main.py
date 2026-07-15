@@ -11,6 +11,7 @@ from bot.services.auto_posts import run_db_auto_posts_once
 from bot.services.reaction_thresholds import handle_db_reaction_threshold
 from bot.services.runtime_db import expire_db_modes_once, get_message_guild_id, handle_db_runtime_message
 from bot.services.voice_control import handle_voice_command
+from bot.services.voice_music import enqueue_loser_papyrus_trigger
 from bot.services.x_update_notifications import run_x_update_notifications_once
 from bot.services.youtube_cookie_monitor import maybe_run_scheduled_cookie_check
 
@@ -133,6 +134,9 @@ async def on_message(message: discord.Message):
         return
 
     if await handle_developer_command(message, command_text):
+        return
+
+    if await enqueue_loser_papyrus_trigger(message):
         return
 
     if config.DATA_BACKEND == "db" and get_message_guild_id(message) is not None:

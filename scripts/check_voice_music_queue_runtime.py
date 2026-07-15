@@ -38,6 +38,113 @@ def check(name: str, ok: bool, detail: str = "") -> bool:
     return ok
 
 
+class FakeGuild:
+    id = "guild-fixed"
+
+
+class FakeAuthor:
+    def __init__(self, author_id="user-fixed", bot=False):
+        self.id = author_id
+        self.bot = bot
+
+
+class FakeChannel:
+    async def send(self, *args, **kwargs):
+        return None
+
+
+class FakeMessage:
+    def __init__(self, content, bot=False):
+        self.content = content
+        self.author = FakeAuthor(bot=bot)
+        self.guild = FakeGuild()
+        self.channel = FakeChannel()
+
+
+class FakeVoiceClient:
+    def __init__(self, playing=False, paused=False):
+        self._playing = playing
+        self._paused = paused
+        self.channel = type("FakeVoiceChannel", (), {"id": "voice-fixed"})()
+
+    def is_playing(self):
+        return self._playing
+
+    def is_paused(self):
+        return self._paused
+
+    def is_connected(self):
+        return True
+
+
+async def run_loser_papyrus_trigger_checks():
+    results = []
+    original_get_voice = voice_music.get_guild_voice_client
+    original_extract = voice_music.extract_track_info_with_cookie_fallback
+    original_play_next = voice_music.play_next_track
+    calls = {"extract_urls": [], "play_next": 0}
+
+    async def _fake_extract(url, requester_id, guild_id, voice_client):
+        calls["extract_urls"].append(url)
+        return MusicTrack("LOSER Papyrus", url, "https://stream.example.com/loser-papyrus", requester_id, 123, url)
+
+    async def _fake_play_next(voice_client, guild_id):
+        calls["play_next"] += 1
+        return True
+
+    try:
+        voice_music.extract_track_info_with_cookie_fallback = _fake_extract
+        voice_music.play_next_track = _fake_play_next
+
+        voice_music.clear_music_state("guild-fixed")
+        voice_music.get_guild_voice_client = lambda guild: FakeVoiceClient()
+        handled = await voice_music.enqueue_loser_papyrus_trigger(FakeMessage(voice_music.LOSER_PAPYRUS_TRIGGER_PHRASE))
+        state = voice_music.get_music_state("guild-fixed")
+        results.append(
+            check(
+                "loser papyrus trigger queues configured URL when connected",
+                handled and calls["extract_urls"][-1] == voice_music.LOSER_PAPYRUS_YOUTUBE_URL and len(state.queue) == 1,
+                str((handled, calls["extract_urls"], len(state.queue))),
+            )
+        )
+        results.append(check("loser papyrus trigger starts playback when idle", calls["play_next"] == 1, str(calls["play_next"])))
+
+        voice_music.clear_music_state("guild-fixed")
+        calls["extract_urls"].clear()
+        calls["play_next"] = 0
+        voice_music.get_guild_voice_client = lambda guild: None
+        disconnected = await voice_music.enqueue_loser_papyrus_trigger(FakeMessage(voice_music.LOSER_PAPYRUS_TRIGGER_PHRASE))
+        results.append(check("loser papyrus trigger does nothing when not connected", disconnected is False and not calls["extract_urls"], str((disconnected, calls["extract_urls"]))))
+
+        voice_music.get_guild_voice_client = lambda guild: FakeVoiceClient()
+        other_message = await voice_music.enqueue_loser_papyrus_trigger(FakeMessage("別の発言"))
+        results.append(check("loser papyrus trigger ignores other messages", other_message is False, str(other_message)))
+
+        bot_message = await voice_music.enqueue_loser_papyrus_trigger(FakeMessage(voice_music.LOSER_PAPYRUS_TRIGGER_PHRASE, bot=True))
+        results.append(check("loser papyrus trigger ignores bot messages", bot_message is False, str(bot_message)))
+
+        voice_music.clear_music_state("guild-fixed")
+        calls["extract_urls"].clear()
+        calls["play_next"] = 0
+        voice_music.get_guild_voice_client = lambda guild: FakeVoiceClient(playing=True)
+        state = voice_music.get_music_state("guild-fixed")
+        state.current = MusicTrack("current", "https://example.com/current", "https://stream.example.com/current", "user", 100, "https://example.com/current")
+        queued = await voice_music.enqueue_loser_papyrus_trigger(FakeMessage(voice_music.LOSER_PAPYRUS_TRIGGER_PHRASE))
+        results.append(
+            check(
+                "loser papyrus trigger queues without interrupting current music",
+                queued and state.current.title == "current" and len(state.queue) == 1 and calls["play_next"] == 0,
+                str((queued, state.current.title if state.current else None, len(state.queue), calls["play_next"])),
+            )
+        )
+    finally:
+        voice_music.clear_music_state("guild-fixed")
+        voice_music.get_guild_voice_client = original_get_voice
+        voice_music.extract_track_info_with_cookie_fallback = original_extract
+        voice_music.play_next_track = original_play_next
+    return results
+
+
 def main() -> int:
     results = []
     play_examples = {
@@ -176,6 +283,7 @@ def main() -> int:
     results.append(check("now playing shows requester", "リクエスト: <@111>" in now_text, now_text))
     results.append(check("empty queue message", format_queue(MusicState()) == "キューは空です。"))
     results.append(check("empty now playing message", format_now_playing(MusicState()) == "現在再生中の曲はありません。"))
+    results.extend(asyncio.run(run_loser_papyrus_trigger_checks()))
 
     ok_count = sum(1 for item in results if item)
     print("summary: {0}/{1} OK".format(ok_count, len(results)))
