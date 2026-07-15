@@ -26,6 +26,7 @@ from bot.services.spotify_resolver import (
     YouTubeCandidate,
     build_search_queries,
     clear_resolve_cache,
+    deduplicate_candidates,
     get_album_lock,
     invalidate_resolve_cache,
     match_min_margin,
@@ -35,6 +36,7 @@ from bot.services.spotify_resolver import (
     resolve_spotify_track_to_youtube,
     score_candidate,
     select_best_candidate,
+    youtube_candidates_per_query,
 )
 import bot.services.spotify_resolver as spotify_resolver
 import bot.services.voice_music as voice_music
@@ -130,6 +132,7 @@ def run_url_checks(results):
         "https://open.spotify.com/intl-ja/track/{0}?si=abc".format(TRACK_ID): "track",
         "spotify:track:{0}".format(TRACK_ID): "track",
         "spotify:album:{0}".format(ALBUM_ID): "album",
+        "https://open.spotify.com/track/2KD6Qx09NNMsv1HQOh8zVv?si=U5S8MYi-TzyVqOds8p7dUQ&utm_source=copy-link&rowId=d5e11eed648993c4": "track",
         "https://open.spotify.com/playlist/{0}?si=abc".format(TRACK_ID): "playlist",
         "https://open.spotify.com/episode/{0}".format(TRACK_ID): "episode",
     }
@@ -153,7 +156,11 @@ def run_scoring_checks(results):
     karaoke = YouTubeCandidate("RIP SLYME - 熱帯夜 karaoke", "https://youtube.example/karaoke", 240, "karaoke channel")
     instrumental = YouTubeCandidate("RIP SLYME - 熱帯夜 instrumental", "https://youtube.example/instrumental", 240, "instrumental channel")
     short = YouTubeCandidate("熱帯夜 shorts", "https://youtube.example/3", 20, "shorts")
-    results.append(check("search query includes official audio", "official audio" in build_search_queries(track)[0].lower()))
+    results.append(check("search query includes official audio", any("official audio" in query.lower() for query in build_search_queries(track)), str(build_search_queries(track))))
+    multi_artist_track = sample_track(name="Beneath the Mask -rain-", artists=["Lyn", "ATLUS GAME MUSIC"])
+    multi_queries = build_search_queries(multi_artist_track)
+    results.append(check("search queries include secondary artists", any("ATLUS GAME MUSIC" in query for query in multi_queries), str(multi_queries)))
+    results.append(check("search queries include title only fallback", any(query == "Beneath the Mask -rain-" for query in multi_queries), str(multi_queries)))
     results.append(check("official candidate scores higher than cover", score_candidate(track, official) > score_candidate(track, cover), str((score_candidate(track, official), score_candidate(track, cover)))))
     results.append(check("topic candidate can be selected", score_candidate(track, topic) >= 70, str(score_candidate(track, topic))))
     results.append(check("vevo candidate can be selected", score_candidate(track, vevo) >= 70, str(score_candidate(track, vevo))))
@@ -264,6 +271,25 @@ def run_scoring_checks(results):
     except SpotifyLowScoreError:
         beneath_failed = True
     results.append(check("Beneath the Mask derived-only candidates fail safely", beneath_failed))
+    beneath_soundtrack = SpotifyTrackMetadata(
+        track_id="2KD6Qx09NNMsv1HQOh8zVv",
+        name="Beneath the Mask -rain-",
+        artists=["Lyn", "ATLUS GAME MUSIC"],
+        album_name="PERSONA5 ORIGINAL SOUNDTRACK",
+        duration_ms=279000,
+        isrc="",
+        explicit=False,
+        spotify_url="https://open.spotify.com/track/2KD6Qx09NNMsv1HQOh8zVv",
+    )
+    soundtrack_candidate = YouTubeCandidate(
+        "P5 - Beneath the Mask -rainy day- | Synchronized Lyrics",
+        "https://youtube.example/beneath-rainy",
+        272,
+        "SkAlgorythmik",
+    )
+    results.append(check("soundtrack fallback accepts high-confidence title duration match", score_candidate(beneath_soundtrack, soundtrack_candidate) >= 70, str(score_candidate(beneath_soundtrack, soundtrack_candidate))))
+    best_beneath, beneath_score = select_best_candidate(beneath_soundtrack, [beneath_sung_cover, beneath_chiptune, beneath_drum_cover, soundtrack_candidate])
+    results.append(check("Beneath the Mask selects soundtrack fallback over derived candidates", best_beneath.webpage_url == soundtrack_candidate.webpage_url and beneath_score >= 70, str((best_beneath, beneath_score))))
 
 
 async def run_client_checks(results):
@@ -350,12 +376,13 @@ async def run_resolver_checks(results):
         spotify_resolver.search_youtube_candidates = fake_search
         track = sample_track()
         resolved1 = await resolve_spotify_track_to_youtube(track, "guild-a")
+        first_resolve_calls = calls["count"]
         resolved2 = await resolve_spotify_track_to_youtube(track, "guild-a")
         results.append(check("spotify resolver stores youtube webpage url", resolved1.youtube_url == "https://youtube.example/watch?v=ok", str(resolved1)))
-        results.append(check("spotify resolver uses memory cache", resolved1 == resolved2 and calls["count"] == 1, str(calls)))
+        results.append(check("spotify resolver uses memory cache", resolved1 == resolved2 and calls["count"] == first_resolve_calls, str(calls)))
 
         resolved3 = await resolve_spotify_track_to_youtube(track, "guild-a", bypass_cache=True)
-        results.append(check("spotify resolver can bypass cache", calls["count"] == 2 and resolved3.youtube_url == resolved1.youtube_url, str(calls)))
+        results.append(check("spotify resolver can bypass cache", calls["count"] == first_resolve_calls * 2 and resolved3.youtube_url == resolved1.youtube_url, str(calls)))
         invalidate_resolve_cache(track.track_id)
         results.append(check("spotify resolver cache invalidates by track id", track.track_id not in spotify_resolver._RESOLVE_CACHE))
 
@@ -402,6 +429,45 @@ async def run_resolver_checks(results):
         except RuntimeError:
             network_retry_failed = retry_calls["resolve"] == 1
         results.append(check("network errors do not invalidate spotify cache", network_retry_failed, str(retry_calls)))
+
+        spotify_resolver._RESOLVE_CACHE.clear()
+        aggregate_calls = []
+        soundtrack_track = SpotifyTrackMetadata(
+            track_id="2KD6Qx09NNMsv1HQOh8zVv",
+            name="Beneath the Mask -rain-",
+            artists=["Lyn", "ATLUS GAME MUSIC"],
+            album_name="PERSONA5 ORIGINAL SOUNDTRACK",
+            duration_ms=279000,
+            isrc="",
+            explicit=False,
+            spotify_url="https://open.spotify.com/track/2KD6Qx09NNMsv1HQOh8zVv",
+        )
+
+        def fake_multi_query_search(query, guild_id=None, limit=5, use_cookies=True):
+            aggregate_calls.append((query, limit))
+            if "ATLUS GAME MUSIC" in query or query == "Beneath the Mask -rain-":
+                return [
+                    YouTubeCandidate("P5 - Beneath the Mask -rainy day- | Synchronized Lyrics", "https://youtube.example/watch?v=rainy", 272, "SkAlgorythmik"),
+                    YouTubeCandidate("P5 - Beneath the Mask -rainy day- | Synchronized Lyrics", "https://youtu.be/rainy", 272, "SkAlgorythmik"),
+                ]
+            return [
+                YouTubeCandidate("Lyn - Beneath The Mask -chiptune- (Silver Mix)", "https://youtube.example/watch?v=chip", 266, "Chiptune Channel"),
+                YouTubeCandidate("Beneath the Mask - Lyn / REKA【歌ってみた】", "https://youtube.example/watch?v=cover", 277, "REKA"),
+            ]
+
+        spotify_resolver.search_youtube_candidates = fake_multi_query_search
+        resolved_soundtrack = await resolve_spotify_track_to_youtube(soundtrack_track, "guild-a", bypass_cache=True)
+        results.append(check("multi-query resolver can find soundtrack fallback", resolved_soundtrack.youtube_url.endswith("rainy"), str(resolved_soundtrack)))
+        results.append(check("resolver passes configured candidate limit per query", all(limit == youtube_candidates_per_query() for _query, limit in aggregate_calls), str(aggregate_calls)))
+        results.append(check("resolver tries multiple search queries", len(aggregate_calls) >= 3, str(aggregate_calls)))
+        deduped = deduplicate_candidates(
+            [
+                YouTubeCandidate("same", "https://www.youtube.com/watch?v=abc", 10, ""),
+                YouTubeCandidate("same duplicate", "https://youtu.be/abc", 10, ""),
+                YouTubeCandidate("other", "https://youtube.example/watch?v=def", 10, ""),
+            ]
+        )
+        results.append(check("duplicate youtube candidates are removed", len(deduped) == 2, str(deduped)))
     finally:
         spotify_resolver.search_youtube_candidates = original_search
         spotify_resolver._RESOLVE_CACHE.clear()
@@ -523,6 +589,7 @@ def run_env_checks(results):
             "SPOTIFY_RESOLVE_CACHE_TTL_SECONDS",
             "SPOTIFY_MATCH_MIN_MARGIN",
             "SPOTIFY_RESOLVE_CACHE_MAX_ENTRIES",
+            "SPOTIFY_YOUTUBE_CANDIDATES_PER_QUERY",
         )
     }
     try:
@@ -531,11 +598,13 @@ def run_env_checks(results):
         os.environ["SPOTIFY_RESOLVE_CACHE_TTL_SECONDS"] = "1"
         os.environ["SPOTIFY_MATCH_MIN_MARGIN"] = "999"
         os.environ["SPOTIFY_RESOLVE_CACHE_MAX_ENTRIES"] = "1"
+        os.environ["SPOTIFY_YOUTUBE_CANDIDATES_PER_QUERY"] = "99"
         results.append(check("album max tracks is clamped", max_album_tracks() == 200, str(max_album_tracks())))
         results.append(check("resolve concurrency is clamped", resolve_concurrency() == 4, str(resolve_concurrency())))
         results.append(check("resolve cache ttl has safe minimum", resolve_cache_ttl_seconds() == 60, str(resolve_cache_ttl_seconds())))
         results.append(check("match score margin is clamped", match_min_margin() == 100, str(match_min_margin())))
         results.append(check("resolve cache max entries has safe minimum", resolve_cache_max_entries() == 100, str(resolve_cache_max_entries())))
+        results.append(check("youtube candidates per query is clamped", youtube_candidates_per_query() == 15, str(youtube_candidates_per_query())))
     finally:
         for key, value in original_values.items():
             if value is None:
@@ -559,6 +628,7 @@ async def main_async() -> int:
     results.append(check("env example keeps spotify secret empty", "SPOTIFY_CLIENT_SECRET=" in env_text))
     results.append(check("env example documents spotify score margin", "SPOTIFY_MATCH_MIN_MARGIN=10" in env_text))
     results.append(check("env example documents spotify cache max entries", "SPOTIFY_RESOLVE_CACHE_MAX_ENTRIES=1000" in env_text))
+    results.append(check("env example documents spotify youtube candidates", "SPOTIFY_YOUTUBE_CANDIDATES_PER_QUERY=10" in env_text))
     results.append(check("docs mention spotify does not directly play audio", "Spotify上の音源やプレビュー音源を直接再生することはありません" in doc_text))
     results.append(check("docs mention spotify cache max entries", "SPOTIFY_RESOLVE_CACHE_MAX_ENTRIES" in doc_text))
 
