@@ -1,12 +1,13 @@
 import asyncio
 import os
 import random
+import re
 import shutil
 import tempfile
 from collections import deque
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Deque, Dict, List, Optional, Tuple
+from typing import Deque, Dict, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
 import discord
@@ -71,6 +72,10 @@ MUSIC_YOUTUBE_STATUS_COMMAND = "youtube状態"
 MUSIC_LOOP_OFF = "off"
 MUSIC_LOOP_ONE = "one"
 MUSIC_LOOP_QUEUE = "queue"
+MENTION_MUSIC_LINK_LIMIT = 3
+MUSIC_LINK_TRAILING_CHARS = ".,!?、。)]）＞>"
+HTTP_URL_PATTERN = re.compile(r"https?://[^\s<>()]+", re.IGNORECASE)
+SPOTIFY_URI_PATTERN = re.compile(r"spotify:(?:track|album|playlist|episode|show|artist):[A-Za-z0-9]+", re.IGNORECASE)
 DISCORD_CONNECTION_CLOSED = getattr(discord, "ConnectionClosed", discord.ClientException)
 STREAM_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
 STREAM_OPTIONS = "-vn"
@@ -178,6 +183,50 @@ def parse_music_command(command_text: Optional[str]) -> Tuple[Optional[str], str
 def is_http_url(value: str) -> bool:
     parsed = urlparse(str(value or "").strip())
     return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+def is_youtube_music_url(value: str) -> bool:
+    parsed = urlparse(str(value or "").strip())
+    host = parsed.netloc.lower()
+    if parsed.scheme not in ("http", "https"):
+        return False
+    if host == "youtu.be":
+        return bool(parsed.path.strip("/"))
+    if host in ("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"):
+        path = parsed.path.rstrip("/") or "/"
+        return path == "/watch" or path.startswith(("/shorts/", "/live/", "/embed/"))
+    return False
+
+
+def music_link_type(value: str) -> Optional[str]:
+    spotify_link = parse_spotify_link(value)
+    if spotify_link is not None:
+        return "spotify"
+    if is_youtube_music_url(value):
+        return "youtube"
+    return None
+
+
+def _strip_music_link_candidate(value: str) -> str:
+    return str(value or "").strip().rstrip(MUSIC_LINK_TRAILING_CHARS)
+
+
+def extract_music_links_from_text(text: Optional[str], limit: int = MENTION_MUSIC_LINK_LIMIT) -> List[str]:
+    if not text:
+        return []
+    found: List[str] = []
+    seen: Set[str] = set()
+    for pattern in (HTTP_URL_PATTERN, SPOTIFY_URI_PATTERN):
+        for match in pattern.finditer(str(text)):
+            candidate = _strip_music_link_candidate(match.group(0))
+            if not candidate or candidate in seen:
+                continue
+            if music_link_type(candidate) is None:
+                continue
+            seen.add(candidate)
+            found.append(candidate)
+    found.sort(key=lambda item: str(text).find(item))
+    return found[: max(0, limit)]
 
 
 def spotify_unsupported_message(link: SpotifyLink) -> str:
@@ -854,6 +903,83 @@ async def enqueue_music_url(message: discord.Message, url: str) -> bool:
     else:
         await message.channel.send("キューに追加しました: {0}".format(track.title))
     return True
+
+
+async def enqueue_music_url_if_voice_connected(message: discord.Message, url: str) -> bool:
+    guild = message.guild
+    if guild is None:
+        await message.channel.send("音楽コマンドはサーバー内で使ってください。")
+        return True
+
+    spotify_link = parse_spotify_link(url)
+    if spotify_link is not None and not spotify_link.is_supported:
+        await message.channel.send(spotify_unsupported_message(spotify_link))
+        return True
+    if spotify_link is None and not is_http_url(url):
+        await message.channel.send("再生するURLを指定してください。")
+        return True
+
+    guild_id = str(guild.id)
+    requester_id = str(getattr(message.author, "id", "") or "")
+    link_type = music_link_type(url) or "unknown"
+    voice_client = get_guild_voice_client(guild)
+    if voice_client is None:
+        log_music_action("mention_link_skipped", guild_id, requester_id=requester_id, reason="type={0} not_connected".format(link_type))
+        await message.channel.send("先にVCへ呼んでください。")
+        return True
+
+    state = get_music_state(guild_id)
+    state.text_channel = message.channel
+    if state.current is None and (voice_client.is_playing() or voice_client.is_paused()):
+        log_music_action("mention_link_rejected", guild_id, voice_channel_id(voice_client), requester_id, reason="already_playing")
+        await message.channel.send("現在再生中です。")
+        return True
+
+    if spotify_link is not None:
+        log_music_action("mention_link_enqueue", guild_id, voice_channel_id(voice_client), requester_id, reason="type=spotify")
+        return await enqueue_spotify_link(message, spotify_link, voice_client)
+
+    try:
+        track = await extract_track_info_with_cookie_fallback(url, requester_id, guild_id, voice_client)
+    except Exception as exc:
+        status = classify_ytdlp_error(exc)
+        print("[WARN] mention music link extract failed: bot_instance_id={0} guild_id={1} requester_id={2} type=youtube status={3} error={4}".format(config.BOT_INSTANCE_ID, guild_id, requester_id, status, type(exc).__name__))
+        log_music_action("mention_link_failed", guild_id, voice_channel_id(voice_client), requester_id, reason="type=youtube status={0}".format(status))
+        if status in AUTH_FAILURE_STATUSES or is_youtube_cookie_required_error(exc):
+            await message.channel.send("YouTube側の確認要求により取得できませんでした。Cookie設定が必要な可能性があります。")
+            return True
+        await message.channel.send("URL情報を取得できませんでした。URLや対応サイトを確認してください。")
+        return True
+
+    should_start = state.current is None and not (voice_client.is_playing() or voice_client.is_paused())
+    state.queue.append(track)
+    log_music_action("mention_link_enqueue", guild_id, voice_channel_id(voice_client), requester_id, track.title, "type=youtube")
+    if should_start:
+        await message.channel.send("再生します: {0}".format(track.title))
+        await play_next_track(voice_client, guild_id)
+    else:
+        await message.channel.send("キューに追加しました: {0}".format(track.title))
+    return True
+
+
+async def handle_mention_music_links(message: discord.Message, command_text: Optional[str]) -> bool:
+    if command_text is None:
+        return False
+    if getattr(getattr(message, "author", None), "bot", False):
+        return False
+    if getattr(message, "guild", None) is None:
+        return False
+
+    links = extract_music_links_from_text(command_text)
+    if not links:
+        return False
+
+    handled = False
+    for url in links:
+        handled = await enqueue_music_url_if_voice_connected(message, url) or handled
+        if get_guild_voice_client(message.guild) is None:
+            break
+    return handled
 
 
 async def skip_music(message: discord.Message) -> bool:

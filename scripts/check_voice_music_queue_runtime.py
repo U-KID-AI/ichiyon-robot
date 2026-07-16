@@ -18,9 +18,13 @@ from bot.services.voice_music import (
     YTDLP_COOKIES_FILE_ENV,
     apply_music_volume_to_voice_client,
     build_ytdl_options,
+    clear_music_state,
+    extract_music_links_from_text,
     format_now_playing,
     format_queue,
+    get_music_state,
     get_ytdlp_cookie_tmp_path,
+    handle_mention_music_links,
     loop_status_text,
     make_loop_track,
     parse_volume_percent,
@@ -36,6 +40,130 @@ from bot.services.voice_music import (
 def check(name: str, ok: bool, detail: str = "") -> bool:
     print("[{0}] {1}{2}".format("OK" if ok else "NG", name, " - {0}".format(detail) if detail else ""))
     return ok
+
+
+class FakeChannel:
+    def __init__(self):
+        self.messages = []
+
+    async def send(self, content):
+        self.messages.append(str(content))
+
+
+class FakeAuthor:
+    def __init__(self, user_id="1001", bot=False):
+        self.id = user_id
+        self.bot = bot
+
+
+class FakeGuild:
+    def __init__(self, guild_id="guild-link"):
+        self.id = guild_id
+
+
+class FakeVoiceClient:
+    def __init__(self, playing=False, paused=False):
+        self._playing = playing
+        self._paused = paused
+        self.channel = type("FakeVoiceChannel", (), {"id": "voice-link"})()
+
+    def is_playing(self):
+        return self._playing
+
+    def is_paused(self):
+        return self._paused
+
+
+class FakeMessage:
+    def __init__(self, guild_id="guild-link", user_id="1001", bot=False):
+        self.guild = FakeGuild(guild_id)
+        self.author = FakeAuthor(user_id, bot=bot)
+        self.channel = FakeChannel()
+
+
+async def run_mention_link_checks():
+    results = []
+    guild_id = "guild-link"
+    clear_music_state(guild_id)
+    fake_voice = FakeVoiceClient()
+    extract_calls = []
+    play_next_calls = []
+    spotify_calls = []
+
+    original_get_voice = voice_music.get_guild_voice_client
+    original_extract = voice_music.extract_track_info_with_cookie_fallback
+    original_play_next = voice_music.play_next_track
+    original_enqueue_spotify = voice_music.enqueue_spotify_link
+    try:
+        voice_music.get_guild_voice_client = lambda guild: fake_voice
+
+        async def _fake_extract(url, requester_id, guild_id_arg, voice_client):
+            extract_calls.append((url, requester_id, guild_id_arg))
+            return MusicTrack("link track", url, "https://stream.example.com/link", requester_id, 120, url)
+
+        async def _fake_play_next(voice_client, guild_id_arg):
+            play_next_calls.append(guild_id_arg)
+            return True
+
+        async def _fake_enqueue_spotify(message, link, voice_client):
+            spotify_calls.append((link.kind, link.original_url))
+            return True
+
+        voice_music.extract_track_info_with_cookie_fallback = _fake_extract
+        voice_music.play_next_track = _fake_play_next
+        voice_music.enqueue_spotify_link = _fake_enqueue_spotify
+
+        message = FakeMessage(guild_id)
+        results.append(check("mention youtube link is handled", await handle_mention_music_links(message, "https://youtu.be/abc123") is True))
+        results.append(check("youtube link is passed once", len(extract_calls) == 1 and extract_calls[-1][0] == "https://youtu.be/abc123", str(extract_calls)))
+        results.append(check("youtube link starts playback when idle", play_next_calls == [guild_id], str(play_next_calls)))
+
+        before_extracts = len(extract_calls)
+        results.append(check("legacy play command with link is intercepted once", await handle_mention_music_links(FakeMessage(guild_id), "豁後∴ https://youtu.be/legacy") is True))
+        results.append(check("legacy play command enqueues only once", len(extract_calls) == before_extracts + 1, str(extract_calls)))
+
+        results.append(check("full-width space before youtube link is handled", await handle_mention_music_links(FakeMessage(guild_id), "　https://youtu.be/fullwidth") is True))
+        results.append(check("arbitrary text before youtube link is handled", await handle_mention_music_links(FakeMessage(guild_id), "これ流して https://www.youtube.com/watch?v=text") is True))
+
+        results.append(check("spotify track link is handled", await handle_mention_music_links(FakeMessage(guild_id), "https://open.spotify.com/track/1234567890123456789012?si=test&utm_source=copy-link") is True))
+        results.append(check("spotify track is routed to spotify enqueue", spotify_calls[-1][0] == "track", str(spotify_calls)))
+        results.append(check("spotify album link is handled", await handle_mention_music_links(FakeMessage(guild_id), "https://open.spotify.com/album/1234567890123456789012?rowId=1") is True))
+        results.append(check("spotify album is routed to spotify enqueue", spotify_calls[-1][0] == "album", str(spotify_calls)))
+        results.append(check("spotify URI is handled", await handle_mention_music_links(FakeMessage(guild_id), "spotify:track:1234567890123456789012") is True))
+        results.append(check("spotify URI is routed to spotify enqueue", spotify_calls[-1][0] == "track", str(spotify_calls)))
+
+        results.append(check("no mention command text does not trigger", await handle_mention_music_links(FakeMessage(guild_id), None) is False))
+        results.append(check("bot author's message does not trigger", await handle_mention_music_links(FakeMessage(guild_id, bot=True), "https://youtu.be/bot") is False))
+        results.append(check("unsupported URL does not trigger", await handle_mention_music_links(FakeMessage(guild_id), "https://example.com/not-music") is False))
+
+        before_extracts = len(extract_calls)
+        voice_music.get_guild_voice_client = lambda guild: None
+        disconnected_message = FakeMessage(guild_id)
+        results.append(check("vc disconnected mention link is handled without autoplay join", await handle_mention_music_links(disconnected_message, "https://youtu.be/no-vc") is True))
+        results.append(check("vc disconnected does not extract URL", len(extract_calls) == before_extracts, str(extract_calls)))
+        results.append(check("vc disconnected sends existing-style guidance", bool(disconnected_message.channel.messages), str(disconnected_message.channel.messages)))
+
+        voice_music.get_guild_voice_client = lambda guild: fake_voice
+        clear_music_state(guild_id)
+        state = get_music_state(guild_id)
+        state.current = MusicTrack("current", "https://youtu.be/current", "https://stream.example.com/current", "1001", 100, "https://youtu.be/current")
+        play_next_calls.clear()
+        before_extracts = len(extract_calls)
+        playing_message = FakeMessage(guild_id)
+        results.append(check("playing mention link queues without stopping current", await handle_mention_music_links(playing_message, "https://youtu.be/queued") is True))
+        results.append(check("playing mention link extracts queued track", len(extract_calls) == before_extracts + 1, str(extract_calls)))
+        results.append(check("playing mention link does not start play_next", play_next_calls == [], str(play_next_calls)))
+        results.append(check("playing mention link preserves current and appends queue", state.current.title == "current" and len(state.queue) == 1, str(state)))
+
+        extracted_links = extract_music_links_from_text("https://youtu.be/a https://youtu.be/a https://open.spotify.com/track/1234567890123456789012")
+        results.append(check("duplicate music links are deduplicated in order", extracted_links == ["https://youtu.be/a", "https://open.spotify.com/track/1234567890123456789012"], str(extracted_links)))
+    finally:
+        voice_music.get_guild_voice_client = original_get_voice
+        voice_music.extract_track_info_with_cookie_fallback = original_extract
+        voice_music.play_next_track = original_play_next
+        voice_music.enqueue_spotify_link = original_enqueue_spotify
+        clear_music_state(guild_id)
+    return results
 
 
 def main() -> int:
@@ -77,6 +205,7 @@ def main() -> int:
     results.append(check("http url is accepted", is_http_url("https://example.com/watch?v=1")))
     results.append(check("non-url is rejected", not is_http_url("not-a-url")))
     results.append(check("javascript url is rejected", not is_http_url("javascript:alert(1)")))
+    results.extend(asyncio.run(run_mention_link_checks()))
     results.append(check("volume command without value parses", parse_music_command("音量") == ("music_volume", ""), str(parse_music_command("音量"))))
     results.append(check("volume command with value parses", parse_music_command("音量 40") == ("music_volume", "40"), str(parse_music_command("音量 40"))))
     results.append(check("volume accepts 0", parse_volume_percent("0") == (0, "")))
