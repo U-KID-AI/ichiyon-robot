@@ -1,0 +1,66 @@
+{% extends "layout.html" %}
+
+{% block title %}YouTube N連 - Bot管理画面{% endblock %}
+{% block heading %}YouTube N連{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="actions-row">
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+      {% if can_edit %}
+        <a class="button-link" href="/guilds/{{ guild_id }}/youtube-n-pull/new">新規作成</a>
+      {% endif %}
+    </div>
+  </section>
+
+  {% if message %}
+    <section class="panel success-panel">{{ message }}</section>
+  {% endif %}
+  {% if error %}
+    <section class="panel error-panel">{{ error }}</section>
+  {% endif %}
+
+  <section class="panel">
+    {% if presets %}
+      <div class="feature-list">
+        {% for preset in presets %}
+          <article class="feature-item">
+            <div class="feature-main">
+              <div class="feature-title-row">
+                <h3>{{ preset.display_name }}</h3>
+                {% if preset.enabled %}
+                  <span class="status on">ON</span>
+                {% else %}
+                  <span class="status off">OFF</span>
+                {% endif %}
+              </div>
+              <p class="empty feature-overview">
+                {{ preset.command_name }} / 最大{{ preset.max_pulls }}連 / キャッシュ{{ (preset.cache_ttl_seconds / 3600)|int }}時間
+              </p>
+              <p class="empty feature-overview">
+                ソース{{ preset.source_count }}件 / キャッシュ{{ preset.cache_count }}件
+                {% if preset.last_cache_error %} / 最終エラー: {{ preset.last_cache_error }}{% endif %}
+              </p>
+            </div>
+            <div class="feature-actions">
+              <a class="button-link secondary" href="/guilds/{{ guild_id }}/youtube-n-pull/{{ preset.id }}">編集</a>
+              {% if can_edit %}
+                <form method="post" action="/guilds/{{ guild_id }}/youtube-n-pull/{{ preset.id }}/refresh">
+                  <button type="submit">更新</button>
+                </form>
+                <form method="post" action="/guilds/{{ guild_id }}/youtube-n-pull/{{ preset.id }}/toggle">
+                  <button type="submit">{% if preset.enabled %}OFF{% else %}ON{% endif %}</button>
+                </form>
+                <form method="post" action="/guilds/{{ guild_id }}/youtube-n-pull/{{ preset.id }}/delete" onsubmit="return confirm('削除しますか？');">
+                  <button type="submit" class="danger">削除</button>
+                </form>
+              {% endif %}
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="empty">YouTube N連プリセットはまだありません。</p>
+    {% endif %}
+  </section>
+{% endblock %}

@@ -1,0 +1,85 @@
+{% extends "layout.html" %}
+
+{% block title %}{% if mode == 'new' %}YouTube N連 作成{% else %}YouTube N連 編集{% endif %} - Bot管理画面{% endblock %}
+{% block heading %}{% if mode == 'new' %}YouTube N連 作成{% else %}YouTube N連 編集{% endif %}{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="actions-row">
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}/youtube-n-pull">一覧へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+      {% if mode == 'edit' and can_edit %}
+        <form method="post" action="/guilds/{{ guild_id }}/youtube-n-pull/{{ preset_id }}/refresh">
+          <button type="submit">キャッシュ更新</button>
+        </form>
+      {% endif %}
+    </div>
+  </section>
+
+  {% if errors %}
+    <section class="panel error-panel">
+      <ul>
+        {% for error in errors %}
+          <li>{{ error }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  <form method="post">
+    <section class="panel">
+      <h2>基本</h2>
+      <div class="form-grid">
+        <label>表示名<input name="display_name" value="{{ form.display_name }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>コマンド名<input name="command_name" value="{{ form.command_name }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>カテゴリ<input name="category" value="{{ form.category }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>最大N<input name="max_pulls" value="{{ form.max_pulls }}" inputmode="numeric" {% if not can_edit %}disabled{% endif %}></label>
+        <label>キャッシュ時間<input name="cache_ttl_hours" value="{{ form.cache_ttl_hours }}" inputmode="numeric" {% if not can_edit %}disabled{% endif %}></label>
+        <label>最小動画秒数<input name="min_duration_seconds" value="{{ form.min_duration_seconds }}" inputmode="numeric" {% if not can_edit %}disabled{% endif %}></label>
+        <label>最大動画秒数<input name="max_duration_seconds" value="{{ form.max_duration_seconds }}" inputmode="numeric" {% if not can_edit %}disabled{% endif %}></label>
+      </div>
+      <label>別名<textarea name="aliases" rows="4" {% if not can_edit %}disabled{% endif %}>{{ form.aliases }}</textarea></label>
+      <p class="empty">正規化キー: {{ command_key }}</p>
+      <label class="check-row"><input type="checkbox" name="enabled" {% if form.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>ON</label>
+    </section>
+
+    <section class="panel">
+      <h2>除外条件</h2>
+      <div class="form-grid">
+        <label class="check-row"><input type="checkbox" name="include_shorts" {% if form.include_shorts %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>Shortsを含める</label>
+        <label class="check-row"><input type="checkbox" name="include_live" {% if form.include_live %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>現在ライブを含める</label>
+        <label class="check-row"><input type="checkbox" name="include_archived_live" {% if form.include_archived_live %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>アーカイブライブを含める</label>
+      </div>
+      <label>タイトル必須語<textarea name="include_title_terms" rows="4" {% if not can_edit %}disabled{% endif %}>{{ form.include_title_terms }}</textarea></label>
+      <label>タイトル除外語<textarea name="exclude_title_terms" rows="4" {% if not can_edit %}disabled{% endif %}>{{ form.exclude_title_terms }}</textarea></label>
+    </section>
+
+    <section class="panel">
+      <h2>ソース</h2>
+      <p class="empty">1行1ソース。`channel, URL` または `playlist, URL` 形式。末尾に `off` を付けると無効化できます。</p>
+      <label>ソース一覧<textarea name="sources_text" rows="8" {% if not can_edit %}disabled{% endif %}>{{ form.sources_text }}</textarea></label>
+    </section>
+
+    <section class="panel">
+      <h2>キャッシュプレビュー</h2>
+      {% if preview %}
+        <ol>
+          {% for video in preview %}
+            <li>{{ video.title }}{% if video.duration_seconds %} / {{ video.duration_seconds }}秒{% endif %}</li>
+          {% endfor %}
+        </ol>
+      {% else %}
+        <p class="empty">キャッシュ動画はまだありません。</p>
+      {% endif %}
+    </section>
+
+    <section class="panel actions-row">
+      {% if can_edit %}
+        <button type="submit">保存</button>
+      {% else %}
+        <p class="empty">閲覧のみ</p>
+      {% endif %}
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}/youtube-n-pull">戻る</a>
+    </section>
+  </form>
+{% endblock %}

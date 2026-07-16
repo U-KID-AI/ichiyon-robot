@@ -13,6 +13,7 @@ from bot.services.runtime_db import expire_db_modes_once, get_message_guild_id, 
 from bot.services.voice_control import handle_voice_command
 from bot.services.voice_music import handle_mention_music_links
 from bot.services.x_update_notifications import run_x_update_notifications_once
+from bot.services.youtube_n_pull import handle_youtube_n_pull_command
 from bot.services.youtube_cookie_monitor import maybe_run_scheduled_cookie_check
 
 
@@ -131,6 +132,9 @@ async def on_message(message: discord.Message):
 
     command_text = messages.get_mention_command_text(message)
     if await handle_mention_music_links(message, command_text):
+        return
+
+    if await handle_youtube_n_pull_command(message, command_text):
         return
 
     if await handle_voice_command(message, command_text):
