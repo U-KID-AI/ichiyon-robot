@@ -2,6 +2,20 @@
 
 Botへのメンション付きメッセージで、Discord VCへの入退室と `assets/audio` 配下のローカル音声ファイル再生を行います。
 
+## 簡略音楽再生
+
+BotをVCに入れた状態なら、`歌え` などのキーワードなしでリンクだけでも音楽再生できます。
+
+- `@Bot <YouTubeまたはSpotifyリンク>`
+- `@Bot https://youtu.be/...`
+- `@Bot https://www.youtube.com/watch?v=...`
+- `@Bot https://open.spotify.com/track/...`
+- `@Bot https://open.spotify.com/album/...`
+- `@Bot spotify:track:...`
+- `@Bot spotify:album:...`
+
+メンションとリンクの間には空白や短い文章を入れられます。例: `@Bot これ流して https://youtu.be/...`。従来の `@Bot 歌え <URL>` 形式も引き続き使えます。BotがVCにいない場合は自動参加せず、先に `@Bot もしもししよ` で呼んでください。
+
 ## 入室
 
 - `@Bot もしもししよ`
