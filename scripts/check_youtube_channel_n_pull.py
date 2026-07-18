@@ -1,4 +1,5 @@
 import asyncio
+import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -144,6 +145,37 @@ class FakeConnection:
 
 def main() -> int:
     results = []
+    import_probe = """
+import importlib.abc
+import sys
+
+class Blocker(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname in ("bot.services.voice_music", "bot.services.youtube_cookie_monitor"):
+            raise ImportError("blocked " + fullname)
+        return None
+
+sys.meta_path.insert(0, Blocker())
+import admin.youtube_n_pull as module
+assert "bot.services.voice_music" not in sys.modules
+assert "bot.services.youtube_cookie_monitor" not in sys.modules
+assert callable(module.is_youtube_source_url)
+assert callable(module.fetch_source_videos)
+print("admin import ok")
+"""
+    probe_result = subprocess.run(
+        [sys.executable, "-c", import_probe],
+        cwd=str(ROOT_DIR),
+        text=True,
+        capture_output=True,
+    )
+    results.append(
+        check(
+            "admin import does not require voice music or cookie monitor",
+            probe_result.returncode == 0,
+            (probe_result.stdout + probe_result.stderr).strip(),
+        )
+    )
     results.append(check("command parses 10連", n_pull.parse_n_pull_command("油粘土マン 10連")[:2] == ("油粘土マン", 10), str(n_pull.parse_n_pull_command("油粘土マン 10連"))))
     results.append(check("command parses 100連", n_pull.parse_n_pull_command("しゃろう 100連")[:2] == ("しゃろう", 100)))
     results.append(check("command parses alias P5", n_pull.parse_n_pull_command("P5 10連")[:2] == ("P5", 10)))
@@ -192,6 +224,7 @@ def main() -> int:
 
     track = n_pull.make_track_from_cached_video(FakeRepository().videos[0], "requester")
     results.append(check("queued track defers stream extraction", isinstance(track, MusicTrack) and track.refresh_required and track.stream_url == "", str(track)))
+    results.append(check("runtime track creation uses music dependency lazily", track.source_type == "youtube_n_pull" and track.source_url == "https://www.youtube.com/watch?v=a", str(track)))
 
     results.append(check("youtube source URL validates channel", n_pull.is_youtube_source_url("https://www.youtube.com/channel/UCfjca6Z_wpyinTqHdIYJ49Q")))
     results.append(check("invalid source URL is rejected", not n_pull.is_youtube_source_url("https://example.com/channel")))
