@@ -4,6 +4,7 @@ import random
 import re
 import shutil
 import tempfile
+import unicodedata
 from collections import deque
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -58,6 +59,10 @@ except ImportError:  # pragma: no cover - dependency availability is checked at 
 
 MUSIC_PLAY_PREFIXES = ("歌え", "流して", "音楽", "play")
 MUSIC_SKIP_COMMANDS = {"スキップ", "skip", "次", "次の曲"}
+MUSIC_SKIP_COUNT_MIN = 1
+MUSIC_SKIP_COUNT_MAX = 100
+MUSIC_SKIP_INVALID_COUNT_MESSAGE = "スキップできる曲数は1～100曲です。"
+MUSIC_SKIP_INVALID_FORMAT_MESSAGE = "スキップする曲数を1～100で指定してください。"
 MUSIC_PAUSE_COMMANDS = {"一時停止", "pause"}
 MUSIC_RESUME_COMMANDS = {"再開", "resume"}
 MUSIC_QUEUE_COMMANDS = {"キュー", "queue", "再生予定"}
@@ -139,11 +144,26 @@ def normalize_music_command(command_text: Optional[str]) -> str:
     return "".join(str(command_text or "").strip().lower().split())
 
 
+def parse_music_skip_command(raw: str, normalized: str) -> Optional[str]:
+    if normalized in MUSIC_SKIP_COMMANDS:
+        return ""
+    for prefix in ("スキップ", "skip"):
+        pattern = r"^{0}[\s\u3000]+(.+)$".format(re.escape(prefix))
+        match = re.match(pattern, raw, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+    match = re.match(r"^(.+)曲スキップ$", normalized, flags=re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
 def parse_music_command(command_text: Optional[str]) -> Tuple[Optional[str], str]:
     raw = str(command_text or "").strip()
     normalized = normalize_music_command(raw)
-    if normalized in MUSIC_SKIP_COMMANDS:
-        return "music_skip", ""
+    skip_argument = parse_music_skip_command(raw, normalized)
+    if skip_argument is not None:
+        return "music_skip", skip_argument
     if normalized in MUSIC_PAUSE_COMMANDS:
         return "music_pause", ""
     if normalized in MUSIC_RESUME_COMMANDS:
@@ -369,6 +389,18 @@ def parse_volume_percent(argument: str) -> Tuple[Optional[int], str]:
         return None, "音量は0〜100の数値で指定してください。"
     if value < 0 or value > 100:
         return None, "音量は0〜100の範囲で指定してください。"
+    return value, ""
+
+
+def parse_skip_count(argument: str) -> Tuple[Optional[int], str]:
+    text = unicodedata.normalize("NFKC", str(argument or "")).strip()
+    if not text:
+        return 1, ""
+    if not re.fullmatch(r"[+-]?\d+", text):
+        return None, MUSIC_SKIP_INVALID_FORMAT_MESSAGE
+    value = int(text)
+    if value < MUSIC_SKIP_COUNT_MIN or value > MUSIC_SKIP_COUNT_MAX:
+        return None, MUSIC_SKIP_INVALID_COUNT_MESSAGE
     return value, ""
 
 
@@ -816,7 +848,7 @@ async def _handle_track_finished(
         return
     if finished_track is not None and state.loop_mode == MUSIC_LOOP_ONE and not skip_requested:
         state.queue.appendleft(make_loop_track(finished_track))
-    elif finished_track is not None and state.loop_mode == MUSIC_LOOP_QUEUE:
+    elif finished_track is not None and state.loop_mode == MUSIC_LOOP_QUEUE and not skip_requested:
         state.queue.append(make_loop_track(finished_track))
     await play_next_track(voice_client, guild_id)
 
@@ -982,20 +1014,75 @@ async def handle_mention_music_links(message: discord.Message, command_text: Opt
     return handled
 
 
-async def skip_music(message: discord.Message) -> bool:
+def _pop_skipped_waiting_tracks(state: MusicState, count: int) -> int:
+    removed = 0
+    while removed < count and state.queue:
+        state.queue.popleft()
+        removed += 1
+    return removed
+
+
+def format_skip_result(skipped_count: int, has_next: bool) -> str:
+    if skipped_count <= 1:
+        return "スキップしました。"
+    if has_next:
+        return "{0}曲をスキップしました。次の曲を再生します。".format(skipped_count)
+    return "{0}曲をスキップしました。音楽キューは空です。".format(skipped_count)
+
+
+async def skip_music(message: discord.Message, argument: str = "") -> bool:
     guild = message.guild
     if guild is None:
         await message.channel.send("音楽コマンドはサーバー内で使ってください。")
         return True
+    skip_count, error = parse_skip_count(argument)
+    if error:
+        await message.channel.send(error)
+        return True
     voice_client = get_guild_voice_client(guild)
-    state = get_music_state(str(guild.id))
-    if voice_client is None or state.current is None:
+    guild_id = str(guild.id)
+    state = get_music_state(guild_id)
+    if voice_client is None or (state.current is None and not state.queue):
         await message.channel.send("現在再生中の曲はありません。")
         return True
-    log_music_action("skip", str(guild.id), voice_channel_id(voice_client), str(getattr(message.author, "id", "") or ""), state.current.title)
-    state.skip_requested = True
-    voice_client.stop()
-    await message.channel.send("スキップしました。")
+    requested_count = int(skip_count or 1)
+    requester_id = str(getattr(message.author, "id", "") or "")
+    channel_id = voice_channel_id(voice_client)
+    skipped_count = 0
+    current_title = state.current.title if state.current else ""
+    if state.current is not None:
+        skipped_count = 1
+        skipped_count += _pop_skipped_waiting_tracks(state, requested_count - 1)
+        log_music_action(
+            "skip",
+            guild_id,
+            channel_id,
+            requester_id,
+            current_title,
+            "requested={0} skipped={1}".format(requested_count, skipped_count),
+        )
+        if voice_client.is_playing() or voice_client.is_paused():
+            state.skip_requested = True
+            voice_client.stop()
+        else:
+            state.current = None
+            state.skip_requested = False
+            if state.queue and is_voice_client_connected(voice_client):
+                await play_next_track(voice_client, guild_id)
+        await message.channel.send(format_skip_result(skipped_count, bool(state.queue)))
+        return True
+
+    skipped_count = _pop_skipped_waiting_tracks(state, requested_count)
+    log_music_action(
+        "skip",
+        guild_id,
+        channel_id,
+        requester_id,
+        reason="requested={0} skipped={1} current=none".format(requested_count, skipped_count),
+    )
+    if state.queue and is_voice_client_connected(voice_client):
+        await play_next_track(voice_client, guild_id)
+    await message.channel.send(format_skip_result(skipped_count, bool(state.queue)))
     return True
 
 

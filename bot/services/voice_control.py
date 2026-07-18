@@ -266,7 +266,7 @@ async def handle_voice_command(message: discord.Message, command_text: Optional[
     if music_command == "music_play":
         return await enqueue_music_url(message, music_argument)
     if music_command == "music_skip":
-        return await skip_music(message)
+        return await skip_music(message, music_argument)
     if music_command == "music_pause":
         return await pause_music(message)
     if music_command == "music_resume":
