@@ -1,19 +1,24 @@
+from __future__ import annotations
+
 import asyncio
+import os
 import random
 import re
+import shutil
+import tempfile
 import unicodedata
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
-
-import discord
 
 from bot import config
 from bot.db import get_connection
 from bot.repositories.feature_flags import FeatureFlagRepository
 from bot.repositories.youtube_n_pull import YouTubeNPullRepository, cache_is_fresh, normalize_command_name
-from bot.services.voice_audio import get_guild_voice_client
-from bot.services.voice_music import MusicTrack, get_music_state, play_next_track, voice_channel_id
+
+if TYPE_CHECKING:
+    import discord
 
 try:
     import yt_dlp
@@ -25,6 +30,38 @@ MAX_N_PULL_COUNT = 100
 FEATURE_YOUTUBE_N_PULL = "youtube_n_pull"
 N_PULL_PATTERN = re.compile(r"^(?P<name>.+?)\s*(?P<count>[0-9０-９]+)?\s*連\s*$")
 _CACHE_REFRESH_LOCKS: Dict[str, asyncio.Lock] = {}
+YTDLP_COOKIES_FILE_ENV = "YTDLP_COOKIES_FILE"
+YTDLP_COOKIES_TMP_DIR = Path(tempfile.gettempdir())
+YTDL_FLAT_OPTIONS = {
+    "format": "bestaudio/best",
+    "quiet": True,
+    "no_warnings": True,
+    "noplaylist": True,
+    "js_runtimes": {"deno": {}},
+    "remote_components": ["ejs:github"],
+    "extract_flat": True,
+    "skip_download": True,
+    "ignoreerrors": True,
+    "playlistend": 500,
+}
+
+
+def get_guild_voice_client(guild):
+    from bot.services.voice_audio import get_guild_voice_client as real_get_guild_voice_client
+
+    return real_get_guild_voice_client(guild)
+
+
+def get_music_state(guild_id: str):
+    from bot.services.voice_music import get_music_state as real_get_music_state
+
+    return real_get_music_state(guild_id)
+
+
+async def play_next_track(voice_client, guild_id: str):
+    from bot.services.voice_music import play_next_track as real_play_next_track
+
+    return await real_play_next_track(voice_client, guild_id)
 
 
 def parse_n_pull_command(command_text: Optional[str]) -> Tuple[Optional[str], Optional[int], Optional[str]]:
@@ -135,18 +172,28 @@ def extract_video_from_entry(entry: Dict[str, Any], source_id: Optional[int] = N
     }
 
 
-def build_flat_ytdl_options(guild_id: str) -> Dict[str, Any]:
-    from bot.services.voice_music import build_ytdl_options
+def _safe_cookie_suffix(guild_id: Optional[str]) -> str:
+    raw = str(guild_id or "global")
+    safe = "".join(char if char.isalnum() or char in ("-", "_") else "_" for char in raw)
+    return safe or "global"
 
-    options = build_ytdl_options(guild_id)
-    options.update(
-        {
-            "extract_flat": True,
-            "skip_download": True,
-            "ignoreerrors": True,
-            "playlistend": 500,
-        }
-    )
+
+def get_ytdlp_cookie_tmp_path(guild_id: Optional[str] = None) -> Path:
+    return YTDLP_COOKIES_TMP_DIR / "ichiyon-ytdlp-cookies-{0}.txt".format(_safe_cookie_suffix(guild_id))
+
+
+def prepare_ytdlp_cookie_file(cookies_file: str, guild_id: Optional[str] = None) -> str:
+    source_path = Path(cookies_file)
+    target_path = get_ytdlp_cookie_tmp_path(guild_id)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source_path, target_path)
+    return str(target_path)
+
+def build_flat_ytdl_options(guild_id: str) -> Dict[str, Any]:
+    options = dict(YTDL_FLAT_OPTIONS)
+    cookies_file = str(os.getenv(YTDLP_COOKIES_FILE_ENV) or "").strip()
+    if cookies_file:
+        options["cookiefile"] = prepare_ytdlp_cookie_file(cookies_file, guild_id)
     return options
 
 
@@ -215,7 +262,9 @@ def pick_videos(videos: List[Dict[str, Any]], count: int) -> List[Dict[str, Any]
     return random.sample(values, count)
 
 
-def make_track_from_cached_video(video: Dict[str, Any], requester_id: str) -> MusicTrack:
+def make_track_from_cached_video(video: Dict[str, Any], requester_id: str):
+    from bot.services.voice_music import MusicTrack
+
     url = str(video.get("canonical_url") or canonical_video_url(str(video.get("video_id") or "")))
     return MusicTrack(
         title=str(video.get("title") or url),
