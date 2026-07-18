@@ -202,6 +202,16 @@ def main() -> int:
         action, argument = parse_music_command(command)
         results.append(check("control command parses: {0}".format(command), action == expected_action and argument == "", str((action, argument))))
 
+    loop_range_examples = {
+        "キューループ 5": ("music_loop_queue", "5"),
+        "キューループ　5": ("music_loop_queue", "5"),
+        "5曲ループ": ("music_loop_queue", "5"),
+    }
+    for command, expected in loop_range_examples.items():
+        results.append(check("loop range command parses: {0}".format(command), parse_music_command(command) == expected, str(parse_music_command(command))))
+    for command in ("5曲ループしてる曲", "この曲ループして", "ループ5回", "5回ループ", "ループ曲5"):
+        results.append(check("loop range command does not overmatch: {0}".format(command), parse_music_command(command)[0] is None, str(parse_music_command(command))))
+
     results.append(check("http url is accepted", is_http_url("https://example.com/watch?v=1")))
     results.append(check("non-url is rejected", not is_http_url("not-a-url")))
     results.append(check("javascript url is rejected", not is_http_url("javascript:alert(1)")))

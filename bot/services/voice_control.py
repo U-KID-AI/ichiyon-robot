@@ -282,7 +282,7 @@ async def handle_voice_command(message: discord.Message, command_text: Optional[
     if music_command == "music_loop_one":
         return await set_music_loop(message, MUSIC_LOOP_ONE)
     if music_command == "music_loop_queue":
-        return await set_music_loop(message, MUSIC_LOOP_QUEUE)
+        return await set_music_loop(message, MUSIC_LOOP_QUEUE, music_argument)
     if music_command == "music_loop_off":
         return await set_music_loop(message, MUSIC_LOOP_OFF)
     if music_command == "music_shuffle":
