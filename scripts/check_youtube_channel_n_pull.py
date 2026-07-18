@@ -228,6 +228,73 @@ print("admin import ok")
 
     results.append(check("youtube source URL validates channel", n_pull.is_youtube_source_url("https://www.youtube.com/channel/UCfjca6Z_wpyinTqHdIYJ49Q")))
     results.append(check("invalid source URL is rejected", not n_pull.is_youtube_source_url("https://example.com/channel")))
+    results.append(check("channel root URL normalizes to videos tab", n_pull.normalize_youtube_source_url("https://www.youtube.com/channel/UCabc") == "https://www.youtube.com/channel/UCabc/videos"))
+    results.append(check("handle root URL normalizes to videos tab", n_pull.normalize_youtube_source_url("https://www.youtube.com/@sample") == "https://www.youtube.com/@sample/videos"))
+    results.append(check("existing videos tab is not duplicated", n_pull.normalize_youtube_source_url("https://www.youtube.com/@sample/videos") == "https://www.youtube.com/@sample/videos"))
+    results.append(check("playlist URL is not normalized as channel", n_pull.normalize_youtube_source_url("https://www.youtube.com/playlist?list=PLabc") == "https://www.youtube.com/playlist?list=PLabc"))
+
+    playlist_fixture = {
+        "_type": "playlist",
+        "title": "oil clay man - Videos",
+        "id": "UCchannelid",
+        "entries": [
+            {"_type": "url", "id": "VIDEO_ID_01", "url": "https://www.youtube.com/watch?v=VIDEO_ID_01", "title": "actual video 1"},
+            {"_type": "url", "id": "VIDEO_ID_02", "url": "https://www.youtube.com/watch?v=VIDEO_ID_02", "title": "actual video 2"},
+        ],
+    }
+    extracted_entries = n_pull.iter_source_video_entries(playlist_fixture)
+    extracted_videos = [n_pull.extract_video_from_entry(entry) for entry in extracted_entries]
+    results.append(check("top-level playlist dict is not treated as video", len(extracted_entries) == 2, str(extracted_entries)))
+    results.append(check("playlist entries produce real videos", [video["video_id"] for video in extracted_videos if video] == ["VIDEO_ID_01", "VIDEO_ID_02"], str(extracted_videos)))
+    results.append(check("canonical watch URL is generated", extracted_videos[0]["canonical_url"] == "https://www.youtube.com/watch?v=VIDEO_ID_01", str(extracted_videos[0])))
+    results.append(check("entry with nested entries is not cached as video", n_pull.extract_video_from_entry(playlist_fixture) is None))
+    results.append(check("entry without video id is rejected", n_pull.extract_video_from_entry({"title": "no id", "url": "https://www.youtube.com/@sample/videos"}) is None))
+    results.append(check("channel id is not used as video id", n_pull.extract_video_from_entry({"id": "UCfjca6Z_wpyinTqHdIYJ49Q", "title": "channel only"}) is None))
+    nested_fixture = {
+        "_type": "playlist",
+        "title": "root",
+        "entries": [
+            {"_type": "playlist", "title": "tab", "entries": [{"_type": "url", "id": "NESTED00001", "url": "https://www.youtube.com/watch?v=NESTED00001", "title": "nested video"}]},
+        ],
+    }
+    nested_videos = [n_pull.extract_video_from_entry(entry) for entry in n_pull.iter_source_video_entries(nested_fixture)]
+    results.append(check("nested entries are expanded", [video["video_id"] for video in nested_videos if video] == ["NESTED00001"], str(nested_videos)))
+
+    class _FakeYoutubeDL:
+        seen_urls = []
+        seen_options = []
+
+        def __init__(self, options):
+            self.options = options
+            _FakeYoutubeDL.seen_options.append(dict(options))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def extract_info(self, url, download=False):
+            _FakeYoutubeDL.seen_urls.append((url, download))
+            return playlist_fixture
+
+    class _FakeYtDlp:
+        YoutubeDL = _FakeYoutubeDL
+
+    original_ytdlp = n_pull.yt_dlp
+    try:
+        n_pull.yt_dlp = _FakeYtDlp
+        fetched = n_pull.fetch_source_videos(
+            {"id": 99, "source_url": "https://www.youtube.com/channel/UCabc"},
+            "guild-a",
+            FakeRepository().preset,
+        )
+        results.append(check("fetch normalizes channel before yt-dlp", _FakeYoutubeDL.seen_urls[0][0] == "https://www.youtube.com/channel/UCabc/videos", str(_FakeYoutubeDL.seen_urls)))
+        results.append(check("fetch expands playlist entries", [video["video_id"] for video in fetched] == ["VIDEO_ID_01", "VIDEO_ID_02"], str(fetched)))
+        results.append(check("fetch keeps flat extraction options", _FakeYoutubeDL.seen_options[0].get("extract_flat") is True and _FakeYoutubeDL.seen_options[0].get("skip_download") is True, str(_FakeYoutubeDL.seen_options[0])))
+        results.append(check("fetch does not pre-resolve stream URLs", all("stream_url" not in video for video in fetched), str(fetched)))
+    finally:
+        n_pull.yt_dlp = original_ytdlp
 
     original_get_connection = n_pull.get_connection
     original_repo = n_pull.YouTubeNPullRepository
@@ -289,6 +356,21 @@ print("admin import ok")
             refreshed, status = asyncio.run(n_pull.refresh_cache_if_needed(fake_connection.repository, "guild-a", fake_connection.repository.preset))
             results.append(check("stale cache refreshes", refreshed and status == "refresh", str((refreshed, status))))
             results.append(check("refresh uses source once", len(refresh_calls) == 1, str(refresh_calls)))
+        finally:
+            n_pull.fetch_source_videos = original_fetch
+
+        fake_connection.repository.preset["last_cache_refresh_at"] = datetime.now(timezone.utc) - timedelta(days=2)
+        fake_connection.repository.videos = [{"video_id": "old", "canonical_url": "https://www.youtube.com/watch?v=old", "title": "old cache", "duration_seconds": 100, "live_status": ""}]
+        before_empty_refresh = list(fake_connection.repository.videos)
+
+        def _fake_empty_fetch(source, guild_id, preset):
+            return []
+
+        n_pull.fetch_source_videos = _fake_empty_fetch
+        try:
+            refreshed, status = asyncio.run(n_pull.refresh_cache_if_needed(fake_connection.repository, "guild-a", fake_connection.repository.preset))
+            results.append(check("Videos-tab-only refresh is not success", refreshed is False and status == "stale", str((refreshed, status))))
+            results.append(check("failed refresh keeps old cache", fake_connection.repository.videos == before_empty_refresh, str(fake_connection.repository.videos)))
         finally:
             n_pull.fetch_source_videos = original_fetch
     finally:

@@ -10,7 +10,7 @@ import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, urlunparse
 
 from bot import config
 from bot.db import get_connection
@@ -27,6 +27,8 @@ except ImportError:  # pragma: no cover - dependency availability is checked sep
 
 
 MAX_N_PULL_COUNT = 100
+MAX_SOURCE_ENTRY_SCAN = 1000
+MAX_SOURCE_ENTRY_DEPTH = 3
 FEATURE_YOUTUBE_N_PULL = "youtube_n_pull"
 N_PULL_PATTERN = re.compile(r"^(?P<name>.+?)\s*(?P<count>[0-9０-９]+)?\s*連\s*$")
 _CACHE_REFRESH_LOCKS: Dict[str, asyncio.Lock] = {}
@@ -92,6 +94,28 @@ def is_youtube_source_url(url: str) -> bool:
     return host in ("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be")
 
 
+def normalize_youtube_source_url(url: str) -> str:
+    raw = str(url or "").strip()
+    parsed = urlparse(raw)
+    host = parsed.netloc.lower()
+    if host not in ("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"):
+        return raw
+    parts = [part for part in parsed.path.split("/") if part]
+    if not parts:
+        return raw
+    if parsed.path == "/playlist" or parse_qs(parsed.query).get("list"):
+        return raw
+    if parts[0] == "channel" and len(parts) >= 2:
+        if len(parts) == 2:
+            return urlunparse(parsed._replace(path="/channel/{0}/videos".format(parts[1])))
+        return raw
+    if parts[0].startswith("@"):
+        if len(parts) == 1:
+            return urlunparse(parsed._replace(path="/{0}/videos".format(parts[0])))
+        return raw
+    return raw
+
+
 def video_id_from_url(url: str) -> str:
     parsed = urlparse(str(url or "").strip())
     host = parsed.netloc.lower()
@@ -103,6 +127,13 @@ def video_id_from_url(url: str) -> str:
     if parts and parts[0] in ("shorts", "embed", "live") and len(parts) >= 2:
         return parts[1]
     return ""
+
+
+def looks_like_video_id(video_id: str) -> bool:
+    value = str(video_id or "").strip()
+    if not value or not re.fullmatch(r"[A-Za-z0-9_-]{11}", value):
+        return False
+    return not value.startswith(("UC", "UU", "PL", "OLAK5uy_", "RD", "VL"))
 
 
 def canonical_video_url(video_id: str) -> str:
@@ -145,10 +176,19 @@ def video_passes_filters(video: Dict[str, Any], preset: Dict[str, Any]) -> bool:
 def extract_video_from_entry(entry: Dict[str, Any], source_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
     if not entry:
         return None
+    if entry.get("entries"):
+        return None
+    entry_type = str(entry.get("_type") or "").lower()
+    if entry_type in ("playlist", "multi_video", "channel", "tab"):
+        return None
     entry_url = str(entry.get("url") or entry.get("webpage_url") or "")
-    video_id = str(entry.get("id") or "").strip()
-    if not video_id and entry_url:
-        video_id = video_id_from_url(entry_url)
+    video_id = video_id_from_url(entry_url) if entry_url else ""
+    if video_id and not looks_like_video_id(video_id):
+        return None
+    if not video_id:
+        candidate_id = str(entry.get("id") or "").strip()
+        if looks_like_video_id(candidate_id):
+            video_id = candidate_id
     if not video_id:
         return None
     title = str(entry.get("title") or "").strip()
@@ -170,6 +210,31 @@ def extract_video_from_entry(entry: Dict[str, Any], source_id: Optional[int] = N
         "live_status": str(entry.get("live_status") or ""),
         "published_at": None,
     }
+
+
+def iter_source_video_entries(info: Dict[str, Any], max_entries: int = MAX_SOURCE_ENTRY_SCAN) -> List[Dict[str, Any]]:
+    videos: List[Dict[str, Any]] = []
+
+    def _walk(node: Any, depth: int) -> None:
+        if len(videos) >= max_entries or node is None:
+            return
+        if isinstance(node, list):
+            for item in node:
+                _walk(item, depth)
+                if len(videos) >= max_entries:
+                    break
+            return
+        if not isinstance(node, dict):
+            return
+        entries = node.get("entries")
+        if entries and depth < MAX_SOURCE_ENTRY_DEPTH:
+            _walk(entries, depth + 1)
+            return
+        if extract_video_from_entry(node) is not None:
+            videos.append(node)
+
+    _walk(info, 0)
+    return videos
 
 
 def _safe_cookie_suffix(guild_id: Optional[str]) -> str:
@@ -203,9 +268,10 @@ def fetch_source_videos(source: Dict[str, Any], guild_id: str, preset: Dict[str,
     url = str(source.get("source_url") or "").strip()
     if not is_youtube_source_url(url):
         raise ValueError("unsupported youtube source url")
+    url = normalize_youtube_source_url(url)
     with yt_dlp.YoutubeDL(build_flat_ytdl_options(guild_id)) as ydl:
         info = ydl.extract_info(url, download=False)
-    entries = (info or {}).get("entries") or []
+    entries = iter_source_video_entries(info or {})
     videos: List[Dict[str, Any]] = []
     seen = set()
     for entry in entries:
@@ -242,6 +308,8 @@ async def refresh_cache_if_needed(repository: YouTubeNPullRepository, guild_id: 
             unique: Dict[str, Dict[str, Any]] = {}
             for video in refreshed:
                 unique.setdefault(video["video_id"], video)
+            if not unique:
+                raise RuntimeError("no valid youtube videos found")
             repository.replace_cache_videos(preset_id, list(unique.values()))
             repository.mark_cache_refresh(preset_id, "")
             return True, "refresh"
