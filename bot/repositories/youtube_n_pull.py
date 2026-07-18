@@ -231,6 +231,7 @@ class YouTubeNPullRepository:
 
     def replace_cache_videos(self, preset_id: int, videos: List[Dict[str, Any]]) -> None:
         with self.connection.cursor() as cursor:
+            cursor.execute("DELETE FROM youtube_n_pull_cache_videos WHERE preset_id = %s", (preset_id,))
             for video in videos:
                 cursor.execute(
                     """

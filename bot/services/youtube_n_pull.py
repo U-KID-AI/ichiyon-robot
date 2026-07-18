@@ -10,6 +10,7 @@ import discord
 
 from bot import config
 from bot.db import get_connection
+from bot.repositories.feature_flags import FeatureFlagRepository
 from bot.repositories.youtube_n_pull import YouTubeNPullRepository, cache_is_fresh, normalize_command_name
 from bot.services.voice_audio import get_guild_voice_client
 from bot.services.voice_music import MusicTrack, get_music_state, play_next_track, voice_channel_id
@@ -21,6 +22,7 @@ except ImportError:  # pragma: no cover - dependency availability is checked sep
 
 
 MAX_N_PULL_COUNT = 100
+FEATURE_YOUTUBE_N_PULL = "youtube_n_pull"
 N_PULL_PATTERN = re.compile(r"^(?P<name>.+?)\s*(?P<count>[0-9０-９]+)?\s*連\s*$")
 _CACHE_REFRESH_LOCKS: Dict[str, asyncio.Lock] = {}
 
@@ -314,13 +316,19 @@ async def handle_youtube_n_pull_command(message: discord.Message, command_text: 
 
     guild_id = str(guild.id)
     requester_id = str(getattr(message.author, "id", "") or "")
-    voice_client = get_guild_voice_client(guild)
-    if voice_client is None:
-        await message.channel.send("先にVCへ呼んでください。")
-        log_n_pull("skipped", guild_id, requester_id, requested_count=count, reason="not_connected")
-        return True
 
     with get_connection() as connection:
+        if not FeatureFlagRepository(connection).is_enabled(guild_id, FEATURE_YOUTUBE_N_PULL, default=True):
+            await message.channel.send("YouTube N連機能はOFFです。")
+            log_n_pull("skipped", guild_id, requester_id, requested_count=count, reason="feature_off")
+            return True
+
+        voice_client = get_guild_voice_client(guild)
+        if voice_client is None:
+            await message.channel.send("先にVCへ呼んでください。")
+            log_n_pull("skipped", guild_id, requester_id, requested_count=count, reason="not_connected")
+            return True
+
         repository = YouTubeNPullRepository(connection)
         preset = repository.find_preset_by_command(guild_id, preset_name)
         if preset is None:

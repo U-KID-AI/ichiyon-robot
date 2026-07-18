@@ -116,6 +116,16 @@ class FakeRepository:
         self.marked.append(error)
 
 
+class FakeFeatureFlagRepository:
+    enabled = True
+
+    def __init__(self, connection=None):
+        pass
+
+    def is_enabled(self, guild_id, feature_key, default=True):
+        return self.enabled
+
+
 class FakeConnection:
     def __init__(self):
         self.repository = FakeRepository()
@@ -147,6 +157,8 @@ def main() -> int:
     results.append(check("migration uses bot guild command key unique scope", "ON youtube_n_pull_presets(bot_id, guild_id, command_key)" in migration_sql))
     results.append(check("migration does not use command_name-only unique", "UNIQUE (command_name)" not in migration_sql and "ON youtube_n_pull_presets(command_name)" not in migration_sql))
     results.append(check("migration seeds unconfirmed presets disabled", "'油粘土マン',\n            '油粘土マン'," in migration_sql and "FALSE,\n            100" in migration_sql))
+    repository_source = (ROOT_DIR / "bot" / "repositories" / "youtube_n_pull.py").read_text(encoding="utf-8")
+    results.append(check("cache refresh replaces old cache rows", "DELETE FROM youtube_n_pull_cache_videos WHERE preset_id = %s" in repository_source))
 
     videos = [
         {"video_id": "a", "canonical_url": "https://www.youtube.com/watch?v=a", "title": "normal", "duration_seconds": 100, "live_status": ""},
@@ -186,6 +198,7 @@ def main() -> int:
 
     original_get_connection = n_pull.get_connection
     original_repo = n_pull.YouTubeNPullRepository
+    original_flags = n_pull.FeatureFlagRepository
     original_voice = n_pull.get_guild_voice_client
     original_play_next = n_pull.play_next_track
     fake_connection = FakeConnection()
@@ -200,6 +213,7 @@ def main() -> int:
 
         n_pull.get_connection = lambda: _ConnectionContext()
         n_pull.YouTubeNPullRepository = lambda connection: fake_connection.repository
+        n_pull.FeatureFlagRepository = FakeFeatureFlagRepository
         n_pull.get_guild_voice_client = lambda guild: FakeVoiceClient()
 
         async def _fake_play_next(voice_client, guild_id):
@@ -218,6 +232,13 @@ def main() -> int:
         handled = asyncio.run(n_pull.handle_youtube_n_pull_command(no_vc_message, "しゃろう 1連"))
         results.append(check("VC disconnected is handled without auto join", handled is True and play_calls == ["guild-a"]))
         results.append(check("VC disconnected sends guidance", any("VC" in text for text in no_vc_message.channel.messages), str(no_vc_message.channel.messages)))
+
+        FakeFeatureFlagRepository.enabled = False
+        n_pull.get_guild_voice_client = lambda guild: FakeVoiceClient()
+        feature_off_message = FakeMessage()
+        handled = asyncio.run(n_pull.handle_youtube_n_pull_command(feature_off_message, "しゃろう 1連"))
+        results.append(check("feature flag OFF blocks N pull", handled is True and any("OFF" in text for text in feature_off_message.channel.messages), str(feature_off_message.channel.messages)))
+        FakeFeatureFlagRepository.enabled = True
 
         results.append(check("bot author does not trigger", asyncio.run(n_pull.handle_youtube_n_pull_command(FakeMessage(bot=True), "しゃろう 1連")) is False))
         results.append(check("non N-pull command does not trigger", asyncio.run(n_pull.handle_youtube_n_pull_command(FakeMessage(), "https://youtu.be/abc")) is False))
@@ -240,6 +261,7 @@ def main() -> int:
     finally:
         n_pull.get_connection = original_get_connection
         n_pull.YouTubeNPullRepository = original_repo
+        n_pull.FeatureFlagRepository = original_flags
         n_pull.get_guild_voice_client = original_voice
         n_pull.play_next_track = original_play_next
 
