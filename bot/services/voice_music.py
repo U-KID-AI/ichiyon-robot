@@ -63,6 +63,9 @@ MUSIC_SKIP_COUNT_MIN = 1
 MUSIC_SKIP_COUNT_MAX = 100
 MUSIC_SKIP_INVALID_COUNT_MESSAGE = "スキップできる曲数は1～100曲です。"
 MUSIC_SKIP_INVALID_FORMAT_MESSAGE = "スキップする曲数を1～100で指定してください。"
+MUSIC_LOOP_RANGE_MIN = 1
+MUSIC_LOOP_RANGE_MAX = 100
+MUSIC_LOOP_INVALID_RANGE_MESSAGE = "ループする曲数は1～100曲で指定してください。"
 MUSIC_PAUSE_COMMANDS = {"一時停止", "pause"}
 MUSIC_RESUME_COMMANDS = {"再開", "resume"}
 MUSIC_QUEUE_COMMANDS = {"キュー", "queue", "再生予定"}
@@ -114,11 +117,13 @@ class MusicTrack:
 @dataclass
 class MusicState:
     queue: Deque[MusicTrack] = field(default_factory=deque)
+    loop_queue: Deque[MusicTrack] = field(default_factory=deque)
     current: Optional[MusicTrack] = None
     text_channel: Optional[discord.abc.Messageable] = None
     stopping: bool = False
     skip_requested: bool = False
     loop_mode: str = MUSIC_LOOP_OFF
+    loop_range_size: Optional[int] = None
     music_volume_percent: Optional[int] = None
 
 
@@ -158,12 +163,30 @@ def parse_music_skip_command(raw: str, normalized: str) -> Optional[str]:
     return None
 
 
+def parse_music_loop_queue_command(raw: str, normalized: str) -> Optional[str]:
+    if normalized in MUSIC_LOOP_ONE_COMMANDS:
+        return None
+    if normalized in MUSIC_LOOP_QUEUE_COMMANDS:
+        return ""
+    match = re.fullmatch(r"キューループ[\s\u3000]+(.+)", str(raw or "").strip(), flags=re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    normalized_raw = unicodedata.normalize("NFKC", str(raw or "").strip())
+    match = re.fullmatch(r"([0-9]+)曲ループ", normalized_raw, flags=re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
 def parse_music_command(command_text: Optional[str]) -> Tuple[Optional[str], str]:
     raw = str(command_text or "").strip()
     normalized = normalize_music_command(raw)
     skip_argument = parse_music_skip_command(raw, normalized)
     if skip_argument is not None:
         return "music_skip", skip_argument
+    loop_queue_argument = parse_music_loop_queue_command(raw, normalized)
+    if loop_queue_argument is not None:
+        return "music_loop_queue", loop_queue_argument
     if normalized in MUSIC_PAUSE_COMMANDS:
         return "music_pause", ""
     if normalized in MUSIC_RESUME_COMMANDS:
@@ -176,8 +199,6 @@ def parse_music_command(command_text: Optional[str]) -> Tuple[Optional[str], str
         return "music_loop_status", ""
     if normalized in MUSIC_LOOP_ONE_COMMANDS:
         return "music_loop_one", ""
-    if normalized in MUSIC_LOOP_QUEUE_COMMANDS:
-        return "music_loop_queue", ""
     if normalized in MUSIC_LOOP_OFF_COMMANDS:
         return "music_loop_off", ""
     if normalized in MUSIC_SHUFFLE_COMMANDS:
@@ -351,8 +372,18 @@ def format_queue(state: MusicState, limit: int = 10) -> str:
     lines: List[str] = []
     if state.current is not None:
         lines.append("再生中: {0}".format(format_track(state.current)))
+    if state.loop_queue:
+        lines.append("ループ対象 待機中:")
+        for index, track in enumerate(list(state.loop_queue)[:limit], start=1):
+            duration = format_duration(track.duration)
+            suffix = " ({0})".format(duration) if duration else ""
+            lines.append("{0}. {1}{2}".format(index, track.title, suffix))
+        remaining = len(state.loop_queue) - limit
+        if remaining > 0:
+            lines.append("...ほか {0} 件".format(remaining))
     if state.queue:
-        lines.append("待機中:")
+        heading = "ループ対象外 待機中:" if state.loop_queue else "待機中:"
+        lines.append(heading)
         for index, track in enumerate(list(state.queue)[:limit], start=1):
             duration = format_duration(track.duration)
             suffix = " ({0})".format(duration) if duration else ""
@@ -360,6 +391,8 @@ def format_queue(state: MusicState, limit: int = 10) -> str:
         remaining = len(state.queue) - limit
         if remaining > 0:
             lines.append("...ほか {0} 件".format(remaining))
+    if state.loop_mode == MUSIC_LOOP_QUEUE and state.loop_range_size is not None:
+        lines.append("ループ: 現在曲を含む{0}曲".format(state.loop_range_size))
     if not lines:
         return "キューは空です。"
     return "\n".join(lines)[:1900]
@@ -404,6 +437,18 @@ def parse_skip_count(argument: str) -> Tuple[Optional[int], str]:
     return value, ""
 
 
+def parse_loop_range_count(argument: str) -> Tuple[Optional[int], str]:
+    text = unicodedata.normalize("NFKC", str(argument or "")).strip()
+    if not text:
+        return None, ""
+    if not re.fullmatch(r"[+-]?\d+", text):
+        return None, MUSIC_LOOP_INVALID_RANGE_MESSAGE
+    value = int(text)
+    if value < MUSIC_LOOP_RANGE_MIN or value > MUSIC_LOOP_RANGE_MAX:
+        return None, MUSIC_LOOP_INVALID_RANGE_MESSAGE
+    return value, ""
+
+
 def load_music_volume_percent(guild_id: str, state: Optional[MusicState] = None) -> int:
     current_state = state or get_music_state(guild_id)
     if current_state.music_volume_percent is not None:
@@ -444,10 +489,14 @@ def apply_music_volume_to_voice_client(voice_client: Optional[discord.VoiceClien
         return False
 
 
-def loop_status_text(loop_mode: str) -> str:
+def loop_status_text(loop_mode: str, state: Optional[MusicState] = None) -> str:
     if loop_mode == MUSIC_LOOP_ONE:
         return "1曲ループ中です。"
     if loop_mode == MUSIC_LOOP_QUEUE:
+        if state is not None and state.loop_range_size is not None:
+            outside_count = len(state.queue)
+            suffix = " ループ対象外の待機曲: {0}曲".format(outside_count) if outside_count else ""
+            return "現在曲を含む{0}曲をループ中です。{1}".format(state.loop_range_size, suffix).strip()
         return "キュー全体をループ中です。"
     return "ループは無効です。"
 
@@ -456,6 +505,59 @@ def make_loop_track(track: MusicTrack) -> MusicTrack:
     if track.source_url:
         return replace(track, stream_url="", refresh_required=True)
     return replace(track)
+
+
+def _merge_loop_queue_into_queue(state: MusicState) -> None:
+    if state.loop_queue:
+        state.queue = deque(list(state.loop_queue) + list(state.queue))
+        state.loop_queue.clear()
+    state.loop_range_size = None
+
+
+def _has_waiting_tracks(state: MusicState) -> bool:
+    return bool(state.loop_queue) or bool(state.queue)
+
+
+def _has_music_tracks(state: MusicState) -> bool:
+    return state.current is not None or _has_waiting_tracks(state)
+
+
+def _active_loop_waiting_queue(state: MusicState) -> Deque[MusicTrack]:
+    if state.loop_mode == MUSIC_LOOP_QUEUE and state.loop_range_size is not None:
+        return state.loop_queue
+    return state.queue
+
+
+def _next_playback_queue(state: MusicState) -> Deque[MusicTrack]:
+    if state.loop_mode == MUSIC_LOOP_QUEUE and state.loop_range_size is not None:
+        return state.loop_queue
+    return state.queue
+
+
+def _total_loop_target_count(state: MusicState) -> int:
+    if state.loop_mode != MUSIC_LOOP_QUEUE:
+        return 0
+    if state.loop_range_size is not None:
+        return (1 if state.current is not None else 0) + len(state.loop_queue)
+    return (1 if state.current is not None else 0) + len(state.queue)
+
+
+def _format_loop_skip_result(requested_count: int) -> str:
+    return "キューループ内で{0}曲先へ進みました。".format(requested_count)
+
+
+def _rotate_queue_loop_for_skip(state: MusicState, requested_count: int) -> bool:
+    waiting = list(_active_loop_waiting_queue(state))
+    loop_items = ([make_loop_track(state.current)] if state.current is not None else []) + waiting
+    if not loop_items:
+        return False
+    advance = requested_count % len(loop_items)
+    rotated = loop_items[advance:] + loop_items[:advance]
+    if state.loop_range_size is not None:
+        state.loop_queue = deque(rotated)
+    else:
+        state.queue = deque(rotated)
+    return True
 
 
 def extract_track_info(url: str, requester_id: str, guild_id: Optional[str] = None, use_cookies: bool = True) -> MusicTrack:
@@ -849,7 +951,10 @@ async def _handle_track_finished(
     if finished_track is not None and state.loop_mode == MUSIC_LOOP_ONE and not skip_requested:
         state.queue.appendleft(make_loop_track(finished_track))
     elif finished_track is not None and state.loop_mode == MUSIC_LOOP_QUEUE and not skip_requested:
-        state.queue.append(make_loop_track(finished_track))
+        if state.loop_range_size is not None:
+            state.loop_queue.append(make_loop_track(finished_track))
+        else:
+            state.queue.append(make_loop_track(finished_track))
     await play_next_track(voice_client, guild_id)
 
 
@@ -860,8 +965,11 @@ async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> b
         log_music_action("queue_empty", guild_id, voice_channel_id(voice_client), reason="not_connected")
         return False
     channel_id = voice_channel_id(voice_client)
-    while state.queue:
-        track = state.queue.popleft()
+    while _has_waiting_tracks(state):
+        playback_queue = _next_playback_queue(state)
+        if not playback_queue:
+            break
+        track = playback_queue.popleft()
         refreshed_track = await refresh_track_for_playback(track, guild_id)
         if refreshed_track is None:
             continue
@@ -1042,12 +1150,36 @@ async def skip_music(message: discord.Message, argument: str = "") -> bool:
     voice_client = get_guild_voice_client(guild)
     guild_id = str(guild.id)
     state = get_music_state(guild_id)
-    if voice_client is None or (state.current is None and not state.queue):
+    if voice_client is None or not _has_music_tracks(state):
         await message.channel.send("現在再生中の曲はありません。")
         return True
     requested_count = int(skip_count or 1)
     requester_id = str(getattr(message.author, "id", "") or "")
     channel_id = voice_channel_id(voice_client)
+    if state.loop_mode == MUSIC_LOOP_QUEUE:
+        loop_target_count = _total_loop_target_count(state)
+        if not _rotate_queue_loop_for_skip(state, requested_count):
+            await message.channel.send("現在再生中の曲はありません。")
+            return True
+        log_music_action(
+            "skip",
+            guild_id,
+            channel_id,
+            requester_id,
+            state.current.title if state.current else "",
+            "requested={0} loop_target={1} queue_loop=true".format(requested_count, loop_target_count),
+        )
+        if state.current is not None and (voice_client.is_playing() or voice_client.is_paused()):
+            state.skip_requested = True
+            voice_client.stop()
+        else:
+            state.current = None
+            state.skip_requested = False
+            if _has_waiting_tracks(state) and is_voice_client_connected(voice_client):
+                await play_next_track(voice_client, guild_id)
+        await message.channel.send(_format_loop_skip_result(requested_count))
+        return True
+
     skipped_count = 0
     current_title = state.current.title if state.current else ""
     if state.current is not None:
@@ -1067,9 +1199,9 @@ async def skip_music(message: discord.Message, argument: str = "") -> bool:
         else:
             state.current = None
             state.skip_requested = False
-            if state.queue and is_voice_client_connected(voice_client):
+            if _has_waiting_tracks(state) and is_voice_client_connected(voice_client):
                 await play_next_track(voice_client, guild_id)
-        await message.channel.send(format_skip_result(skipped_count, bool(state.queue)))
+        await message.channel.send(format_skip_result(skipped_count, _has_waiting_tracks(state)))
         return True
 
     skipped_count = _pop_skipped_waiting_tracks(state, requested_count)
@@ -1080,9 +1212,9 @@ async def skip_music(message: discord.Message, argument: str = "") -> bool:
         requester_id,
         reason="requested={0} skipped={1} current=none".format(requested_count, skipped_count),
     )
-    if state.queue and is_voice_client_connected(voice_client):
+    if _has_waiting_tracks(state) and is_voice_client_connected(voice_client):
         await play_next_track(voice_client, guild_id)
-    await message.channel.send(format_skip_result(skipped_count, bool(state.queue)))
+    await message.channel.send(format_skip_result(skipped_count, _has_waiting_tracks(state)))
     return True
 
 
@@ -1093,13 +1225,15 @@ async def stop_music(message: discord.Message) -> bool:
     guild_id = str(guild.id)
     state = get_music_state(guild_id)
     voice_client = get_guild_voice_client(guild)
-    has_music = state.current is not None or bool(state.queue) or state.loop_mode != MUSIC_LOOP_OFF
+    has_music = _has_music_tracks(state) or state.loop_mode != MUSIC_LOOP_OFF
     if not has_music:
         return False
     state.queue.clear()
+    state.loop_queue.clear()
     state.stopping = True
     state.skip_requested = False
     state.loop_mode = MUSIC_LOOP_OFF
+    state.loop_range_size = None
     current_title = state.current.title if state.current else ""
     state.current = None
     if voice_client is not None and (voice_client.is_playing() or voice_client.is_paused()):
@@ -1144,18 +1278,72 @@ async def send_music_loop_status(message: discord.Message) -> bool:
     if guild is None:
         await message.channel.send("音楽コマンドはサーバー内で使ってください。")
         return True
-    await message.channel.send(loop_status_text(get_music_state(str(guild.id)).loop_mode))
+    state = get_music_state(str(guild.id))
+    await message.channel.send(loop_status_text(state.loop_mode, state))
     return True
 
 
-async def set_music_loop(message: discord.Message, loop_mode: str) -> bool:
+async def set_music_loop(message: discord.Message, loop_mode: str, argument: str = "") -> bool:
     guild = message.guild
     if guild is None:
         await message.channel.send("音楽コマンドはサーバー内で使ってください。")
         return True
     state = get_music_state(str(guild.id))
+    range_count, error = parse_loop_range_count(argument) if loop_mode == MUSIC_LOOP_QUEUE else (None, "")
+    if error:
+        await message.channel.send(error)
+        return True
+
+    if loop_mode == MUSIC_LOOP_OFF:
+        _merge_loop_queue_into_queue(state)
+        state.loop_mode = MUSIC_LOOP_OFF
+        await message.channel.send(loop_status_text(loop_mode, state))
+        return True
+
+    if loop_mode == MUSIC_LOOP_ONE:
+        _merge_loop_queue_into_queue(state)
+        state.loop_mode = MUSIC_LOOP_ONE
+        await message.channel.send(loop_status_text(loop_mode, state))
+        return True
+
+    if loop_mode == MUSIC_LOOP_QUEUE and range_count is None:
+        _merge_loop_queue_into_queue(state)
+        state.loop_mode = MUSIC_LOOP_QUEUE
+        await message.channel.send(loop_status_text(loop_mode, state))
+        return True
+
+    if loop_mode == MUSIC_LOOP_QUEUE and range_count is not None:
+        ordered_waiting = list(state.loop_queue) + list(state.queue)
+        total_available = (1 if state.current is not None else 0) + len(ordered_waiting)
+        if total_available <= 0:
+            await message.channel.send("現在再生中の曲はありません。")
+            return True
+        actual_count = min(int(range_count), total_available)
+        if actual_count == 1 and state.current is not None:
+            state.loop_queue.clear()
+            state.queue = deque(ordered_waiting)
+            state.loop_range_size = None
+            state.loop_mode = MUSIC_LOOP_ONE
+            await message.channel.send("現在曲1曲をループします。")
+            return True
+
+        if state.current is not None:
+            loop_waiting_count = max(0, actual_count - 1)
+            state.loop_queue = deque(ordered_waiting[:loop_waiting_count])
+            state.queue = deque(ordered_waiting[loop_waiting_count:])
+        else:
+            state.loop_queue = deque(ordered_waiting[:actual_count])
+            state.queue = deque(ordered_waiting[actual_count:])
+        state.loop_mode = MUSIC_LOOP_QUEUE
+        state.loop_range_size = actual_count
+        if actual_count < int(range_count):
+            await message.channel.send("現在のキューは{0}曲のため、{0}曲をループします。".format(actual_count))
+        else:
+            await message.channel.send("現在曲を含む{0}曲をループします。".format(actual_count))
+        return True
+
     state.loop_mode = loop_mode
-    await message.channel.send(loop_status_text(loop_mode))
+    await message.channel.send(loop_status_text(loop_mode, state))
     return True
 
 
@@ -1165,9 +1353,13 @@ async def shuffle_music_queue(message: discord.Message) -> bool:
         await message.channel.send("音楽コマンドはサーバー内で使ってください。")
         return True
     state = get_music_state(str(guild.id))
-    waiting = list(state.queue)
+    target_queue = state.loop_queue if state.loop_mode == MUSIC_LOOP_QUEUE and state.loop_range_size is not None else state.queue
+    waiting = list(target_queue)
     random.shuffle(waiting)
-    state.queue = deque(waiting)
+    if state.loop_mode == MUSIC_LOOP_QUEUE and state.loop_range_size is not None:
+        state.loop_queue = deque(waiting)
+    else:
+        state.queue = deque(waiting)
     await message.channel.send("待機中のキューをシャッフルしました。対象: {0}件".format(len(waiting)))
     return True
 

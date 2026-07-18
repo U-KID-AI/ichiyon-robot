@@ -225,9 +225,9 @@ def main() -> int:
     started = []
     asyncio.run(finish_current(guild_id, voice_client, started))
     titles = [item.title for item in get_music_state(guild_id).queue]
-    results.append(check("queue loop does not append skipped current", "A" not in titles, str(titles)))
-    results.append(check("queue loop does not append removed waiting track", "B" not in titles, str(titles)))
-    results.append(check("queue loop continues for unskipped track", started == ["C"], str(started)))
+    results.append(check("queue loop rotates skipped current to loop tail", titles == ["A", "B"], str(titles)))
+    results.append(check("queue loop skip does not empty queue", not any("音楽キューは空" in text for text in message.channel.messages), str(message.channel.messages)))
+    results.append(check("queue loop continues for advanced track", started == ["C"], str(started)))
 
     state = setup_state(guild_id, current=True, queue_titles=["B", "C"])
     before = (state.current.title, [item.title for item in state.queue])
