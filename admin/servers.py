@@ -140,6 +140,16 @@ DISPLAY_FEATURES = [
         "off_behavior": "OFFにすると、スケジュール募集コマンドを実行しません。",
         "notes": "投稿先はコマンドを実行したチャンネルです。各投稿に⭕/❌を付けます。",
     },
+    {
+        "key": "youtube_n_pull",
+        "label": "YouTube N連",
+        "edit_path": "youtube-n-pull",
+        "required_role": "editor",
+        "overview": "登録済みYouTubeチャンネルやプレイリストからランダムにN件を音楽キューへ追加します。",
+        "settings": "プリセット名、別名、ソースURL、最大N、キャッシュ時間、除外条件",
+        "off_behavior": "OFFにすると、このプリセットのN連コマンドを実行しません。",
+        "notes": "キャッシュ済み動画URLだけをキューに積み、音源URLは再生直前に解決します。",
+    },
 ]
 
 

@@ -16,6 +16,7 @@ from bot.repositories.schedule_templates import ScheduleTemplateRepository
 from bot.repositories.special_effects import SpecialEffectRepository
 from bot.repositories.voice_lines import VoiceLineRepository
 from bot.repositories.x_update_notifications import XUpdateWatchRepository
+from bot.repositories.youtube_n_pull import YouTubeNPullRepository
 
 
 __all__ = [
@@ -38,4 +39,5 @@ __all__ = [
     "SpecialEffectRepository",
     "VoiceLineRepository",
     "XUpdateWatchRepository",
+    "YouTubeNPullRepository",
 ]

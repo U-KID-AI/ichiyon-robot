@@ -47,6 +47,7 @@ from admin.special_effects import (
 )
 from admin.voice_lines import register_voice_line_routes, router as voice_line_router
 from admin.x_updates import register_x_update_routes, router as x_update_router
+from admin.youtube_n_pull import register_youtube_n_pull_routes, router as youtube_n_pull_router
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -93,6 +94,7 @@ register_reaction_threshold_routes(templates)
 register_x_update_routes(templates)
 register_voice_line_routes(templates)
 register_schedule_template_routes(templates)
+register_youtube_n_pull_routes(templates)
 app.include_router(auth_router)
 app.include_router(bot_router)
 app.include_router(server_router)
@@ -107,6 +109,7 @@ app.include_router(reaction_threshold_router)
 app.include_router(x_update_router)
 app.include_router(voice_line_router)
 app.include_router(schedule_template_router)
+app.include_router(youtube_n_pull_router)
 
 
 LEGACY_JSON_PATHS = ("/quotes", "/reactions", "/ng-words", "/kuji")
