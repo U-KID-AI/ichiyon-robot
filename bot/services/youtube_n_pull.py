@@ -35,12 +35,8 @@ _CACHE_REFRESH_LOCKS: Dict[str, asyncio.Lock] = {}
 YTDLP_COOKIES_FILE_ENV = "YTDLP_COOKIES_FILE"
 YTDLP_COOKIES_TMP_DIR = Path(tempfile.gettempdir())
 YTDL_FLAT_OPTIONS = {
-    "format": "bestaudio/best",
     "quiet": True,
     "no_warnings": True,
-    "noplaylist": True,
-    "js_runtimes": {"deno": {}},
-    "remote_components": ["ejs:github"],
     "extract_flat": True,
     "skip_download": True,
     "ignoreerrors": True,

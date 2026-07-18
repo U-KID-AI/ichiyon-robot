@@ -1,3 +1,4 @@
+import logging
 from typing import Dict, List, Optional
 from urllib.parse import quote
 
@@ -14,6 +15,8 @@ from bot.services.youtube_n_pull import fetch_source_videos, is_youtube_source_u
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+ADMIN_REFRESH_ERROR_MESSAGE = "キャッシュ更新に失敗しました。管理者ログを確認してください。"
 
 
 def register_youtube_n_pull_routes(templates: Jinja2Templates) -> None:
@@ -147,8 +150,9 @@ def register_youtube_n_pull_routes(templates: Jinja2Templates) -> None:
     @router.post("/guilds/{guild_id}/youtube-n-pull/{preset_id}/refresh")
     async def refresh_youtube_n_pull(request: Request, guild_id: str, preset_id: int):
         user, server = require_editor(request, guild_id)
+        bot_id = current_selected_bot_id()
         with get_connection() as connection:
-            repository = YouTubeNPullRepository(connection, bot_id=current_selected_bot_id())
+            repository = YouTubeNPullRepository(connection, bot_id=bot_id)
             preset = repository.get_preset(guild_id, preset_id)
             if preset is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="youtube n pull preset not found")
@@ -160,6 +164,8 @@ def register_youtube_n_pull_routes(templates: Jinja2Templates) -> None:
                 dedup = {}
                 for video in videos:
                     dedup.setdefault(video["video_id"], video)
+                if not dedup:
+                    raise RuntimeError("no valid youtube videos found")
                 repository.replace_cache_videos(preset_id, list(dedup.values()))
                 repository.mark_cache_refresh(preset_id, "")
                 connection.commit()
@@ -167,7 +173,26 @@ def register_youtube_n_pull_routes(templates: Jinja2Templates) -> None:
                 return RedirectResponse(url="/guilds/{0}/youtube-n-pull?message={1}".format(guild_id, message), status_code=303)
             except Exception as exc:
                 connection.rollback()
-                error = quote("キャッシュ更新に失敗しました: {0}".format(type(exc).__name__))
+                logger.exception(
+                    "youtube_n_pull admin refresh failed: bot_instance_id=%s guild_id=%s preset_id=%s error_type=%s error=%s",
+                    bot_id,
+                    guild_id,
+                    preset_id,
+                    type(exc).__name__,
+                    str(exc),
+                )
+                try:
+                    repository.mark_cache_refresh(preset_id, type(exc).__name__)
+                    connection.commit()
+                except Exception:
+                    connection.rollback()
+                    logger.exception(
+                        "youtube_n_pull admin refresh error mark failed: bot_instance_id=%s guild_id=%s preset_id=%s",
+                        bot_id,
+                        guild_id,
+                        preset_id,
+                    )
+                error = quote(ADMIN_REFRESH_ERROR_MESSAGE)
                 return RedirectResponse(url="/guilds/{0}/youtube-n-pull?error={1}".format(guild_id, error), status_code=303)
 
 
