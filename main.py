@@ -9,7 +9,14 @@ from bot.quotes import draw_quote_message
 from bot.reactions import handle_word_response
 from bot.services.auto_posts import run_db_auto_posts_once
 from bot.services.reaction_thresholds import handle_db_reaction_threshold
-from bot.services.runtime_db import expire_db_modes_once, get_message_guild_id, handle_db_runtime_message
+from bot.services.runtime_db import (
+    RANDOM_DRAW_PULL_BLOCKED,
+    RANDOM_DRAW_PULL_INVALID_MESSAGE,
+    expire_db_modes_once,
+    get_message_guild_id,
+    handle_db_runtime_message,
+    parse_random_draw_pull_for_keyword,
+)
 from bot.services.voice_control import handle_voice_command
 from bot.services.voice_music import handle_mention_music_links
 from bot.services.x_update_notifications import run_x_update_notifications_once
@@ -32,13 +39,26 @@ async def handle_mention_message(message: discord.Message) -> bool:
     if bot.user is None or bot.user not in message.mentions:
         return False
 
-    if "くじ" in message.content:
-        kuji_result = draw_kuji_message()
-        await messages.send_text_or_image(
-            message.channel,
-            kuji_result.get("text", ""),
-            kuji_result.get("image_path", ""),
-        )
+    command_text = messages.get_mention_command_text(message) or ""
+    for legacy_keyword in ("おみくじ", "くじ"):
+        parsed, error = parse_random_draw_pull_for_keyword(command_text, legacy_keyword)
+        if error == RANDOM_DRAW_PULL_BLOCKED:
+            return False
+        if error:
+            await message.channel.send(RANDOM_DRAW_PULL_INVALID_MESSAGE)
+            return True
+        if parsed is None:
+            continue
+        for index in range(parsed.count):
+            kuji_result = draw_kuji_message()
+            text = kuji_result.get("text", "")
+            if parsed.count > 1:
+                text = "{0}/{1}\n{2}".format(index + 1, parsed.count, text).strip()
+            await messages.send_text_or_image(
+                message.channel,
+                text,
+                kuji_result.get("image_path", ""),
+            )
         return True
 
     quote = draw_quote_message()

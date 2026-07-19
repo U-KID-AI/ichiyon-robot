@@ -1,6 +1,7 @@
 import calendar
 import random
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -59,6 +60,13 @@ MATCH_TYPE_RANK = {
 }
 SHIKOCCHI_RECOVERY_MESSAGE = DEFAULT_REVIVE_LINE
 MAX_NEXT_ACTION_COUNT = 5
+RANDOM_DRAW_PULL_MIN = 1
+RANDOM_DRAW_PULL_MAX = 100
+RANDOM_DRAW_PULL_INVALID_MESSAGE = "抽選回数は1～100連で指定してください。"
+RANDOM_DRAW_PULL_BLOCKED = "__random_draw_pull_blocked__"
+RANDOM_DRAW_PULL_SUFFIX_RE = re.compile(r"^\s*([0-9]+)\s*連$")
+RANDOM_DRAW_PULL_INVALID_SUFFIX_RE = re.compile(r"^\s*(?:[+-]?[0-9]+|[A-Za-z]+)?\s*(?:連|回)$")
+DISCORD_SAFE_MESSAGE_LIMIT = 1900
 _PENDING_NEXT_EFFECTS: Dict[str, List[Dict[str, Any]]] = {}
 
 
@@ -66,6 +74,7 @@ _PENDING_NEXT_EFFECTS: Dict[str, List[Dict[str, Any]]] = {}
 class MatchResult:
     row: Dict[str, Any]
     groups: Dict[str, str]
+    pull: Optional["RandomDrawPullParse"] = None
 
 
 @dataclass
@@ -80,6 +89,22 @@ class EffectExecutionResult:
     count_changed: bool = False
     repeat_count: int = 0
     pending_effects: List[Dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
+class RandomDrawPullParse:
+    count: int
+    command_text: str
+    groups: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class RandomDrawExecution:
+    choice: Dict[str, Any]
+    text: str
+    image_path: str
+    emoji: str
+    values: Dict[str, str]
 
 
 def get_message_guild_id(message: discord.Message) -> Optional[str]:
@@ -289,6 +314,57 @@ def find_mention_fallback(reactions: List[Dict[str, Any]]) -> Optional[MatchResu
 
 def normalize_command_text(value: str) -> str:
     return " ".join((value or "").replace("\u3000", " ").split())
+
+
+def normalize_random_draw_pull_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", str(value or ""))
+    return " ".join(re.sub(r"[\s\u3000]+", " ", normalized.strip()).split())
+
+
+def parse_random_draw_pull_suffix(suffix: str) -> Tuple[Optional[int], Optional[str], bool]:
+    normalized = normalize_random_draw_pull_text(suffix)
+    if not normalized:
+        return 1, None, True
+    matched = RANDOM_DRAW_PULL_SUFFIX_RE.fullmatch(normalized)
+    if matched:
+        value = int(matched.group(1))
+        if RANDOM_DRAW_PULL_MIN <= value <= RANDOM_DRAW_PULL_MAX:
+            return value, None, True
+        return None, RANDOM_DRAW_PULL_INVALID_MESSAGE, True
+    if RANDOM_DRAW_PULL_INVALID_SUFFIX_RE.fullmatch(normalized):
+        return None, RANDOM_DRAW_PULL_INVALID_MESSAGE, True
+    return None, None, False
+
+
+def parse_random_draw_pull_for_keyword(command_text: str, keyword: str) -> Tuple[Optional[RandomDrawPullParse], Optional[str]]:
+    normalized_command = normalize_random_draw_pull_text(command_text)
+    normalized_keyword = normalize_random_draw_pull_text(keyword)
+    if not normalized_keyword:
+        return None, None
+    if normalized_command == normalized_keyword:
+        return RandomDrawPullParse(1, normalized_keyword), None
+    if not normalized_command.startswith(normalized_keyword):
+        return None, None
+    suffix = normalized_command[len(normalized_keyword) :]
+    count, error, consumed = parse_random_draw_pull_suffix(suffix)
+    if error:
+        return None, error
+    if not consumed or count is None:
+        if "連" in normalize_random_draw_pull_text(suffix) or "回" in normalize_random_draw_pull_text(suffix):
+            return None, RANDOM_DRAW_PULL_BLOCKED
+        return None, None
+    return RandomDrawPullParse(count, normalized_keyword), None
+
+
+def parse_random_draw_pull_for_reaction(reaction: Dict[str, Any], command_text: str) -> Tuple[Optional[RandomDrawPullParse], Optional[str]]:
+    keyword = str(reaction.get("keyword") or "")
+    parsed, error = parse_random_draw_pull_for_keyword(command_text, keyword)
+    if parsed is not None or error is not None:
+        return parsed, error
+    groups = match_pattern(keyword, reaction.get("match_type") or "exact", command_text)
+    if groups is None:
+        return None, None
+    return RandomDrawPullParse(1, normalize_command_text(command_text), groups), None
 
 
 def choose_weighted_item(weighted_items: List[Tuple[Any, int]]) -> Optional[Any]:
@@ -1049,6 +1125,151 @@ async def repeat_text_image_action(
     return handled
 
 
+def format_numbered_random_draw_result(index: int, result: RandomDrawExecution) -> str:
+    lines = str(result.text or "").splitlines() or [""]
+    first_line = "{0}. {1}".format(index, lines[0]).rstrip()
+    if len(lines) <= 1:
+        return first_line
+    return "\n".join([first_line] + ["   {0}".format(line) for line in lines[1:]])
+
+
+def split_random_draw_text_results(header: str, items: List[str], limit: int = DISCORD_SAFE_MESSAGE_LIMIT) -> List[str]:
+    chunks: List[str] = []
+    current = header.strip()
+    for item in items:
+        block = str(item or "").strip()
+        if not block:
+            continue
+        candidate = "{0}\n\n{1}".format(current, block) if current else block
+        if len(candidate) <= limit:
+            current = candidate
+            continue
+        if current:
+            chunks.append(current)
+        if len(block) <= limit:
+            current = block
+            continue
+        lines = block.splitlines()
+        current = ""
+        for line in lines:
+            candidate_line = "{0}\n{1}".format(current, line) if current else line
+            if len(candidate_line) <= limit:
+                current = candidate_line
+            else:
+                if current:
+                    chunks.append(current)
+                current = line[:limit]
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+async def send_random_draw_results(
+    message: discord.Message,
+    reaction: Dict[str, Any],
+    results: List[RandomDrawExecution],
+) -> bool:
+    if not results:
+        return False
+    if len(results) == 1:
+        result = results[0]
+        return await send_text_or_image(message.channel, result.text, result.image_path)
+
+    title = str(reaction.get("name") or reaction.get("keyword") or "ランダム抽選").strip()
+    header = "{0} {1}連結果".format(title, len(results))
+    has_image = any(bool(result.image_path) for result in results)
+    handled = False
+    if has_image:
+        for index, result in enumerate(results, start=1):
+            numbered_text = "{0}/{1}\n{2}".format(index, len(results), result.text).strip()
+            if await send_text_or_image(message.channel, numbered_text, result.image_path):
+                handled = True
+        return handled
+
+    numbered = [format_numbered_random_draw_result(index, result) for index, result in enumerate(results, start=1)]
+    for chunk in split_random_draw_text_results(header, numbered):
+        await message.channel.send(chunk)
+        handled = True
+    return handled
+
+
+def build_random_draw_execution(message: discord.Message, command_text: str, match: MatchResult, choice: Dict[str, Any]) -> RandomDrawExecution:
+    values = build_template_values(message, command_text, match.groups)
+    return RandomDrawExecution(
+        choice=choice,
+        text=render_choice_body(choice, values),
+        image_path=choice.get("image_path") or "",
+        emoji=choice.get("emoji_internal") or "",
+        values=values,
+    )
+
+
+async def apply_random_draw_effects(
+    connection,
+    guild_id: str,
+    message: discord.Message,
+    reaction: Dict[str, Any],
+    result: RandomDrawExecution,
+    limited_effects: List[Dict[str, Any]],
+    pending_effects: List[Dict[str, Any]],
+) -> Tuple[bool, bool, List[Dict[str, Any]]]:
+    handled = False
+    if await add_message_reaction_safe(message, result.emoji, "mention reaction choice"):
+        handled = True
+    pending_repeats = get_next_action_extra_repeats(pending_effects, "mention_reaction_choice")
+    if pending_repeats:
+        repeated = await repeat_text_image_action(message, result.text, result.image_path, result.emoji, pending_repeats)
+        handled = handled or repeated
+    choice_effects = list_effects(connection, guild_id, "mention_reaction_choice", int(result.choice["id"]))
+    effects = merge_effects(choice_effects, limited_effects)
+    effect_result = await execute_effects(connection, guild_id, effects, message, result.values, pending_effects)
+    if effect_result.repeat_count:
+        repeated = await repeat_text_image_action(message, result.text, result.image_path, result.emoji, effect_result.repeat_count)
+        handled = handled or repeated
+    return handled or bool(effects), effect_result.count_changed, effect_result.pending_effects
+
+
+async def execute_random_draw_reaction(
+    connection,
+    guild_id: str,
+    message: discord.Message,
+    match: MatchResult,
+    pull: RandomDrawPullParse,
+    choices: List[Dict[str, Any]],
+    limited_effects: List[Dict[str, Any]],
+    pending_effects: List[Dict[str, Any]],
+) -> RuntimeAction:
+    results: List[RandomDrawExecution] = []
+    current_pending = list(pending_effects or [])
+    for _ in range(pull.count):
+        choice = choose_weighted_choice_with_effects(connection, guild_id, choices, current_pending)
+        if choice is None:
+            store_pending_next_effects(guild_id, message, current_pending)
+            return RuntimeAction(False, pending_effects=current_pending)
+        results.append(build_random_draw_execution(message, pull.command_text, match, choice))
+
+    handled = await send_random_draw_results(message, match.row, results)
+    if await play_configured_reaction_audio(message, match.row, "mention_reaction", match.row.get("reaction_key") or ""):
+        handled = True
+
+    count_changed = False
+    next_pending: List[Dict[str, Any]] = current_pending
+    for result in results:
+        effect_handled, effect_count_changed, next_pending = await apply_random_draw_effects(
+            connection,
+            guild_id,
+            message,
+            match.row,
+            result,
+            limited_effects,
+            next_pending,
+        )
+        handled = handled or effect_handled
+        count_changed = count_changed or effect_count_changed
+    store_pending_next_effects(guild_id, message, next_pending)
+    return RuntimeAction(handled, count_changed, next_pending)
+
+
 async def execute_destroy_effect(
     connection,
     guild_id: str,
@@ -1386,45 +1607,49 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
 
     reactions = repository.list_reactions(guild_id, enabled=True, reaction_kind="random_draw")
     matches = []
+    blocked_by_pull_suffix = False
+    invalid_pull_error: Optional[str] = None
     for reaction in reactions:
-        groups = match_pattern(reaction.get("keyword") or "", reaction.get("match_type") or "exact", command_text)
-        if groups is not None:
-            matches.append(MatchResult(reaction, groups))
+        pull, pull_error = parse_random_draw_pull_for_reaction(reaction, command_text)
+        if pull_error == RANDOM_DRAW_PULL_BLOCKED:
+            blocked_by_pull_suffix = True
+            continue
+        if pull_error:
+            invalid_pull_error = pull_error
+            continue
+        if pull is not None:
+            matches.append(MatchResult(reaction, pull.groups, pull))
+    if invalid_pull_error is not None and not matches:
+        await message.channel.send(invalid_pull_error)
+        store_pending_next_effects(guild_id, message, pending_effects)
+        return RuntimeAction(True)
+    if blocked_by_pull_suffix and not matches:
+        store_pending_next_effects(guild_id, message, pending_effects)
+        return RuntimeAction(False)
     if not matches:
         fallback = find_mention_fallback(reactions)
         if fallback is None:
             store_pending_next_effects(guild_id, message, pending_effects)
             return RuntimeAction(False)
+        fallback.pull = RandomDrawPullParse(1, command_text, fallback.groups)
         matches = [fallback]
 
     selected = sort_mention_matches(matches)[0]
     choices = repository.list_choices(guild_id, int(selected.row["id"]), enabled=True)
-    choice = choose_weighted_choice_with_effects(connection, guild_id, choices, pending_effects)
-    if choice is None:
+    pull = getattr(selected, "pull", RandomDrawPullParse(1, command_text, selected.groups))
+    if not choices:
         store_pending_next_effects(guild_id, message, pending_effects)
         return RuntimeAction(False)
-
-    values = build_template_values(message, command_text, selected.groups)
-    text = render_choice_body(choice, values)
-    image_path = choice.get("image_path") or ""
-    emoji = choice.get("emoji_internal") or ""
-    handled = await send_text_or_image(message.channel, text, image_path)
-    if await play_configured_reaction_audio(message, selected.row, "mention_reaction", selected.row.get("reaction_key") or ""):
-        handled = True
-    if await add_message_reaction_safe(message, emoji, "mention reaction choice"):
-        handled = True
-    pending_repeats = get_next_action_extra_repeats(pending_effects, "mention_reaction_choice")
-    if pending_repeats:
-        repeated = await repeat_text_image_action(message, text, image_path, emoji, pending_repeats)
-        handled = handled or repeated
-    choice_effects = list_effects(connection, guild_id, "mention_reaction_choice", int(choice["id"]))
-    effects = merge_effects(choice_effects, limited_effects)
-    effect_result = await execute_effects(connection, guild_id, effects, message, values, pending_effects)
-    store_pending_next_effects(guild_id, message, effect_result.pending_effects)
-    if effect_result.repeat_count:
-        repeated = await repeat_text_image_action(message, text, image_path, emoji, effect_result.repeat_count)
-        handled = handled or repeated
-    return RuntimeAction(handled or bool(effects), effect_result.count_changed, effect_result.pending_effects)
+    return await execute_random_draw_reaction(
+        connection,
+        guild_id,
+        message,
+        selected,
+        pull,
+        choices,
+        limited_effects,
+        pending_effects,
+    )
 
 
 async def add_schedule_reactions_safe(sent_message: discord.Message) -> None:
