@@ -68,7 +68,7 @@ class FakeRepository:
             "display_name": "しゃろう",
             "command_name": "しゃろう",
             "command_key": normalize_command_name("しゃろう"),
-            "aliases": "Sharou\nP5",
+            "aliases": "Sharou\nSR",
             "enabled": True,
             "max_pulls": 100,
             "cache_ttl_seconds": 86400,
@@ -82,6 +82,27 @@ class FakeRepository:
             "last_cache_refresh_at": datetime.now(timezone.utc),
             "last_cache_error": "",
         }
+        self.persona_short = dict(self.preset)
+        self.persona_short.update(
+            {
+                "id": 2,
+                "display_name": "ペルソナ",
+                "command_name": "ペルソナ",
+                "command_key": normalize_command_name("ペルソナ"),
+                "aliases": "",
+            }
+        )
+        self.persona_long = dict(self.preset)
+        self.persona_long.update(
+            {
+                "id": 3,
+                "display_name": "ペルソナ5",
+                "command_name": "ペルソナ5",
+                "command_key": normalize_command_name("ペルソナ5"),
+                "aliases": "P5",
+            }
+        )
+        self.presets = [self.preset, self.persona_short, self.persona_long]
         self.videos = [
             {"video_id": "a", "canonical_url": "https://www.youtube.com/watch?v=a", "title": "2:23 AM", "duration_seconds": 120, "live_status": ""},
             {"video_id": "b", "canonical_url": "https://www.youtube.com/watch?v=b", "title": "3:03 PM", "duration_seconds": 180, "live_status": ""},
@@ -92,16 +113,25 @@ class FakeRepository:
         self.marked = []
 
     def list_presets(self, guild_id, enabled=None):
-        return [self.preset] if enabled is True else [self.preset]
+        if enabled is True:
+            return [preset for preset in self.presets if preset.get("enabled")]
+        return list(self.presets)
 
     def find_preset_by_command(self, guild_id, command_name):
         key = normalize_command_name(command_name)
-        if key in (self.preset["command_key"], normalize_command_name("Sharou"), normalize_command_name("P5")):
-            return self.preset
+        for preset in self.presets:
+            if key == preset["command_key"]:
+                return preset
+            aliases = [line.strip() for line in str(preset.get("aliases") or "").splitlines() if line.strip()]
+            if any(normalize_command_name(alias) == key for alias in aliases):
+                return preset
         return None
 
     def get_preset(self, guild_id, preset_id):
-        return self.preset
+        for preset in self.presets:
+            if int(preset["id"]) == int(preset_id):
+                return preset
+        return None
 
     def list_cached_videos(self, preset_id):
         return list(self.videos)
@@ -185,6 +215,18 @@ print("admin import ok")
     results.append(check("101連 is rejected", n_pull.parse_n_pull_command("しゃろう 101連")[2] is not None))
     results.append(check("missing number is rejected", n_pull.parse_n_pull_command("しゃろう 連")[2] is not None))
     results.append(check("normalizer absorbs case width spaces", normalize_command_name(" Persona　5 ") == normalize_command_name("persona 5")))
+    repository_for_routing = FakeRepository()
+    owned = n_pull.find_owned_n_pull_command("しゃろう 10連", repository_for_routing.list_presets("guild-a", enabled=True))
+    results.append(check("owned preset command is recognized before VC check", owned[0] and owned[0]["command_name"] == "しゃろう" and owned[2] == 10, str(owned)))
+    owned_alias = n_pull.find_owned_n_pull_command("P5 10連", repository_for_routing.list_presets("guild-a", enabled=True))
+    results.append(check("owned alias command is recognized", owned_alias[0] and owned_alias[0]["command_name"] == "ペルソナ5" and owned_alias[2] == 10, str(owned_alias)))
+    owned_long = n_pull.find_owned_n_pull_command("ペルソナ5 10連", repository_for_routing.list_presets("guild-a", enabled=True))
+    results.append(check("longest preset command wins", owned_long[0] and owned_long[0]["command_name"] == "ペルソナ5", str(owned_long)))
+    for non_owned in ("おみくじ10連", "おみくじ 10連", "おみくじ　１０連", "おみくじ0連", "おみくじ101連", "おみくじabc連", "存在しない名前 10連", "ペルソナ5abc連", "5曲ループ", "3曲スキップ"):
+        owned = n_pull.find_owned_n_pull_command(non_owned, repository_for_routing.list_presets("guild-a", enabled=True))
+        results.append(check("non-owned command is not youtube n-pull: {0}".format(non_owned), owned == (None, None, None, None), str(owned)))
+    owned_invalid = n_pull.find_owned_n_pull_command("しゃろう 0連", repository_for_routing.list_presets("guild-a", enabled=True))
+    results.append(check("owned invalid count belongs to youtube n-pull", owned_invalid[0] and owned_invalid[3] is not None, str(owned_invalid)))
     migration_sql = (ROOT_DIR / "migrations" / "035_add_youtube_n_pull_presets.sql").read_text(encoding="utf-8")
     results.append(check("migration uses bot guild command key unique scope", "ON youtube_n_pull_presets(bot_id, guild_id, command_key)" in migration_sql))
     results.append(check("migration does not use command_name-only unique", "UNIQUE (command_name)" not in migration_sql and "ON youtube_n_pull_presets(command_name)" not in migration_sql))
@@ -332,6 +374,23 @@ print("admin import ok")
         handled = asyncio.run(n_pull.handle_youtube_n_pull_command(no_vc_message, "しゃろう 1連"))
         results.append(check("VC disconnected is handled without auto join", handled is True and play_calls == ["guild-a"]))
         results.append(check("VC disconnected sends guidance", any("VC" in text for text in no_vc_message.channel.messages), str(no_vc_message.channel.messages)))
+        for non_owned in ("おみくじ10連", "おみくじ 10連", "おみくじ　１０連", "おみくじ0連", "おみくじ101連", "おみくじabc連", "存在しない名前 10連", "ペルソナ5abc連", "5曲ループ", "3曲スキップ"):
+            non_owned_message = FakeMessage()
+            handled = asyncio.run(n_pull.handle_youtube_n_pull_command(non_owned_message, non_owned))
+            results.append(
+                check(
+                    "non-owned command returns false without VC guidance: {0}".format(non_owned),
+                    handled is False and non_owned_message.channel.messages == [],
+                    str(non_owned_message.channel.messages),
+                )
+            )
+        alias_no_vc_message = FakeMessage()
+        handled = asyncio.run(n_pull.handle_youtube_n_pull_command(alias_no_vc_message, "P5 1連"))
+        results.append(check("owned alias reaches VC guidance", handled is True and any("VC" in text for text in alias_no_vc_message.channel.messages), str(alias_no_vc_message.channel.messages)))
+        for invalid_command in ("しゃろう 0連", "しゃろう 101連"):
+            invalid_message = FakeMessage()
+            handled = asyncio.run(n_pull.handle_youtube_n_pull_command(invalid_message, invalid_command))
+            results.append(check("owned invalid count uses youtube error: {0}".format(invalid_command), handled is True and any("1" in text and "100" in text for text in invalid_message.channel.messages), str(invalid_message.channel.messages)))
 
         FakeFeatureFlagRepository.enabled = False
         n_pull.get_guild_voice_client = lambda guild: FakeVoiceClient()
