@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlparse, urlunparse
 from bot import config
 from bot.db import get_connection
 from bot.repositories.feature_flags import FeatureFlagRepository
-from bot.repositories.youtube_n_pull import YouTubeNPullRepository, cache_is_fresh, normalize_command_name
+from bot.repositories.youtube_n_pull import YouTubeNPullRepository, cache_is_fresh, normalize_command_name, split_lines
 
 if TYPE_CHECKING:
     import discord
@@ -31,6 +31,9 @@ MAX_SOURCE_ENTRY_SCAN = 1000
 MAX_SOURCE_ENTRY_DEPTH = 3
 FEATURE_YOUTUBE_N_PULL = "youtube_n_pull"
 N_PULL_PATTERN = re.compile(r"^(?P<name>.+?)\s*(?P<count>[0-9０-９]+)?\s*連\s*$")
+N_PULL_COUNT_PATTERN = re.compile(r"^(?P<count>[0-9０-９]+)\s*連$")
+N_PULL_FORMAT_ERROR = "N連は `プリセット名 10連` の形で指定してください。"
+N_PULL_COUNT_ERROR = "N連の件数は1〜100で指定してください。"
 _CACHE_REFRESH_LOCKS: Dict[str, asyncio.Lock] = {}
 YTDLP_COOKIES_FILE_ENV = "YTDLP_COOKIES_FILE"
 YTDLP_COOKIES_TMP_DIR = Path(tempfile.gettempdir())
@@ -71,15 +74,63 @@ def parse_n_pull_command(command_text: Optional[str]) -> Tuple[Optional[str], Op
         return None, None, None
     match = N_PULL_PATTERN.match(normalized)
     if not match:
-        return None, None, "N連は `プリセット名 10連` の形で指定してください。"
+        return None, None, N_PULL_FORMAT_ERROR
     name = " ".join(str(match.group("name") or "").strip().split())
     count_text = match.group("count")
     if not name or not count_text:
-        return None, None, "N連は `プリセット名 10連` の形で指定してください。"
+        return None, None, N_PULL_FORMAT_ERROR
     count = int(count_text)
     if count < 1 or count > MAX_N_PULL_COUNT:
-        return name, None, "N連の件数は1〜100で指定してください。"
+        return name, None, N_PULL_COUNT_ERROR
     return name, count, None
+
+
+def parse_owned_n_pull_suffix(suffix: str) -> Tuple[Optional[int], Optional[str], bool]:
+    normalized = normalize_command_name(suffix)
+    if not normalized:
+        return None, None, False
+    if not normalized.endswith("連"):
+        return None, None, False
+    match = N_PULL_COUNT_PATTERN.fullmatch(normalized)
+    if not match:
+        return None, N_PULL_FORMAT_ERROR, True
+    count = int(match.group("count"))
+    if count < 1 or count > MAX_N_PULL_COUNT:
+        return None, N_PULL_COUNT_ERROR, True
+    return count, None, True
+
+
+def preset_command_names(preset: Dict[str, Any]) -> List[str]:
+    names = [str(preset.get("command_name") or "")]
+    names.extend(split_lines(preset.get("aliases") or ""))
+    return [name for name in names if normalize_command_name(name)]
+
+
+def find_owned_n_pull_command(
+    command_text: Optional[str],
+    presets: List[Dict[str, Any]],
+) -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[int], Optional[str]]:
+    normalized_command = normalize_command_name(command_text or "")
+    if not normalized_command:
+        return None, None, None, None
+    candidates: List[Tuple[int, Dict[str, Any], str, Optional[int], Optional[str]]] = []
+    for preset in presets:
+        for command_name in preset_command_names(preset):
+            command_key = normalize_command_name(command_name)
+            if not normalized_command.startswith(command_key):
+                continue
+            suffix = normalized_command[len(command_key):]
+            if suffix and not suffix.startswith(" ") and not N_PULL_COUNT_PATTERN.fullmatch(suffix):
+                continue
+            count, error, consumed = parse_owned_n_pull_suffix(suffix)
+            if not consumed and error is None:
+                continue
+            candidates.append((len(command_key), preset, command_name, count, error))
+    if not candidates:
+        return None, None, None, None
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    _, preset, command_name, count, error = candidates[0]
+    return preset, command_name, count, error
 
 
 def is_youtube_source_url(url: str) -> bool:
@@ -420,17 +471,24 @@ async def handle_youtube_n_pull_command(message: discord.Message, command_text: 
     if guild is None:
         return False
 
-    preset_name, count, error = parse_n_pull_command(command_text)
-    if error:
-        await message.channel.send(error)
-        return True
-    if preset_name is None or count is None:
-        return False
-
     guild_id = str(guild.id)
     requester_id = str(getattr(message.author, "id", "") or "")
 
     with get_connection() as connection:
+        repository = YouTubeNPullRepository(connection)
+        presets = repository.list_presets(guild_id, enabled=True)
+        owned_preset, owned_command_name, count, error = find_owned_n_pull_command(command_text, presets)
+        if owned_preset is None:
+            return False
+        preset = repository.find_preset_by_command(guild_id, owned_command_name or "")
+        if preset is None:
+            return False
+        if error:
+            await message.channel.send(error)
+            return True
+        if count is None:
+            return False
+
         if not FeatureFlagRepository(connection).is_enabled(guild_id, FEATURE_YOUTUBE_N_PULL, default=True):
             await message.channel.send("YouTube N連機能はOFFです。")
             log_n_pull("skipped", guild_id, requester_id, requested_count=count, reason="feature_off")
@@ -442,10 +500,6 @@ async def handle_youtube_n_pull_command(message: discord.Message, command_text: 
             log_n_pull("skipped", guild_id, requester_id, requested_count=count, reason="not_connected")
             return True
 
-        repository = YouTubeNPullRepository(connection)
-        preset = repository.find_preset_by_command(guild_id, preset_name)
-        if preset is None:
-            return False
         if count > int(preset.get("max_pulls") or MAX_N_PULL_COUNT):
             await message.channel.send("{0}連はこのプリセットの上限を超えています。".format(count))
             return True
