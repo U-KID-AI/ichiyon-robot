@@ -3,19 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ page_title or "かんたん追加" }}</title>
+  <title>{{ page_title or "いちよんロボ おみくじ追加" }}</title>
   <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
 </head>
 <body class="public-page">
   <main class="public-shell">
-    <header class="public-header">
-      <a class="public-brand" href="/public">かんたん追加</a>
-      {% if selected_scope %}
-      <div class="public-scope">
-        <span>Bot: {{ selected_scope.bot_display_name }}</span>
-        <span>サーバー: {{ selected_scope.guild_name }}</span>
+    <header class="public-header public-header-simple">
+      <div>
+        <div class="public-brand">いちよんロボ おみくじ追加</div>
+        <p class="public-muted public-header-note">ランセ地方のおみくじに新しい結果を追加できます。</p>
       </div>
-      {% endif %}
     </header>
     {% block content %}{% endblock %}
   </main>

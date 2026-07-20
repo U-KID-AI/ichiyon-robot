@@ -1,23 +1,71 @@
 {% extends "public_layout.html" %}
-{% set page_title = "かんたん追加" %}
+{% set page_title = "いちよんロボ おみくじ追加" %}
 {% block content %}
-<section class="public-panel">
+<section class="public-panel public-omikuji-panel">
   <div class="public-title-row">
     <div>
-      <h1>追加するものを選ぶ</h1>
-      <p class="public-muted">追加するとすぐにBotの返事候補として使われます。</p>
+      <h1>現在のおみくじ</h1>
+      <p class="public-muted">現在 {{ choice_count }}件</p>
     </div>
-    <form method="post" action="/public/switch">
-      <button class="public-secondary" type="submit">追加先変更</button>
-    </form>
   </div>
-  <div class="public-card-grid">
-    {% for key, config in entry_types.items() %}
-    <a class="public-card public-card-link" href="/public/{{ key }}">
-      <h2>{{ config.title }}</h2>
-      <p>{{ config.description }}</p>
-    </a>
+
+  {% if choices %}
+  <ul class="public-omikuji-list">
+    {% for choice in choices %}
+    <li class="public-omikuji-item">
+      {% if choice.image_path %}
+      <img src="/public/omikuji-images/{{ loop.index }}" alt="" loading="lazy">
+      {% endif %}
+      {% if choice.body %}
+      <span>{{ choice.body }}</span>
+      {% elif choice.image_path %}
+      <span>画像のおみくじ</span>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="public-muted">表示できるおみくじはまだありません。</p>
+  {% endif %}
+</section>
+
+<section class="public-panel public-omikuji-panel">
+  <h1>新しいおみくじを追加</h1>
+  {% if success %}
+  <div class="public-success">{{ success }}</div>
+  {% endif %}
+  {% if errors %}
+  <div class="public-alert">
+    {% for error in errors %}
+    <div>{{ error }}</div>
     {% endfor %}
   </div>
+  {% endif %}
+  {% if missing_message %}
+  <div class="public-alert">{{ missing_message }}</div>
+  {% endif %}
+
+  {% if preview %}
+  <div class="public-preview">
+    <strong>プレビュー</strong>
+    {% if preview.body %}<p>{{ preview.body }}</p>{% endif %}
+    {% if preview.has_image %}<p>画像あり</p>{% endif %}
+  </div>
+  {% endif %}
+
+  <form class="public-form" method="post" enctype="multipart/form-data">
+    <label>
+      <span>おみくじの内容</span>
+      <textarea name="body" rows="5" maxlength="{{ max_body_length }}">{{ form.body }}</textarea>
+    </label>
+    <label>
+      <span>画像</span>
+      <input type="file" name="image_upload" accept="image/png,image/jpeg,image/gif,image/webp">
+    </label>
+    <div class="public-actions">
+      <button class="public-secondary" type="submit" name="action" value="preview" {% if not can_add %}disabled{% endif %}>プレビュー</button>
+      <button class="public-primary" type="submit" name="action" value="add" {% if not can_add %}disabled{% endif %}>追加する</button>
+    </div>
+  </form>
 </section>
 {% endblock %}
