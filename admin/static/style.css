@@ -312,6 +312,38 @@ body {
   object-fit: cover;
 }
 
+.public-omikuji-text {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.public-omikuji-label {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1e40af;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.public-omikuji-content {
+  color: #1f2937;
+  overflow-wrap: anywhere;
+}
+
+.public-preview-label {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1e40af;
+  font-weight: 700;
+}
+
 @media (max-width: 640px) {
   .public-shell {
     width: min(100% - 20px, 960px);

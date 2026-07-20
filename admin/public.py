@@ -19,6 +19,7 @@ PUBLIC_GUILD_NAME = "ランセ地方"
 OMIKUJI_NAMES = ("おみくじ", "omikuji", "kuji")
 PUBLIC_IMAGE_CATEGORY = "mention_reaction_choices"
 MAX_BODY_LENGTH = 500
+MAX_RESULT_LABEL_LENGTH = 80
 
 
 def _clean_text(value: Optional[str]) -> str:
@@ -90,10 +91,12 @@ def get_current_omikuji_choices(connection) -> Tuple[Optional[Dict[str, Any]], L
     return reaction, choices
 
 
-def validate_omikuji_form(body: str, has_image: bool) -> List[str]:
+def validate_omikuji_form(result_label: str, body: str, has_image: bool) -> List[str]:
     errors: List[str] = []
     if not body and not has_image:
         errors.append("おみくじの内容または画像を入力してください。")
+    if len(result_label) > MAX_RESULT_LABEL_LENGTH:
+        errors.append("何吉は80文字以内で入力してください。")
     if len(body) > MAX_BODY_LENGTH:
         errors.append("おみくじの内容は500文字以内で入力してください。")
     return errors
@@ -101,6 +104,7 @@ def validate_omikuji_form(body: str, has_image: bool) -> List[str]:
 
 def add_omikuji_choice(
     connection,
+    result_label: str,
     body: str,
     image_path: Optional[str],
 ) -> Tuple[bool, Optional[str]]:
@@ -111,16 +115,18 @@ def add_omikuji_choice(
     repository.create_choice(
         guild_id=PUBLIC_GUILD_ID,
         mention_reaction_id=int(reaction["id"]),
-        name=body or "画像おみくじ",
+        name=result_label or body or "画像おみくじ",
         body=body or None,
         image_path=image_path,
         appearance_rate=1,
         enabled=True,
+        result_label=result_label or None,
     )
     return True, None
 
 
 def _load_public_page_context(
+    form_result_label: str = "",
     form_body: str = "",
     errors: Optional[List[str]] = None,
     success: str = "",
@@ -140,11 +146,12 @@ def _load_public_page_context(
         "choice_count": len(choices),
         "can_add": reaction is not None,
         "missing_message": "" if reaction is not None else "現在おみくじを追加できません。",
-        "form": {"body": form_body},
+        "form": {"result_label": form_result_label, "body": form_body},
         "errors": errors or [],
         "success": success,
         "preview": preview,
         "max_body_length": MAX_BODY_LENGTH,
+        "max_result_label_length": MAX_RESULT_LABEL_LENGTH,
     }
 
 
@@ -177,26 +184,37 @@ def register_public_routes(templates: Jinja2Templates) -> None:
     async def public_submit(
         request: Request,
         action: str = Form("add"),
-        body: str = Form(""),
+        fortune_label: str = Form(""),
+        omikuji_text: str = Form(""),
         image_upload: Optional[UploadFile] = File(None),
     ):
-        cleaned_body = _clean_text(body)
+        cleaned_result_label = _clean_text(fortune_label)
+        cleaned_body = _clean_text(omikuji_text)
         has_image = _image_selected(image_upload)
-        errors = validate_omikuji_form(cleaned_body, has_image)
+        errors = validate_omikuji_form(cleaned_result_label, cleaned_body, has_image)
         if action == "preview" and not errors:
             return templates.TemplateResponse(
                 request,
                 "public_home.html",
                 _load_public_page_context(
+                    form_result_label=cleaned_result_label,
                     form_body=cleaned_body,
-                    preview={"body": cleaned_body, "has_image": has_image},
+                    preview={
+                        "result_label": cleaned_result_label,
+                        "body": cleaned_body,
+                        "has_image": has_image,
+                    },
                 ),
             )
         if errors:
             return templates.TemplateResponse(
                 request,
                 "public_home.html",
-                _load_public_page_context(form_body=cleaned_body, errors=errors),
+                _load_public_page_context(
+                    form_result_label=cleaned_result_label,
+                    form_body=cleaned_body,
+                    errors=errors,
+                ),
                 status_code=400,
             )
 
@@ -206,6 +224,7 @@ def register_public_routes(templates: Jinja2Templates) -> None:
                 request,
                 "public_home.html",
                 _load_public_page_context(
+                    form_result_label=cleaned_result_label,
                     form_body=cleaned_body,
                     errors=["画像は png, jpg, jpeg, gif, webp の8MB以内でアップロードしてください。"],
                 ),
@@ -214,7 +233,12 @@ def register_public_routes(templates: Jinja2Templates) -> None:
 
         try:
             with get_connection() as connection:
-                ok, message = add_omikuji_choice(connection, cleaned_body, image_path)
+                ok, message = add_omikuji_choice(
+                    connection,
+                    cleaned_result_label,
+                    cleaned_body,
+                    image_path,
+                )
                 if ok:
                     connection.commit()
                 else:
@@ -229,7 +253,11 @@ def register_public_routes(templates: Jinja2Templates) -> None:
             return templates.TemplateResponse(
                 request,
                 "public_home.html",
-                _load_public_page_context(form_body=cleaned_body, errors=errors),
+                _load_public_page_context(
+                    form_result_label=cleaned_result_label,
+                    form_body=cleaned_body,
+                    errors=errors,
+                ),
                 status_code=400,
             )
 
