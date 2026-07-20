@@ -1,0 +1,23 @@
+{% extends "public_layout.html" %}
+{% set page_title = "かんたん追加" %}
+{% block content %}
+<section class="public-panel">
+  <div class="public-title-row">
+    <div>
+      <h1>追加するものを選ぶ</h1>
+      <p class="public-muted">追加するとすぐにBotの返事候補として使われます。</p>
+    </div>
+    <form method="post" action="/public/switch">
+      <button class="public-secondary" type="submit">追加先変更</button>
+    </form>
+  </div>
+  <div class="public-card-grid">
+    {% for key, config in entry_types.items() %}
+    <a class="public-card public-card-link" href="/public/{{ key }}">
+      <h2>{{ config.title }}</h2>
+      <p>{{ config.description }}</p>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

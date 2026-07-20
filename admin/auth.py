@@ -1,6 +1,6 @@
 import os
 import secrets
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 
 import httpx
@@ -18,8 +18,12 @@ load_dotenv()
 DISCORD_AUTHORIZE_URL = "https://discord.com/oauth2/authorize"
 DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token"
 DISCORD_USER_URL = "https://discord.com/api/users/@me"
+DISCORD_USER_GUILDS_URL = "https://discord.com/api/users/@me/guilds"
 SESSION_USER_KEY = "discord_user"
+SESSION_PUBLIC_USER_KEY = "public_discord_user"
+SESSION_PUBLIC_GUILD_IDS_KEY = "public_discord_guild_ids"
 SESSION_STATE_KEY = "discord_oauth_state"
+SESSION_PUBLIC_AUTH_KEY = "discord_oauth_public"
 DEV_SESSION_SECRET = "development-only-admin-session-secret"
 
 router = APIRouter()
@@ -94,6 +98,25 @@ def get_current_user(request: Request) -> Optional[Dict[str, Any]]:
     return None
 
 
+def get_public_user(request: Request) -> Optional[Dict[str, Any]]:
+    user = request.session.get(SESSION_PUBLIC_USER_KEY)
+    if not isinstance(user, dict):
+        return None
+    user_id = str(user.get("user_id", "")).strip()
+    if not user_id:
+        request.session.pop(SESSION_PUBLIC_USER_KEY, None)
+        request.session.pop(SESSION_PUBLIC_GUILD_IDS_KEY, None)
+        return None
+    return user
+
+
+def get_public_guild_ids(request: Request) -> List[str]:
+    guild_ids = request.session.get(SESSION_PUBLIC_GUILD_IDS_KEY)
+    if not isinstance(guild_ids, list):
+        return []
+    return [str(guild_id) for guild_id in guild_ids if str(guild_id or "").strip()]
+
+
 def require_login(request: Request) -> Dict[str, Any]:
     user = get_current_user(request)
     if user is None:
@@ -132,17 +155,19 @@ def register_auth_routes(templates: Jinja2Templates) -> None:
         )
 
     @router.get("/auth/discord")
-    async def discord_auth(request: Request):
+    async def discord_auth(request: Request, public: Optional[str] = None):
         if not oauth_is_configured():
             return RedirectResponse(url="/login?error=oauth_not_configured", status_code=303)
 
         state = secrets.token_urlsafe(32)
         request.session[SESSION_STATE_KEY] = state
+        is_public_login = str(public or "").strip().lower() in ("1", "true", "yes", "on")
+        request.session[SESSION_PUBLIC_AUTH_KEY] = is_public_login
         params = {
             "client_id": os.getenv("DISCORD_OAUTH_CLIENT_ID"),
             "redirect_uri": get_oauth_redirect_uri(),
             "response_type": "code",
-            "scope": "identify",
+            "scope": "identify guilds" if is_public_login else "identify",
             "state": state,
             "prompt": "none",
         }
@@ -154,18 +179,36 @@ def register_auth_routes(templates: Jinja2Templates) -> None:
     @router.get("/auth/discord/callback")
     async def discord_callback(request: Request, code: Optional[str] = None, state: Optional[str] = None):
         expected_state = request.session.pop(SESSION_STATE_KEY, None)
+        is_public_login = bool(request.session.pop(SESSION_PUBLIC_AUTH_KEY, False))
+        error_redirect = "/public/login" if is_public_login else "/login"
         if not code or not state or not expected_state or state != expected_state:
-            return RedirectResponse(url="/login?error=invalid_state", status_code=303)
+            return RedirectResponse(url="{0}?error=invalid_state".format(error_redirect), status_code=303)
 
         try:
-            user_data = await fetch_discord_user(code)
+            identity = await fetch_discord_identity(code, include_guilds=is_public_login)
+            user_data = identity["user"]
         except Exception as exc:
             print("[WARN] Discord OAuth failed: {0}".format(exc))
-            return RedirectResponse(url="/login?error=oauth_failed", status_code=303)
+            return RedirectResponse(url="{0}?error=oauth_failed".format(error_redirect), status_code=303)
 
         user_id = str(user_data.get("id", ""))
         if not user_id:
-            return RedirectResponse(url="/login?error=oauth_failed", status_code=303)
+            return RedirectResponse(url="{0}?error=oauth_failed".format(error_redirect), status_code=303)
+
+        session_user = {
+            "user_id": user_id,
+            "username": user_data.get("username", ""),
+            "global_name": user_data.get("global_name"),
+            "avatar_url": build_avatar_url(user_id, user_data.get("avatar")),
+        }
+        if is_public_login:
+            request.session[SESSION_PUBLIC_USER_KEY] = session_user
+            request.session[SESSION_PUBLIC_GUILD_IDS_KEY] = [
+                str(guild.get("id"))
+                for guild in identity.get("guilds", [])
+                if isinstance(guild, dict) and str(guild.get("id", "")).strip()
+            ]
+            return RedirectResponse(url="/public", status_code=303)
 
         try:
             with get_connection() as connection:
@@ -182,12 +225,7 @@ def register_auth_routes(templates: Jinja2Templates) -> None:
             print("[WARN] Failed to validate admin login: {0}".format(exc))
             return RedirectResponse(url="/login?error=access_denied", status_code=303)
 
-        request.session[SESSION_USER_KEY] = {
-            "user_id": user_id,
-            "username": user_data.get("username", ""),
-            "global_name": user_data.get("global_name"),
-            "avatar_url": build_avatar_url(user_id, user_data.get("avatar")),
-        }
+        request.session[SESSION_USER_KEY] = session_user
         try:
             with get_connection() as connection:
                 PermissionRepository(connection).set_last_login(user_id)
@@ -210,7 +248,7 @@ def register_auth_routes(templates: Jinja2Templates) -> None:
         )
 
 
-async def fetch_discord_user(code: str) -> Dict[str, Any]:
+async def fetch_discord_identity(code: str, include_guilds: bool = False) -> Dict[str, Any]:
     client_id = os.getenv("DISCORD_OAUTH_CLIENT_ID")
     client_secret = os.getenv("DISCORD_OAUTH_CLIENT_SECRET")
     if not client_id or not client_secret:
@@ -239,4 +277,19 @@ async def fetch_discord_user(code: str) -> Dict[str, Any]:
             headers={"Authorization": "Bearer {0}".format(access_token)},
         )
         user_response.raise_for_status()
-        return user_response.json()
+        user_json = user_response.json()
+
+        guilds_json = []
+        if include_guilds:
+            guilds_response = await client.get(
+                DISCORD_USER_GUILDS_URL,
+                headers={"Authorization": "Bearer {0}".format(access_token)},
+            )
+            guilds_response.raise_for_status()
+            guilds_json = guilds_response.json()
+
+        return {"user": user_json, "guilds": guilds_json}
+
+
+async def fetch_discord_user(code: str) -> Dict[str, Any]:
+    return (await fetch_discord_identity(code, include_guilds=False))["user"]

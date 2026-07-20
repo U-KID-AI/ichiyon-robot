@@ -1,0 +1,54 @@
+{% extends "public_layout.html" %}
+{% set page_title = entry_config.title %}
+{% block content %}
+<section class="public-panel">
+  <div class="public-title-row">
+    <div>
+      <h1>{{ entry_config.title }}</h1>
+      <p class="public-muted">{{ entry_config.description }}</p>
+    </div>
+    <a class="public-secondary" href="/public">戻る</a>
+  </div>
+
+  {% if success %}
+  <div class="public-success">{{ success }}</div>
+  {% endif %}
+  {% if errors %}
+  <div class="public-alert">
+    {% for error in errors %}
+    <div>{{ error }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if preview %}
+  <div class="public-preview">
+    <strong>プレビュー</strong>
+    {% if preview.trigger_text %}<p>言葉: {{ preview.trigger_text }}</p>{% endif %}
+    {% if preview.body %}<p>{{ preview.body }}</p>{% endif %}
+    {% if preview.has_image %}<p>画像あり</p>{% endif %}
+  </div>
+  {% endif %}
+
+  <form class="public-form" method="post" enctype="multipart/form-data">
+    {% if entry_config.requires_trigger %}
+    <label>
+      <span>{{ entry_config.trigger_label }}</span>
+      <input type="text" name="trigger_text" value="{{ form.trigger_text }}" autocomplete="off">
+    </label>
+    {% endif %}
+    <label>
+      <span>{{ entry_config.body_label }}</span>
+      <textarea name="body" rows="5">{{ form.body }}</textarea>
+    </label>
+    <label>
+      <span>画像</span>
+      <input type="file" name="image_upload" accept="image/png,image/jpeg,image/gif,image/webp">
+    </label>
+    <div class="public-actions">
+      <button class="public-secondary" type="submit" name="action" value="preview">プレビュー</button>
+      <button class="public-primary" type="submit" name="action" value="add">追加</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

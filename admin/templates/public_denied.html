@@ -1,0 +1,9 @@
+{% extends "public_layout.html" %}
+{% set page_title = "かんたん追加" %}
+{% block content %}
+<section class="public-panel">
+  <h1>追加できる場所がありません</h1>
+  <p class="public-muted">{{ message }}</p>
+  <a class="public-secondary" href="/public/login">ログインし直す</a>
+</section>
+{% endblock %}
