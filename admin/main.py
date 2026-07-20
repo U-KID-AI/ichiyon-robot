@@ -31,6 +31,7 @@ from admin.mention_limited_effects import (
 )
 from admin.modes import register_mode_routes, router as mode_router
 from admin.ng_words_db import register_ng_word_routes, router as ng_word_router
+from admin.public import register_public_routes, router as public_router
 from admin.reaction_thresholds import (
     register_reaction_threshold_routes,
     router as reaction_threshold_router,
@@ -81,6 +82,7 @@ templates.env.filters["role_label"] = role_label
 templates.env.filters["role_description"] = role_description
 app.state.templates = templates
 register_auth_routes(templates)
+register_public_routes(templates)
 register_bot_routes(templates)
 register_server_routes(templates)
 register_mention_limited_effect_routes(templates)
@@ -96,6 +98,7 @@ register_voice_line_routes(templates)
 register_schedule_template_routes(templates)
 register_youtube_n_pull_routes(templates)
 app.include_router(auth_router)
+app.include_router(public_router)
 app.include_router(bot_router)
 app.include_router(server_router)
 app.include_router(mention_limited_effect_router)

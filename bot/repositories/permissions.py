@@ -275,6 +275,45 @@ class PermissionRepository:
             )
             return fetch_all(cursor)
 
+    def list_public_bot_guilds(self, discord_guild_ids: List[str]) -> List[Dict[str, Any]]:
+        normalized_ids = [str(guild_id).strip() for guild_id in discord_guild_ids if str(guild_id or "").strip()]
+        if not normalized_ids:
+            return []
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    b.bot_id,
+                    b.display_name AS bot_display_name,
+                    b.description AS bot_description,
+                    g.guild_id,
+                    g.name AS guild_name,
+                    g.icon_url,
+                    g.enabled AS guild_enabled
+                FROM bot_guilds bg
+                JOIN bot_instances b ON b.bot_id = bg.bot_id
+                JOIN guilds g ON g.guild_id = bg.guild_id
+                WHERE bg.enabled = TRUE
+                  AND b.enabled = TRUE
+                  AND g.enabled = TRUE
+                  AND bg.guild_id = ANY(%s)
+                ORDER BY b.display_name ASC, g.name ASC, g.guild_id ASC
+                """,
+                (normalized_ids,),
+            )
+            return fetch_all(cursor)
+
+    def can_access_public_bot_guild(
+        self,
+        bot_id: str,
+        guild_id: str,
+        discord_guild_ids: List[str],
+    ) -> bool:
+        for scope in self.list_public_bot_guilds(discord_guild_ids):
+            if str(scope.get("bot_id")) == str(bot_id) and str(scope.get("guild_id")) == str(guild_id):
+                return True
+        return False
+
     def has_configured_guilds_for_bot(self, bot_id: str) -> bool:
         with self.connection.cursor() as cursor:
             cursor.execute(

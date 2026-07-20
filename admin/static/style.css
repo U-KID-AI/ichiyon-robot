@@ -59,6 +59,257 @@ body {
   letter-spacing: 0.04em;
 }
 
+.public-page {
+  min-height: 100vh;
+  margin: 0;
+  background: #f5f7fb;
+  color: #1f2937;
+}
+
+.public-shell {
+  width: min(960px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 24px 0 48px;
+}
+
+.public-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.public-brand {
+  color: #111827;
+  font-size: 20px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.public-scope {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  color: #4b5563;
+  font-size: 13px;
+}
+
+.public-scope span {
+  padding: 5px 9px;
+  border: 1px solid #d7dce5;
+  border-radius: 999px;
+  background: #ffffff;
+}
+
+.public-panel {
+  padding: 22px;
+  border: 1px solid #d9e0ea;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.public-panel h1 {
+  margin: 0 0 8px;
+  font-size: 24px;
+  line-height: 1.25;
+}
+
+.public-muted {
+  margin: 0 0 18px;
+  color: #6b7280;
+  line-height: 1.6;
+}
+
+.public-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.public-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.public-card {
+  display: block;
+  padding: 16px;
+  border: 1px solid #d9e0ea;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.public-card-link {
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
+}
+
+.public-card-link:hover,
+.public-card-link:focus {
+  border-color: #86a7ff;
+  box-shadow: 0 8px 18px rgba(30, 64, 175, 0.08);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.public-card h2 {
+  margin: 0 0 8px;
+  font-size: 17px;
+}
+
+.public-card p {
+  margin: 0 0 14px;
+  color: #6b7280;
+  line-height: 1.55;
+}
+
+.public-primary,
+.public-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 8px 14px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.public-primary {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.public-primary:hover,
+.public-primary:focus {
+  background: #1d4ed8;
+}
+
+.public-secondary {
+  border-color: #cfd7e3;
+  background: #ffffff;
+  color: #374151;
+}
+
+.public-secondary:hover,
+.public-secondary:focus {
+  border-color: #9aa7b8;
+  background: #f8fafc;
+}
+
+.public-form {
+  display: grid;
+  gap: 14px;
+}
+
+.public-form label {
+  display: grid;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.public-form input[type="text"],
+.public-form input[type="file"],
+.public-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #cfd7e3;
+  border-radius: 7px;
+  padding: 10px 12px;
+  background: #ffffff;
+  color: #111827;
+  font: inherit;
+}
+
+.public-form textarea {
+  min-height: 116px;
+  resize: vertical;
+}
+
+.public-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.public-alert,
+.public-success,
+.public-preview {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  line-height: 1.55;
+}
+
+.public-alert {
+  border: 1px solid #fecaca;
+  background: #fff1f2;
+  color: #991b1b;
+}
+
+.public-success {
+  border: 1px solid #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.public-preview {
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+
+.public-preview p {
+  margin: 6px 0 0;
+}
+
+@media (max-width: 640px) {
+  .public-shell {
+    width: min(100% - 20px, 960px);
+    padding-top: 14px;
+  }
+
+  .public-header,
+  .public-title-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .public-scope {
+    justify-content: flex-start;
+  }
+
+  .public-panel {
+    padding: 16px;
+  }
+
+  .public-panel h1 {
+    font-size: 21px;
+  }
+
+  .public-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .public-actions {
+    justify-content: stretch;
+  }
+
+  .public-actions .public-primary,
+  .public-actions .public-secondary {
+    flex: 1;
+  }
+}
+
 .topbar-server {
   margin: 6px 0 0;
   color: var(--muted-2);
