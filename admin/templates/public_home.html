@@ -16,11 +16,16 @@
       {% if choice.image_path %}
       <img src="/public/omikuji-images/{{ loop.index }}" alt="" loading="lazy">
       {% endif %}
-      {% if choice.body %}
-      <span>{{ choice.body }}</span>
-      {% elif choice.image_path %}
-      <span>画像のおみくじ</span>
-      {% endif %}
+      <div class="public-omikuji-text">
+        <strong class="public-omikuji-label">
+          {{ choice.result_label if choice.result_label else "何吉なし" }}
+        </strong>
+        {% if choice.body %}
+        <span class="public-omikuji-content">{{ choice.body }}</span>
+        {% elif choice.image_path %}
+        <span class="public-omikuji-content">画像のおみくじ</span>
+        {% endif %}
+      </div>
     </li>
     {% endfor %}
   </ul>
@@ -48,6 +53,7 @@
   {% if preview %}
   <div class="public-preview">
     <strong>プレビュー</strong>
+    {% if preview.result_label %}<p class="public-preview-label">{{ preview.result_label }}</p>{% endif %}
     {% if preview.body %}<p>{{ preview.body }}</p>{% endif %}
     {% if preview.has_image %}<p>画像あり</p>{% endif %}
   </div>
@@ -55,8 +61,19 @@
 
   <form class="public-form" method="post" enctype="multipart/form-data">
     <label>
+      <span>何吉</span>
+      <input
+        type="text"
+        name="fortune_label"
+        value="{{ form.result_label }}"
+        maxlength="{{ max_result_label_length }}"
+        placeholder="大吉 / 中吉 / 小吉 / 凶 / ゲーム吉"
+        autocomplete="off"
+      >
+    </label>
+    <label>
       <span>おみくじの内容</span>
-      <textarea name="body" rows="5" maxlength="{{ max_body_length }}">{{ form.body }}</textarea>
+      <textarea name="omikuji_text" rows="5" maxlength="{{ max_body_length }}">{{ form.body }}</textarea>
     </label>
     <label>
       <span>画像</span>
