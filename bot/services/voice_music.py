@@ -10,7 +10,7 @@ from collections import deque
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Deque, Dict, List, Optional, Set, Tuple
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import discord
 
@@ -98,6 +98,15 @@ YTDL_OPTIONS = {
     "js_runtimes": {"deno": {}},
     "remote_components": ["ejs:github"],
 }
+YTDLP_STAGE_PATTERNS = [
+    ("challenge", ("solving js challenges", "challenge solver", "n challenge", "[jsc:", "ejs")),
+    ("player_js", ("downloading player", "player_", "base.js", "player javascript")),
+    ("player_api", ("player api json", "youtubei", "api json")),
+    ("manifest", ("downloading m3u8", "m3u8 information", "dash manifest", "mpd manifest", "manifest")),
+    ("webpage", ("downloading webpage", "web client config", "initial data")),
+    ("format", ("downloading 1 format", "format(s)", "format sorting")),
+    ("cache", ("cache", "cached")),
+]
 
 
 @dataclass
@@ -197,6 +206,122 @@ def log_music_timing(
             format_music_timing_fields(fields),
         ).rstrip()
     )
+
+
+def extract_youtube_video_id(url: str) -> str:
+    parsed = urlparse(str(url or "").strip())
+    host = parsed.netloc.lower()
+    if host == "youtu.be":
+        return parsed.path.strip("/").split("/")[0]
+    if host in ("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"):
+        query_id = parse_qs(parsed.query).get("v", [""])[0]
+        if query_id:
+            return query_id
+        parts = [part for part in parsed.path.split("/") if part]
+        if len(parts) >= 2 and parts[0] in ("shorts", "live", "embed"):
+            return parts[1]
+    return ""
+
+
+def classify_ytdlp_stage(message: str) -> Optional[str]:
+    text = str(message or "").lower()
+    for stage, markers in YTDLP_STAGE_PATTERNS:
+        if any(marker in text for marker in markers):
+            return stage
+    return None
+
+
+class YoutubeExtractStageRecorder:
+    def __init__(self, video_id: str = "") -> None:
+        self.video_id = video_id or "-"
+        self.extract_started: Optional[float] = None
+        self.current_stage: Optional[str] = None
+        self.current_stage_started: Optional[float] = None
+        self.stage_elapsed_ms: Dict[str, int] = {}
+        self.option_build_ms: Optional[int] = None
+        self.cookie_prep_ms: Optional[int] = None
+        self.result_processing_ms: Optional[int] = None
+        self.extract_info_ms: Optional[int] = None
+        self.messages_seen = 0
+
+    def debug(self, message: str) -> None:
+        self.record_message(message)
+
+    def warning(self, message: str) -> None:
+        self.record_message(message)
+
+    def error(self, message: str) -> None:
+        self.record_message(message)
+
+    def record_message(self, message: str) -> None:
+        self.messages_seen += 1
+        stage = classify_ytdlp_stage(message)
+        if stage is None:
+            return
+        now = time.perf_counter()
+        if self.extract_started is None:
+            self.extract_started = now
+        if self.current_stage == stage:
+            return
+        self._close_current_stage(now)
+        self.current_stage = stage
+        self.current_stage_started = now
+
+    def _close_current_stage(self, now: Optional[float] = None) -> None:
+        if self.current_stage is None or self.current_stage_started is None:
+            return
+        ended = now if now is not None else time.perf_counter()
+        elapsed = max(0, int((ended - self.current_stage_started) * 1000))
+        self.stage_elapsed_ms[self.current_stage] = self.stage_elapsed_ms.get(self.current_stage, 0) + elapsed
+        self.current_stage = None
+        self.current_stage_started = None
+
+    def set_option_build_ms(self, elapsed_ms: int) -> None:
+        self.option_build_ms = max(0, int(elapsed_ms))
+
+    def add_cookie_prep_ms(self, elapsed_ms: int) -> None:
+        self.cookie_prep_ms = (self.cookie_prep_ms or 0) + max(0, int(elapsed_ms))
+
+    def finish_extract_info(self, elapsed_ms: int) -> None:
+        self._close_current_stage()
+        self.extract_info_ms = max(0, int(elapsed_ms))
+
+    def set_result_processing_ms(self, elapsed_ms: int) -> None:
+        self.result_processing_ms = max(0, int(elapsed_ms))
+
+    def unknown_extract_ms(self) -> Optional[int]:
+        if self.extract_info_ms is None:
+            return None
+        known = sum(self.stage_elapsed_ms.values())
+        return max(0, self.extract_info_ms - known)
+
+    def iter_stage_timings(self) -> List[Tuple[str, int]]:
+        stages: List[Tuple[str, int]] = []
+        if self.option_build_ms is not None:
+            stages.append(("options", self.option_build_ms))
+        if self.cookie_prep_ms is not None:
+            stages.append(("cookie_prep", self.cookie_prep_ms))
+        for stage in ("webpage", "player_api", "player_js", "challenge", "manifest", "format", "cache"):
+            if stage in self.stage_elapsed_ms:
+                stages.append((stage, self.stage_elapsed_ms[stage]))
+        if self.result_processing_ms is not None:
+            stages.append(("result_processing", self.result_processing_ms))
+        unknown = self.unknown_extract_ms()
+        if unknown is not None:
+            stages.append(("unknown_extract", unknown))
+        return stages
+
+    def emit(self, guild_id: str, requester_id: str, channel_id: Optional[str] = None) -> None:
+        for stage, elapsed_ms in self.iter_stage_timings():
+            log_music_timing(
+                "youtube_extract_stage",
+                guild_id,
+                channel_id,
+                requester_id,
+                stage=stage,
+                elapsed_ms=elapsed_ms,
+                video_id=self.video_id,
+            )
 
 
 def normalize_music_command(command_text: Optional[str]) -> str:
@@ -352,11 +477,21 @@ def prepare_ytdlp_cookie_file(cookies_file: str, guild_id: Optional[str] = None)
     return str(target_path)
 
 
-def build_ytdl_options(guild_id: Optional[str] = None, copy_cookies: bool = True, use_cookies: bool = True) -> Dict[str, object]:
+def build_ytdl_options(
+    guild_id: Optional[str] = None,
+    copy_cookies: bool = True,
+    use_cookies: bool = True,
+    stage_recorder: Optional[YoutubeExtractStageRecorder] = None,
+) -> Dict[str, object]:
     options: Dict[str, object] = dict(YTDL_OPTIONS)
+    if stage_recorder is not None:
+        options["logger"] = stage_recorder
     cookies_file = str(os.getenv(YTDLP_COOKIES_FILE_ENV) or "").strip()
     if use_cookies and cookies_file:
+        cookie_started = time.perf_counter()
         options["cookiefile"] = prepare_ytdlp_cookie_file(cookies_file, guild_id) if copy_cookies else str(get_ytdlp_cookie_tmp_path(guild_id))
+        if stage_recorder is not None:
+            stage_recorder.add_cookie_prep_ms(perf_ms(cookie_started))
     return options
 
 
@@ -617,17 +752,36 @@ def _rotate_queue_loop_for_skip(state: MusicState, requested_count: int) -> bool
 def extract_track_info(url: str, requester_id: str, guild_id: Optional[str] = None, use_cookies: bool = True) -> MusicTrack:
     if yt_dlp is None:
         raise RuntimeError("yt-dlp is not installed")
-    with yt_dlp.YoutubeDL(build_ytdl_options(guild_id, use_cookies=use_cookies)) as ydl:
-        info = ydl.extract_info(url, download=False)
+    safe_guild_id = str(guild_id or "")
+    recorder = YoutubeExtractStageRecorder(extract_youtube_video_id(url))
+    options_started = time.perf_counter()
+    ytdl_options = build_ytdl_options(guild_id, use_cookies=use_cookies, stage_recorder=recorder)
+    recorder.set_option_build_ms(perf_ms(options_started))
+    extract_started = time.perf_counter()
+    try:
+        with yt_dlp.YoutubeDL(ytdl_options) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except Exception:
+        recorder.finish_extract_info(perf_ms(extract_started))
+        recorder.emit(safe_guild_id, requester_id)
+        raise
+    recorder.finish_extract_info(perf_ms(extract_started))
+    processing_started = time.perf_counter()
     if info is None:
+        recorder.set_result_processing_ms(perf_ms(processing_started))
+        recorder.emit(safe_guild_id, requester_id)
         raise RuntimeError("URL情報を取得できませんでした")
     if "entries" in info:
         entries = [entry for entry in info.get("entries") or [] if entry]
         if not entries:
+            recorder.set_result_processing_ms(perf_ms(processing_started))
+            recorder.emit(safe_guild_id, requester_id)
             raise RuntimeError("再生できる項目がありません")
         info = entries[0]
     stream_url = str(info.get("url") or "").strip()
     if not stream_url:
+        recorder.set_result_processing_ms(perf_ms(processing_started))
+        recorder.emit(safe_guild_id, requester_id)
         raise RuntimeError("ストリームURLを取得できませんでした")
     title = str(info.get("title") or "無題").strip()
     webpage_url = str(info.get("webpage_url") or url).strip()
@@ -636,7 +790,7 @@ def extract_track_info(url: str, requester_id: str, guild_id: Optional[str] = No
         duration_value = int(duration) if duration is not None else None
     except (TypeError, ValueError):
         duration_value = None
-    return MusicTrack(
+    track = MusicTrack(
         title=title,
         webpage_url=webpage_url,
         stream_url=stream_url,
@@ -644,6 +798,9 @@ def extract_track_info(url: str, requester_id: str, guild_id: Optional[str] = No
         duration=duration_value,
         source_url=url,
     )
+    recorder.set_result_processing_ms(perf_ms(processing_started))
+    recorder.emit(safe_guild_id, requester_id)
+    return track
 
 
 async def extract_track_info_with_cookie_fallback(
