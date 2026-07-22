@@ -131,6 +131,7 @@ class DeckSearchStats:
     skipped_image_fetch: int = 0
     skipped_no_qr: int = 0
     skipped_qr_error: int = 0
+    skipped_class_spam: int = 0
 
     def to_log(self) -> str:
         return (
@@ -138,7 +139,8 @@ class DeckSearchStats:
             "total_ms={4}, x_api_ms={5}, image_scan_ms={6}, image_scan_concurrency={7}, "
             "high_accuracy={8}, precision_mode={8}, stopped_after_candidates={9}, "
             "X results={10}, media={11}, downloaded={12}, qr={13}, candidates={14}, "
-            "skip_no_media={15}, skip_non_photo={16}, skip_image_fetch={17}, skip_no_qr={18}, skip_qr_error={19}"
+            "skip_no_media={15}, skip_non_photo={16}, skip_image_fetch={17}, skip_no_qr={18}, skip_qr_error={19}, "
+            "skip_class_spam={20}"
         ).format(
             self.search_mode,
             self.endpoint_type,
@@ -160,6 +162,7 @@ class DeckSearchStats:
             self.skipped_image_fetch,
             self.skipped_no_qr,
             self.skipped_qr_error,
+            self.skipped_class_spam,
         )
 
 
@@ -559,10 +562,125 @@ def score_post(post: XPost, request: DeckSearchRequest) -> int:
     return score
 
 
+CLASS_SPAM_IGNORED_CLASS_KEYS = {"neutral"}
+CLASS_SPAM_BROAD_TERMS = [
+    "\u5168\u30af\u30e9\u30b9",
+    "\u51687\u30af\u30e9\u30b9",
+    "\u5168\u30af\u30e9\u30b9\u5bfe\u5fdc",
+    "\u5168\u30af\u30e9\u30b9\u5bfe\u5fdc\u53ef",
+    "\u5404\u30af\u30e9\u30b9",
+    "\u5168\u8077",
+    "\u5168\u8077\u696d",
+]
+CLASS_SPAM_SEPARATORS_RE = re.compile(r"[\s\u3000/／・,，|｜、。:：;；\[\]（）(){}<>＜＞]+")
+CLASS_SPAM_COMPACT_RE = re.compile(r"[\s\u3000/／・,，|｜、。:：;；\[\]（）(){}<>＜＞_-]+")
+
+
+def normalize_deck_class_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", value or "").lower()
+    normalized = CLASS_SPAM_SEPARATORS_RE.sub(" ", normalized)
+    return " ".join(normalized.split())
+
+
+def compact_deck_class_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", value or "").lower()
+    return CLASS_SPAM_COMPACT_RE.sub("", normalized)
+
+
+def deck_class_alias_items() -> List[Tuple[str, str]]:
+    items = []
+    for class_key, (label, aliases) in CLASS_ALIASES.items():
+        if class_key in CLASS_SPAM_IGNORED_CLASS_KEYS:
+            continue
+        for alias in [label] + list(aliases):
+            normalized = normalize_text(alias)
+            if len(normalized) < 2 and normalized not in ("nm",):
+                continue
+            items.append((class_key, normalized))
+    items.sort(key=lambda item: len(item[1]), reverse=True)
+    return items
+
+
+def deck_class_alias_matches(normalized_text: str, compact_text: str, alias: str) -> bool:
+    compact_alias = compact_deck_class_text(alias)
+    if not compact_alias:
+        return False
+    if compact_alias.isascii() and compact_alias.isalnum():
+        pattern = r"(?<![a-z0-9]){0}(?![a-z0-9])".format(re.escape(compact_alias))
+        return re.search(pattern, normalized_text) is not None
+    return compact_alias in compact_text
+
+
+def detect_deck_classes_in_text(text: str) -> List[str]:
+    normalized = normalize_deck_class_text(text)
+    compact = compact_deck_class_text(text)
+    found = set()
+    for class_key, alias in deck_class_alias_items():
+        if deck_class_alias_matches(normalized, compact, alias):
+            found.add(class_key)
+    return sorted(found)
+
+
+def has_broad_class_listing_term(text: str) -> bool:
+    compact = compact_deck_class_text(text)
+    return any(compact_deck_class_text(term) in compact for term in CLASS_SPAM_BROAD_TERMS)
+
+
+def deck_post_class_filter_reason(post: XPost, request: DeckSearchRequest) -> Tuple[Optional[str], List[str]]:
+    classes = detect_deck_classes_in_text(post.text)
+    if has_broad_class_listing_term(post.text):
+        return "broad_class_listing", classes
+    if len(classes) >= 4:
+        return "many_classes", classes
+    return None, classes
+
+
+def deck_post_class_rank(post: XPost, request: DeckSearchRequest) -> int:
+    classes = detect_deck_classes_in_text(post.text)
+    if request.class_key and classes == [request.class_key]:
+        return 0
+    if request.class_key and request.class_key in classes and 2 <= len(classes) <= 3:
+        return 1
+    return 2
+
+
+def filter_and_rank_posts_for_scan(
+    posts: List[XPost],
+    request: DeckSearchRequest,
+    log_filtered: bool = False,
+    stats: Optional[DeckSearchStats] = None,
+) -> List[XPost]:
+    indexed_posts = []
+    for index, post in enumerate(posts):
+        reason, classes = deck_post_class_filter_reason(post, request)
+        if reason is not None:
+            if stats is not None:
+                stats.skipped_class_spam += 1
+            if log_filtered:
+                print(
+                    "[INFO] deck_search_filtered tweet_id={0} reason={1} class_count={2} target_class={3}".format(
+                        post.post_id,
+                        reason,
+                        len(classes),
+                        request.class_key or "-",
+                    )
+                )
+            continue
+        indexed_posts.append((index, post))
+
+    indexed_posts.sort(
+        key=lambda item: (
+            deck_post_class_rank(item[1], request),
+            -score_post(item[1], request),
+            item[0],
+        )
+    )
+    return [post for _, post in indexed_posts]
+
+
 def sort_posts_for_scan(posts: List[XPost], request: DeckSearchRequest) -> List[XPost]:
-    indexed = list(enumerate(posts))
-    indexed.sort(key=lambda item: (-score_post(item[1], request), item[0]))
-    return [post for _, post in indexed]
+    return filter_and_rank_posts_for_scan(posts, request)
+
 
 
 async def fetch_image_bytes(url: str, timeout_seconds: int) -> Optional[bytes]:
@@ -651,7 +769,7 @@ async def scan_posts_concurrently(
     fallback_results = []
     fallback_post_ids = set()
 
-    for post in sort_posts_for_scan(posts, request):
+    for post in filter_and_rank_posts_for_scan(posts, request, log_filtered=True, stats=stats):
         if not post.media:
             stats.skipped_no_media += 1
             continue
