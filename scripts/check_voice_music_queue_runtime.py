@@ -51,21 +51,41 @@ class FakeChannel:
 
 
 class FakeAuthor:
-    def __init__(self, user_id="1001", bot=False):
+    def __init__(self, user_id="1001", bot=False, voice_channel=None):
         self.id = user_id
         self.bot = bot
+        self.voice = type("FakeVoiceState", (), {"channel": voice_channel})() if voice_channel is not None else None
 
 
 class FakeGuild:
     def __init__(self, guild_id="guild-link"):
         self.id = guild_id
+        self.voice_client = None
+
+
+class FakeVoiceChannel:
+    def __init__(self, guild, channel_id="voice-link"):
+        self.guild = guild
+        self.id = channel_id
+        self.connect_calls = 0
+
+    async def connect(self):
+        self.connect_calls += 1
+        voice_client = FakeVoiceClient()
+        voice_client.channel = self
+        self.guild.voice_client = voice_client
+        return voice_client
 
 
 class FakeVoiceClient:
-    def __init__(self, playing=False, paused=False):
+    def __init__(self, playing=False, paused=False, connected=True):
         self._playing = playing
         self._paused = paused
+        self._connected = connected
         self.channel = type("FakeVoiceChannel", (), {"id": "voice-link"})()
+
+    def is_connected(self):
+        return self._connected
 
     def is_playing(self):
         return self._playing
@@ -75,9 +95,11 @@ class FakeVoiceClient:
 
 
 class FakeMessage:
-    def __init__(self, guild_id="guild-link", user_id="1001", bot=False):
+    def __init__(self, guild_id="guild-link", user_id="1001", bot=False, voice_channel=None):
         self.guild = FakeGuild(guild_id)
-        self.author = FakeAuthor(user_id, bot=bot)
+        if voice_channel == "author":
+            voice_channel = FakeVoiceChannel(self.guild)
+        self.author = FakeAuthor(user_id, bot=bot, voice_channel=voice_channel)
         self.channel = FakeChannel()
 
 
@@ -94,8 +116,12 @@ async def run_mention_link_checks():
     original_extract = voice_music.extract_track_info_with_cookie_fallback
     original_play_next = voice_music.play_next_track
     original_enqueue_spotify = voice_music.enqueue_spotify_link
+    original_ensure_voice = voice_music.ensure_mention_music_voice_client
     try:
-        voice_music.get_guild_voice_client = lambda guild: fake_voice
+        async def _fake_ensure_voice(message):
+            return fake_voice
+
+        voice_music.ensure_mention_music_voice_client = _fake_ensure_voice
 
         async def _fake_extract(url, requester_id, guild_id_arg, voice_client):
             extract_calls.append((url, requester_id, guild_id_arg))
@@ -137,13 +163,18 @@ async def run_mention_link_checks():
         results.append(check("unsupported URL does not trigger", await handle_mention_music_links(FakeMessage(guild_id), "https://example.com/not-music") is False))
 
         before_extracts = len(extract_calls)
-        voice_music.get_guild_voice_client = lambda guild: None
-        disconnected_message = FakeMessage(guild_id)
-        results.append(check("vc disconnected mention link is handled without autoplay join", await handle_mention_music_links(disconnected_message, "https://youtu.be/no-vc") is True))
-        results.append(check("vc disconnected does not extract URL", len(extract_calls) == before_extracts, str(extract_calls)))
-        results.append(check("vc disconnected sends existing-style guidance", bool(disconnected_message.channel.messages), str(disconnected_message.channel.messages)))
+        voice_music.ensure_mention_music_voice_client = original_ensure_voice
+        no_vc_message = FakeMessage(guild_id)
+        results.append(check("vc disconnected mention link is handled with author guidance", await handle_mention_music_links(no_vc_message, "https://youtu.be/no-vc") is True))
+        results.append(check("author-not-in-vc mention link does not extract URL", len(extract_calls) == before_extracts, str(extract_calls)))
+        results.append(check("author-not-in-vc mention link asks user to join vc", no_vc_message.channel.messages == ["VCに参加してからURLを送ってください。"], str(no_vc_message.channel.messages)))
 
-        voice_music.get_guild_voice_client = lambda guild: fake_voice
+        auto_join_message = FakeMessage(guild_id, voice_channel="author")
+        results.append(check("vc disconnected mention link auto joins author vc", await handle_mention_music_links(auto_join_message, "https://youtu.be/auto-join") is True))
+        results.append(check("auto join connects once", getattr(auto_join_message.author.voice.channel, "connect_calls", 0) == 1, str(getattr(auto_join_message.author.voice.channel, "connect_calls", 0))))
+        results.append(check("auto join extracts URL", len(extract_calls) == before_extracts + 1, str(extract_calls)))
+
+        voice_music.ensure_mention_music_voice_client = _fake_ensure_voice
         clear_music_state(guild_id)
         state = get_music_state(guild_id)
         state.current = MusicTrack("current", "https://youtu.be/current", "https://stream.example.com/current", "1001", 100, "https://youtu.be/current")
@@ -162,6 +193,7 @@ async def run_mention_link_checks():
         voice_music.extract_track_info_with_cookie_fallback = original_extract
         voice_music.play_next_track = original_play_next
         voice_music.enqueue_spotify_link = original_enqueue_spotify
+        voice_music.ensure_mention_music_voice_client = original_ensure_voice
         clear_music_state(guild_id)
     return results
 

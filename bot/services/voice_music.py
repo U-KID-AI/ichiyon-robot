@@ -4,6 +4,7 @@ import random
 import re
 import shutil
 import tempfile
+import time
 import unicodedata
 from collections import deque
 from dataclasses import dataclass, field, replace
@@ -112,6 +113,7 @@ class MusicTrack:
     original_spotify_url: str = ""
     spotify_title: str = ""
     spotify_artists: str = ""
+    enqueued_at_monotonic: float = 0.0
 
 
 @dataclass
@@ -128,6 +130,7 @@ class MusicState:
 
 
 _MUSIC_STATES: Dict[str, MusicState] = {}
+_VOICE_CONNECT_LOCKS: Dict[str, asyncio.Lock] = {}
 
 
 def music_state_key(guild_id: str) -> str:
@@ -141,8 +144,59 @@ def get_music_state(guild_id: str) -> MusicState:
     return _MUSIC_STATES[key]
 
 
+def get_voice_connect_lock(guild_id: str) -> asyncio.Lock:
+    key = music_state_key(guild_id)
+    if key not in _VOICE_CONNECT_LOCKS:
+        _VOICE_CONNECT_LOCKS[key] = asyncio.Lock()
+    return _VOICE_CONNECT_LOCKS[key]
+
+
 def clear_music_state(guild_id: str) -> None:
     _MUSIC_STATES.pop(music_state_key(guild_id), None)
+
+
+def perf_ms(started: float) -> int:
+    return max(0, int((time.perf_counter() - started) * 1000))
+
+
+def mark_track_enqueued(track: MusicTrack) -> MusicTrack:
+    track.enqueued_at_monotonic = time.perf_counter()
+    return track
+
+
+def queue_wait_ms(track: MusicTrack) -> Optional[int]:
+    if not track.enqueued_at_monotonic:
+        return None
+    return max(0, int((time.perf_counter() - track.enqueued_at_monotonic) * 1000))
+
+
+def format_music_timing_fields(fields: Dict[str, object]) -> str:
+    safe_items = []
+    for key in sorted(fields):
+        value = fields[key]
+        if value is None:
+            continue
+        safe_items.append("{0}={1}".format(key, value))
+    return " ".join(safe_items)
+
+
+def log_music_timing(
+    action: str,
+    guild_id: str,
+    channel_id: Optional[str] = None,
+    requester_id: Optional[str] = None,
+    **fields: object,
+) -> None:
+    print(
+        "[INFO] voice music timing {0}: bot_instance_id={1} guild_id={2} channel_id={3} requester_id={4} {5}".format(
+            action,
+            config.BOT_INSTANCE_ID,
+            guild_id,
+            channel_id or "",
+            requester_id or "",
+            format_music_timing_fields(fields),
+        ).rstrip()
+    )
 
 
 def normalize_music_command(command_text: Optional[str]) -> str:
@@ -503,8 +557,8 @@ def loop_status_text(loop_mode: str, state: Optional[MusicState] = None) -> str:
 
 def make_loop_track(track: MusicTrack) -> MusicTrack:
     if track.source_url:
-        return replace(track, stream_url="", refresh_required=True)
-    return replace(track)
+        return replace(track, stream_url="", refresh_required=True, enqueued_at_monotonic=time.perf_counter())
+    return replace(track, enqueued_at_monotonic=time.perf_counter())
 
 
 def _merge_loop_queue_into_queue(state: MusicState) -> None:
@@ -598,13 +652,26 @@ async def extract_track_info_with_cookie_fallback(
     guild_id: str,
     voice_client: Optional[discord.VoiceClient] = None,
 ) -> MusicTrack:
+    started = time.perf_counter()
+    attempts = 1
     try:
-        return await asyncio.to_thread(extract_track_info, url, requester_id, guild_id)
+        track = await asyncio.to_thread(extract_track_info, url, requester_id, guild_id)
+        log_music_timing(
+            "youtube_extract",
+            guild_id,
+            voice_channel_id(voice_client),
+            requester_id,
+            source_type="youtube",
+            attempts=attempts,
+            total_ms=perf_ms(started),
+        )
+        return track
     except Exception as exc:
         error_status = classify_ytdlp_error(exc)
         if error_status in AUTH_FAILURE_STATUSES:
             await handle_transient_auth_failure(get_bot(), error_status)
             try:
+                attempts += 1
                 track = await asyncio.to_thread(extract_track_info, url, requester_id, guild_id, False)
                 log_music_action(
                     "extract_cookie_fallback",
@@ -614,10 +681,40 @@ async def extract_track_info_with_cookie_fallback(
                     track.title,
                     "cookie_less",
                 )
+                log_music_timing(
+                    "youtube_extract",
+                    guild_id,
+                    voice_channel_id(voice_client),
+                    requester_id,
+                    source_type="youtube",
+                    attempts=attempts,
+                    fallback="no_cookie",
+                    total_ms=perf_ms(started),
+                )
                 return track
             except Exception as fallback_exc:
                 print("[WARN] voice music cookie-less fallback failed: guild_id={0} requester_id={1} error={2}".format(guild_id, requester_id, fallback_exc))
+                log_music_timing(
+                    "youtube_extract_failed",
+                    guild_id,
+                    voice_channel_id(voice_client),
+                    requester_id,
+                    source_type="youtube",
+                    attempts=attempts,
+                    status=classify_ytdlp_error(fallback_exc),
+                    total_ms=perf_ms(started),
+                )
                 raise fallback_exc
+        log_music_timing(
+            "youtube_extract_failed",
+            guild_id,
+            voice_channel_id(voice_client),
+            requester_id,
+            source_type="youtube",
+            attempts=attempts,
+            status=error_status,
+            total_ms=perf_ms(started),
+        )
         raise exc
 
 
@@ -753,17 +850,23 @@ async def enqueue_spotify_link(
     client = get_spotify_client()
 
     if link.kind == "track":
+        started = time.perf_counter()
         try:
             spotify_track = await client.get_track(link.spotify_id)
+            metadata_ms = perf_ms(started)
+            resolve_started = time.perf_counter()
             track = await resolve_spotify_track_to_music_track(spotify_track, requester_id, guild_id, voice_client, link.original_url)
+            resolve_ms = perf_ms(resolve_started)
         except Exception as exc:
             print("[WARN] spotify track enqueue failed: bot_instance_id={0} guild_id={1} requester_id={2} kind=track error={3}".format(config.BOT_INSTANCE_ID, guild_id, requester_id, type(exc).__name__))
+            log_music_timing("spotify_track_failed", guild_id, voice_channel_id(voice_client), requester_id, total_ms=perf_ms(started), error=type(exc).__name__)
             await message.channel.send(spotify_error_message(exc))
             return True
 
         should_start = state.current is None and not (voice_client.is_playing() or voice_client.is_paused())
-        state.queue.append(track)
+        state.queue.append(mark_track_enqueued(track))
         log_music_action("enqueue_spotify", guild_id, voice_channel_id(voice_client), requester_id, track.title)
+        log_music_timing("spotify_track", guild_id, voice_channel_id(voice_client), requester_id, metadata_ms=metadata_ms, resolve_ms=resolve_ms, total_ms=perf_ms(started))
         await message.channel.send("Spotifyから『{0} / {1}』を検索し、キューへ追加しました。".format(spotify_track.name, spotify_track.display_artist))
         if should_start:
             await play_next_track(voice_client, guild_id)
@@ -777,10 +880,13 @@ async def enqueue_spotify_link(
 
     try:
         async with lock:
+            started = time.perf_counter()
             try:
                 album = await client.get_album(link.spotify_id)
+                metadata_ms = perf_ms(started)
             except Exception as exc:
                 print("[WARN] spotify album fetch failed: bot_instance_id={0} guild_id={1} requester_id={2} error={3}".format(config.BOT_INSTANCE_ID, guild_id, requester_id, type(exc).__name__))
+                log_music_timing("spotify_album_failed", guild_id, voice_channel_id(voice_client), requester_id, total_ms=perf_ms(started), error=type(exc).__name__)
                 await message.channel.send(spotify_error_message(exc))
                 return True
 
@@ -789,7 +895,9 @@ async def enqueue_spotify_link(
                 return True
 
             await message.channel.send("Spotifyアルバム『{0}』を処理中です。曲数によって少し時間がかかります。".format(album.name))
+            resolve_started = time.perf_counter()
             tracks, failed_count = await resolve_spotify_album_tracks(album.tracks, requester_id, guild_id, voice_client, link.original_url)
+            resolve_ms = perf_ms(resolve_started)
             skipped_count = failed_count + album.skipped_tracks
             if not tracks:
                 await message.channel.send("Spotifyアルバム『{0}』から一致するYouTube音源を見つけられませんでした。".format(album.name))
@@ -797,8 +905,19 @@ async def enqueue_spotify_link(
 
             should_start = state.current is None and not (voice_client.is_playing() or voice_client.is_paused())
             for track in tracks:
-                state.queue.append(track)
+                state.queue.append(mark_track_enqueued(track))
             log_music_action("enqueue_spotify_album", guild_id, voice_channel_id(voice_client), requester_id, album.name, "tracks={0} skipped={1}".format(len(tracks), skipped_count))
+            log_music_timing(
+                "spotify_album",
+                guild_id,
+                voice_channel_id(voice_client),
+                requester_id,
+                metadata_ms=metadata_ms,
+                resolve_ms=resolve_ms,
+                total_ms=perf_ms(started),
+                tracks=len(tracks),
+                skipped=skipped_count,
+            )
             suffix = " 上限により一部の曲は処理していません。" if album.truncated else ""
             await message.channel.send(
                 "Spotifyアルバム『{0}』から{1}曲をキューへ追加しました。{2}曲は音源を特定できなかったためスキップしました。{3}".format(
@@ -911,6 +1030,58 @@ async def ensure_music_voice_client(message: discord.Message) -> Optional[discor
         return None
 
 
+async def ensure_mention_music_voice_client(message: discord.Message) -> Optional[discord.VoiceClient]:
+    guild = message.guild
+    if guild is None:
+        await message.channel.send("音楽コマンドはサーバー内で使ってください。")
+        return None
+
+    guild_id = str(guild.id)
+    requester_id = str(getattr(message.author, "id", "") or "")
+    voice_client = get_raw_guild_voice_client(guild)
+    if voice_client is not None and is_voice_client_connected(voice_client):
+        return voice_client
+
+    target_channel = get_author_voice_channel(message)
+    if target_channel is None:
+        log_music_action("mention_link_autojoin_skipped", guild_id, requester_id=requester_id, reason="author_not_in_vc")
+        await message.channel.send("VCに参加してからURLを送ってください。")
+        return None
+
+    target_channel_id = str(getattr(target_channel, "id", "") or "")
+    async with get_voice_connect_lock(guild_id):
+        voice_client = get_raw_guild_voice_client(guild)
+        try:
+            if voice_client is not None and not is_voice_client_connected(voice_client):
+                log_music_action("mention_link_stale_cleanup", guild_id, target_channel_id, requester_id)
+                await cleanup_stale_voice_client(voice_client)
+                voice_client = None
+
+            if voice_client is not None and is_voice_client_connected(voice_client):
+                return voice_client
+
+            voice_client = await target_channel.connect()
+            log_music_action("mention_link_autojoin", guild_id, target_channel_id, requester_id)
+            return voice_client
+        except (
+            RuntimeError,
+            asyncio.TimeoutError,
+            discord.ClientException,
+            discord.Forbidden,
+            discord.HTTPException,
+            DISCORD_CONNECTION_CLOSED,
+        ) as exc:
+            print("[WARN] mention music voice connect failed: guild_id={0} channel_id={1} error={2}".format(guild_id, target_channel_id, exc))
+            await cleanup_stale_voice_client(get_raw_guild_voice_client(guild))
+            await message.channel.send("VCへの接続に失敗しました。権限や接続状態を確認してください。")
+            return None
+        except Exception as exc:
+            print("[WARN] unexpected mention music voice connect failed: guild_id={0} channel_id={1} error={2}".format(guild_id, target_channel_id, exc))
+            await cleanup_stale_voice_client(get_raw_guild_voice_client(guild))
+            await message.channel.send("VCへの接続に失敗しました。")
+            return None
+
+
 def _schedule_after_callback(voice_client: discord.VoiceClient, guild_id: str, error: Optional[Exception]) -> None:
     client = getattr(voice_client, "client", None)
     loop = getattr(client, "loop", None)
@@ -959,6 +1130,7 @@ async def _handle_track_finished(
 
 
 async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> bool:
+    setup_started = time.perf_counter()
     state = get_music_state(guild_id)
     if not is_voice_client_connected(voice_client):
         state.current = None
@@ -970,20 +1142,49 @@ async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> b
         if not playback_queue:
             break
         track = playback_queue.popleft()
+        wait_ms = queue_wait_ms(track)
+        refresh_started = time.perf_counter()
         refreshed_track = await refresh_track_for_playback(track, guild_id)
+        refresh_ms = perf_ms(refresh_started)
         if refreshed_track is None:
+            log_music_timing(
+                "play_setup_skipped",
+                guild_id,
+                channel_id,
+                track.requester_id,
+                queue_wait_ms=wait_ms,
+                refresh_ms=refresh_ms,
+                total_ms=perf_ms(setup_started),
+                reason="refresh_failed",
+            )
             continue
 
         state.current = refreshed_track
         try:
+            ffmpeg_started = time.perf_counter()
             raw_source = discord.FFmpegPCMAudio(
                 refreshed_track.stream_url,
                 before_options=STREAM_BEFORE_OPTIONS,
                 options=STREAM_OPTIONS,
             )
             source = discord.PCMVolumeTransformer(raw_source, volume=volume_factor(load_music_volume_percent(guild_id, state)))
+            ffmpeg_ms = perf_ms(ffmpeg_started)
+            play_call_started = time.perf_counter()
             voice_client.play(source, after=lambda error: _schedule_after_callback(voice_client, guild_id, error))
+            play_call_ms = perf_ms(play_call_started)
             log_music_action("play_start", guild_id, channel_id, refreshed_track.requester_id, refreshed_track.title)
+            log_music_timing(
+                "play_setup",
+                guild_id,
+                channel_id,
+                refreshed_track.requester_id,
+                source_type=refreshed_track.source_type,
+                queue_wait_ms=wait_ms,
+                refresh_ms=refresh_ms,
+                ffmpeg_ms=ffmpeg_ms,
+                play_call_ms=play_call_ms,
+                total_ms=perf_ms(setup_started),
+            )
             return True
         except (discord.ClientException, discord.OpusNotLoaded, OSError) as exc:
             print("[WARN] voice music play start failed: guild_id={0} title={1} error={2}".format(guild_id, refreshed_track.title, exc))
@@ -996,6 +1197,7 @@ async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> b
 
 
 async def enqueue_music_url(message: discord.Message, url: str) -> bool:
+    received_started = time.perf_counter()
     guild = message.guild
     if guild is None:
         await message.channel.send("音楽コマンドはサーバー内で使ってください。")
@@ -1014,6 +1216,7 @@ async def enqueue_music_url(message: discord.Message, url: str) -> bool:
 
     guild_id = str(guild.id)
     requester_id = str(getattr(message.author, "id", "") or "")
+    voice_ready_ms = perf_ms(received_started)
     state = get_music_state(guild_id)
     state.text_channel = message.channel
     if state.current is None and (voice_client.is_playing() or voice_client.is_paused()):
@@ -1025,7 +1228,9 @@ async def enqueue_music_url(message: discord.Message, url: str) -> bool:
         return await enqueue_spotify_link(message, spotify_link, voice_client)
 
     try:
+        extract_started = time.perf_counter()
         track = await extract_track_info_with_cookie_fallback(url, requester_id, guild_id, voice_client)
+        extract_ms = perf_ms(extract_started)
     except Exception as exc:
         print("[WARN] voice music extract failed: guild_id={0} requester_id={1} error={2}".format(guild_id, requester_id, exc))
         if classify_ytdlp_error(exc) in AUTH_FAILURE_STATUSES or is_youtube_cookie_required_error(exc):
@@ -1035,8 +1240,19 @@ async def enqueue_music_url(message: discord.Message, url: str) -> bool:
         return True
 
     should_start = state.current is None and not (voice_client.is_playing() or voice_client.is_paused())
-    state.queue.append(track)
+    state.queue.append(mark_track_enqueued(track))
     log_music_action("enqueue", guild_id, voice_channel_id(voice_client), requester_id, track.title)
+    log_music_timing(
+        "enqueue_command",
+        guild_id,
+        voice_channel_id(voice_client),
+        requester_id,
+        source_type="youtube",
+        voice_ready_ms=voice_ready_ms,
+        extract_ms=extract_ms,
+        total_ms=perf_ms(received_started),
+        starts_playback=should_start,
+    )
     if should_start:
         await message.channel.send("再生します: {0}".format(track.title))
         await play_next_track(voice_client, guild_id)
@@ -1046,6 +1262,7 @@ async def enqueue_music_url(message: discord.Message, url: str) -> bool:
 
 
 async def enqueue_music_url_if_voice_connected(message: discord.Message, url: str) -> bool:
+    received_started = time.perf_counter()
     guild = message.guild
     if guild is None:
         await message.channel.send("音楽コマンドはサーバー内で使ってください。")
@@ -1062,11 +1279,11 @@ async def enqueue_music_url_if_voice_connected(message: discord.Message, url: st
     guild_id = str(guild.id)
     requester_id = str(getattr(message.author, "id", "") or "")
     link_type = music_link_type(url) or "unknown"
-    voice_client = get_guild_voice_client(guild)
+    voice_client = await ensure_mention_music_voice_client(message)
     if voice_client is None:
         log_music_action("mention_link_skipped", guild_id, requester_id=requester_id, reason="type={0} not_connected".format(link_type))
-        await message.channel.send("先にVCへ呼んでください。")
         return True
+    voice_ready_ms = perf_ms(received_started)
 
     state = get_music_state(guild_id)
     state.text_channel = message.channel
@@ -1080,7 +1297,9 @@ async def enqueue_music_url_if_voice_connected(message: discord.Message, url: st
         return await enqueue_spotify_link(message, spotify_link, voice_client)
 
     try:
+        extract_started = time.perf_counter()
         track = await extract_track_info_with_cookie_fallback(url, requester_id, guild_id, voice_client)
+        extract_ms = perf_ms(extract_started)
     except Exception as exc:
         status = classify_ytdlp_error(exc)
         print("[WARN] mention music link extract failed: bot_instance_id={0} guild_id={1} requester_id={2} type=youtube status={3} error={4}".format(config.BOT_INSTANCE_ID, guild_id, requester_id, status, type(exc).__name__))
@@ -1092,8 +1311,19 @@ async def enqueue_music_url_if_voice_connected(message: discord.Message, url: st
         return True
 
     should_start = state.current is None and not (voice_client.is_playing() or voice_client.is_paused())
-    state.queue.append(track)
+    state.queue.append(mark_track_enqueued(track))
     log_music_action("mention_link_enqueue", guild_id, voice_channel_id(voice_client), requester_id, track.title, "type=youtube")
+    log_music_timing(
+        "mention_link_enqueue",
+        guild_id,
+        voice_channel_id(voice_client),
+        requester_id,
+        source_type="youtube",
+        voice_ready_ms=voice_ready_ms,
+        extract_ms=extract_ms,
+        total_ms=perf_ms(received_started),
+        starts_playback=should_start,
+    )
     if should_start:
         await message.channel.send("再生します: {0}".format(track.title))
         await play_next_track(voice_client, guild_id)
