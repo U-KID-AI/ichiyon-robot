@@ -128,6 +128,7 @@ class MusicState:
 
 
 _MUSIC_STATES: Dict[str, MusicState] = {}
+_VOICE_CONNECT_LOCKS: Dict[str, asyncio.Lock] = {}
 
 
 def music_state_key(guild_id: str) -> str:
@@ -139,6 +140,13 @@ def get_music_state(guild_id: str) -> MusicState:
     if key not in _MUSIC_STATES:
         _MUSIC_STATES[key] = MusicState()
     return _MUSIC_STATES[key]
+
+
+def get_voice_connect_lock(guild_id: str) -> asyncio.Lock:
+    key = music_state_key(guild_id)
+    if key not in _VOICE_CONNECT_LOCKS:
+        _VOICE_CONNECT_LOCKS[key] = asyncio.Lock()
+    return _VOICE_CONNECT_LOCKS[key]
 
 
 def clear_music_state(guild_id: str) -> None:
@@ -911,6 +919,58 @@ async def ensure_music_voice_client(message: discord.Message) -> Optional[discor
         return None
 
 
+async def ensure_mention_music_voice_client(message: discord.Message) -> Optional[discord.VoiceClient]:
+    guild = message.guild
+    if guild is None:
+        await message.channel.send("音楽コマンドはサーバー内で使ってください。")
+        return None
+
+    guild_id = str(guild.id)
+    requester_id = str(getattr(message.author, "id", "") or "")
+    voice_client = get_raw_guild_voice_client(guild)
+    if voice_client is not None and is_voice_client_connected(voice_client):
+        return voice_client
+
+    target_channel = get_author_voice_channel(message)
+    if target_channel is None:
+        log_music_action("mention_link_autojoin_skipped", guild_id, requester_id=requester_id, reason="author_not_in_vc")
+        await message.channel.send("VCに参加してからURLを送ってください。")
+        return None
+
+    target_channel_id = str(getattr(target_channel, "id", "") or "")
+    async with get_voice_connect_lock(guild_id):
+        voice_client = get_raw_guild_voice_client(guild)
+        try:
+            if voice_client is not None and not is_voice_client_connected(voice_client):
+                log_music_action("mention_link_stale_cleanup", guild_id, target_channel_id, requester_id)
+                await cleanup_stale_voice_client(voice_client)
+                voice_client = None
+
+            if voice_client is not None and is_voice_client_connected(voice_client):
+                return voice_client
+
+            voice_client = await target_channel.connect()
+            log_music_action("mention_link_autojoin", guild_id, target_channel_id, requester_id)
+            return voice_client
+        except (
+            RuntimeError,
+            asyncio.TimeoutError,
+            discord.ClientException,
+            discord.Forbidden,
+            discord.HTTPException,
+            DISCORD_CONNECTION_CLOSED,
+        ) as exc:
+            print("[WARN] mention music voice connect failed: guild_id={0} channel_id={1} error={2}".format(guild_id, target_channel_id, exc))
+            await cleanup_stale_voice_client(get_raw_guild_voice_client(guild))
+            await message.channel.send("VCへの接続に失敗しました。権限や接続状態を確認してください。")
+            return None
+        except Exception as exc:
+            print("[WARN] unexpected mention music voice connect failed: guild_id={0} channel_id={1} error={2}".format(guild_id, target_channel_id, exc))
+            await cleanup_stale_voice_client(get_raw_guild_voice_client(guild))
+            await message.channel.send("VCへの接続に失敗しました。")
+            return None
+
+
 def _schedule_after_callback(voice_client: discord.VoiceClient, guild_id: str, error: Optional[Exception]) -> None:
     client = getattr(voice_client, "client", None)
     loop = getattr(client, "loop", None)
@@ -1062,10 +1122,9 @@ async def enqueue_music_url_if_voice_connected(message: discord.Message, url: st
     guild_id = str(guild.id)
     requester_id = str(getattr(message.author, "id", "") or "")
     link_type = music_link_type(url) or "unknown"
-    voice_client = get_guild_voice_client(guild)
+    voice_client = await ensure_mention_music_voice_client(message)
     if voice_client is None:
         log_music_action("mention_link_skipped", guild_id, requester_id=requester_id, reason="type={0} not_connected".format(link_type))
-        await message.channel.send("先にVCへ呼んでください。")
         return True
 
     state = get_music_state(guild_id)
