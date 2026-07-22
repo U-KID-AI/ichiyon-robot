@@ -62,6 +62,7 @@ def main() -> int:
         "[youtube] abc: Downloading m3u8 information": "manifest",
         "[info] abc: Downloading 1 format(s): 251": "format",
         "[debug] Loading youtube-nsig cache": "cache",
+        "[debug] youtubepot-bgutilhttp: requested PO token from provider": "pot_provider",
     }
     for message, expected_stage in stage_examples.items():
         results.append(check("yt-dlp stage classified: {0}".format(expected_stage), classify_ytdlp_stage(message) == expected_stage, str(classify_ytdlp_stage(message))))
@@ -74,12 +75,15 @@ def main() -> int:
     time.sleep(0.001)
     recorder.debug("[jsc:deno] Solving JS challenges using deno")
     time.sleep(0.001)
+    recorder.debug("[debug] youtubepot-bgutilhttp: requested PO token from provider")
+    time.sleep(0.001)
     recorder.finish_extract_info(50)
     recorder.set_result_processing_ms(3)
     stages = dict(recorder.iter_stage_timings())
     results.append(check("recorder tracks webpage stage", "webpage" in stages, str(stages)))
     results.append(check("recorder tracks player api stage", "player_api" in stages, str(stages)))
     results.append(check("recorder tracks challenge stage", "challenge" in stages, str(stages)))
+    results.append(check("recorder tracks pot provider stage", "pot_provider" in stages, str(stages)))
     results.append(check("recorder keeps unknown extract bucket", "unknown_extract" in stages and stages["unknown_extract"] >= 0, str(stages)))
     results.append(check("recorder includes result processing", stages.get("result_processing") == 3, str(stages)))
 
