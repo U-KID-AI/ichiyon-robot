@@ -174,6 +174,8 @@ Cookie状態監視を使う場合は、以下を設定します。`YTDLP_COOKIE_
 
 Discord VC接続のため `PyNaCl` が必要です。ローカル音声再生とURL音楽再生は `discord.FFmpegPCMAudio` を使うため、Dockerイメージには `ffmpeg` を入れます。URL情報の取得には `yt-dlp[default]` を使い、YouTubeのEJS challenge解決用に `yt-dlp-ejs` をローカル導入します。JS runtimeとしてDenoもDockerイメージへ入れます。通常の抽出経路では `ejs:github` のremote component取得に依存しません。
 
+Dockerイメージには比較用にNode.js 22も入れています。通常のBot実行時はDenoを使い続けます。YouTube抽出のchallenge時間を比較する場合は、同じコンテナ内で `python scripts/benchmark_youtube_js_runtime.py --runtime deno --video-id <video_id> --runs 3` と `python scripts/benchmark_youtube_js_runtime.py --runtime node --video-id <video_id> --runs 3` を実行します。ベンチマークは動画URL全体、stream URL、Cookie内容、Tokenを出力しません。
+
 ## 手動確認
 
 1. `assets/audio/test.mp3` などの短い音声ファイルをローカルまたはサーバー上に配置します。

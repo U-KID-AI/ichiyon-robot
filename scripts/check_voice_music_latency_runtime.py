@@ -8,6 +8,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from bot.services.voice_music import (
+    DEFAULT_YTDLP_JS_RUNTIME,
     MusicTrack,
     YoutubeExtractStageRecorder,
     build_ytdl_options,
@@ -86,6 +87,14 @@ def main() -> int:
     options = build_ytdl_options("guild", copy_cookies=False, stage_recorder=options_recorder)
     results.append(check("yt-dlp options include custom stage logger", options.get("logger") is options_recorder))
     results.append(check("yt-dlp options keep deno without remote ejs", options.get("js_runtimes") == {"deno": {}} and "remote_components" not in options, str(options)))
+    results.append(check("default JS runtime remains deno", DEFAULT_YTDLP_JS_RUNTIME == "deno", DEFAULT_YTDLP_JS_RUNTIME))
+    node_options = build_ytdl_options("guild", copy_cookies=False, js_runtime="node")
+    results.append(check("yt-dlp options can select node only", node_options.get("js_runtimes") == {"node": {}} and "deno" not in node_options.get("js_runtimes", {}), str(node_options)))
+    try:
+        build_ytdl_options("guild", copy_cookies=False, js_runtime="bun")
+        results.append(check("invalid JS runtime is rejected", False))
+    except ValueError:
+        results.append(check("invalid JS runtime is rejected", True))
     results.append(check("timing stage output avoids urls and secrets", "youtube.com" not in format_music_timing_fields({"stage": "webpage", "video_id": "abc123", "elapsed_ms": 5}), ""))
 
     passed = len([item for item in results if item])

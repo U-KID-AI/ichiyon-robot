@@ -1,9 +1,14 @@
+FROM node:22-slim AS node-runtime
+
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
+
+COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
+RUN node --version
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl ffmpeg unzip \
