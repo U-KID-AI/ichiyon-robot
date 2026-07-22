@@ -811,6 +811,46 @@ def check_post_scoring(check: Check) -> None:
     check.add("posts are sorted by deck score", sorted_posts[0].post_id == "2")
 
 
+def check_deck_class_spam_filter(check: Check) -> None:
+    request = deck_search.DeckSearchRequest(query="エルフ", class_key="elf", class_label="エルフ", class_en="elf")
+
+    target_only = XPost("target", "エルフ デッキ QR", "2026-06-20T00:00:00Z", [])
+    two_classes = XPost("two", "エルフ ロイヤル 対面メモ デッキ", "2026-06-20T00:00:00Z", [])
+    three_classes = XPost("three", "エルフ/ロイヤル/ウィッチ 比較 デッキ", "2026-06-20T00:00:00Z", [])
+    unknown = XPost("unknown", "Shadowverse デッキ QR", "2026-06-20T00:00:00Z", [])
+    all_classes = XPost("all", "エルフ ロイヤル ウィッチ ドラゴン ナイトメア ビショップ ネメシス デッキ", "2026-06-20T00:00:00Z", [])
+    broad = XPost("broad", "全クラス対応 デッキ QR", "2026-06-20T00:00:00Z", [])
+    compact_broad = XPost("compact", "全 7 クラス 対応可 デッキ QR", "2026-06-20T00:00:00Z", [])
+    matchup = XPost("matchup", "エルフ vs ロイヤル 全対面メモ", "2026-06-20T00:00:00Z", [])
+
+    check.add(
+        "detects all seven deck classes",
+        len(deck_search.detect_deck_classes_in_text(all_classes.text)) == 7,
+        str(deck_search.detect_deck_classes_in_text(all_classes.text)),
+    )
+    check.add("broad all-class term is detected", deck_search.has_broad_class_listing_term(broad.text))
+    check.add("spaced broad all-class term is detected", deck_search.has_broad_class_listing_term(compact_broad.text))
+    check.add("all matchups is not treated as all classes", not deck_search.has_broad_class_listing_term(matchup.text))
+
+    reason, classes = deck_search.deck_post_class_filter_reason(all_classes, request)
+    check.add("four or more classes are filtered", reason == "many_classes" and len(classes) >= 4, str((reason, classes)))
+    reason, classes = deck_search.deck_post_class_filter_reason(broad, request)
+    check.add("broad all-class post is filtered", reason == "broad_class_listing", str((reason, classes)))
+    reason, classes = deck_search.deck_post_class_filter_reason(three_classes, request)
+    check.add("three-class comparison is kept", reason is None and len(classes) == 3, str((reason, classes)))
+    reason, classes = deck_search.deck_post_class_filter_reason(matchup, request)
+    check.add("two-class matchup is kept", reason is None and len(classes) == 2, str((reason, classes)))
+
+    ranked = deck_search.sort_posts_for_scan([two_classes, unknown, target_only, three_classes], request)
+    check.add(
+        "target-only deck posts are ranked first",
+        [post.post_id for post in ranked[:4]] == ["target", "two", "three", "unknown"],
+        str([post.post_id for post in ranked]),
+    )
+    filtered = deck_search.filter_and_rank_posts_for_scan([all_classes, broad, target_only], request)
+    check.add("filtered posts are excluded before scan", [post.post_id for post in filtered] == ["target"], str([post.post_id for post in filtered]))
+
+
 def check_search_params(check: Check) -> None:
     recent_endpoint = get_search_endpoint("recent")
     full_endpoint = get_search_endpoint("full_archive")
@@ -950,6 +990,7 @@ def main() -> None:
     check_search_params(check)
     check_fetch_since_helpers(check)
     check_post_scoring(check)
+    check_deck_class_spam_filter(check)
     check_x_payload(check)
     check_stats(check)
     check_qr_optional(check)
