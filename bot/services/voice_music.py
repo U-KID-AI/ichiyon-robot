@@ -90,12 +90,14 @@ STREAM_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max
 STREAM_OPTIONS = "-vn"
 YTDLP_COOKIES_FILE_ENV = "YTDLP_COOKIES_FILE"
 YTDLP_COOKIES_TMP_DIR = Path(tempfile.gettempdir())
+DEFAULT_YTDLP_JS_RUNTIME = "deno"
+SUPPORTED_YTDLP_JS_RUNTIMES = {"deno", "node"}
 YTDL_OPTIONS = {
     "format": "bestaudio/best",
     "quiet": True,
     "no_warnings": True,
     "noplaylist": True,
-    "js_runtimes": {"deno": {}},
+    "js_runtimes": {DEFAULT_YTDLP_JS_RUNTIME: {}},
 }
 YTDLP_STAGE_PATTERNS = [
     ("challenge", ("solving js challenges", "challenge solver", "n challenge", "[jsc:", "ejs")),
@@ -481,8 +483,13 @@ def build_ytdl_options(
     copy_cookies: bool = True,
     use_cookies: bool = True,
     stage_recorder: Optional[YoutubeExtractStageRecorder] = None,
+    js_runtime: Optional[str] = None,
 ) -> Dict[str, object]:
     options: Dict[str, object] = dict(YTDL_OPTIONS)
+    runtime = (js_runtime or DEFAULT_YTDLP_JS_RUNTIME).strip().lower()
+    if runtime not in SUPPORTED_YTDLP_JS_RUNTIMES:
+        raise ValueError("unsupported yt-dlp JS runtime: {0}".format(runtime))
+    options["js_runtimes"] = {runtime: {}}
     if stage_recorder is not None:
         options["logger"] = stage_recorder
     cookies_file = str(os.getenv(YTDLP_COOKIES_FILE_ENV) or "").strip()
@@ -748,13 +755,19 @@ def _rotate_queue_loop_for_skip(state: MusicState, requested_count: int) -> bool
     return True
 
 
-def extract_track_info(url: str, requester_id: str, guild_id: Optional[str] = None, use_cookies: bool = True) -> MusicTrack:
+def extract_track_info(
+    url: str,
+    requester_id: str,
+    guild_id: Optional[str] = None,
+    use_cookies: bool = True,
+    js_runtime: Optional[str] = None,
+) -> MusicTrack:
     if yt_dlp is None:
         raise RuntimeError("yt-dlp is not installed")
     safe_guild_id = str(guild_id or "")
     recorder = YoutubeExtractStageRecorder(extract_youtube_video_id(url))
     options_started = time.perf_counter()
-    ytdl_options = build_ytdl_options(guild_id, use_cookies=use_cookies, stage_recorder=recorder)
+    ytdl_options = build_ytdl_options(guild_id, use_cookies=use_cookies, stage_recorder=recorder, js_runtime=js_runtime)
     recorder.set_option_build_ms(perf_ms(options_started))
     extract_started = time.perf_counter()
     try:
