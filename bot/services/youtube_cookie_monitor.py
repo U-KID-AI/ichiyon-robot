@@ -153,7 +153,6 @@ def _build_check_options(cookie_path: Optional[Path]) -> dict:
         "skip_download": True,
         "format": "bestaudio/best",
         "js_runtimes": {"deno": {}},
-        "remote_components": ["ejs:github"],
     }
     if cookie_path is not None:
         options["cookiefile"] = str(cookie_path)

@@ -85,7 +85,7 @@ def main() -> int:
     options_recorder = YoutubeExtractStageRecorder("abc123")
     options = build_ytdl_options("guild", copy_cookies=False, stage_recorder=options_recorder)
     results.append(check("yt-dlp options include custom stage logger", options.get("logger") is options_recorder))
-    results.append(check("yt-dlp options keep deno ejs", options.get("js_runtimes") == {"deno": {}} and options.get("remote_components") == ["ejs:github"], str(options)))
+    results.append(check("yt-dlp options keep deno without remote ejs", options.get("js_runtimes") == {"deno": {}} and "remote_components" not in options, str(options)))
     results.append(check("timing stage output avoids urls and secrets", "youtube.com" not in format_music_timing_fields({"stage": "webpage", "video_id": "abc123", "elapsed_ms": 5}), ""))
 
     passed = len([item for item in results if item])

@@ -23,6 +23,9 @@ async def main_async() -> int:
     results.append(check("bot check is classified", monitor.classify_ytdlp_error(RuntimeError("Sign in to confirm you're not a bot")) == monitor.COOKIE_STATUS_BOT_CHECK))
     results.append(check("captcha is classified", monitor.classify_ytdlp_error(RuntimeError("captcha required")) == monitor.COOKIE_STATUS_CAPTCHA_REQUIRED))
     results.append(check("network is classified", monitor.classify_ytdlp_error(RuntimeError("connection timed out")) == monitor.COOKIE_STATUS_NETWORK_ERROR))
+    check_options = monitor._build_check_options(None)
+    results.append(check("cookie monitor keeps deno runtime", check_options.get("js_runtimes") == {"deno": {}}, str(check_options)))
+    results.append(check("cookie monitor does not use remote ejs component", "remote_components" not in check_options, str(check_options)))
 
     original_env = {
         key: os.environ.get(key)

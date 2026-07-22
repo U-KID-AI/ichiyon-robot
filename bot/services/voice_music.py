@@ -96,7 +96,6 @@ YTDL_OPTIONS = {
     "no_warnings": True,
     "noplaylist": True,
     "js_runtimes": {"deno": {}},
-    "remote_components": ["ejs:github"],
 }
 YTDLP_STAGE_PATTERNS = [
     ("challenge", ("solving js challenges", "challenge solver", "n challenge", "[jsc:", "ejs")),

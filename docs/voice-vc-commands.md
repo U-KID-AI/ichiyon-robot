@@ -172,7 +172,7 @@ Cookie状態監視を使う場合は、以下を設定します。`YTDLP_COOKIE_
 
 ## 依存関係
 
-Discord VC接続のため `PyNaCl` が必要です。ローカル音声再生とURL音楽再生は `discord.FFmpegPCMAudio` を使うため、Dockerイメージには `ffmpeg` を入れます。URL情報の取得には `yt-dlp` を使います。YouTubeのEJS challenge解決用に、DockerイメージへDenoを入れます。
+Discord VC接続のため `PyNaCl` が必要です。ローカル音声再生とURL音楽再生は `discord.FFmpegPCMAudio` を使うため、Dockerイメージには `ffmpeg` を入れます。URL情報の取得には `yt-dlp[default]` を使い、YouTubeのEJS challenge解決用に `yt-dlp-ejs` をローカル導入します。JS runtimeとしてDenoもDockerイメージへ入れます。通常の抽出経路では `ejs:github` のremote component取得に依存しません。
 
 ## 手動確認
 
