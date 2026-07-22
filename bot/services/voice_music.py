@@ -100,6 +100,7 @@ YTDL_OPTIONS = {
     "js_runtimes": {DEFAULT_YTDLP_JS_RUNTIME: {}},
 }
 YTDLP_STAGE_PATTERNS = [
+    ("pot_provider", ("po token", "pot provider", "po-token", "potoken", "bgutil", "youtubepot")),
     ("challenge", ("solving js challenges", "challenge solver", "n challenge", "[jsc:", "ejs")),
     ("player_js", ("downloading player", "player_", "base.js", "player javascript")),
     ("player_api", ("player api json", "youtubei", "api json")),
@@ -302,7 +303,7 @@ class YoutubeExtractStageRecorder:
             stages.append(("options", self.option_build_ms))
         if self.cookie_prep_ms is not None:
             stages.append(("cookie_prep", self.cookie_prep_ms))
-        for stage in ("webpage", "player_api", "player_js", "challenge", "manifest", "format", "cache"):
+        for stage in ("webpage", "player_api", "player_js", "challenge", "pot_provider", "manifest", "format", "cache"):
             if stage in self.stage_elapsed_ms:
                 stages.append((stage, self.stage_elapsed_ms[stage]))
         if self.result_processing_ms is not None:

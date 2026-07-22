@@ -9,8 +9,10 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 REQUIREMENTS_PATH = ROOT_DIR / "requirements.txt"
 DOCKERFILE_PATH = ROOT_DIR / "Dockerfile"
 COMPOSE_PATH = ROOT_DIR / "docker-compose.yml"
+POT_COMPOSE_PATH = ROOT_DIR / "docker-compose.pot-benchmark.yml"
 VOICE_MUSIC_PATH = ROOT_DIR / "bot" / "services" / "voice_music.py"
 COOKIE_MONITOR_PATH = ROOT_DIR / "bot" / "services" / "youtube_cookie_monitor.py"
+ACCESS_BENCHMARK_PATH = ROOT_DIR / "scripts" / "benchmark_youtube_access_mode.py"
 
 
 def check(name: str, ok: bool, detail: str = "") -> bool:
@@ -57,8 +59,10 @@ def main() -> int:
     requirements = REQUIREMENTS_PATH.read_text(encoding="utf-8")
     dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
     compose = COMPOSE_PATH.read_text(encoding="utf-8")
+    pot_compose = POT_COMPOSE_PATH.read_text(encoding="utf-8") if POT_COMPOSE_PATH.exists() else ""
     voice_music = VOICE_MUSIC_PATH.read_text(encoding="utf-8")
     cookie_monitor = COOKIE_MONITOR_PATH.read_text(encoding="utf-8")
+    access_benchmark = ACCESS_BENCHMARK_PATH.read_text(encoding="utf-8") if ACCESS_BENCHMARK_PATH.exists() else ""
 
     results.append(check("Dockerfile uses Python 3.11 slim", "FROM python:3.11-slim" in dockerfile))
     results.append(check("Dockerfile installs ffmpeg", "ffmpeg" in dockerfile))
@@ -74,10 +78,24 @@ def main() -> int:
     results.append(check("davey is declared", "davey" in requirements))
     results.append(check("yt-dlp default extra is pinned", "yt-dlp[default]==2026.7.4" in requirements))
     results.append(check("yt-dlp-ejs is supplied by yt-dlp default extra", "yt-dlp-ejs" not in requirements))
+    results.append(check("PO token provider plugin is pinned", "bgutil-ytdlp-pot-provider==1.3.1" in requirements))
+    results.append(check("PO token provider compose exists", POT_COMPOSE_PATH.exists()))
+    results.append(check("PO token provider image is pinned", "brainicism/bgutil-ytdlp-pot-provider:1.3.1" in pot_compose))
+    results.append(check("PO token provider does not use latest", ":latest" not in pot_compose.lower()))
+    results.append(check("PO token provider port is not host-published", "ports:" not in pot_compose))
+    results.append(check("PO token provider exposes internal port", "expose:" in pot_compose and "4416" in pot_compose))
+    results.append(check("PO token provider has no volumes or secrets", "volumes:" not in pot_compose and "secrets:" not in pot_compose))
+    results.append(check("normal compose does not depend on PO token provider", "pot-provider" not in compose and "brainicism/bgutil-ytdlp-pot-provider" not in compose))
     results.append(check("voice yt-dlp keeps Deno JS runtime", 'DEFAULT_YTDLP_JS_RUNTIME = "deno"' in voice_music and '"js_runtimes": {DEFAULT_YTDLP_JS_RUNTIME: {}}' in voice_music))
     results.append(check("voice yt-dlp does not use remote ejs component", "remote_components" not in voice_music and "ejs:github" not in voice_music))
     results.append(check("cookie monitor keeps Deno JS runtime", '"js_runtimes": {"deno": {}}' in cookie_monitor))
     results.append(check("cookie monitor does not use remote ejs component", "remote_components" not in cookie_monitor and "ejs:github" not in cookie_monitor))
+    results.append(check("PO token benchmark script exists", ACCESS_BENCHMARK_PATH.exists()))
+    results.append(check("PO token benchmark supports pot-mweb", "pot-mweb" in access_benchmark))
+    results.append(check("PO token benchmark uses mweb extractor args", '"youtube": {"player_client": [POT_PLAYER_CLIENT]}' in access_benchmark and 'POT_PLAYER_CLIENT = "mweb"' in access_benchmark))
+    results.append(check("PO token benchmark uses bgutil http provider", "youtubepot-bgutilhttp" in access_benchmark and '"base_url"' in access_benchmark))
+    results.append(check("PO token benchmark keeps pot cookies disabled", "mode == MODE_POT_MWEB" in access_benchmark and "use_cookies=False" in access_benchmark))
+    results.append(check("PO token benchmark does not revive remote components", 'options["remote_components"]' not in access_benchmark and "ejs:github" not in access_benchmark))
     results.append(check("local Python is 3.9 or newer", sys.version_info >= (3, 9), sys.version.split()[0]))
 
     # Runtime imports are reported for the current environment, but Docker build is the source of truth.
@@ -86,6 +104,7 @@ def main() -> int:
     import_optional("yt_dlp")
     import_optional("davey")
     distribution_optional("yt-dlp-ejs")
+    distribution_optional("bgutil-ytdlp-pot-provider")
     ffmpeg_path = shutil.which("ffmpeg")
     if ffmpeg_path:
         print("[OK] ffmpeg found - {0}".format(ffmpeg_path))
