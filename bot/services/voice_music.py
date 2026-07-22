@@ -92,6 +92,16 @@ YTDLP_COOKIES_FILE_ENV = "YTDLP_COOKIES_FILE"
 YTDLP_COOKIES_TMP_DIR = Path(tempfile.gettempdir())
 DEFAULT_YTDLP_JS_RUNTIME = "deno"
 SUPPORTED_YTDLP_JS_RUNTIMES = {"deno", "node"}
+YOUTUBE_EXTRACT_CACHE_MAX_ENTRIES_ENV = "YOUTUBE_EXTRACT_CACHE_MAX_ENTRIES"
+YOUTUBE_EXTRACT_CACHE_MAX_TTL_SECONDS_ENV = "YOUTUBE_EXTRACT_CACHE_MAX_TTL_SECONDS"
+YOUTUBE_EXTRACT_CACHE_SAFETY_MARGIN_SECONDS_ENV = "YOUTUBE_EXTRACT_CACHE_SAFETY_MARGIN_SECONDS"
+YOUTUBE_EXTRACT_PREFETCH_COUNT_ENV = "YOUTUBE_EXTRACT_PREFETCH_COUNT"
+YOUTUBE_EXTRACT_PREFETCH_CONCURRENCY_ENV = "YOUTUBE_EXTRACT_PREFETCH_CONCURRENCY"
+DEFAULT_YOUTUBE_EXTRACT_CACHE_MAX_ENTRIES = 128
+DEFAULT_YOUTUBE_EXTRACT_CACHE_MAX_TTL_SECONDS = 300
+DEFAULT_YOUTUBE_EXTRACT_CACHE_SAFETY_MARGIN_SECONDS = 60
+DEFAULT_YOUTUBE_EXTRACT_PREFETCH_COUNT = 2
+DEFAULT_YOUTUBE_EXTRACT_PREFETCH_CONCURRENCY = 1
 YTDL_OPTIONS = {
     "format": "bestaudio/best",
     "quiet": True,
@@ -124,6 +134,8 @@ class MusicTrack:
     spotify_title: str = ""
     spotify_artists: str = ""
     enqueued_at_monotonic: float = 0.0
+    extract_cache_key: str = ""
+    from_extract_cache: bool = False
 
 
 @dataclass
@@ -137,9 +149,21 @@ class MusicState:
     loop_mode: str = MUSIC_LOOP_OFF
     loop_range_size: Optional[int] = None
     music_volume_percent: Optional[int] = None
+    prefetch_tasks: Dict[str, asyncio.Task] = field(default_factory=dict)
+
+
+@dataclass
+class YouTubeExtractCacheEntry:
+    track: MusicTrack
+    created_at_monotonic: float
+    expires_at_monotonic: float
+    last_accessed_monotonic: float
 
 
 _MUSIC_STATES: Dict[str, MusicState] = {}
+_YOUTUBE_EXTRACT_CACHE: Dict[str, YouTubeExtractCacheEntry] = {}
+_YOUTUBE_EXTRACT_INFLIGHT: Dict[str, asyncio.Task] = {}
+_YOUTUBE_EXTRACT_PREFETCH_SEMAPHORES: Dict[str, asyncio.Semaphore] = {}
 _VOICE_CONNECT_LOCKS: Dict[str, asyncio.Lock] = {}
 
 
@@ -162,11 +186,47 @@ def get_voice_connect_lock(guild_id: str) -> asyncio.Lock:
 
 
 def clear_music_state(guild_id: str) -> None:
+    state = _MUSIC_STATES.get(music_state_key(guild_id))
+    if state is not None:
+        for task in list(state.prefetch_tasks.values()):
+            if not task.done():
+                task.cancel()
     _MUSIC_STATES.pop(music_state_key(guild_id), None)
 
 
 def perf_ms(started: float) -> int:
     return max(0, int((time.perf_counter() - started) * 1000))
+
+
+def env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    raw = str(os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(minimum, min(maximum, value))
+
+
+def youtube_extract_cache_max_entries() -> int:
+    return env_int(YOUTUBE_EXTRACT_CACHE_MAX_ENTRIES_ENV, DEFAULT_YOUTUBE_EXTRACT_CACHE_MAX_ENTRIES, 1, 1000)
+
+
+def youtube_extract_cache_max_ttl_seconds() -> int:
+    return env_int(YOUTUBE_EXTRACT_CACHE_MAX_TTL_SECONDS_ENV, DEFAULT_YOUTUBE_EXTRACT_CACHE_MAX_TTL_SECONDS, 30, 3600)
+
+
+def youtube_extract_cache_safety_margin_seconds() -> int:
+    return env_int(YOUTUBE_EXTRACT_CACHE_SAFETY_MARGIN_SECONDS_ENV, DEFAULT_YOUTUBE_EXTRACT_CACHE_SAFETY_MARGIN_SECONDS, 0, 600)
+
+
+def youtube_extract_prefetch_count() -> int:
+    return env_int(YOUTUBE_EXTRACT_PREFETCH_COUNT_ENV, DEFAULT_YOUTUBE_EXTRACT_PREFETCH_COUNT, 0, 10)
+
+
+def youtube_extract_prefetch_concurrency() -> int:
+    return env_int(YOUTUBE_EXTRACT_PREFETCH_CONCURRENCY_ENV, DEFAULT_YOUTUBE_EXTRACT_PREFETCH_CONCURRENCY, 1, 3)
 
 
 def mark_track_enqueued(track: MusicTrack) -> MusicTrack:
@@ -188,6 +248,35 @@ def format_music_timing_fields(fields: Dict[str, object]) -> str:
             continue
         safe_items.append("{0}={1}".format(key, value))
     return " ".join(safe_items)
+
+
+def log_youtube_extract_cache(video_id: str, status: str, age_ms: Optional[int] = None, ttl_remaining_ms: Optional[int] = None) -> None:
+    fields = format_music_timing_fields(
+        {
+            "video_id": video_id or "-",
+            "status": status,
+            "age_ms": age_ms,
+            "ttl_remaining_ms": ttl_remaining_ms,
+        }
+    )
+    print("[INFO] youtube_extract_cache {0}".format(fields))
+
+
+def log_youtube_extract_singleflight(video_id: str, status: str, wait_ms: Optional[int] = None) -> None:
+    fields = format_music_timing_fields({"video_id": video_id or "-", "status": status, "wait_ms": wait_ms})
+    print("[INFO] youtube_extract_singleflight {0}".format(fields))
+
+
+def log_youtube_extract_prefetch(video_id: str, status: str, elapsed_ms: Optional[int] = None, queue_position: Optional[int] = None) -> None:
+    fields = format_music_timing_fields(
+        {
+            "video_id": video_id or "-",
+            "status": status,
+            "elapsed_ms": elapsed_ms,
+            "queue_position": queue_position,
+        }
+    )
+    print("[INFO] youtube_extract_prefetch {0}".format(fields))
 
 
 def log_music_timing(
@@ -222,6 +311,108 @@ def extract_youtube_video_id(url: str) -> str:
         if len(parts) >= 2 and parts[0] in ("shorts", "live", "embed"):
             return parts[1]
     return ""
+
+
+def stream_url_expire_epoch(stream_url: str) -> Optional[int]:
+    try:
+        parsed = urlparse(str(stream_url or ""))
+        raw_expire = parse_qs(parsed.query).get("expire", [""])[0]
+        return int(raw_expire) if raw_expire else None
+    except (TypeError, ValueError):
+        return None
+
+
+def youtube_extract_cache_key(url: str, use_cookies: bool = True, js_runtime: Optional[str] = None) -> Tuple[str, str]:
+    video_id = extract_youtube_video_id(url)
+    if not video_id:
+        parsed = urlparse(str(url or "").strip())
+        video_id = parsed.path.strip("/").split("/")[-1] or "unknown"
+    runtime = (js_runtime or DEFAULT_YTDLP_JS_RUNTIME).strip().lower()
+    cookie_scope = "cookies" if use_cookies else "no_cookies"
+    options_scope = "format={0}|playlist={1}|runtime={2}|cookie={3}".format(
+        YTDL_OPTIONS.get("format"),
+        YTDL_OPTIONS.get("noplaylist"),
+        runtime,
+        cookie_scope,
+    )
+    return "{0}|{1}".format(video_id, options_scope), video_id
+
+
+def clone_track_for_request(track: MusicTrack, requester_id: str, from_cache: bool = False, cache_key: str = "") -> MusicTrack:
+    return replace(
+        track,
+        requester_id=requester_id,
+        enqueued_at_monotonic=0.0,
+        from_extract_cache=from_cache,
+        extract_cache_key=cache_key or track.extract_cache_key,
+    )
+
+
+def cache_ttl_seconds_for_track(track: MusicTrack) -> int:
+    configured_ttl = youtube_extract_cache_max_ttl_seconds()
+    expire_epoch = stream_url_expire_epoch(track.stream_url)
+    if expire_epoch is None:
+        return configured_ttl
+    remaining = int(expire_epoch - time.time() - youtube_extract_cache_safety_margin_seconds())
+    return max(0, min(configured_ttl, remaining))
+
+
+def prune_youtube_extract_cache() -> None:
+    now = time.monotonic()
+    for key, entry in list(_YOUTUBE_EXTRACT_CACHE.items()):
+        if entry.expires_at_monotonic <= now:
+            _YOUTUBE_EXTRACT_CACHE.pop(key, None)
+    max_entries = youtube_extract_cache_max_entries()
+    while len(_YOUTUBE_EXTRACT_CACHE) > max_entries:
+        oldest_key = min(_YOUTUBE_EXTRACT_CACHE, key=lambda key: _YOUTUBE_EXTRACT_CACHE[key].last_accessed_monotonic)
+        _YOUTUBE_EXTRACT_CACHE.pop(oldest_key, None)
+
+
+def get_cached_youtube_extract(cache_key: str, video_id: str, requester_id: str) -> Optional[MusicTrack]:
+    now = time.monotonic()
+    entry = _YOUTUBE_EXTRACT_CACHE.get(cache_key)
+    if entry is None:
+        log_youtube_extract_cache(video_id, "miss")
+        return None
+    age_ms = max(0, int((now - entry.created_at_monotonic) * 1000))
+    ttl_remaining_ms = max(0, int((entry.expires_at_monotonic - now) * 1000))
+    if entry.expires_at_monotonic <= now:
+        _YOUTUBE_EXTRACT_CACHE.pop(cache_key, None)
+        log_youtube_extract_cache(video_id, "expired", age_ms=age_ms, ttl_remaining_ms=0)
+        return None
+    entry.last_accessed_monotonic = now
+    log_youtube_extract_cache(video_id, "hit", age_ms=age_ms, ttl_remaining_ms=ttl_remaining_ms)
+    return clone_track_for_request(entry.track, requester_id, from_cache=True, cache_key=cache_key)
+
+
+def put_youtube_extract_cache(cache_key: str, video_id: str, track: MusicTrack) -> None:
+    ttl = cache_ttl_seconds_for_track(track)
+    if ttl <= 0:
+        log_youtube_extract_cache(video_id, "skip_ttl")
+        return
+    now = time.monotonic()
+    cached_track = clone_track_for_request(track, track.requester_id, from_cache=False, cache_key=cache_key)
+    cached_track.extract_cache_key = cache_key
+    cached_track.from_extract_cache = False
+    _YOUTUBE_EXTRACT_CACHE[cache_key] = YouTubeExtractCacheEntry(
+        track=cached_track,
+        created_at_monotonic=now,
+        expires_at_monotonic=now + ttl,
+        last_accessed_monotonic=now,
+    )
+    prune_youtube_extract_cache()
+    log_youtube_extract_cache(video_id, "stored", age_ms=0, ttl_remaining_ms=ttl * 1000)
+
+
+def invalidate_youtube_extract_cache(cache_key: str, video_id: str) -> None:
+    if cache_key and _YOUTUBE_EXTRACT_CACHE.pop(cache_key, None) is not None:
+        log_youtube_extract_cache(video_id, "invalidated")
+
+
+def clear_youtube_extract_runtime_state() -> None:
+    _YOUTUBE_EXTRACT_CACHE.clear()
+    _YOUTUBE_EXTRACT_INFLIGHT.clear()
+    _YOUTUBE_EXTRACT_PREFETCH_SEMAPHORES.clear()
 
 
 def classify_ytdlp_stage(message: str) -> Optional[str]:
@@ -815,16 +1006,17 @@ def extract_track_info(
     return track
 
 
-async def extract_track_info_with_cookie_fallback(
+async def _extract_track_info_with_cookie_fallback_uncached(
     url: str,
     requester_id: str,
     guild_id: str,
     voice_client: Optional[discord.VoiceClient] = None,
+    js_runtime: Optional[str] = None,
 ) -> MusicTrack:
     started = time.perf_counter()
     attempts = 1
     try:
-        track = await asyncio.to_thread(extract_track_info, url, requester_id, guild_id)
+        track = await asyncio.to_thread(extract_track_info, url, requester_id, guild_id, True, js_runtime)
         log_music_timing(
             "youtube_extract",
             guild_id,
@@ -841,7 +1033,7 @@ async def extract_track_info_with_cookie_fallback(
             await handle_transient_auth_failure(get_bot(), error_status)
             try:
                 attempts += 1
-                track = await asyncio.to_thread(extract_track_info, url, requester_id, guild_id, False)
+                track = await asyncio.to_thread(extract_track_info, url, requester_id, guild_id, False, js_runtime)
                 log_music_action(
                     "extract_cookie_fallback",
                     guild_id,
@@ -885,6 +1077,49 @@ async def extract_track_info_with_cookie_fallback(
             total_ms=perf_ms(started),
         )
         raise exc
+
+
+async def extract_track_info_with_cookie_fallback(
+    url: str,
+    requester_id: str,
+    guild_id: str,
+    voice_client: Optional[discord.VoiceClient] = None,
+    js_runtime: Optional[str] = None,
+    bypass_cache: bool = False,
+) -> MusicTrack:
+    cache_key, video_id = youtube_extract_cache_key(url, use_cookies=True, js_runtime=js_runtime)
+    if not bypass_cache:
+        cached = get_cached_youtube_extract(cache_key, video_id, requester_id)
+        if cached is not None:
+            return cached
+    else:
+        log_youtube_extract_cache(video_id, "bypass")
+
+    inflight_key = "{0}:{1}{2}".format(config.BOT_INSTANCE_ID, cache_key, ":bypass" if bypass_cache else "")
+    existing = None if bypass_cache else _YOUTUBE_EXTRACT_INFLIGHT.get(inflight_key)
+    if existing is not None:
+        wait_started = time.perf_counter()
+        log_youtube_extract_singleflight(video_id, "waiter")
+        try:
+            track = await existing
+            return clone_track_for_request(track, requester_id, from_cache=True, cache_key=cache_key)
+        finally:
+            log_youtube_extract_singleflight(video_id, "waiter_done", wait_ms=perf_ms(wait_started))
+
+    log_youtube_extract_singleflight(video_id, "leader")
+
+    async def _leader() -> MusicTrack:
+        track = await _extract_track_info_with_cookie_fallback_uncached(url, requester_id, guild_id, voice_client, js_runtime)
+        track.extract_cache_key = cache_key
+        put_youtube_extract_cache(cache_key, video_id, track)
+        return track
+
+    task = asyncio.create_task(_leader())
+    _YOUTUBE_EXTRACT_INFLIGHT[inflight_key] = task
+    try:
+        return await task
+    finally:
+        _YOUTUBE_EXTRACT_INFLIGHT.pop(inflight_key, None)
 
 
 def spotify_error_message(error: Exception) -> str:
@@ -1039,6 +1274,8 @@ async def enqueue_spotify_link(
         await message.channel.send("Spotifyから『{0} / {1}』を検索し、キューへ追加しました。".format(spotify_track.name, spotify_track.display_artist))
         if should_start:
             await play_next_track(voice_client, guild_id)
+        else:
+            schedule_prefetch_for_queue(guild_id)
         return True
 
     lock_key = "{0}:{1}".format(config.BOT_INSTANCE_ID, guild_id)
@@ -1098,6 +1335,8 @@ async def enqueue_spotify_link(
             )
             if should_start:
                 await play_next_track(voice_client, guild_id)
+            else:
+                schedule_prefetch_for_queue(guild_id)
             return True
     finally:
         remove_album_lock(lock_key, lock)
@@ -1110,27 +1349,11 @@ async def refresh_track_for_playback(track: MusicTrack, guild_id: str) -> Option
         return replace(track, refresh_required=False)
 
     try:
-        refreshed = await asyncio.to_thread(extract_track_info, track.source_url, track.requester_id, guild_id)
+        refreshed = await extract_track_info_with_cookie_fallback(track.source_url, track.requester_id, guild_id)
     except Exception as exc:
-        error_status = classify_ytdlp_error(exc)
-        if error_status in AUTH_FAILURE_STATUSES:
-            await handle_transient_auth_failure(get_bot(), error_status)
-            try:
-                refreshed = await asyncio.to_thread(extract_track_info, track.source_url, track.requester_id, guild_id, False)
-            except Exception as fallback_exc:
-                print(
-                    "[WARN] voice music loop refresh cookie-less fallback failed: guild_id={0} title={1} error={2}".format(
-                        guild_id,
-                        track.title,
-                        fallback_exc,
-                    )
-                )
-                log_music_action("loop_refresh_failed", guild_id, requester_id=track.requester_id, title=track.title, reason=classify_ytdlp_error(fallback_exc))
-                return None
-        else:
-            print("[WARN] voice music loop refresh failed: guild_id={0} title={1} error={2}".format(guild_id, track.title, exc))
-            log_music_action("loop_refresh_failed", guild_id, requester_id=track.requester_id, title=track.title, reason=error_status)
-            return None
+        print("[WARN] voice music loop refresh failed: guild_id={0} title={1} error={2}".format(guild_id, track.title, exc))
+        log_music_action("loop_refresh_failed", guild_id, requester_id=track.requester_id, title=track.title, reason=classify_ytdlp_error(exc))
+        return None
 
     refreshed.title = track.title or refreshed.title
     refreshed.webpage_url = track.webpage_url or refreshed.webpage_url
@@ -1298,6 +1521,80 @@ async def _handle_track_finished(
     await play_next_track(voice_client, guild_id)
 
 
+async def start_voice_track(voice_client: discord.VoiceClient, guild_id: str, track: MusicTrack) -> Tuple[int, int]:
+    ffmpeg_started = time.perf_counter()
+    source = discord.FFmpegPCMAudio(track.stream_url, before_options=STREAM_BEFORE_OPTIONS, options=STREAM_OPTIONS)
+    volume_source = discord.PCMVolumeTransformer(source, volume=volume_factor(load_music_volume_percent(guild_id)))
+    ffmpeg_ms = perf_ms(ffmpeg_started)
+    play_call_started = time.perf_counter()
+    voice_client.play(volume_source, after=lambda error: _schedule_after_callback(voice_client, guild_id, error))
+    play_call_ms = perf_ms(play_call_started)
+    return ffmpeg_ms, play_call_ms
+
+
+def get_prefetch_semaphore(guild_id: str) -> asyncio.Semaphore:
+    key = music_state_key(guild_id)
+    if key not in _YOUTUBE_EXTRACT_PREFETCH_SEMAPHORES:
+        _YOUTUBE_EXTRACT_PREFETCH_SEMAPHORES[key] = asyncio.Semaphore(youtube_extract_prefetch_concurrency())
+    return _YOUTUBE_EXTRACT_PREFETCH_SEMAPHORES[key]
+
+
+def prefetch_track_key(track: MusicTrack) -> str:
+    if track.extract_cache_key:
+        return track.extract_cache_key
+    if track.source_url:
+        cache_key, _video_id = youtube_extract_cache_key(track.source_url)
+        return cache_key
+    return track.webpage_url or track.title
+
+
+async def prefetch_track_for_playback(guild_id: str, track: MusicTrack, queue_position: int) -> None:
+    if not track.source_url or not track.refresh_required:
+        return
+    _cache_key, video_id = youtube_extract_cache_key(track.source_url)
+    started = time.perf_counter()
+    log_youtube_extract_prefetch(video_id, "started", queue_position=queue_position)
+    try:
+        async with get_prefetch_semaphore(guild_id):
+            await extract_track_info_with_cookie_fallback(track.source_url, track.requester_id, guild_id)
+        log_youtube_extract_prefetch(video_id, "completed", elapsed_ms=perf_ms(started), queue_position=queue_position)
+    except asyncio.CancelledError:
+        log_youtube_extract_prefetch(video_id, "cancelled", elapsed_ms=perf_ms(started), queue_position=queue_position)
+        raise
+    except Exception:
+        log_youtube_extract_prefetch(video_id, "failed", elapsed_ms=perf_ms(started), queue_position=queue_position)
+
+
+def cleanup_prefetch_tasks(guild_id: str) -> None:
+    state = get_music_state(guild_id)
+    for key, task in list(state.prefetch_tasks.items()):
+        if task.done():
+            state.prefetch_tasks.pop(key, None)
+
+
+def cancel_prefetch_tasks(guild_id: str) -> None:
+    state = get_music_state(guild_id)
+    for task in list(state.prefetch_tasks.values()):
+        if not task.done():
+            task.cancel()
+    state.prefetch_tasks.clear()
+
+
+def schedule_prefetch_for_queue(guild_id: str) -> None:
+    count = youtube_extract_prefetch_count()
+    if count <= 0:
+        return
+    state = get_music_state(guild_id)
+    cleanup_prefetch_tasks(guild_id)
+    for index, track in enumerate(list(_next_playback_queue(state))[:count], start=1):
+        if not track.source_url or not track.refresh_required:
+            continue
+        key = prefetch_track_key(track)
+        if key in state.prefetch_tasks:
+            continue
+        state.prefetch_tasks[key] = asyncio.create_task(prefetch_track_for_playback(guild_id, track, index))
+
+
 async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> bool:
     setup_started = time.perf_counter()
     state = get_music_state(guild_id)
@@ -1330,17 +1627,7 @@ async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> b
 
         state.current = refreshed_track
         try:
-            ffmpeg_started = time.perf_counter()
-            raw_source = discord.FFmpegPCMAudio(
-                refreshed_track.stream_url,
-                before_options=STREAM_BEFORE_OPTIONS,
-                options=STREAM_OPTIONS,
-            )
-            source = discord.PCMVolumeTransformer(raw_source, volume=volume_factor(load_music_volume_percent(guild_id, state)))
-            ffmpeg_ms = perf_ms(ffmpeg_started)
-            play_call_started = time.perf_counter()
-            voice_client.play(source, after=lambda error: _schedule_after_callback(voice_client, guild_id, error))
-            play_call_ms = perf_ms(play_call_started)
+            ffmpeg_ms, play_call_ms = await start_voice_track(voice_client, guild_id, refreshed_track)
             log_music_action("play_start", guild_id, channel_id, refreshed_track.requester_id, refreshed_track.title)
             log_music_timing(
                 "play_setup",
@@ -1354,8 +1641,49 @@ async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> b
                 play_call_ms=play_call_ms,
                 total_ms=perf_ms(setup_started),
             )
+            schedule_prefetch_for_queue(guild_id)
             return True
         except (discord.ClientException, discord.OpusNotLoaded, OSError) as exc:
+            if refreshed_track.from_extract_cache and refreshed_track.source_url:
+                cache_key, video_id = youtube_extract_cache_key(refreshed_track.source_url)
+                invalidate_youtube_extract_cache(cache_key, video_id)
+                try:
+                    retry_started = time.perf_counter()
+                    retry_track = await extract_track_info_with_cookie_fallback(
+                        refreshed_track.source_url,
+                        refreshed_track.requester_id,
+                        guild_id,
+                        bypass_cache=True,
+                    )
+                    retry_track.title = refreshed_track.title or retry_track.title
+                    retry_track.webpage_url = refreshed_track.webpage_url or retry_track.webpage_url
+                    retry_track.duration = refreshed_track.duration if refreshed_track.duration is not None else retry_track.duration
+                    retry_track.source_url = refreshed_track.source_url
+                    retry_track.source_type = refreshed_track.source_type
+                    retry_track.original_spotify_url = refreshed_track.original_spotify_url
+                    retry_track.spotify_title = refreshed_track.spotify_title
+                    retry_track.spotify_artists = refreshed_track.spotify_artists
+                    retry_track.refresh_required = False
+                    state.current = retry_track
+                    ffmpeg_ms, play_call_ms = await start_voice_track(voice_client, guild_id, retry_track)
+                    log_music_action("play_start", guild_id, channel_id, retry_track.requester_id, retry_track.title, "cache_retry")
+                    log_music_timing(
+                        "play_setup",
+                        guild_id,
+                        channel_id,
+                        retry_track.requester_id,
+                        source_type=retry_track.source_type,
+                        queue_wait_ms=wait_ms,
+                        refresh_ms=perf_ms(retry_started),
+                        ffmpeg_ms=ffmpeg_ms,
+                        play_call_ms=play_call_ms,
+                        total_ms=perf_ms(setup_started),
+                        cache_retry=True,
+                    )
+                    schedule_prefetch_for_queue(guild_id)
+                    return True
+                except Exception as retry_exc:
+                    print("[WARN] voice music cache retry failed: guild_id={0} title={1} error={2}".format(guild_id, refreshed_track.title, retry_exc))
             print("[WARN] voice music play start failed: guild_id={0} title={1} error={2}".format(guild_id, refreshed_track.title, exc))
             log_music_action("playback_error", guild_id, channel_id, refreshed_track.requester_id, refreshed_track.title, str(exc))
             state.current = None
@@ -1422,6 +1750,8 @@ async def enqueue_music_url(message: discord.Message, url: str) -> bool:
         total_ms=perf_ms(received_started),
         starts_playback=should_start,
     )
+    if not should_start:
+        schedule_prefetch_for_queue(guild_id)
     if should_start:
         await message.channel.send("再生します: {0}".format(track.title))
         await play_next_track(voice_client, guild_id)
@@ -1493,6 +1823,8 @@ async def enqueue_music_url_if_voice_connected(message: discord.Message, url: st
         total_ms=perf_ms(received_started),
         starts_playback=should_start,
     )
+    if not should_start:
+        schedule_prefetch_for_queue(guild_id)
     if should_start:
         await message.channel.send("再生します: {0}".format(track.title))
         await play_next_track(voice_client, guild_id)
@@ -1549,6 +1881,7 @@ async def skip_music(message: discord.Message, argument: str = "") -> bool:
     voice_client = get_guild_voice_client(guild)
     guild_id = str(guild.id)
     state = get_music_state(guild_id)
+    cancel_prefetch_tasks(guild_id)
     if voice_client is None or not _has_music_tracks(state):
         await message.channel.send("現在再生中の曲はありません。")
         return True
@@ -1627,6 +1960,7 @@ async def stop_music(message: discord.Message) -> bool:
     has_music = _has_music_tracks(state) or state.loop_mode != MUSIC_LOOP_OFF
     if not has_music:
         return False
+    cancel_prefetch_tasks(guild_id)
     state.queue.clear()
     state.loop_queue.clear()
     state.stopping = True
@@ -1677,7 +2011,8 @@ async def send_music_loop_status(message: discord.Message) -> bool:
     if guild is None:
         await message.channel.send("音楽コマンドはサーバー内で使ってください。")
         return True
-    state = get_music_state(str(guild.id))
+    guild_id = str(guild.id)
+    state = get_music_state(guild_id)
     await message.channel.send(loop_status_text(state.loop_mode, state))
     return True
 
@@ -1687,27 +2022,32 @@ async def set_music_loop(message: discord.Message, loop_mode: str, argument: str
     if guild is None:
         await message.channel.send("音楽コマンドはサーバー内で使ってください。")
         return True
-    state = get_music_state(str(guild.id))
+    guild_id = str(guild.id)
+    state = get_music_state(guild_id)
     range_count, error = parse_loop_range_count(argument) if loop_mode == MUSIC_LOOP_QUEUE else (None, "")
     if error:
         await message.channel.send(error)
         return True
+    cancel_prefetch_tasks(guild_id)
 
     if loop_mode == MUSIC_LOOP_OFF:
         _merge_loop_queue_into_queue(state)
         state.loop_mode = MUSIC_LOOP_OFF
+        schedule_prefetch_for_queue(guild_id)
         await message.channel.send(loop_status_text(loop_mode, state))
         return True
 
     if loop_mode == MUSIC_LOOP_ONE:
         _merge_loop_queue_into_queue(state)
         state.loop_mode = MUSIC_LOOP_ONE
+        schedule_prefetch_for_queue(guild_id)
         await message.channel.send(loop_status_text(loop_mode, state))
         return True
 
     if loop_mode == MUSIC_LOOP_QUEUE and range_count is None:
         _merge_loop_queue_into_queue(state)
         state.loop_mode = MUSIC_LOOP_QUEUE
+        schedule_prefetch_for_queue(guild_id)
         await message.channel.send(loop_status_text(loop_mode, state))
         return True
 
@@ -1723,6 +2063,7 @@ async def set_music_loop(message: discord.Message, loop_mode: str, argument: str
             state.queue = deque(ordered_waiting)
             state.loop_range_size = None
             state.loop_mode = MUSIC_LOOP_ONE
+            schedule_prefetch_for_queue(guild_id)
             await message.channel.send("現在曲1曲をループします。")
             return True
 
@@ -1735,6 +2076,7 @@ async def set_music_loop(message: discord.Message, loop_mode: str, argument: str
             state.queue = deque(ordered_waiting[actual_count:])
         state.loop_mode = MUSIC_LOOP_QUEUE
         state.loop_range_size = actual_count
+        schedule_prefetch_for_queue(guild_id)
         if actual_count < int(range_count):
             await message.channel.send("現在のキューは{0}曲のため、{0}曲をループします。".format(actual_count))
         else:
@@ -1742,6 +2084,7 @@ async def set_music_loop(message: discord.Message, loop_mode: str, argument: str
         return True
 
     state.loop_mode = loop_mode
+    schedule_prefetch_for_queue(guild_id)
     await message.channel.send(loop_status_text(loop_mode, state))
     return True
 
@@ -1751,7 +2094,9 @@ async def shuffle_music_queue(message: discord.Message) -> bool:
     if guild is None:
         await message.channel.send("音楽コマンドはサーバー内で使ってください。")
         return True
-    state = get_music_state(str(guild.id))
+    guild_id = str(guild.id)
+    state = get_music_state(guild_id)
+    cancel_prefetch_tasks(guild_id)
     target_queue = state.loop_queue if state.loop_mode == MUSIC_LOOP_QUEUE and state.loop_range_size is not None else state.queue
     waiting = list(target_queue)
     random.shuffle(waiting)
@@ -1759,6 +2104,7 @@ async def shuffle_music_queue(message: discord.Message) -> bool:
         state.loop_queue = deque(waiting)
     else:
         state.queue = deque(waiting)
+    schedule_prefetch_for_queue(guild_id)
     await message.channel.send("待機中のキューをシャッフルしました。対象: {0}件".format(len(waiting)))
     return True
 

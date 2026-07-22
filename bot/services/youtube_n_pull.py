@@ -65,6 +65,12 @@ async def play_next_track(voice_client, guild_id: str):
     return await real_play_next_track(voice_client, guild_id)
 
 
+def schedule_prefetch_for_queue(guild_id: str):
+    from bot.services.voice_music import schedule_prefetch_for_queue as real_schedule_prefetch_for_queue
+
+    return real_schedule_prefetch_for_queue(guild_id)
+
+
 def parse_n_pull_command(command_text: Optional[str]) -> Tuple[Optional[str], Optional[int], Optional[str]]:
     raw = str(command_text or "").strip()
     if not raw:
@@ -529,4 +535,6 @@ async def handle_youtube_n_pull_command(message: discord.Message, command_text: 
     log_n_pull("queued", guild_id, requester_id, preset, requested_count=count, available_count=len(videos), queued_count=len(selected), cache=cache_status)
     if should_start:
         await play_next_track(voice_client, guild_id)
+    else:
+        schedule_prefetch_for_queue(guild_id)
     return True

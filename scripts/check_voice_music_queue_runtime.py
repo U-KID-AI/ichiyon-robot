@@ -312,7 +312,7 @@ def main() -> int:
 
     original_extract = voice_music.extract_track_info
     try:
-        def _fake_extract(url, requester_id, guild_id=None, use_cookies=True):
+        def _fake_extract(url, requester_id, guild_id=None, use_cookies=True, js_runtime=None):
             return MusicTrack("fresh", url, "https://fresh-stream.example.com/1", requester_id, 99, url)
 
         voice_music.extract_track_info = _fake_extract
@@ -328,8 +328,9 @@ def main() -> int:
                 str(refreshed),
             )
         )
+        voice_music.clear_youtube_extract_runtime_state()
 
-        def _failing_extract(url, requester_id, guild_id=None, use_cookies=True):
+        def _failing_extract(url, requester_id, guild_id=None, use_cookies=True, js_runtime=None):
             raise RuntimeError("video unavailable")
 
         voice_music.extract_track_info = _failing_extract
