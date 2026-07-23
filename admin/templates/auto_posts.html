@@ -75,7 +75,7 @@
                 <td data-label="状態">{% if post.enabled %}<strong class="status enabled">有効</strong>{% else %}<strong class="status disabled">無効</strong>{% endif %}</td>
                 <td data-label="投稿名">{{ post.name }}</td>
                 <td data-label="チャンネル"><code>{{ post.channel_id }}</code></td>
-                <td data-label="本文">{{ post.body_summary }}</td>
+                <td data-label="本文">{{ post.content_summary }}</td>
                 <td data-label="画像">{% if post.has_image %}あり{% else %}なし{% endif %}</td>
                 <td data-label="スケジュール">{{ post.schedule_summary }}</td>
                 <td data-label="最終投稿">{{ post.last_posted_at or "-" }}</td>
@@ -110,7 +110,8 @@
             </div>
             <dl class="info-list">
               <dt>チャンネルID</dt><dd>{{ post.channel_id }}</dd>
-              <dt>本文</dt><dd>{{ post.body or "-" }}</dd>
+              <dt>投稿内容</dt><dd>{{ post.content_type_label }}</dd>
+              <dt>本文</dt><dd>{{ post.content_summary or "-" }}</dd>
               <dt>画像</dt><dd>{% if post.image_path %}<img class="image-preview" src="/{{ post.image_path }}" alt="">{% else %}なし{% endif %}</dd>
               <dt>スケジュール</dt><dd>{{ post.schedule_summary }}</dd>
               <dt>最終投稿</dt><dd>{{ post.last_posted_at or "-" }}</dd>

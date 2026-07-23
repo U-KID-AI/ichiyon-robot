@@ -8,6 +8,7 @@ import discord
 from bot.db import get_connection
 from bot.messages import send_text_or_image
 from bot.repositories import AutoPostRepository, FeatureFlagRepository
+from bot.services.jma_weather import JmaWeatherError, build_weather_messages
 
 
 FEATURE_AUTO_POSTS = "auto_posts"
@@ -155,11 +156,34 @@ async def get_post_channel(bot, post: Dict[str, Any]) -> Optional[discord.abc.Me
     return channel
 
 
+async def send_auto_post_content(
+    channel: discord.abc.Messageable,
+    post: Dict[str, Any],
+    forecast_cache: Dict[str, Any],
+    now: Optional[datetime] = None,
+) -> bool:
+    content_type = str(post.get("content_type") or "static").strip() or "static"
+    if content_type == "jma_weather":
+        messages = await build_weather_messages(
+            post.get("content_config_json"),
+            forecast_cache=forecast_cache,
+            now=now,
+        )
+        if not messages:
+            return False
+        for message in messages:
+            await channel.send(message)
+        return True
+
+    return await send_text_or_image(channel, post.get("body"), post.get("image_path"))
+
+
 async def run_db_auto_posts_once(bot, now: Optional[datetime] = None) -> int:
     sent_count = 0
     with get_connection() as connection:
         post_repository = AutoPostRepository(connection)
         flag_repository = FeatureFlagRepository(connection)
+        forecast_cache: Dict[str, Any] = {}
         for post in post_repository.list_enabled_posts():
             try:
                 guild_id = str(post.get("guild_id") or "")
@@ -177,7 +201,10 @@ async def run_db_auto_posts_once(bot, now: Optional[datetime] = None) -> int:
                     continue
 
                 try:
-                    sent = await send_text_or_image(channel, post.get("body"), post.get("image_path"))
+                    sent = await send_auto_post_content(channel, post, forecast_cache, now=now)
+                except JmaWeatherError as exc:
+                    print("[WARN] auto_posts weather generation failed: id={0} error={1}".format(post_id, exc))
+                    continue
                 except discord.DiscordException as exc:
                     print("[WARN] auto_posts send failed: id={0} error={1}".format(post_id, exc))
                     continue

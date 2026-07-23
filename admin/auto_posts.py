@@ -13,11 +13,21 @@ from admin.servers import can_access_guild, find_server, role_allows
 from admin.ux import is_test_data, parse_show_test_data, save_uploaded_image
 from bot.db import get_connection
 from bot.repositories import AutoPostRepository
+from bot.services.jma_weather import (
+    JmaWeatherError,
+    get_area_master,
+    list_class10_areas,
+    list_forecast_offices,
+    normalize_area_codes,
+    parse_config,
+    validate_weather_config,
+)
 
 
 router = APIRouter()
 
 SCHEDULE_TYPES = ("once", "yearly", "monthly", "weekly", "daily")
+CONTENT_TYPES = ("static", "jma_weather")
 WEEKDAYS = ("", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 DEFAULT_TIMEZONE = "Asia/Tokyo"
 TIME_PATTERN = re.compile(r"^[0-2][0-9]:[0-5][0-9]$")
@@ -171,7 +181,7 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="auto post creation denied")
 
-        return render_form(templates, request, server, guild_id, "new", default_form(), [], True)
+        return await render_form(templates, request, server, guild_id, "new", default_form(), [], True)
 
     @router.post("/guilds/{guild_id}/auto-posts/new")
     async def create_auto_post(
@@ -190,6 +200,9 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
         time: str = Form("09:00"),
         timezone: str = Form(DEFAULT_TIMEZONE),
         enabled: Optional[str] = Form(None),
+        content_type: str = Form("static"),
+        office_code: str = Form(""),
+        area_codes: List[str] = Form([]),
     ):
         return await save_auto_post(
             request,
@@ -215,7 +228,7 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="auto post not found")
             form = build_form_from_post(post)
 
-        return render_form(
+        return await render_form(
             templates,
             request,
             server,
@@ -245,6 +258,9 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
         time: str = Form("09:00"),
         timezone: str = Form(DEFAULT_TIMEZONE),
         enabled: Optional[str] = Form(None),
+        content_type: str = Form("static"),
+        office_code: str = Form(""),
+        area_codes: List[str] = Form([]),
     ):
         values = locals()
         return await save_auto_post(request, templates, guild_id, post_id, values)
@@ -293,7 +309,9 @@ def list_post_rows(guild_id: str, filters: Dict[str, Any]) -> List[Dict[str, Any
 
 def build_post_view(post: Dict[str, Any], guild_id: str) -> Dict[str, Any]:
     row = build_form_from_post(post)
+    row["content_type_label"] = content_type_label(row["content_type"])
     row["body_summary"] = summarize(row["body"])
+    row["content_summary"] = summarize_content(row)
     row["has_image"] = bool(row["image_path"])
     row["schedule_summary"] = summarize_schedule(row)
     row["next_run_at"] = ""
@@ -325,12 +343,20 @@ def default_form() -> Dict[str, Any]:
         "enabled": True,
         "last_posted_at": None,
         "schedule_value": "",
+        "content_type": "static",
+        "content_config_json": "{}",
+        "office_code": "",
+        "area_codes": [],
     }
 
 
 def build_form_from_post(post: Dict[str, Any]) -> Dict[str, Any]:
     form = default_form()
     schedule = parse_schedule_value(post.get("schedule_value"))
+    content_type = str(post.get("content_type") or "static")
+    if content_type not in CONTENT_TYPES:
+        content_type = "static"
+    content_config = parse_config(post.get("content_config_json"))
     form.update(
         {
             "id": post.get("id"),
@@ -348,6 +374,10 @@ def build_form_from_post(post: Dict[str, Any]) -> Dict[str, Any]:
             "enabled": bool(post.get("enabled")),
             "last_posted_at": post.get("last_posted_at"),
             "schedule_value": post.get("schedule_value") or "",
+            "content_type": content_type,
+            "content_config_json": post.get("content_config_json") or "{}",
+            "office_code": str(content_config.get("office_code") or ""),
+            "area_codes": normalize_area_codes(content_config.get("area_codes")),
         }
     )
     return form
@@ -382,13 +412,16 @@ def build_form(values: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str], str]:
             "time": str(values.get("time", "")).strip(),
             "timezone": str(values.get("timezone", "")).strip() or DEFAULT_TIMEZONE,
             "enabled": values.get("enabled") == "on",
+            "content_type": values.get("content_type") if values.get("content_type") in CONTENT_TYPES else "static",
+            "office_code": str(values.get("office_code", "")).strip(),
+            "area_codes": normalize_area_codes(values.get("area_codes")),
         }
     )
 
     errors = []
     if not form["name"]:
         errors.append("投稿名を入力。")
-    if not form["body"] and not form["image_path"]:
+    if form["content_type"] == "static" and not form["body"] and not form["image_path"]:
         errors.append("本文か画像を入力。")
     if not form["channel_id"]:
         errors.append("投稿チャンネルIDを入力。")
@@ -401,7 +434,21 @@ def build_form(values: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str], str]:
     errors.extend(schedule_errors)
     schedule_value = json.dumps(schedule, ensure_ascii=False, sort_keys=True)
     form["schedule_value"] = schedule_value
+    form["content_config_json"] = json.dumps(build_content_config(form), ensure_ascii=False, sort_keys=True)
     return form, errors, schedule_value
+
+
+def build_content_config(form: Dict[str, Any]) -> Dict[str, Any]:
+    if form["content_type"] != "jma_weather":
+        return {}
+    return {
+        "office_code": form["office_code"],
+        "area_codes": form["area_codes"],
+        "include_weather": True,
+        "include_precipitation": True,
+        "include_temperature": True,
+        "include_report_time": True,
+    }
 
 
 def build_schedule_config(form: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
@@ -465,8 +512,14 @@ async def save_auto_post(
     if uploaded_path:
         values["image_path"] = uploaded_path
     form, errors, schedule_value = build_form(values)
+    errors.extend(await validate_jma_weather_form(form))
     if upload_error:
         errors.append(upload_error)
+    body = form["body"] or None
+    image_path = form["image_path"] or None
+    if form["content_type"] == "jma_weather":
+        body = None
+        image_path = None
     with get_connection() as connection:
         repository = AutoPostRepository(connection, bot_id=current_selected_bot_id())
         if post_id is not None and repository.get_by_id(guild_id, post_id) is None:
@@ -477,13 +530,15 @@ async def save_auto_post(
                 created = repository.create_post(
                     guild_id,
                     form["name"],
-                    form["body"] or None,
-                    form["image_path"] or None,
+                    body,
+                    image_path,
                     form["channel_id"],
                     form["schedule_type"],
                     schedule_value,
                     form["repeat_rule"] or None,
                     form["enabled"],
+                    form["content_type"],
+                    form["content_config_json"],
                 )
                 connection.commit()
                 return RedirectResponse(
@@ -495,18 +550,20 @@ async def save_auto_post(
                 guild_id,
                 post_id,
                 form["name"],
-                form["body"] or None,
-                form["image_path"] or None,
+                body,
+                image_path,
                 form["channel_id"],
                 form["schedule_type"],
                 schedule_value,
                 form["repeat_rule"] or None,
                 form["enabled"],
+                form["content_type"],
+                form["content_config_json"],
             )
             connection.commit()
             return RedirectResponse(url="/guilds/{0}/auto-posts/{1}".format(guild_id, post_id), status_code=303)
 
-    return render_form(
+    return await render_form(
         templates,
         request,
         server,
@@ -528,6 +585,55 @@ def summarize(value: str) -> str:
     return "{0}...".format(value[:40])
 
 
+def content_type_label(content_type: str) -> str:
+    if content_type == "jma_weather":
+        return "天気自動投稿"
+    return "固定投稿"
+
+
+def summarize_content(row: Dict[str, Any]) -> str:
+    if row.get("content_type") == "jma_weather":
+        office_code = row.get("office_code") or "-"
+        area_count = len(row.get("area_codes") or [])
+        return "天気 / 予報区 {0} / 区域 {1}件".format(office_code, area_count)
+    return summarize(row.get("body") or "")
+
+
+async def build_weather_context(form: Dict[str, Any]) -> Dict[str, Any]:
+    context = {
+        "weather_offices": [],
+        "weather_areas": [],
+        "weather_master_error": "",
+    }
+    try:
+        area_master = await get_area_master()
+    except JmaWeatherError as exc:
+        context["weather_master_error"] = "気象庁の地域マスタを取得できませんでした: {0}".format(exc)
+        return context
+
+    offices = list_forecast_offices(area_master)
+    context["weather_offices"] = offices
+    area_rows = []
+    for office in offices:
+        for area in list_class10_areas(area_master, office["code"]):
+            row = dict(area)
+            row["office_code"] = office["code"]
+            row["office_name"] = office["name"]
+            area_rows.append(row)
+    context["weather_areas"] = area_rows
+    return context
+
+
+async def validate_jma_weather_form(form: Dict[str, Any]) -> List[str]:
+    if form["content_type"] != "jma_weather":
+        return []
+    try:
+        area_master = await get_area_master()
+    except JmaWeatherError as exc:
+        return ["気象庁の地域マスタを取得できないため保存できません: {0}".format(exc)]
+    return validate_weather_config(build_content_config(form), area_master)
+
+
 def summarize_schedule(row: Dict[str, Any]) -> str:
     schedule_type = row.get("schedule_type") or "yearly"
     time = row.get("time") or "09:00"
@@ -541,7 +647,7 @@ def summarize_schedule(row: Dict[str, Any]) -> str:
     return "daily / {0} {1}".format(time, timezone)
 
 
-def render_form(
+async def render_form(
     templates: Jinja2Templates,
     request: Request,
     server: Dict[str, Any],
@@ -553,21 +659,25 @@ def render_form(
     post_id: Optional[int] = None,
     status_code: int = 200,
 ):
+    weather_context = await build_weather_context(form)
+    context = {
+        "user": get_current_user(request),
+        "server": server,
+        "guild_id": guild_id,
+        "mode": mode,
+        "post_id": post_id,
+        "post": form,
+        "errors": errors,
+        "can_edit": can_edit,
+        "schedule_types": SCHEDULE_TYPES,
+        "content_types": CONTENT_TYPES,
+        "weekdays": WEEKDAYS,
+        "schedule_summary": summarize_schedule(form),
+    }
+    context.update(weather_context)
     return templates.TemplateResponse(
         request,
         "auto_post_form.html",
-        {
-            "user": get_current_user(request),
-            "server": server,
-            "guild_id": guild_id,
-            "mode": mode,
-            "post_id": post_id,
-            "post": form,
-            "errors": errors,
-            "can_edit": can_edit,
-            "schedule_types": SCHEDULE_TYPES,
-            "weekdays": WEEKDAYS,
-            "schedule_summary": summarize_schedule(form),
-        },
+        context,
         status_code=status_code,
     )
