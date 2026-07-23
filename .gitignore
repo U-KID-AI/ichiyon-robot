@@ -8,6 +8,11 @@ __pycache__/
 data/backups/
 *.key
 *.pem
+*.crt
+*.p12
+*.ovpn
 secrets/
+vpn/
 *.cookies.txt
 youtube-cookies.txt
+OpenVPN-Config.ovpn

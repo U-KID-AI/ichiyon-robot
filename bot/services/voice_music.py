@@ -90,6 +90,15 @@ STREAM_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max
 STREAM_OPTIONS = "-vn"
 YTDLP_COOKIES_FILE_ENV = "YTDLP_COOKIES_FILE"
 YTDLP_COOKIES_TMP_DIR = Path(tempfile.gettempdir())
+YOUTUBE_ROUTE_HOME_VPN = "home_vpn"
+YOUTUBE_ROUTE_DIRECT_COOKIE = "direct_cookie"
+YOUTUBE_HOME_VPN_ENABLED_ENV = "YOUTUBE_HOME_VPN_ENABLED"
+YOUTUBE_HOME_VPN_PROXY_URL_ENV = "YOUTUBE_HOME_VPN_PROXY_URL"
+YOUTUBE_HOME_VPN_CONNECT_TIMEOUT_SECONDS_ENV = "YOUTUBE_HOME_VPN_CONNECT_TIMEOUT_SECONDS"
+YOUTUBE_HOME_VPN_EXTRACT_TIMEOUT_SECONDS_ENV = "YOUTUBE_HOME_VPN_EXTRACT_TIMEOUT_SECONDS"
+YOUTUBE_HOME_VPN_FALLBACK_ENABLED_ENV = "YOUTUBE_HOME_VPN_FALLBACK_ENABLED"
+DEFAULT_YOUTUBE_HOME_VPN_CONNECT_TIMEOUT_SECONDS = 5
+DEFAULT_YOUTUBE_HOME_VPN_EXTRACT_TIMEOUT_SECONDS = 30
 DEFAULT_YTDLP_JS_RUNTIME = "deno"
 SUPPORTED_YTDLP_JS_RUNTIMES = {"deno", "node"}
 YTDL_OPTIONS = {
@@ -125,6 +134,8 @@ class MusicTrack:
     spotify_title: str = ""
     spotify_artists: str = ""
     enqueued_at_monotonic: float = 0.0
+    youtube_route: str = YOUTUBE_ROUTE_DIRECT_COOKIE
+    ffmpeg_proxy_url: str = ""
 
 
 @dataclass
@@ -479,12 +490,62 @@ def prepare_ytdlp_cookie_file(cookies_file: str, guild_id: Optional[str] = None)
     return str(target_path)
 
 
+def env_bool(name: str, default: bool = False) -> bool:
+    value = str(os.getenv(name, "") or "").strip().lower()
+    if not value:
+        return default
+    return value in {"1", "true", "yes", "on"}
+
+
+def env_int(name: str, default: int, minimum: int = 1) -> int:
+    value = str(os.getenv(name, "") or "").strip()
+    if not value:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        return default
+    return max(minimum, parsed)
+
+
+def youtube_home_vpn_proxy_url() -> str:
+    return str(os.getenv(YOUTUBE_HOME_VPN_PROXY_URL_ENV) or "").strip()
+
+
+def youtube_home_vpn_enabled() -> bool:
+    return env_bool(YOUTUBE_HOME_VPN_ENABLED_ENV, False) and bool(youtube_home_vpn_proxy_url())
+
+
+def youtube_home_vpn_fallback_enabled() -> bool:
+    return env_bool(YOUTUBE_HOME_VPN_FALLBACK_ENABLED_ENV, True)
+
+
+def youtube_home_vpn_connect_timeout_seconds() -> int:
+    return env_int(
+        YOUTUBE_HOME_VPN_CONNECT_TIMEOUT_SECONDS_ENV,
+        DEFAULT_YOUTUBE_HOME_VPN_CONNECT_TIMEOUT_SECONDS,
+    )
+
+
+def youtube_home_vpn_extract_timeout_seconds() -> int:
+    return env_int(
+        YOUTUBE_HOME_VPN_EXTRACT_TIMEOUT_SECONDS_ENV,
+        DEFAULT_YOUTUBE_HOME_VPN_EXTRACT_TIMEOUT_SECONDS,
+    )
+
+
+def safe_youtube_route_for_log(route: str) -> str:
+    return route if route in {YOUTUBE_ROUTE_HOME_VPN, YOUTUBE_ROUTE_DIRECT_COOKIE} else "unknown"
+
+
 def build_ytdl_options(
     guild_id: Optional[str] = None,
     copy_cookies: bool = True,
     use_cookies: bool = True,
     stage_recorder: Optional[YoutubeExtractStageRecorder] = None,
     js_runtime: Optional[str] = None,
+    proxy_url: Optional[str] = None,
+    socket_timeout: Optional[int] = None,
 ) -> Dict[str, object]:
     options: Dict[str, object] = dict(YTDL_OPTIONS)
     runtime = (js_runtime or DEFAULT_YTDLP_JS_RUNTIME).strip().lower()
@@ -493,6 +554,16 @@ def build_ytdl_options(
     options["js_runtimes"] = {runtime: {}}
     if stage_recorder is not None:
         options["logger"] = stage_recorder
+    if proxy_url:
+        options["proxy"] = str(proxy_url).strip()
+        connect_timeout = youtube_home_vpn_connect_timeout_seconds()
+        options["socket_timeout"] = int(socket_timeout or connect_timeout)
+        options["http_headers"] = {
+            **dict(options.get("http_headers") or {}),
+            "Connection": "close",
+        }
+    elif socket_timeout:
+        options["socket_timeout"] = int(socket_timeout)
     cookies_file = str(os.getenv(YTDLP_COOKIES_FILE_ENV) or "").strip()
     if use_cookies and cookies_file:
         cookie_started = time.perf_counter()
@@ -703,6 +774,26 @@ def make_loop_track(track: MusicTrack) -> MusicTrack:
     return replace(track, enqueued_at_monotonic=time.perf_counter())
 
 
+def build_ffmpeg_before_options(track: Optional[MusicTrack]) -> str:
+    if track is None or not str(getattr(track, "ffmpeg_proxy_url", "") or "").strip():
+        return STREAM_BEFORE_OPTIONS
+    return "{0} -http_proxy {1}".format(STREAM_BEFORE_OPTIONS, str(track.ffmpeg_proxy_url).strip())
+
+
+def preserve_track_metadata(source: MusicTrack, refreshed: MusicTrack) -> MusicTrack:
+    refreshed.title = source.title or refreshed.title
+    refreshed.webpage_url = source.webpage_url or refreshed.webpage_url
+    refreshed.requester_id = source.requester_id
+    refreshed.duration = source.duration if source.duration is not None else refreshed.duration
+    refreshed.source_url = source.source_url
+    refreshed.source_type = source.source_type or refreshed.source_type
+    refreshed.original_spotify_url = source.original_spotify_url
+    refreshed.spotify_title = source.spotify_title
+    refreshed.spotify_artists = source.spotify_artists
+    refreshed.refresh_required = False
+    return refreshed
+
+
 def _merge_loop_queue_into_queue(state: MusicState) -> None:
     if state.loop_queue:
         state.queue = deque(list(state.loop_queue) + list(state.queue))
@@ -762,13 +853,23 @@ def extract_track_info(
     guild_id: Optional[str] = None,
     use_cookies: bool = True,
     js_runtime: Optional[str] = None,
+    youtube_route: str = YOUTUBE_ROUTE_DIRECT_COOKIE,
+    proxy_url: Optional[str] = None,
+    socket_timeout: Optional[int] = None,
 ) -> MusicTrack:
     if yt_dlp is None:
         raise RuntimeError("yt-dlp is not installed")
     safe_guild_id = str(guild_id or "")
     recorder = YoutubeExtractStageRecorder(extract_youtube_video_id(url))
     options_started = time.perf_counter()
-    ytdl_options = build_ytdl_options(guild_id, use_cookies=use_cookies, stage_recorder=recorder, js_runtime=js_runtime)
+    ytdl_options = build_ytdl_options(
+        guild_id,
+        use_cookies=use_cookies,
+        stage_recorder=recorder,
+        js_runtime=js_runtime,
+        proxy_url=proxy_url,
+        socket_timeout=socket_timeout,
+    )
     recorder.set_option_build_ms(perf_ms(options_started))
     extract_started = time.perf_counter()
     try:
@@ -810,6 +911,8 @@ def extract_track_info(
         requester_id=requester_id,
         duration=duration_value,
         source_url=url,
+        youtube_route=safe_youtube_route_for_log(youtube_route),
+        ffmpeg_proxy_url=str(proxy_url or "").strip(),
     )
     recorder.set_result_processing_ms(perf_ms(processing_started))
     recorder.emit(safe_guild_id, requester_id)
@@ -823,15 +926,80 @@ async def extract_track_info_with_cookie_fallback(
     voice_client: Optional[discord.VoiceClient] = None,
 ) -> MusicTrack:
     started = time.perf_counter()
-    attempts = 1
+    attempts = 0
+    channel_id = voice_channel_id(voice_client)
+
+    if youtube_home_vpn_enabled():
+        attempts += 1
+        proxy_url = youtube_home_vpn_proxy_url()
+        try:
+            track = await asyncio.to_thread(
+                extract_track_info,
+                url,
+                requester_id,
+                guild_id,
+                False,
+                None,
+                YOUTUBE_ROUTE_HOME_VPN,
+                proxy_url,
+                youtube_home_vpn_extract_timeout_seconds(),
+            )
+            log_music_timing(
+                "youtube_extract",
+                guild_id,
+                channel_id,
+                requester_id,
+                source_type="youtube",
+                route=YOUTUBE_ROUTE_HOME_VPN,
+                attempts=attempts,
+                total_ms=perf_ms(started),
+            )
+            return track
+        except Exception as exc:
+            status = classify_ytdlp_error(exc)
+            print(
+                "[WARN] voice music home vpn extract failed: guild_id={0} requester_id={1} status={2} error={3}".format(
+                    guild_id,
+                    requester_id,
+                    status,
+                    type(exc).__name__,
+                )
+            )
+            log_music_timing(
+                "youtube_extract_fallback",
+                guild_id,
+                channel_id,
+                requester_id,
+                source_type="youtube",
+                from_route=YOUTUBE_ROUTE_HOME_VPN,
+                to_route=YOUTUBE_ROUTE_DIRECT_COOKIE,
+                reason=status,
+                attempts=attempts,
+                total_ms=perf_ms(started),
+            )
+            if not youtube_home_vpn_fallback_enabled():
+                raise exc
+
+    attempts += 1
     try:
-        track = await asyncio.to_thread(extract_track_info, url, requester_id, guild_id)
+        track = await asyncio.to_thread(
+            extract_track_info,
+            url,
+            requester_id,
+            guild_id,
+            True,
+            None,
+            YOUTUBE_ROUTE_DIRECT_COOKIE,
+            None,
+            None,
+        )
         log_music_timing(
             "youtube_extract",
             guild_id,
-            voice_channel_id(voice_client),
+            channel_id,
             requester_id,
             source_type="youtube",
+            route=YOUTUBE_ROUTE_DIRECT_COOKIE,
             attempts=attempts,
             total_ms=perf_ms(started),
         )
@@ -842,11 +1010,21 @@ async def extract_track_info_with_cookie_fallback(
             await handle_transient_auth_failure(get_bot(), error_status)
             try:
                 attempts += 1
-                track = await asyncio.to_thread(extract_track_info, url, requester_id, guild_id, False)
+                track = await asyncio.to_thread(
+                    extract_track_info,
+                    url,
+                    requester_id,
+                    guild_id,
+                    False,
+                    None,
+                    YOUTUBE_ROUTE_DIRECT_COOKIE,
+                    None,
+                    None,
+                )
                 log_music_action(
                     "extract_cookie_fallback",
                     guild_id,
-                    voice_channel_id(voice_client),
+                    channel_id,
                     requester_id,
                     track.title,
                     "cookie_less",
@@ -854,9 +1032,10 @@ async def extract_track_info_with_cookie_fallback(
                 log_music_timing(
                     "youtube_extract",
                     guild_id,
-                    voice_channel_id(voice_client),
+                    channel_id,
                     requester_id,
                     source_type="youtube",
+                    route=YOUTUBE_ROUTE_DIRECT_COOKIE,
                     attempts=attempts,
                     fallback="no_cookie",
                     total_ms=perf_ms(started),
@@ -867,7 +1046,7 @@ async def extract_track_info_with_cookie_fallback(
                 log_music_timing(
                     "youtube_extract_failed",
                     guild_id,
-                    voice_channel_id(voice_client),
+                    channel_id,
                     requester_id,
                     source_type="youtube",
                     attempts=attempts,
@@ -878,7 +1057,7 @@ async def extract_track_info_with_cookie_fallback(
         log_music_timing(
             "youtube_extract_failed",
             guild_id,
-            voice_channel_id(voice_client),
+            channel_id,
             requester_id,
             source_type="youtube",
             attempts=attempts,
@@ -1111,34 +1290,14 @@ async def refresh_track_for_playback(track: MusicTrack, guild_id: str) -> Option
         return replace(track, refresh_required=False)
 
     try:
-        refreshed = await asyncio.to_thread(extract_track_info, track.source_url, track.requester_id, guild_id)
+        refreshed = await extract_track_info_with_cookie_fallback(track.source_url, track.requester_id, guild_id)
     except Exception as exc:
         error_status = classify_ytdlp_error(exc)
-        if error_status in AUTH_FAILURE_STATUSES:
-            await handle_transient_auth_failure(get_bot(), error_status)
-            try:
-                refreshed = await asyncio.to_thread(extract_track_info, track.source_url, track.requester_id, guild_id, False)
-            except Exception as fallback_exc:
-                print(
-                    "[WARN] voice music loop refresh cookie-less fallback failed: guild_id={0} title={1} error={2}".format(
-                        guild_id,
-                        track.title,
-                        fallback_exc,
-                    )
-                )
-                log_music_action("loop_refresh_failed", guild_id, requester_id=track.requester_id, title=track.title, reason=classify_ytdlp_error(fallback_exc))
-                return None
-        else:
-            print("[WARN] voice music loop refresh failed: guild_id={0} title={1} error={2}".format(guild_id, track.title, exc))
-            log_music_action("loop_refresh_failed", guild_id, requester_id=track.requester_id, title=track.title, reason=error_status)
-            return None
+        print("[WARN] voice music loop refresh failed: guild_id={0} title={1} status={2} error={3}".format(guild_id, track.title, error_status, type(exc).__name__))
+        log_music_action("loop_refresh_failed", guild_id, requester_id=track.requester_id, title=track.title, reason=error_status)
+        return None
 
-    refreshed.title = track.title or refreshed.title
-    refreshed.webpage_url = track.webpage_url or refreshed.webpage_url
-    refreshed.requester_id = track.requester_id
-    refreshed.duration = track.duration if track.duration is not None else refreshed.duration
-    refreshed.source_url = track.source_url
-    refreshed.refresh_required = False
+    refreshed = preserve_track_metadata(track, refreshed)
     log_music_action("loop_refresh", guild_id, requester_id=track.requester_id, title=refreshed.title)
     return refreshed
 
@@ -1334,7 +1493,7 @@ async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> b
             ffmpeg_started = time.perf_counter()
             raw_source = discord.FFmpegPCMAudio(
                 refreshed_track.stream_url,
-                before_options=STREAM_BEFORE_OPTIONS,
+                before_options=build_ffmpeg_before_options(refreshed_track),
                 options=STREAM_OPTIONS,
             )
             source = discord.PCMVolumeTransformer(raw_source, volume=volume_factor(load_music_volume_percent(guild_id, state)))
@@ -1349,6 +1508,7 @@ async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> b
                 channel_id,
                 refreshed_track.requester_id,
                 source_type=refreshed_track.source_type,
+                route=safe_youtube_route_for_log(refreshed_track.youtube_route),
                 queue_wait_ms=wait_ms,
                 refresh_ms=refresh_ms,
                 ffmpeg_ms=ffmpeg_ms,
@@ -1359,6 +1519,53 @@ async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> b
         except (discord.ClientException, discord.OpusNotLoaded, OSError) as exc:
             print("[WARN] voice music play start failed: guild_id={0} title={1} error={2}".format(guild_id, refreshed_track.title, exc))
             log_music_action("playback_error", guild_id, channel_id, refreshed_track.requester_id, refreshed_track.title, str(exc))
+            if refreshed_track.youtube_route == YOUTUBE_ROUTE_HOME_VPN and refreshed_track.source_url:
+                try:
+                    fallback_started = time.perf_counter()
+                    fallback_track = await asyncio.to_thread(
+                        extract_track_info,
+                        refreshed_track.source_url,
+                        refreshed_track.requester_id,
+                        guild_id,
+                        True,
+                        None,
+                        YOUTUBE_ROUTE_DIRECT_COOKIE,
+                        None,
+                        None,
+                    )
+                    fallback_track = preserve_track_metadata(refreshed_track, fallback_track)
+                    state.current = fallback_track
+                    ffmpeg_started = time.perf_counter()
+                    raw_source = discord.FFmpegPCMAudio(
+                        fallback_track.stream_url,
+                        before_options=build_ffmpeg_before_options(fallback_track),
+                        options=STREAM_OPTIONS,
+                    )
+                    source = discord.PCMVolumeTransformer(raw_source, volume=volume_factor(load_music_volume_percent(guild_id, state)))
+                    ffmpeg_ms = perf_ms(ffmpeg_started)
+                    play_call_started = time.perf_counter()
+                    voice_client.play(source, after=lambda error: _schedule_after_callback(voice_client, guild_id, error))
+                    play_call_ms = perf_ms(play_call_started)
+                    log_music_action("play_start", guild_id, channel_id, fallback_track.requester_id, fallback_track.title, "ffmpeg_fallback=direct_cookie")
+                    log_music_timing(
+                        "play_setup",
+                        guild_id,
+                        channel_id,
+                        fallback_track.requester_id,
+                        source_type=fallback_track.source_type,
+                        route=safe_youtube_route_for_log(fallback_track.youtube_route),
+                        fallback="ffmpeg_direct_cookie",
+                        queue_wait_ms=wait_ms,
+                        refresh_ms=refresh_ms,
+                        fallback_extract_ms=perf_ms(fallback_started),
+                        ffmpeg_ms=ffmpeg_ms,
+                        play_call_ms=play_call_ms,
+                        total_ms=perf_ms(setup_started),
+                    )
+                    return True
+                except Exception as fallback_exc:
+                    print("[WARN] voice music ffmpeg fallback failed: guild_id={0} title={1} error={2}".format(guild_id, refreshed_track.title, type(fallback_exc).__name__))
+                    log_music_action("playback_error", guild_id, channel_id, refreshed_track.requester_id, refreshed_track.title, "ffmpeg_fallback_failed")
             state.current = None
 
     state.current = None

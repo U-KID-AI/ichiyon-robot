@@ -407,7 +407,7 @@ async def run_resolver_checks(results):
             url = "https://youtube.example/dead" if not bypass_cache else "https://youtube.example/fresh"
             return ResolvedYouTubeTrack(item.track_id, url, "yt", item.duration_seconds, 90, time.time())
 
-        def fake_extract_retry(url, requester_id, guild_id=None, use_cookies=True):
+        def fake_extract_retry(url, requester_id, guild_id=None, use_cookies=True, *args, **kwargs):
             retry_calls["extract"] += 1
             if "dead" in url:
                 raise RuntimeError("video unavailable")
@@ -418,7 +418,7 @@ async def run_resolver_checks(results):
         converted = await resolve_spotify_track_to_music_track(sample_track(), "requester", "guild-a", None, "spotify:track:{0}".format(TRACK_ID))
         results.append(check("dead cached youtube url triggers one re-resolve", converted.source_url.endswith("/fresh") and retry_calls == {"resolve": 2, "extract": 2}, str(retry_calls)))
 
-        def fake_extract_network(url, requester_id, guild_id=None, use_cookies=True):
+        def fake_extract_network(url, requester_id, guild_id=None, use_cookies=True, *args, **kwargs):
             raise RuntimeError("network timeout")
 
         retry_calls["resolve"] = 0
@@ -483,7 +483,7 @@ async def run_album_and_queue_checks(results):
         async def fake_resolve(track, guild_id, bypass_cache=False):
             return ResolvedYouTubeTrack(track.track_id, "https://youtube.example/{0}".format(track.track_id), "yt {0}".format(track.name), track.duration_seconds, 90, time.time())
 
-        def fake_extract(url, requester_id, guild_id=None, use_cookies=True):
+        def fake_extract(url, requester_id, guild_id=None, use_cookies=True, *args, **kwargs):
             return MusicTrack("YouTube title", url, "https://stream.example/audio", requester_id, 240, url)
 
         voice_music.resolve_spotify_track_to_youtube = fake_resolve
