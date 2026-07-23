@@ -341,7 +341,7 @@ print("admin import ok")
     original_get_connection = n_pull.get_connection
     original_repo = n_pull.YouTubeNPullRepository
     original_flags = n_pull.FeatureFlagRepository
-    original_voice = n_pull.get_guild_voice_client
+    original_ensure_voice = n_pull.ensure_youtube_n_pull_voice_client
     original_play_next = n_pull.play_next_track
     fake_connection = FakeConnection()
     play_calls = []
@@ -356,7 +356,18 @@ print("admin import ok")
         n_pull.get_connection = lambda: _ConnectionContext()
         n_pull.YouTubeNPullRepository = lambda connection: fake_connection.repository
         n_pull.FeatureFlagRepository = FakeFeatureFlagRepository
-        n_pull.get_guild_voice_client = lambda guild: FakeVoiceClient()
+        ensure_calls = []
+
+        async def _fake_ensure_connected(message):
+            ensure_calls.append(("connected", str(message.guild.id)))
+            return FakeVoiceClient()
+
+        async def _fake_ensure_missing(message):
+            ensure_calls.append(("missing", str(message.guild.id)))
+            await message.channel.send("先にVCへ呼んでください。")
+            return None
+
+        n_pull.ensure_youtube_n_pull_voice_client = _fake_ensure_connected
 
         async def _fake_play_next(voice_client, guild_id):
             play_calls.append(guild_id)
@@ -368,8 +379,9 @@ print("admin import ok")
         results.append(check("mention command handles known preset", handled is True))
         results.append(check("queue output mentions added count", any("2件" in text for text in message.channel.messages), str(message.channel.messages)))
         results.append(check("idle playback starts once", play_calls == ["guild-a"], str(play_calls)))
+        results.append(check("youtube n-pull uses shared voice preparation", ensure_calls == [("connected", "guild-a")], str(ensure_calls)))
 
-        n_pull.get_guild_voice_client = lambda guild: None
+        n_pull.ensure_youtube_n_pull_voice_client = _fake_ensure_missing
         no_vc_message = FakeMessage()
         handled = asyncio.run(n_pull.handle_youtube_n_pull_command(no_vc_message, "しゃろう 1連"))
         results.append(check("VC disconnected is handled without auto join", handled is True and play_calls == ["guild-a"]))
@@ -393,7 +405,7 @@ print("admin import ok")
             results.append(check("owned invalid count uses youtube error: {0}".format(invalid_command), handled is True and any("1" in text and "100" in text for text in invalid_message.channel.messages), str(invalid_message.channel.messages)))
 
         FakeFeatureFlagRepository.enabled = False
-        n_pull.get_guild_voice_client = lambda guild: FakeVoiceClient()
+        n_pull.ensure_youtube_n_pull_voice_client = _fake_ensure_connected
         feature_off_message = FakeMessage()
         handled = asyncio.run(n_pull.handle_youtube_n_pull_command(feature_off_message, "しゃろう 1連"))
         results.append(check("feature flag OFF blocks N pull", handled is True and any("OFF" in text for text in feature_off_message.channel.messages), str(feature_off_message.channel.messages)))
@@ -436,7 +448,7 @@ print("admin import ok")
         n_pull.get_connection = original_get_connection
         n_pull.YouTubeNPullRepository = original_repo
         n_pull.FeatureFlagRepository = original_flags
-        n_pull.get_guild_voice_client = original_voice
+        n_pull.ensure_youtube_n_pull_voice_client = original_ensure_voice
         n_pull.play_next_track = original_play_next
 
     result_text = "\n".join(n_pull.build_result_messages(FakeRepository().preset, 100, FakeRepository().videos * 40, "hit"))
