@@ -107,6 +107,10 @@ def check_area_master(check: Check) -> None:
     check.add("okinawa-like hierarchy is selectable", jma_weather.list_class10_areas(AREA_MASTER, "471000")[0]["name"] == "本島中南部")
     check.add("invalid office is rejected", bool(jma_weather.validate_weather_config({"office_code": "999999", "area_codes": ["430010"]}, AREA_MASTER)))
     check.add("out-of-office area is rejected", bool(jma_weather.validate_weather_config({"office_code": "430000", "area_codes": ["130010"]}, AREA_MASTER)))
+    check.add("single string area code normalizes to list", jma_weather.normalize_area_codes("430010") == ["430010"])
+    check.add("integer area code normalizes to string", jma_weather.normalize_area_codes(430010) == ["430010"])
+    check.add("duplicate area codes are removed", jma_weather.normalize_area_codes([" 430010 ", "430010", "", None]) == ["430010"])
+    check.add("primary subdivision alias is accepted", jma_weather.get_config_area_codes({"primary_subdivision_codes": ["430010"]}) == ["430010"])
 
 
 def check_forecast_parsing(check: Check) -> None:
@@ -121,6 +125,55 @@ def check_forecast_parsing(check: Check) -> None:
     check.add("past precipitation window is omitted", "0-6時" not in message)
     check.add("representative temperatures are separate", "代表地点の気温" in message and "熊本: 最低 26℃ / 最高 35℃" in message)
     check.add("missing values are not converted to zero", "最低 0℃" not in message and "最高 0℃" not in message)
+
+
+def check_subdivision_filtering(check: Check) -> None:
+    now = datetime(2026, 7, 24, 7, 0, tzinfo=JST)
+    single_bundle = jma_weather.parse_forecast(
+        AREA_MASTER,
+        FORECAST,
+        {"office_code": "430000", "area_codes": ["430010"]},
+        now=now,
+    )
+    multi_bundle = jma_weather.parse_forecast(
+        AREA_MASTER,
+        FORECAST,
+        {"office_code": "430000", "area_codes": ["430010", "430040"]},
+        now=now,
+    )
+    alias_bundle = jma_weather.parse_forecast(
+        AREA_MASTER,
+        FORECAST,
+        {"office_code": "430000", "primary_subdivision_codes": ["430010"]},
+        now=now,
+    )
+    all_bundle = jma_weather.parse_forecast(
+        AREA_MASTER,
+        FORECAST,
+        {"office_code": "430000", "area_codes": ["430010", "430020", "430030", "430040"]},
+        now=now,
+    )
+
+    check.add("single selected subdivision generates one area", len(single_bundle.area_lines) == 1, str(single_bundle.area_lines))
+    check.add("multiple selected subdivisions generate selected areas", len(multi_bundle.area_lines) == 2, str(multi_bundle.area_lines))
+    check.add("primary subdivision alias generates selected area", len(alias_bundle.area_lines) == 1, str(alias_bundle.area_lines))
+    check.add("all selected subdivisions keep available areas", len(all_bundle.area_lines) == 3, str(all_bundle.area_lines))
+
+    try:
+        jma_weather.parse_forecast(
+            AREA_MASTER,
+            FORECAST,
+            {"office_code": "430000", "area_codes": ["439999"]},
+            now=now,
+        )
+        check.add("empty subdivision filter raises diagnostic error", False, "no error")
+    except jma_weather.JmaWeatherError as exc:
+        detail = str(exc)
+        check.add(
+            "empty subdivision filter raises diagnostic error",
+            "requested_codes=439999" in detail and "available_codes=" in detail,
+            detail,
+        )
 
 
 async def check_admin_form(check: Check) -> None:
@@ -155,6 +208,31 @@ async def check_admin_form(check: Check) -> None:
     check.add("static form remains static", not static_errors and static_form["content_type"] == "static")
     check.add("weather form allows empty body", not weather_errors and weather_form["content_type"] == "jma_weather")
     check.add("weather form stores selected office and areas", '"office_code": "430000"' in weather_form["content_config_json"] and "430020" in weather_form["content_config_json"])
+
+    single_weather_form, single_weather_errors, _ = admin_auto_posts.build_form(
+        {
+            "name": "weather",
+            "body": "",
+            "image_path": "",
+            "channel_id": "123",
+            "schedule_type": "daily",
+            "time": "07:00",
+            "timezone": "Asia/Tokyo",
+            "enabled": "on",
+            "content_type": "jma_weather",
+            "office_code": "430000",
+            "area_codes": "430010",
+        }
+    )
+    restored_form = admin_auto_posts.build_form_from_post(
+        {
+            "content_type": "jma_weather",
+            "content_config_json": single_weather_form["content_config_json"],
+            "enabled": True,
+        }
+    )
+    check.add("admin weather form stores single area as list", not single_weather_errors and '"area_codes": ["430010"]' in single_weather_form["content_config_json"])
+    check.add("admin edit restores selected single area", restored_form["area_codes"] == ["430010"], str(restored_form["area_codes"]))
 
     original_get_area_master = admin_auto_posts.get_area_master
 
@@ -326,6 +404,7 @@ async def main_async() -> Check:
     check = Check()
     check_area_master(check)
     check_forecast_parsing(check)
+    check_subdivision_filtering(check)
     await check_admin_form(check)
     await check_runtime_success(check)
     await check_runtime_failure(check)

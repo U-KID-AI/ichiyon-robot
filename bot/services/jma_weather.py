@@ -105,10 +105,17 @@ def list_class10_areas(area_master: Dict[str, Any], office_code: str) -> List[Di
     return rows
 
 
+def get_config_area_codes(config: Dict[str, Any]) -> List[str]:
+    area_codes = []
+    for key in ("area_codes", "primary_subdivision_codes", "primary_subdivision_code"):
+        area_codes.extend(normalize_area_codes(config.get(key)))
+    return normalize_area_codes(area_codes)
+
+
 def validate_weather_config(config: Dict[str, Any], area_master: Dict[str, Any]) -> List[str]:
     errors = []
     office_code = str(config.get("office_code") or "").strip()
-    area_codes = normalize_area_codes(config.get("area_codes"))
+    area_codes = get_config_area_codes(config)
     if not office_code:
         errors.append("天気投稿の予報区を選択してください。")
         return errors
@@ -284,7 +291,7 @@ def parse_forecast(area_master: Dict[str, Any], payload: List[Dict[str, Any]], c
         raise JmaWeatherError("JMA forecast timeSeries is invalid")
 
     office_code = str(config.get("office_code") or "").strip()
-    area_codes = normalize_area_codes(config.get("area_codes"))
+    area_codes = get_config_area_codes(config)
     weather_times, weather_by_area = build_value_by_area(time_series, "weathers")
     pop_times, pops_by_area = build_value_by_area(time_series, "pops")
     date_label = format_date_label(weather_times[0] if weather_times else first.get("reportDatetime"))
@@ -307,7 +314,14 @@ def parse_forecast(area_master: Dict[str, Any], payload: List[Dict[str, Any]], c
         area_lines.append("\n".join(lines))
 
     if not area_lines:
-        raise JmaWeatherError("JMA forecast has no selected area data")
+        available_codes = sorted(set(weather_by_area.keys()) | set(pops_by_area.keys()))
+        raise JmaWeatherError(
+            "JMA forecast has no selected area data: office_code={0} requested_codes={1} available_codes={2}".format(
+                office_code or "-",
+                ",".join(area_codes) or "-",
+                ",".join(available_codes) or "-",
+            )
+        )
 
     return JmaForecastBundle(
         report_datetime=str(first.get("reportDatetime") or ""),
