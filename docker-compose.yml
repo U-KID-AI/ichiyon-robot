@@ -48,6 +48,31 @@ services:
       - .:/app
       - ./secrets:/app/secrets:ro
 
+  youtube-vpn-proxy:
+    profiles:
+      - youtube-vpn
+    build:
+      context: ./docker/youtube-vpn-proxy
+      dockerfile: Dockerfile
+    container_name: ichiyon-robot-youtube-vpn-proxy
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      OPENVPN_CONFIG: /vpn/client.ovpn
+      OPENVPN_TUN_MTU: ${YOUTUBE_HOME_VPN_TUN_MTU:-1400}
+      OPENVPN_MSSFIX: ${YOUTUBE_HOME_VPN_MSSFIX:-1360}
+    volumes:
+      - ${YOUTUBE_HOME_VPN_OVPN_PATH:-/home/ubuntu/OpenVPN-Config.ovpn}:/vpn/client.ovpn:ro
+    healthcheck:
+      test: ["CMD-SHELL", "ip link show tun0 >/dev/null 2>&1 && nc -z 127.0.0.1 8888"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
   bot:
     profiles:
       - bot
@@ -74,6 +99,11 @@ services:
       X_SEARCH_MODE: ${X_SEARCH_MODE:-recent}
       X_SEARCH_LOOKBACK_DAYS: ${X_SEARCH_LOOKBACK_DAYS:-14}
       YTDLP_COOKIES_FILE: ${YTDLP_COOKIES_FILE:-}
+      YOUTUBE_HOME_VPN_ENABLED: ${YOUTUBE_HOME_VPN_ENABLED:-false}
+      YOUTUBE_HOME_VPN_PROXY_URL: ${YOUTUBE_HOME_VPN_PROXY_URL:-http://youtube-vpn-proxy:8888}
+      YOUTUBE_HOME_VPN_CONNECT_TIMEOUT_SECONDS: ${YOUTUBE_HOME_VPN_CONNECT_TIMEOUT_SECONDS:-5}
+      YOUTUBE_HOME_VPN_EXTRACT_TIMEOUT_SECONDS: ${YOUTUBE_HOME_VPN_EXTRACT_TIMEOUT_SECONDS:-30}
+      YOUTUBE_HOME_VPN_FALLBACK_ENABLED: ${YOUTUBE_HOME_VPN_FALLBACK_ENABLED:-true}
       STARTUP_CHANNEL_ID: ${STARTUP_CHANNEL_ID:-0}
       SCHEDULE_CHANNEL_ID: ${SCHEDULE_CHANNEL_ID:-0}
     command: python main.py
@@ -105,6 +135,11 @@ services:
       X_SEARCH_MODE: ${X_SEARCH_MODE:-recent}
       X_SEARCH_LOOKBACK_DAYS: ${X_SEARCH_LOOKBACK_DAYS:-14}
       YTDLP_COOKIES_FILE: ${YTDLP_COOKIES_FILE:-}
+      YOUTUBE_HOME_VPN_ENABLED: ${YOUTUBE_HOME_VPN_ENABLED:-false}
+      YOUTUBE_HOME_VPN_PROXY_URL: ${YOUTUBE_HOME_VPN_PROXY_URL:-http://youtube-vpn-proxy:8888}
+      YOUTUBE_HOME_VPN_CONNECT_TIMEOUT_SECONDS: ${YOUTUBE_HOME_VPN_CONNECT_TIMEOUT_SECONDS:-5}
+      YOUTUBE_HOME_VPN_EXTRACT_TIMEOUT_SECONDS: ${YOUTUBE_HOME_VPN_EXTRACT_TIMEOUT_SECONDS:-30}
+      YOUTUBE_HOME_VPN_FALLBACK_ENABLED: ${YOUTUBE_HOME_VPN_FALLBACK_ENABLED:-true}
       STARTUP_CHANNEL_ID: ${IRSIA_STARTUP_CHANNEL_ID:-0}
       SCHEDULE_CHANNEL_ID: ${IRSIA_SCHEDULE_CHANNEL_ID:-0}
       NORMAL_BOT_NICKNAME: ${IRSIA_NORMAL_BOT_NICKNAME:-イルシア}

@@ -310,12 +310,12 @@ def main() -> int:
     loop_track = make_loop_track(source_track)
     results.append(check("loop track requires stream refresh", loop_track.refresh_required and loop_track.stream_url == "", str(loop_track)))
 
-    original_extract = voice_music.extract_track_info
+    original_extract = voice_music.extract_track_info_with_cookie_fallback
     try:
-        def _fake_extract(url, requester_id, guild_id=None, use_cookies=True):
+        async def _fake_extract(url, requester_id, guild_id=None, voice_client=None):
             return MusicTrack("fresh", url, "https://fresh-stream.example.com/1", requester_id, 99, url)
 
-        voice_music.extract_track_info = _fake_extract
+        voice_music.extract_track_info_with_cookie_fallback = _fake_extract
         refreshed = asyncio.run(refresh_track_for_playback(loop_track, "guild-check"))
         results.append(
             check(
@@ -329,14 +329,14 @@ def main() -> int:
             )
         )
 
-        def _failing_extract(url, requester_id, guild_id=None, use_cookies=True):
+        async def _failing_extract(url, requester_id, guild_id=None, voice_client=None):
             raise RuntimeError("video unavailable")
 
-        voice_music.extract_track_info = _failing_extract
+        voice_music.extract_track_info_with_cookie_fallback = _failing_extract
         failed_refresh = asyncio.run(refresh_track_for_playback(loop_track, "guild-check"))
         results.append(check("loop refresh failure skips only that track", failed_refresh is None, str(failed_refresh)))
     finally:
-        voice_music.extract_track_info = original_extract
+        voice_music.extract_track_info_with_cookie_fallback = original_extract
 
     state.current = first
     state.queue.append(second)
