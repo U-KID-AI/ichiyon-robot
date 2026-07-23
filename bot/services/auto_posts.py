@@ -80,51 +80,68 @@ def build_scheduled_at(local_now: datetime, month: int, day: int, hour: int, min
         return None
 
 
+def build_due_key(schedule_type: str, scheduled_at: datetime) -> str:
+    return "{0}:{1}".format(schedule_type, scheduled_at.isoformat(timespec="minutes"))
+
+
+def build_interval_scheduled_at(local_now: datetime, interval_minutes: int) -> datetime:
+    midnight = datetime(local_now.year, local_now.month, local_now.day, tzinfo=JST)
+    total_minutes = local_now.hour * 60 + local_now.minute
+    slot_minutes = (total_minutes // interval_minutes) * interval_minutes
+    return midnight + timedelta(minutes=slot_minutes)
+
+
 def get_due_run(post: Dict[str, Any], now: Optional[datetime] = None) -> Optional[AutoPostDue]:
     local_now = get_local_now(now)
     schedule_type = post.get("schedule_type") or "yearly"
     config = parse_schedule_value(post.get("schedule_value"))
-    time_parts = parse_time(config.get("time"))
-    if time_parts is None:
-        print("[WARN] auto_posts invalid time: id={0}".format(post.get("id")))
-        return None
-
-    hour = time_parts["hour"]
-    minute = time_parts["minute"]
     scheduled_at = None
 
-    if schedule_type == "daily":
-        scheduled_at = datetime(local_now.year, local_now.month, local_now.day, hour, minute, tzinfo=JST)
-        due_key = "daily:{0}".format(scheduled_at.date().isoformat())
-    elif schedule_type == "weekly":
-        weekday = str(config.get("weekday") or "").strip().lower()
-        if WEEKDAY_INDEX.get(weekday) != local_now.weekday():
+    if schedule_type == "interval":
+        interval_minutes = parse_int(config.get("interval_minutes"))
+        if interval_minutes is None or interval_minutes < 1 or interval_minutes > 1440:
+            print("[WARN] auto_posts invalid interval_minutes: id={0}".format(post.get("id")))
             return None
-        scheduled_at = datetime(local_now.year, local_now.month, local_now.day, hour, minute, tzinfo=JST)
-        due_key = "weekly:{0}".format(scheduled_at.date().isoformat())
-    elif schedule_type == "monthly":
-        day = parse_int(config.get("day"))
-        if day is None or day != local_now.day:
-            return None
-        scheduled_at = datetime(local_now.year, local_now.month, local_now.day, hour, minute, tzinfo=JST)
-        due_key = "monthly:{0}".format(scheduled_at.date().isoformat())
-    elif schedule_type in ("once", "yearly"):
-        month = parse_int(config.get("month"))
-        day = parse_int(config.get("day"))
-        if month is None or day is None:
-            return None
-        if month != local_now.month or day != local_now.day:
-            return None
-        scheduled_at = build_scheduled_at(local_now, month, day, hour, minute)
-        if scheduled_at is None:
-            return None
-        if schedule_type == "once":
-            due_key = "once:{0}:{1}".format(post.get("id"), scheduled_at.date().isoformat())
-        else:
-            due_key = "yearly:{0}".format(scheduled_at.date().isoformat())
+        scheduled_at = build_interval_scheduled_at(local_now, interval_minutes)
+        due_key = build_due_key("interval", scheduled_at)
     else:
-        print("[WARN] auto_posts unknown schedule_type: id={0} type={1}".format(post.get("id"), schedule_type))
-        return None
+        time_parts = parse_time(config.get("time"))
+        if time_parts is None:
+            print("[WARN] auto_posts invalid time: id={0}".format(post.get("id")))
+            return None
+
+        hour = time_parts["hour"]
+        minute = time_parts["minute"]
+
+        if schedule_type == "daily":
+            scheduled_at = datetime(local_now.year, local_now.month, local_now.day, hour, minute, tzinfo=JST)
+            due_key = build_due_key("daily", scheduled_at)
+        elif schedule_type == "weekly":
+            weekday = str(config.get("weekday") or "").strip().lower()
+            if WEEKDAY_INDEX.get(weekday) != local_now.weekday():
+                return None
+            scheduled_at = datetime(local_now.year, local_now.month, local_now.day, hour, minute, tzinfo=JST)
+            due_key = build_due_key("weekly", scheduled_at)
+        elif schedule_type == "monthly":
+            day = parse_int(config.get("day"))
+            if day is None or day != local_now.day:
+                return None
+            scheduled_at = datetime(local_now.year, local_now.month, local_now.day, hour, minute, tzinfo=JST)
+            due_key = build_due_key("monthly", scheduled_at)
+        elif schedule_type in ("once", "yearly"):
+            month = parse_int(config.get("month"))
+            day = parse_int(config.get("day"))
+            if month is None or day is None:
+                return None
+            if month != local_now.month or day != local_now.day:
+                return None
+            scheduled_at = build_scheduled_at(local_now, month, day, hour, minute)
+            if scheduled_at is None:
+                return None
+            due_key = build_due_key(schedule_type, scheduled_at)
+        else:
+            print("[WARN] auto_posts unknown schedule_type: id={0} type={1}".format(post.get("id"), schedule_type))
+            return None
 
     if scheduled_at is None or local_now < scheduled_at:
         return None
@@ -193,6 +210,8 @@ async def run_db_auto_posts_once(bot, now: Optional[datetime] = None) -> int:
                 if due is None:
                     continue
                 post_id = int(post["id"])
+                if hasattr(post_repository, "try_delivery_lock") and not post_repository.try_delivery_lock(post_id, due.due_key):
+                    continue
                 if post_repository.was_delivered(post_id, due.due_key):
                     continue
 

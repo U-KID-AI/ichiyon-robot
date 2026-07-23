@@ -93,6 +93,7 @@
             <option value="monthly" {% if post.schedule_type == "monthly" %}selected{% endif %}>毎月</option>
             <option value="weekly" {% if post.schedule_type == "weekly" %}selected{% endif %}>毎週</option>
             <option value="daily" {% if post.schedule_type == "daily" %}selected{% endif %}>毎日</option>
+            <option value="interval" {% if post.schedule_type == "interval" %}selected{% endif %}>一定間隔</option>
           </select>
         </label>
         <label>月<input type="number" name="month" value="{{ post.month }}" min="1" max="12" {% if not can_edit %}disabled{% endif %}></label>
@@ -106,6 +107,7 @@
           </select>
         </label>
         <label>時刻<input type="time" name="time" value="{{ post.time }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>何分ごと<input type="number" name="interval_minutes" value="{{ post.interval_minutes }}" min="1" max="1440" {% if not can_edit %}disabled{% endif %}></label>
         <label>タイムゾーン<input type="text" name="timezone" value="{{ post.timezone }}" placeholder="Asia/Tokyo" {% if not can_edit %}disabled{% endif %}></label>
       </div>
       <p class="empty">現在の設定: {{ schedule_summary }}</p>
