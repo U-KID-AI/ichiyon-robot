@@ -53,6 +53,12 @@ def get_guild_voice_client(guild):
     return real_get_guild_voice_client(guild)
 
 
+async def ensure_youtube_n_pull_voice_client(message):
+    from bot.services.voice_music import ensure_mention_music_voice_client
+
+    return await ensure_mention_music_voice_client(message)
+
+
 def get_music_state(guild_id: str):
     from bot.services.voice_music import get_music_state as real_get_music_state
 
@@ -494,9 +500,8 @@ async def handle_youtube_n_pull_command(message: discord.Message, command_text: 
             log_n_pull("skipped", guild_id, requester_id, requested_count=count, reason="feature_off")
             return True
 
-        voice_client = get_guild_voice_client(guild)
+        voice_client = await ensure_youtube_n_pull_voice_client(message)
         if voice_client is None:
-            await message.channel.send("先にVCへ呼んでください。")
             log_n_pull("skipped", guild_id, requester_id, requested_count=count, reason="not_connected")
             return True
 
