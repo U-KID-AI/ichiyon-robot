@@ -86,6 +86,8 @@ class AutoPostRepository:
         schedule_value: str,
         repeat_rule: Optional[str],
         enabled: bool,
+        content_type: str = "static",
+        content_config_json: str = "{}",
     ) -> Dict[str, Any]:
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -100,9 +102,11 @@ class AutoPostRepository:
                     schedule_type,
                     schedule_value,
                     repeat_rule,
-                    enabled
+                    enabled,
+                    content_type,
+                    content_config_json
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING *
                 """,
                 (
@@ -116,6 +120,8 @@ class AutoPostRepository:
                     schedule_value,
                     repeat_rule,
                     enabled,
+                    content_type,
+                    content_config_json,
                 ),
             )
             return fetch_one(cursor)
@@ -132,6 +138,8 @@ class AutoPostRepository:
         schedule_value: str,
         repeat_rule: Optional[str],
         enabled: bool,
+        content_type: str = "static",
+        content_config_json: str = "{}",
     ) -> Optional[Dict[str, Any]]:
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -145,6 +153,8 @@ class AutoPostRepository:
                     schedule_value = %s,
                     repeat_rule = %s,
                     enabled = %s,
+                    content_type = %s,
+                    content_config_json = %s,
                     updated_at = NOW()
                 WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
@@ -158,6 +168,8 @@ class AutoPostRepository:
                     schedule_value,
                     repeat_rule,
                     enabled,
+                    content_type,
+                    content_config_json,
                     self.bot_id,
                     guild_id,
                     post_id,
@@ -220,6 +232,8 @@ class AutoPostRepository:
             schedule_value,
             source.get("repeat_rule") or None,
             False,
+            str(source.get("content_type") or "static"),
+            str(source.get("content_config_json") or "{}"),
         )
 
     def delete_post(self, guild_id: str, post_id: int) -> bool:

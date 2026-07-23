@@ -9,7 +9,7 @@
       {% if server.icon_url %}<img class="server-icon" src="{{ server.icon_url }}" alt="">{% else %}<div class="server-icon placeholder"></div>{% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">決まった日時の投稿を設定。</p>
+        <p class="empty">決まった日時の投稿を設定します。</p>
         {% if server.role %}<strong class="status enabled" title="{{ server.role|role_description }}">{{ server.role|role_label }}</strong>{% endif %}
       </div>
     </div>
@@ -30,18 +30,54 @@
     <h2>投稿内容</h2>
     <form class="quote-form" method="post" enctype="multipart/form-data">
       <div class="form-grid">
-        <label>投稿名<input type="text" name="name" value="{{ post.name }}" placeholder="6/30 サ終やめませんか？" {% if not can_edit %}disabled{% endif %}></label>
-        <label>投稿チャンネルID<input type="text" name="channel_id" value="{{ post.channel_id }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>投稿名<input type="text" name="name" value="{{ post.name }}" placeholder="毎朝の天気" {% if not can_edit %}disabled{% endif %}></label>
+        <label>投稿先チャンネルID<input type="text" name="channel_id" value="{{ post.channel_id }}" {% if not can_edit %}disabled{% endif %}></label>
       </div>
-      <label>本文<textarea name="body" placeholder="サ終やめませんか？" {% if not can_edit %}disabled{% endif %}>{{ post.body }}</textarea></label>
-      <div class="image-field">
-        <input type="hidden" name="image_path" value="{{ post.image_path }}">
-        {% if post.image_path %}
-          <img class="image-preview" src="/{{ post.image_path }}" alt="">
-          <label class="check-row"><input type="checkbox" name="delete_image" {% if not can_edit %}disabled{% endif %}>画像を削除</label>
-        {% endif %}
-        <label>画像を選ぶ<input type="file" name="image_upload" accept="image/*" {% if not can_edit %}disabled{% endif %}></label>
+
+      <label>
+        投稿内容
+        <select name="content_type" id="content-type" {% if not can_edit %}disabled{% endif %}>
+          <option value="static" {% if post.content_type == "static" %}selected{% endif %}>固定投稿</option>
+          <option value="jma_weather" {% if post.content_type == "jma_weather" %}selected{% endif %}>天気自動投稿</option>
+        </select>
+      </label>
+
+      <div id="static-fields">
+        <label>本文<textarea name="body" placeholder="本文を入力" {% if not can_edit %}disabled{% endif %}>{{ post.body }}</textarea></label>
+        <div class="image-field">
+          <input type="hidden" name="image_path" value="{{ post.image_path }}">
+          {% if post.image_path %}
+            <img class="image-preview" src="/{{ post.image_path }}" alt="">
+            <label class="check-row"><input type="checkbox" name="delete_image" {% if not can_edit %}disabled{% endif %}>画像を削除</label>
+          {% endif %}
+          <label>画像を選ぶ<input type="file" name="image_upload" accept="image/*" {% if not can_edit %}disabled{% endif %}></label>
+        </div>
       </div>
+
+      <div id="weather-fields">
+        {% if weather_master_error %}<p class="error">{{ weather_master_error }}</p>{% endif %}
+        <div class="form-grid">
+          <label>
+            気象庁 予報区
+            <select name="office_code" id="weather-office" {% if not can_edit %}disabled{% endif %}>
+              <option value="">選択してください</option>
+              {% for office in weather_offices %}
+                <option value="{{ office.code }}" {% if post.office_code == office.code %}selected{% endif %}>{{ office.name }} / {{ office.code }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            一次細分区域
+            <select name="area_codes" id="weather-areas" multiple size="8" {% if not can_edit %}disabled{% endif %}>
+              {% for area in weather_areas %}
+                <option value="{{ area.code }}" data-office-code="{{ area.office_code }}" {% if area.code in post.area_codes %}selected{% endif %}>{{ area.name }} / {{ area.code }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <p class="hint">予報区と一次細分区域は気象庁の地域マスタから表示します。気温は予報データ上の代表地点として投稿します。</p>
+      </div>
+
       <label class="check-row">
         <input type="checkbox" name="enabled" {% if post.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
         有効
@@ -52,7 +88,7 @@
         <label>
           種類
           <select name="schedule_type" {% if not can_edit %}disabled{% endif %}>
-            <option value="once" {% if post.schedule_type == "once" %}selected{% endif %}>一回だけ</option>
+            <option value="once" {% if post.schedule_type == "once" %}selected{% endif %}>1回だけ</option>
             <option value="yearly" {% if post.schedule_type == "yearly" %}selected{% endif %}>毎年</option>
             <option value="monthly" {% if post.schedule_type == "monthly" %}selected{% endif %}>毎月</option>
             <option value="weekly" {% if post.schedule_type == "weekly" %}selected{% endif %}>毎週</option>
@@ -73,7 +109,6 @@
         <label>タイムゾーン<input type="text" name="timezone" value="{{ post.timezone }}" placeholder="Asia/Tokyo" {% if not can_edit %}disabled{% endif %}></label>
       </div>
       <p class="empty">現在の設定: {{ schedule_summary }}</p>
-      <p class="hint">6/30投稿の例: 種類は「毎年」、月は6、日は30、本文は「サ終やめませんか？」。</p>
 
       {% if mode == "edit" %}
         <details>
@@ -81,6 +116,7 @@
           <dl class="info-list">
             <dt>最終投稿日時</dt><dd>{{ post.last_posted_at or "-" }}</dd>
             <dt>保存済みスケジュール</dt><dd><code>{{ post.schedule_value or "-" }}</code></dd>
+            <dt>保存済み内容設定</dt><dd><code>{{ post.content_config_json or "-" }}</code></dd>
           </dl>
         </details>
       {% endif %}
@@ -92,7 +128,7 @@
       {% endif %}
     </form>
     {% if mode == "edit" %}
-      <form method="post" action="/guilds/{{ guild_id }}/auto-posts/{{ post.id }}/delete" data-confirm="この自動投稿を削除する？">
+      <form method="post" action="/guilds/{{ guild_id }}/auto-posts/{{ post.id }}/delete" data-confirm="この自動投稿を削除しますか？">
         <button class="danger" type="submit" {% if not can_edit %}disabled{% endif %}>削除</button>
       </form>
     {% endif %}
@@ -104,5 +140,29 @@
         if (!confirm(form.dataset.confirm)) { event.preventDefault(); }
       });
     });
+    var contentType = document.getElementById("content-type");
+    var staticFields = document.getElementById("static-fields");
+    var weatherFields = document.getElementById("weather-fields");
+    var weatherOffice = document.getElementById("weather-office");
+    var weatherAreas = document.getElementById("weather-areas");
+    function refreshContentFields() {
+      var isWeather = contentType && contentType.value === "jma_weather";
+      if (staticFields) { staticFields.hidden = isWeather; }
+      if (weatherFields) { weatherFields.hidden = !isWeather; }
+    }
+    function refreshWeatherAreas() {
+      if (!weatherOffice || !weatherAreas) { return; }
+      var officeCode = weatherOffice.value;
+      Array.prototype.forEach.call(weatherAreas.options, function (option) {
+        var visible = option.dataset.officeCode === officeCode;
+        option.hidden = !visible;
+        option.disabled = !visible;
+        if (!visible) { option.selected = false; }
+      });
+    }
+    if (contentType) { contentType.addEventListener("change", refreshContentFields); }
+    if (weatherOffice) { weatherOffice.addEventListener("change", refreshWeatherAreas); }
+    refreshContentFields();
+    refreshWeatherAreas();
   </script>
 {% endblock %}
