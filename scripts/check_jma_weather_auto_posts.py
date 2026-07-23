@@ -234,6 +234,50 @@ async def check_admin_form(check: Check) -> None:
     check.add("admin weather form stores single area as list", not single_weather_errors and '"area_codes": ["430010"]' in single_weather_form["content_config_json"])
     check.add("admin edit restores selected single area", restored_form["area_codes"] == ["430010"], str(restored_form["area_codes"]))
 
+    interval_form, interval_errors, _ = admin_auto_posts.build_form(
+        {
+            "name": "interval weather",
+            "body": "",
+            "image_path": "",
+            "channel_id": "123",
+            "schedule_type": "interval",
+            "interval_minutes": "1",
+            "timezone": "Asia/Tokyo",
+            "enabled": "on",
+            "content_type": "jma_weather",
+            "office_code": "430000",
+            "area_codes": ["430010"],
+        }
+    )
+    invalid_interval_form, invalid_interval_errors, _ = admin_auto_posts.build_form(
+        {
+            "name": "invalid interval weather",
+            "body": "",
+            "image_path": "",
+            "channel_id": "123",
+            "schedule_type": "interval",
+            "interval_minutes": "0",
+            "timezone": "Asia/Tokyo",
+            "enabled": "on",
+            "content_type": "jma_weather",
+            "office_code": "430000",
+            "area_codes": ["430010"],
+        }
+    )
+    interval_restored = admin_auto_posts.build_form_from_post(
+        {
+            "schedule_type": "interval",
+            "schedule_value": interval_form["schedule_value"],
+            "content_type": "jma_weather",
+            "content_config_json": interval_form["content_config_json"],
+            "enabled": True,
+        }
+    )
+    check.add("admin interval schedule stores minutes", not interval_errors and '"interval_minutes": 1' in interval_form["schedule_value"], interval_form["schedule_value"])
+    check.add("admin interval rejects zero minutes", bool(invalid_interval_errors), str(invalid_interval_errors))
+    check.add("admin edit restores interval minutes", interval_restored["interval_minutes"] == "1", str(interval_restored["interval_minutes"]))
+    check.add("admin list summarizes interval schedule", admin_auto_posts.summarize_schedule(interval_restored) == "1分ごと")
+
     original_get_area_master = admin_auto_posts.get_area_master
 
     async def fake_get_area_master() -> Dict[str, Any]:
@@ -285,6 +329,9 @@ class FakeRepo:
 
     def was_delivered(self, post_id: int, due_key: str) -> bool:
         return False
+
+    def try_delivery_lock(self, post_id: int, due_key: str) -> bool:
+        return True
 
     def record_delivery(self, guild_id: str, post_id: int, due_key: str, channel_id: Optional[str]) -> None:
         self.__class__.delivered += 1

@@ -26,7 +26,7 @@ from bot.services.jma_weather import (
 
 router = APIRouter()
 
-SCHEDULE_TYPES = ("once", "yearly", "monthly", "weekly", "daily")
+SCHEDULE_TYPES = ("once", "yearly", "monthly", "weekly", "daily", "interval")
 CONTENT_TYPES = ("static", "jma_weather")
 WEEKDAYS = ("", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 DEFAULT_TIMEZONE = "Asia/Tokyo"
@@ -198,6 +198,7 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
         day: str = Form(""),
         weekday: str = Form(""),
         time: str = Form("09:00"),
+        interval_minutes: str = Form(""),
         timezone: str = Form(DEFAULT_TIMEZONE),
         enabled: Optional[str] = Form(None),
         content_type: str = Form("static"),
@@ -256,6 +257,7 @@ def register_auto_post_routes(templates: Jinja2Templates) -> None:
         day: str = Form(""),
         weekday: str = Form(""),
         time: str = Form("09:00"),
+        interval_minutes: str = Form(""),
         timezone: str = Form(DEFAULT_TIMEZONE),
         enabled: Optional[str] = Form(None),
         content_type: str = Form("static"),
@@ -338,6 +340,7 @@ def default_form() -> Dict[str, Any]:
         "day": "",
         "weekday": "",
         "time": "09:00",
+        "interval_minutes": "",
         "timezone": DEFAULT_TIMEZONE,
         "repeat_rule": "",
         "enabled": True,
@@ -369,6 +372,7 @@ def build_form_from_post(post: Dict[str, Any]) -> Dict[str, Any]:
             "day": str(schedule.get("day") or ""),
             "weekday": schedule.get("weekday") or "",
             "time": schedule.get("time") or "09:00",
+            "interval_minutes": str(schedule.get("interval_minutes") or ""),
             "timezone": schedule.get("timezone") or DEFAULT_TIMEZONE,
             "repeat_rule": post.get("repeat_rule") or "",
             "enabled": bool(post.get("enabled")),
@@ -410,6 +414,7 @@ def build_form(values: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str], str]:
             "day": str(values.get("day", "")).strip(),
             "weekday": str(values.get("weekday", "")).strip(),
             "time": str(values.get("time", "")).strip(),
+            "interval_minutes": str(values.get("interval_minutes", "")).strip(),
             "timezone": str(values.get("timezone", "")).strip() or DEFAULT_TIMEZONE,
             "enabled": values.get("enabled") == "on",
             "content_type": values.get("content_type") if values.get("content_type") in CONTENT_TYPES else "static",
@@ -427,7 +432,7 @@ def build_form(values: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str], str]:
         errors.append("投稿チャンネルIDを入力。")
     if values.get("schedule_type") not in SCHEDULE_TYPES:
         errors.append("スケジュール種別を選択。")
-    if not TIME_PATTERN.match(form["time"]) or form["time"] > "23:59":
+    if form["schedule_type"] != "interval" and (not TIME_PATTERN.match(form["time"]) or form["time"] > "23:59"):
         errors.append("時刻は HH:MM 形式。")
 
     schedule, schedule_errors = build_schedule_config(form)
@@ -463,8 +468,14 @@ def build_schedule_config(form: Dict[str, Any]) -> Tuple[Dict[str, Any], List[st
     month = parse_int(form["month"])
     day = parse_int(form["day"])
     weekday = form["weekday"]
+    interval_minutes = parse_int(form.get("interval_minutes"))
 
-    if schedule_type in ("once", "yearly"):
+    if schedule_type == "interval":
+        if interval_minutes is None or interval_minutes < 1 or interval_minutes > 1440:
+            errors.append("一定間隔は1〜1440分で指定してください。")
+        config["interval_minutes"] = interval_minutes
+        config.pop("time", None)
+    elif schedule_type in ("once", "yearly"):
         if month is None or month < 1 or month > 12:
             errors.append("月は1〜12。")
         if day is None or day < 1 or day > 31:
@@ -644,6 +655,8 @@ def summarize_schedule(row: Dict[str, Any]) -> str:
         return "monthly / day {0} {1} {2}".format(row.get("day") or "-", time, timezone)
     if schedule_type == "weekly":
         return "weekly / {0} {1} {2}".format(row.get("weekday") or "-", time, timezone)
+    if schedule_type == "interval":
+        return "{0}分ごと".format(row.get("interval_minutes") or "-")
     return "daily / {0} {1}".format(time, timezone)
 
 

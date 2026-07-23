@@ -260,6 +260,16 @@ class AutoPostRepository:
             )
             return cursor.fetchone() is not None
 
+    def try_delivery_lock(self, post_id: int, due_key: str) -> bool:
+        lock_scope = "auto_post_delivery:{0}:{1}".format(self.bot_id, due_key)
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_try_advisory_xact_lock(hashtext(%s), %s)",
+                (lock_scope, int(post_id) & 2147483647),
+            )
+            row = cursor.fetchone()
+            return bool(row and row[0])
+
     def record_delivery(
         self,
         guild_id: str,
