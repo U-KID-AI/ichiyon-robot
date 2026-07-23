@@ -169,6 +169,8 @@ def run_static_checks():
         results.append(check("compose includes youtube vpn proxy sidecar", "youtube-vpn-proxy:" in compose))
         results.append(check("compose grants NET_ADMIN only to sidecar", "NET_ADMIN" in compose and "YOUTUBE_HOME_VPN_PROXY_URL" in compose))
         results.append(check("compose mounts openvpn config read-only", "/vpn/client.ovpn:ro" in compose))
+        results.append(check("compose passes OpenVPN data ciphers", "OPENVPN_DATA_CIPHERS:" in compose and "OPENVPN_DATA_CIPHERS_FALLBACK:" in compose))
+        results.append(check("compose defaults AES-128-CBC fallback", "YOUTUBE_HOME_VPN_DATA_CIPHERS_FALLBACK:-AES-128-CBC" in compose))
         results.append(check("compose does not set global HTTP proxy", "HTTP_PROXY" not in compose and "HTTPS_PROXY" not in compose))
         sidecar_profile_block = compose.split("youtube-vpn-proxy:", 1)[1].split("build:", 1)[0]
         results.append(check("vpn sidecar uses explicit profile", "- youtube-vpn" in sidecar_profile_block and "- bot\n" not in sidecar_profile_block, sidecar_profile_block.strip()))
@@ -177,6 +179,8 @@ def run_static_checks():
         entrypoint = (ROOT_DIR / "docker" / "youtube-vpn-proxy" / "entrypoint.sh").read_text(encoding="utf-8")
         results.append(check("proxy image installs openvpn and tinyproxy", "openvpn" in dockerfile and "tinyproxy" in dockerfile))
         results.append(check("openvpn uses tun mtu and mssfix", "--tun-mtu" in entrypoint and "--mssfix" in entrypoint))
+        results.append(check("openvpn includes AES-128-CBC data cipher", "--data-ciphers" in entrypoint and "AES-128-CBC" in entrypoint))
+        results.append(check("openvpn uses data-ciphers fallback", "--data-ciphers-fallback" in entrypoint and "DATA_CIPHERS_FALLBACK" in entrypoint))
 
         voice_music_source = (ROOT_DIR / "bot" / "services" / "voice_music.py").read_text(encoding="utf-8")
         results.append(check("ffmpeg home vpn startup failure can fallback", "ffmpeg_fallback=direct_cookie" in voice_music_source and "fallback_extract_ms" in voice_music_source))

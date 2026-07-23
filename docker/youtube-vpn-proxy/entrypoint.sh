@@ -4,6 +4,8 @@ set -eu
 OVPN_CONFIG="${OPENVPN_CONFIG:-/vpn/client.ovpn}"
 TUN_MTU="${OPENVPN_TUN_MTU:-1400}"
 MSSFIX="${OPENVPN_MSSFIX:-1360}"
+DATA_CIPHERS="${OPENVPN_DATA_CIPHERS:-AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305:AES-128-CBC}"
+DATA_CIPHERS_FALLBACK="${OPENVPN_DATA_CIPHERS_FALLBACK:-AES-128-CBC}"
 OPENVPN_LOG="${OPENVPN_LOG:-/tmp/openvpn.log}"
 
 if [ ! -r "$OVPN_CONFIG" ]; then
@@ -23,6 +25,8 @@ trap cleanup INT TERM EXIT
 
 openvpn \
   --config "$OVPN_CONFIG" \
+  --data-ciphers "$DATA_CIPHERS" \
+  --data-ciphers-fallback "$DATA_CIPHERS_FALLBACK" \
   --tun-mtu "$TUN_MTU" \
   --mssfix "$MSSFIX" \
   --writepid /tmp/openvpn.pid \
