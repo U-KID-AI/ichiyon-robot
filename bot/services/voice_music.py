@@ -9,7 +9,7 @@ import threading
 import time
 import unicodedata
 from collections import deque
-from dataclasses import dataclass, field, replace
+from dataclasses import replace
 from pathlib import Path
 from typing import Deque, Dict, List, Optional, Set, Tuple
 from urllib.parse import parse_qs, urlparse
@@ -53,6 +53,15 @@ from bot.services.voice_audio import (
     get_raw_guild_voice_client,
     is_voice_client_connected,
 )
+from bot.services.voice.models import MusicState, MusicTrack
+from bot.services.voice.mixer import ensure_mixer_playing, get_mixer
+from bot.services.voice.session import (
+    clear_music_state,
+    get_music_state,
+    get_voice_connect_lock,
+    music_state_key,
+)
+from bot.services.voice.tts import activate_tts_session
 
 try:
     import yt_dlp
@@ -122,65 +131,6 @@ YTDLP_STAGE_PATTERNS = [
     ("format", ("downloading 1 format", "format(s)", "format sorting")),
     ("cache", ("cache", "cached")),
 ]
-
-
-@dataclass
-class MusicTrack:
-    title: str
-    webpage_url: str
-    stream_url: str
-    requester_id: str
-    duration: Optional[int] = None
-    source_url: Optional[str] = None
-    refresh_required: bool = False
-    source_type: str = "youtube"
-    original_spotify_url: str = ""
-    spotify_title: str = ""
-    spotify_artists: str = ""
-    enqueued_at_monotonic: float = 0.0
-    youtube_route: str = YOUTUBE_ROUTE_DIRECT_COOKIE
-    ffmpeg_proxy_url: str = ""
-    playback_http_403: bool = False
-    playback_retry_count: int = 0
-
-
-@dataclass
-class MusicState:
-    queue: Deque[MusicTrack] = field(default_factory=deque)
-    loop_queue: Deque[MusicTrack] = field(default_factory=deque)
-    current: Optional[MusicTrack] = None
-    text_channel: Optional[discord.abc.Messageable] = None
-    stopping: bool = False
-    skip_requested: bool = False
-    loop_mode: str = MUSIC_LOOP_OFF
-    loop_range_size: Optional[int] = None
-    music_volume_percent: Optional[int] = None
-
-
-_MUSIC_STATES: Dict[str, MusicState] = {}
-_VOICE_CONNECT_LOCKS: Dict[str, asyncio.Lock] = {}
-
-
-def music_state_key(guild_id: str) -> str:
-    return "{0}:{1}".format(config.BOT_INSTANCE_ID, guild_id)
-
-
-def get_music_state(guild_id: str) -> MusicState:
-    key = music_state_key(guild_id)
-    if key not in _MUSIC_STATES:
-        _MUSIC_STATES[key] = MusicState()
-    return _MUSIC_STATES[key]
-
-
-def get_voice_connect_lock(guild_id: str) -> asyncio.Lock:
-    key = music_state_key(guild_id)
-    if key not in _VOICE_CONNECT_LOCKS:
-        _VOICE_CONNECT_LOCKS[key] = asyncio.Lock()
-    return _VOICE_CONNECT_LOCKS[key]
-
-
-def clear_music_state(guild_id: str) -> None:
-    _MUSIC_STATES.pop(music_state_key(guild_id), None)
 
 
 def perf_ms(started: float) -> int:
@@ -832,13 +782,41 @@ def save_music_volume_percent(guild_id: str, percent: int, state: Optional[Music
 
 def apply_music_volume_to_voice_client(voice_client: Optional[discord.VoiceClient], percent: int) -> bool:
     source = getattr(voice_client, "source", None)
-    if source is None or not hasattr(source, "volume"):
+    if source is None:
         return False
     try:
-        source.volume = volume_factor(percent)
+        if hasattr(source, "set_music_volume"):
+            source.set_music_volume(volume_factor(percent))
+        elif hasattr(source, "volume"):
+            source.volume = volume_factor(percent)
+        else:
+            return False
         return True
     except Exception:
         return False
+
+
+def stop_music_source(voice_client: Optional[discord.VoiceClient], guild_id: str, call_after: bool) -> bool:
+    source = getattr(voice_client, "source", None)
+    if source is not None and hasattr(source, "clear_music"):
+        source.clear_music(call_after=call_after)
+        return True
+    if voice_client is not None and (voice_client.is_playing() or voice_client.is_paused()):
+        voice_client.stop()
+        return True
+    return False
+
+
+def _is_mixer_source(source) -> bool:
+    return source is not None and hasattr(source, "set_music_source") and hasattr(source, "clear_music")
+
+
+def _has_external_non_music_playback(voice_client: Optional[discord.VoiceClient], state: MusicState) -> bool:
+    if voice_client is None or state.current is not None:
+        return False
+    if not (voice_client.is_playing() or voice_client.is_paused()):
+        return False
+    return not _is_mixer_source(getattr(voice_client, "source", None))
 
 
 def loop_status_text(loop_mode: str, state: Optional[MusicState] = None) -> str:
@@ -1305,7 +1283,7 @@ async def enqueue_spotify_link(
             await message.channel.send(spotify_error_message(exc))
             return True
 
-        should_start = state.current is None and not (voice_client.is_playing() or voice_client.is_paused())
+        should_start = state.current is None
         state.queue.append(mark_track_enqueued(track))
         log_music_action("enqueue_spotify", guild_id, voice_channel_id(voice_client), requester_id, track.title)
         log_music_timing("spotify_track", guild_id, voice_channel_id(voice_client), requester_id, metadata_ms=metadata_ms, resolve_ms=resolve_ms, total_ms=perf_ms(started))
@@ -1345,7 +1323,7 @@ async def enqueue_spotify_link(
                 await message.channel.send("Spotifyアルバム『{0}』から一致するYouTube音源を見つけられませんでした。".format(album.name))
                 return True
 
-            should_start = state.current is None and not (voice_client.is_playing() or voice_client.is_paused())
+            should_start = state.current is None
             for track in tracks:
                 state.queue.append(mark_track_enqueued(track))
             log_music_action("enqueue_spotify_album", guild_id, voice_channel_id(voice_client), requester_id, album.name, "tracks={0} skipped={1}".format(len(tracks), skipped_count))
@@ -1419,6 +1397,7 @@ async def ensure_music_voice_client(message: discord.Message) -> Optional[discor
         if voice_client is None:
             voice_client = await target_channel.connect()
             log_music_action("join", guild_id, target_channel_id, str(getattr(message.author, "id", "") or ""))
+            activate_tts_session(guild_id, str(getattr(message.channel, "id", "") or ""))
             return voice_client
 
         current_channel = getattr(voice_client, "channel", None)
@@ -1432,6 +1411,7 @@ async def ensure_music_voice_client(message: discord.Message) -> Optional[discor
 
         await voice_client.move_to(target_channel)
         log_music_action("move", guild_id, target_channel_id, str(getattr(message.author, "id", "") or ""))
+        activate_tts_session(guild_id, str(getattr(message.channel, "id", "") or ""))
         return voice_client
     except (
         RuntimeError,
@@ -1484,6 +1464,7 @@ async def ensure_mention_music_voice_client(message: discord.Message) -> Optiona
 
             voice_client = await target_channel.connect()
             log_music_action("mention_link_autojoin", guild_id, target_channel_id, requester_id)
+            activate_tts_session(guild_id, str(getattr(message.channel, "id", "") or ""))
             return voice_client
         except (
             RuntimeError,
@@ -1636,10 +1617,12 @@ async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> b
                 stderr=subprocess.PIPE,
             )
             start_ffmpeg_stderr_reader(raw_source, refreshed_track, guild_id, channel_id)
-            source = discord.PCMVolumeTransformer(raw_source, volume=volume_factor(load_music_volume_percent(guild_id, state)))
+            mixer = get_mixer(guild_id)
+            mixer.set_music_volume(volume_factor(load_music_volume_percent(guild_id, state)))
+            mixer.set_music_source(raw_source, lambda error: _schedule_after_callback(voice_client, guild_id, error))
             ffmpeg_ms = perf_ms(ffmpeg_started)
             play_call_started = time.perf_counter()
-            voice_client.play(source, after=lambda error: _schedule_after_callback(voice_client, guild_id, error))
+            ensure_mixer_playing(voice_client, guild_id)
             play_call_ms = perf_ms(play_call_started)
             log_music_action("play_start", guild_id, channel_id, refreshed_track.requester_id, refreshed_track.title)
             log_music_timing(
@@ -1683,10 +1666,12 @@ async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> b
                         stderr=subprocess.PIPE,
                     )
                     start_ffmpeg_stderr_reader(raw_source, fallback_track, guild_id, channel_id)
-                    source = discord.PCMVolumeTransformer(raw_source, volume=volume_factor(load_music_volume_percent(guild_id, state)))
+                    mixer = get_mixer(guild_id)
+                    mixer.set_music_volume(volume_factor(load_music_volume_percent(guild_id, state)))
+                    mixer.set_music_source(raw_source, lambda error: _schedule_after_callback(voice_client, guild_id, error))
                     ffmpeg_ms = perf_ms(ffmpeg_started)
                     play_call_started = time.perf_counter()
-                    voice_client.play(source, after=lambda error: _schedule_after_callback(voice_client, guild_id, error))
+                    ensure_mixer_playing(voice_client, guild_id)
                     play_call_ms = perf_ms(play_call_started)
                     log_music_action("play_start", guild_id, channel_id, fallback_track.requester_id, fallback_track.title, "ffmpeg_fallback=direct_cookie")
                     log_music_timing(
@@ -1738,7 +1723,7 @@ async def enqueue_music_url(message: discord.Message, url: str) -> bool:
     voice_ready_ms = perf_ms(received_started)
     state = get_music_state(guild_id)
     state.text_channel = message.channel
-    if state.current is None and (voice_client.is_playing() or voice_client.is_paused()):
+    if _has_external_non_music_playback(voice_client, state):
         log_music_action("enqueue_rejected", guild_id, voice_channel_id(voice_client), requester_id, reason="already_playing")
         await message.channel.send("現在再生中です。")
         return True
@@ -1758,7 +1743,7 @@ async def enqueue_music_url(message: discord.Message, url: str) -> bool:
         await message.channel.send("URL情報を取得できませんでした。URLや対応サイトを確認してください。")
         return True
 
-    should_start = state.current is None and not (voice_client.is_playing() or voice_client.is_paused())
+    should_start = state.current is None
     state.queue.append(mark_track_enqueued(track))
     log_music_action("enqueue", guild_id, voice_channel_id(voice_client), requester_id, track.title)
     log_music_timing(
@@ -1806,7 +1791,7 @@ async def enqueue_music_url_if_voice_connected(message: discord.Message, url: st
 
     state = get_music_state(guild_id)
     state.text_channel = message.channel
-    if state.current is None and (voice_client.is_playing() or voice_client.is_paused()):
+    if _has_external_non_music_playback(voice_client, state):
         log_music_action("mention_link_rejected", guild_id, voice_channel_id(voice_client), requester_id, reason="already_playing")
         await message.channel.send("現在再生中です。")
         return True
@@ -1829,7 +1814,7 @@ async def enqueue_music_url_if_voice_connected(message: discord.Message, url: st
         await message.channel.send("URL情報を取得できませんでした。URLや対応サイトを確認してください。")
         return True
 
-    should_start = state.current is None and not (voice_client.is_playing() or voice_client.is_paused())
+    should_start = state.current is None
     state.queue.append(mark_track_enqueued(track))
     log_music_action("mention_link_enqueue", guild_id, voice_channel_id(voice_client), requester_id, track.title, "type=youtube")
     log_music_timing(
@@ -1920,7 +1905,7 @@ async def skip_music(message: discord.Message, argument: str = "") -> bool:
         )
         if state.current is not None and (voice_client.is_playing() or voice_client.is_paused()):
             state.skip_requested = True
-            voice_client.stop()
+            stop_music_source(voice_client, guild_id, call_after=True)
         else:
             state.current = None
             state.skip_requested = False
@@ -1944,7 +1929,7 @@ async def skip_music(message: discord.Message, argument: str = "") -> bool:
         )
         if voice_client.is_playing() or voice_client.is_paused():
             state.skip_requested = True
-            voice_client.stop()
+            stop_music_source(voice_client, guild_id, call_after=True)
         else:
             state.current = None
             state.skip_requested = False
@@ -1986,7 +1971,7 @@ async def stop_music(message: discord.Message) -> bool:
     current_title = state.current.title if state.current else ""
     state.current = None
     if voice_client is not None and (voice_client.is_playing() or voice_client.is_paused()):
-        voice_client.stop()
+        stop_music_source(voice_client, guild_id, call_after=False)
     log_music_action("stop", guild_id, voice_channel_id(voice_client), str(getattr(message.author, "id", "") or ""), current_title)
     await message.channel.send("再生を停止し、キューをクリアしました。")
     return True

@@ -125,6 +125,14 @@ def main() -> int:
                 "lower(name) = lower(%s)",
             ],
         ),
+        (
+            "bot/repositories/tts_settings.py",
+            [
+                "self.bot_id = bot_id or config.BOT_INSTANCE_ID",
+                "WHERE bot_id = %s AND guild_id = %s",
+                "ON CONFLICT (bot_id, guild_id)",
+            ],
+        ),
     ]
 
     for path, snippets in repository_requirements:
@@ -151,6 +159,16 @@ def main() -> int:
             "selected_bot_id(request)" in source and "current_selected_bot_id()" in source,
             path,
         )
+
+    tts_admin = read("admin/tts_settings.py")
+    record(
+        results,
+        "admin/tts_settings.py uses selected bot for access and repository",
+        "selected_bot_id(request)" in tts_admin
+        and "can_access_guild(guild_id, user[\"user_id\"], bot_id)" in tts_admin
+        and "TTSSettingsRepository(connection, bot_id=bot_id)" in tts_admin,
+        "admin/tts_settings.py",
+    )
 
     x_updates = read("admin/x_updates.py")
     record(
@@ -198,6 +216,15 @@ def main() -> int:
         and "AND guild_id = %s" in voice_lines
         and "ON CONFLICT (bot_id, guild_id)" in voice_lines,
         "voice_lines",
+    )
+
+    tts_migration = read("migrations/038_add_bot_tts_settings.sql")
+    record(
+        results,
+        "migration 038 declares bot scoped tts settings",
+        "CREATE TABLE IF NOT EXISTS bot_tts_settings" in tts_migration
+        and "PRIMARY KEY (bot_id, guild_id)" in tts_migration,
+        "038_add_bot_tts_settings.sql",
     )
 
     ok_count = sum(1 for _, ok, _ in results if ok)
