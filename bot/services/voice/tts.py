@@ -1,16 +1,14 @@
 import asyncio
-import json
+import audioop
+import io
 import os
-import tempfile
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
+import wave
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Callable, Dict, Iterable, Optional
 
 import discord
+import httpx
 
 from bot import config
 from bot.db import get_connection
@@ -22,6 +20,7 @@ from bot.repositories.tts_settings import (
 )
 from bot.services.voice.ducking import DuckingConfig
 from bot.services.voice.mixer import clear_mixer, ensure_mixer_playing, get_mixer
+from bot.services.voice.mixer import PCM_FRAME_BYTES, SAMPLE_WIDTH
 from bot.services.voice.models import TTSItem
 from bot.services.voice.session import (
     clear_voice_session_state,
@@ -42,13 +41,51 @@ VOICEVOX_DEFAULT_URL = "http://voicevox-engine:50021"
 VOICEVOX_DEFAULT_TIMEOUT_SECONDS = 10
 TTS_START_COMMAND = "読み上げ開始"
 TTS_STOP_COMMAND = "読み上げ停止"
-TTS_TEMP_PREFIX = "ichiyon-tts-"
+TTS_SAMPLE_RATE = 48000
+TTS_CHANNELS = 2
 
 
 @dataclass
 class SynthesizedSpeech:
-    path: Path
+    pcm: bytes
     duration_ms: int
+    audio_query_ms: int
+    synthesis_ms: int
+    pcm_convert_ms: int
+    peak: int
+    rms: int
+
+
+class PCMBytesAudioSource(discord.AudioSource):
+    def __init__(self, pcm: bytes, on_first_frame: Optional[Callable[[], None]] = None) -> None:
+        self._pcm = bytes(pcm)
+        self._offset = 0
+        self._on_first_frame = on_first_frame
+        self._first_frame_reported = False
+
+    def is_opus(self) -> bool:
+        return False
+
+    def read(self) -> bytes:
+        if self._offset >= len(self._pcm):
+            return b""
+        end = min(self._offset + PCM_FRAME_BYTES, len(self._pcm))
+        chunk = self._pcm[self._offset:end]
+        self._offset = end
+        if len(chunk) < PCM_FRAME_BYTES:
+            chunk += b"\x00" * (PCM_FRAME_BYTES - len(chunk))
+        if not self._first_frame_reported:
+            self._first_frame_reported = True
+            if self._on_first_frame is not None:
+                try:
+                    self._on_first_frame()
+                except Exception:
+                    pass
+        return chunk
+
+    def cleanup(self) -> None:
+        self._pcm = b""
+        self._offset = 0
 
 
 def _env_int(name: str, default: int, minimum: int = 1) -> int:
@@ -65,6 +102,27 @@ def voicevox_base_url() -> str:
 
 def voicevox_timeout_seconds() -> int:
     return _env_int(VOICEVOX_TIMEOUT_ENV, VOICEVOX_DEFAULT_TIMEOUT_SECONDS, 1)
+
+
+_HTTP_CLIENT: Optional[httpx.Client] = None
+_HTTP_CLIENT_BASE_URL = ""
+_HTTP_CLIENT_TIMEOUT = 0
+
+
+def get_voicevox_client() -> httpx.Client:
+    global _HTTP_CLIENT, _HTTP_CLIENT_BASE_URL, _HTTP_CLIENT_TIMEOUT
+    base_url = voicevox_base_url()
+    timeout = voicevox_timeout_seconds()
+    if _HTTP_CLIENT is None or _HTTP_CLIENT_BASE_URL != base_url or _HTTP_CLIENT_TIMEOUT != timeout:
+        if _HTTP_CLIENT is not None:
+            try:
+                _HTTP_CLIENT.close()
+            except Exception:
+                pass
+        _HTTP_CLIENT = httpx.Client(base_url=base_url, timeout=timeout)
+        _HTTP_CLIENT_BASE_URL = base_url
+        _HTTP_CLIENT_TIMEOUT = timeout
+    return _HTTP_CLIENT
 
 
 def normalize_tts_command(command_text: Optional[str]) -> str:
@@ -162,51 +220,62 @@ def should_tts_read_message(message: discord.Message, command_text: Optional[str
     return True
 
 
-def synthesize_voicevox_to_file(text: str, settings: Dict[str, Any], pitch_scale: float) -> SynthesizedSpeech:
+def _convert_wav_to_discord_pcm(wav_bytes: bytes) -> bytes:
+    with wave.open(io.BytesIO(wav_bytes), "rb") as wav_file:
+        channels = wav_file.getnchannels()
+        sample_width = wav_file.getsampwidth()
+        sample_rate = wav_file.getframerate()
+        frames = wav_file.readframes(wav_file.getnframes())
+    if sample_width != SAMPLE_WIDTH:
+        frames = audioop.lin2lin(frames, sample_width, SAMPLE_WIDTH)
+        sample_width = SAMPLE_WIDTH
+    if channels == 1:
+        frames = audioop.tostereo(frames, sample_width, 1.0, 1.0)
+        channels = 2
+    elif channels != TTS_CHANNELS:
+        frames = audioop.tomono(frames, sample_width, 1.0 / max(1, channels), 1.0 / max(1, channels))
+        frames = audioop.tostereo(frames, sample_width, 1.0, 1.0)
+        channels = 2
+    if sample_rate != TTS_SAMPLE_RATE:
+        frames, _ = audioop.ratecv(frames, sample_width, channels, sample_rate, TTS_SAMPLE_RATE, None)
+    return frames
+
+
+def synthesize_voicevox_to_pcm(text: str, settings: Dict[str, Any], pitch_scale: float) -> SynthesizedSpeech:
     started = time.perf_counter()
     speaker_id = int(settings.get("speaker_id") or DEFAULT_TTS_SPEAKER_ID)
-    timeout = voicevox_timeout_seconds()
-    base_url = voicevox_base_url()
-    query_params = urllib.parse.urlencode({"text": text, "speaker": speaker_id})
-    query_request = urllib.request.Request(
-        "{0}/audio_query?{1}".format(base_url, query_params),
-        data=b"",
-        method="POST",
-    )
-    with urllib.request.urlopen(query_request, timeout=timeout) as response:
-        query = json.loads(response.read().decode("utf-8"))
+    client = get_voicevox_client()
+    query_started = time.perf_counter()
+    query_response = client.post("/audio_query", params={"text": text, "speaker": speaker_id})
+    query_response.raise_for_status()
+    query = query_response.json()
+    audio_query_ms = max(0, int((time.perf_counter() - query_started) * 1000))
     query["speedScale"] = float(settings.get("speed_scale") or 1.0)
     query["pitchScale"] = float(query.get("pitchScale") or 0.0) + float(pitch_scale)
     query["volumeScale"] = 1.0
-    synth_params = urllib.parse.urlencode({"speaker": speaker_id})
-    synth_request = urllib.request.Request(
-        "{0}/synthesis?{1}".format(base_url, synth_params),
-        data=json.dumps(query).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
+    synth_started = time.perf_counter()
+    synth_response = client.post("/synthesis", params={"speaker": speaker_id}, json=query)
+    synth_response.raise_for_status()
+    wav_bytes = synth_response.content
+    synthesis_ms = max(0, int((time.perf_counter() - synth_started) * 1000))
+    convert_started = time.perf_counter()
+    pcm = _convert_wav_to_discord_pcm(wav_bytes)
+    pcm_convert_ms = max(0, int((time.perf_counter() - convert_started) * 1000))
+    peak = audioop.max(pcm, SAMPLE_WIDTH) if pcm else 0
+    rms = audioop.rms(pcm, SAMPLE_WIDTH) if pcm else 0
+    return SynthesizedSpeech(
+        pcm=pcm,
+        duration_ms=max(0, int((time.perf_counter() - started) * 1000)),
+        audio_query_ms=audio_query_ms,
+        synthesis_ms=synthesis_ms,
+        pcm_convert_ms=pcm_convert_ms,
+        peak=peak,
+        rms=rms,
     )
-    with urllib.request.urlopen(synth_request, timeout=timeout) as response:
-        wav_bytes = response.read()
-    handle = tempfile.NamedTemporaryFile(prefix=TTS_TEMP_PREFIX, suffix=".wav", delete=False)
-    path = Path(handle.name)
-    try:
-        handle.write(wav_bytes)
-    finally:
-        handle.close()
-    return SynthesizedSpeech(path=path, duration_ms=max(0, int((time.perf_counter() - started) * 1000)))
-
-
-def cleanup_tts_file(path: Path) -> None:
-    try:
-        path.unlink(missing_ok=True)
-    except TypeError:
-        if path.exists():
-            path.unlink()
-    except Exception as exc:
-        print("[WARN] tts temp cleanup failed: path_suffix={0} error={1}".format(path.suffix, type(exc).__name__))
 
 
 async def _play_tts_item(message: discord.Message, item: TTSItem, settings: Dict[str, Any]) -> None:
+    play_started = time.perf_counter()
     guild = message.guild
     if guild is None or str(getattr(guild, "id", "") or "") != item.guild_id:
         return
@@ -219,8 +288,10 @@ async def _play_tts_item(message: discord.Message, item: TTSItem, settings: Dict
         return
     pitch = stable_pitch_for_user(item.author_id, float(settings.get("pitch_variation") or 0.0)) if settings.get("user_pitch_enabled") else 0.0
     try:
-        speech = await asyncio.to_thread(synthesize_voicevox_to_file, item.text, settings, pitch)
-    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+        synth_started = time.perf_counter()
+        speech = await asyncio.to_thread(synthesize_voicevox_to_pcm, item.text, settings, pitch)
+        synth_total_ms = max(0, int((time.perf_counter() - synth_started) * 1000))
+    except (httpx.HTTPError, TimeoutError, OSError, ValueError, wave.Error) as exc:
         print(
             "[WARN] tts synth skipped: bot_instance_id={0} guild_id={1} channel_id={2} error={3}".format(
                 config.BOT_INSTANCE_ID,
@@ -231,21 +302,24 @@ async def _play_tts_item(message: discord.Message, item: TTSItem, settings: Dict
         )
         return
     if item.generation_id != session.generation_id or not session.tts_enabled:
-        cleanup_tts_file(speech.path)
         return
     done = asyncio.Event()
+    first_frame = asyncio.Event()
     loop = asyncio.get_running_loop()
 
+    def _on_first_frame() -> None:
+        loop.call_soon_threadsafe(first_frame.set)
+
     def _after(error: Optional[Exception]) -> None:
-        cleanup_tts_file(speech.path)
         if error is not None:
             print("[WARN] tts playback error: bot_instance_id={0} guild_id={1} error={2}".format(config.BOT_INSTANCE_ID, item.guild_id, type(error).__name__))
         loop.call_soon_threadsafe(done.set)
 
     try:
-        source = discord.FFmpegPCMAudio(str(speech.path))
+        source = PCMBytesAudioSource(speech.pcm, on_first_frame=_on_first_frame)
         mixer = get_mixer(item.guild_id)
-        mixer.set_tts_volume(float(settings.get("tts_volume_percent") or DEFAULT_TTS_VOLUME_PERCENT) / 100.0)
+        tts_volume_percent = int(settings.get("tts_volume_percent") if settings.get("tts_volume_percent") is not None else DEFAULT_TTS_VOLUME_PERCENT)
+        mixer.set_tts_volume(max(0.0, min(1.0, tts_volume_percent / 100.0)))
         mixer.configure_ducking(
             DuckingConfig(
                 enabled=bool(settings.get("ducking_enabled")),
@@ -256,17 +330,52 @@ async def _play_tts_item(message: discord.Message, item: TTSItem, settings: Dict
         )
         mixer.set_tts_source(source, _after)
         ensure_mixer_playing(voice_client, item.guild_id)
+        try:
+            await asyncio.wait_for(first_frame.wait(), timeout=2.0)
+            print(
+                "[INFO] tts_timing: stage=first_frame bot_instance_id={0} guild_id={1} channel_id={2} queue_wait_ms={3} audio_query_ms={4} synthesis_ms={5} pcm_convert_ms={6} mixer_wait_ms={7} total_to_first_frame_ms={8} pcm_bytes={9} peak={10} rms={11} volume_percent={12}".format(
+                    config.BOT_INSTANCE_ID,
+                    item.guild_id,
+                    item.channel_id,
+                    max(0, int((synth_started - item.accepted_monotonic) * 1000)) if item.accepted_monotonic else 0,
+                    speech.audio_query_ms,
+                    speech.synthesis_ms,
+                    speech.pcm_convert_ms,
+                    max(0, int((time.perf_counter() - play_started) * 1000) - synth_total_ms),
+                    max(0, int((time.perf_counter() - item.accepted_monotonic) * 1000)) if item.accepted_monotonic else speech.duration_ms,
+                    len(speech.pcm),
+                    speech.peak,
+                    speech.rms,
+                    tts_volume_percent,
+                )
+            )
+        except asyncio.TimeoutError:
+            print(
+                "[WARN] tts_timing: stage=first_frame_timeout bot_instance_id={0} guild_id={1} channel_id={2} audio_query_ms={3} synthesis_ms={4} pcm_convert_ms={5} total_wait_ms={6}".format(
+                    config.BOT_INSTANCE_ID,
+                    item.guild_id,
+                    item.channel_id,
+                    speech.audio_query_ms,
+                    speech.synthesis_ms,
+                    speech.pcm_convert_ms,
+                    max(0, int((time.perf_counter() - item.accepted_monotonic) * 1000)) if item.accepted_monotonic else 0,
+                )
+            )
         print(
-            "[INFO] tts play_start: bot_instance_id={0} guild_id={1} channel_id={2} synth_ms={3}".format(
+            "[INFO] tts play_start: bot_instance_id={0} guild_id={1} channel_id={2} synth_ms={3} audio_query_ms={4} synthesis_ms={5} pcm_convert_ms={6} pcm_bytes={7} volume_percent={8}".format(
                 config.BOT_INSTANCE_ID,
                 item.guild_id,
                 item.channel_id,
                 speech.duration_ms,
+                speech.audio_query_ms,
+                speech.synthesis_ms,
+                speech.pcm_convert_ms,
+                len(speech.pcm),
+                tts_volume_percent,
             )
         )
         await done.wait()
     except Exception as exc:
-        cleanup_tts_file(speech.path)
         print("[WARN] tts playback skipped: bot_instance_id={0} guild_id={1} error={2}".format(config.BOT_INSTANCE_ID, item.guild_id, type(exc).__name__))
 
 
@@ -287,6 +396,7 @@ async def _tts_worker(message: discord.Message, guild_id: str, generation_id: in
 
 
 async def maybe_enqueue_tts(message: discord.Message, command_text: Optional[str]) -> bool:
+    accepted_at = time.perf_counter()
     if not should_tts_read_message(message, command_text):
         return False
     guild_id = str(getattr(message.guild, "id", "") or "")
@@ -297,7 +407,9 @@ async def maybe_enqueue_tts(message: discord.Message, command_text: Optional[str
     settings = load_tts_settings(guild_id)
     if not settings.get("enabled"):
         return False
+    normalize_started = time.perf_counter()
     text = normalize_tts_text(str(getattr(message, "content", "") or ""), _attachment_types(message), int(settings.get("max_text_length") or 300))
+    normalize_ms = max(0, int((time.perf_counter() - normalize_started) * 1000))
     if not text:
         return False
     queue_limit = int(settings.get("queue_limit") or 50)
@@ -310,8 +422,20 @@ async def maybe_enqueue_tts(message: discord.Message, command_text: Optional[str
         guild_id=guild_id,
         channel_id=channel_id,
         generation_id=session.generation_id,
+        accepted_monotonic=accepted_at,
+        normalize_ms=normalize_ms,
     )
     session.tts_queue.append(item)
+    print(
+        "[INFO] tts_message_accepted: bot_instance_id={0} guild_id={1} channel_id={2} text_length={3} queue_size={4} normalize_ms={5}".format(
+            config.BOT_INSTANCE_ID,
+            guild_id,
+            channel_id,
+            len(text),
+            len(session.tts_queue),
+            normalize_ms,
+        )
+    )
     if session.tts_worker_task is None or getattr(session.tts_worker_task, "done", lambda: True)():
         session.tts_worker_task = asyncio.create_task(_tts_worker(message, guild_id, session.generation_id))
     return True
