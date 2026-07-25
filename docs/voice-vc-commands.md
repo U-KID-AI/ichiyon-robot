@@ -91,7 +91,7 @@ Spotifyは曲名、アーティスト名、アルバム名、ISRC、曲の長さ
 
 Spotify曲から解決したYouTube URLはプロセス内メモリに一定時間キャッシュします。キャッシュ済みURLが削除、非公開、地域制限などで取得できなくなった場合は、該当曲だけキャッシュを無効化し、最大1回だけ再検索します。通常の一時的なネットワークエラーでは、不要な再検索を避けます。
 
-Spotifyプレイリストは、Spotify APIから曲一覧だけを取得して既存の音楽キューへ追加します。YouTube音源の探索は全曲分を投入時にまとめて行わず、再生直前に解決します。待機列の先頭1〜2曲だけは先読みし、現在再生中の曲を止めずに順番を維持します。ローカル曲や曲以外の項目はスキップします。
+Spotifyプレイリストは、まずSpotify APIから曲一覧だけを取得して既存の音楽キューへ追加します。APIで曲一覧を取得できない公開プレイリストは、未ログインで表示されるSpotify公開EmbedのHTMLに含まれるメタデータを解析します。YouTube音源の探索は全曲分を投入時にまとめて行わず、再生直前に解決します。待機列の先頭1〜2曲だけは先読みし、現在再生中の曲を止めずに順番を維持します。ローカル曲や曲以外の項目はスキップします。
 
 対応URL:
 
@@ -125,8 +125,12 @@ Spotifyプレイリストは、Spotify APIから曲一覧だけを取得して�
 - `SPOTIFY_RESOLVE_CACHE_MAX_ENTRIES=1000`
 - `SPOTIFY_MATCH_MIN_SCORE=`
 - `SPOTIFY_MATCH_MIN_MARGIN=10`
+- `SPOTIFY_PUBLIC_PLAYLIST_CACHE_TTL_SECONDS=1800`
+- `SPOTIFY_PUBLIC_PLAYLIST_CACHE_MAX_ENTRIES=20`
+- `SPOTIFY_PLAYLIST_BROWSER_ENABLED=false`
+- `SPOTIFY_PLAYLIST_BROWSER_TIMEOUT_SECONDS=30`
 
-Spotify認証はClient Credentials方式です。Client Secret、access token、Cookie、YouTube一時stream URLはログやDiscordメッセージへ出しません。`SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` が未設定の場合もBot起動は止めず、Spotifyリンクが送られた時だけ設定不足を案内します。
+Spotify認証はClient Credentials方式です。公開プレイリストのEmbed fallbackはSpotifyログイン、ユーザーOAuth、Spotify Cookieなしで、公開HTMLに直接含まれる曲名、アーティスト名、曲時間だけを使います。Client Secret、access token、Cookie、YouTube一時stream URLはログやDiscordメッセージへ出しません。`SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` が未設定の場合もBot起動は止めず、曲/アルバムリンクはSpotifyリンク送信時だけ設定不足を案内し、公開プレイリストはEmbed fallbackを試します。
 
 Cookie状態監視を使う場合は、以下を設定します。`YTDLP_COOKIE_CHECK_URL` が未設定の場合、定期検査は安全にスキップされます。
 

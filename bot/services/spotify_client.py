@@ -124,6 +124,7 @@ class SpotifyPlaylistMetadata:
     local_tracks: int = 0
     episode_tracks: int = 0
     missing_metadata_tracks: int = 0
+    source_provider: str = "official_api"
 
     @property
     def total_duration_seconds(self) -> int:
@@ -360,7 +361,7 @@ class SpotifyClient:
             self.clear_token()
             return await self._get_json_with_status(path, params=params, retry_auth=False)
         if response.status_code == 401:
-            raise SpotifyAuthError()
+            raise SpotifyAuthError(401)
         if response.status_code == 429:
             retry_after = response.headers.get("Retry-After")
             try:
