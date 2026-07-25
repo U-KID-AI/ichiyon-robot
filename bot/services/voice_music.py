@@ -9,7 +9,7 @@ import threading
 import time
 import unicodedata
 from collections import deque
-from dataclasses import dataclass, field, replace
+from dataclasses import replace
 from pathlib import Path
 from typing import Deque, Dict, List, Optional, Set, Tuple
 from urllib.parse import parse_qs, urlparse
@@ -52,6 +52,13 @@ from bot.services.voice_audio import (
     get_guild_voice_client,
     get_raw_guild_voice_client,
     is_voice_client_connected,
+)
+from bot.services.voice.models import MusicState, MusicTrack
+from bot.services.voice.session import (
+    clear_music_state,
+    get_music_state,
+    get_voice_connect_lock,
+    music_state_key,
 )
 
 try:
@@ -122,65 +129,6 @@ YTDLP_STAGE_PATTERNS = [
     ("format", ("downloading 1 format", "format(s)", "format sorting")),
     ("cache", ("cache", "cached")),
 ]
-
-
-@dataclass
-class MusicTrack:
-    title: str
-    webpage_url: str
-    stream_url: str
-    requester_id: str
-    duration: Optional[int] = None
-    source_url: Optional[str] = None
-    refresh_required: bool = False
-    source_type: str = "youtube"
-    original_spotify_url: str = ""
-    spotify_title: str = ""
-    spotify_artists: str = ""
-    enqueued_at_monotonic: float = 0.0
-    youtube_route: str = YOUTUBE_ROUTE_DIRECT_COOKIE
-    ffmpeg_proxy_url: str = ""
-    playback_http_403: bool = False
-    playback_retry_count: int = 0
-
-
-@dataclass
-class MusicState:
-    queue: Deque[MusicTrack] = field(default_factory=deque)
-    loop_queue: Deque[MusicTrack] = field(default_factory=deque)
-    current: Optional[MusicTrack] = None
-    text_channel: Optional[discord.abc.Messageable] = None
-    stopping: bool = False
-    skip_requested: bool = False
-    loop_mode: str = MUSIC_LOOP_OFF
-    loop_range_size: Optional[int] = None
-    music_volume_percent: Optional[int] = None
-
-
-_MUSIC_STATES: Dict[str, MusicState] = {}
-_VOICE_CONNECT_LOCKS: Dict[str, asyncio.Lock] = {}
-
-
-def music_state_key(guild_id: str) -> str:
-    return "{0}:{1}".format(config.BOT_INSTANCE_ID, guild_id)
-
-
-def get_music_state(guild_id: str) -> MusicState:
-    key = music_state_key(guild_id)
-    if key not in _MUSIC_STATES:
-        _MUSIC_STATES[key] = MusicState()
-    return _MUSIC_STATES[key]
-
-
-def get_voice_connect_lock(guild_id: str) -> asyncio.Lock:
-    key = music_state_key(guild_id)
-    if key not in _VOICE_CONNECT_LOCKS:
-        _VOICE_CONNECT_LOCKS[key] = asyncio.Lock()
-    return _VOICE_CONNECT_LOCKS[key]
-
-
-def clear_music_state(guild_id: str) -> None:
-    _MUSIC_STATES.pop(music_state_key(guild_id), None)
 
 
 def perf_ms(started: float) -> int:
