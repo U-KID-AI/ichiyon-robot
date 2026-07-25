@@ -166,6 +166,8 @@ def public_embed_html(track_count=17, playlist_id=REAL_PLAYLIST_ID):
                     "data": {
                         "entity": {
                             "name": "Public Playlist",
+                            "uri": "spotify:playlist:{0}".format(playlist_id),
+                            "subtitle": "Playlist Owner",
                             "coverArt": {"url": "https://image.example/public.jpg"},
                             "trackList": tracks,
                         }
