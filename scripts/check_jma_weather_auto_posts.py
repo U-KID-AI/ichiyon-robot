@@ -46,15 +46,27 @@ AREA_MASTER = {
         "471000": {"name": "沖縄本島地方", "children": ["471010"]},
     },
     "class10s": {
-        "430010": {"name": "熊本地方"},
-        "430020": {"name": "阿蘇地方"},
-        "430030": {"name": "天草・芦北地方"},
-        "430040": {"name": "球磨地方"},
+        "430010": {"name": "熊本地方", "children": ["430011"]},
+        "430020": {"name": "阿蘇地方", "children": ["430021"]},
+        "430030": {"name": "天草・芦北地方", "children": ["430031"]},
+        "430040": {"name": "球磨地方", "children": ["430041"]},
         "011000": {"name": "石狩地方"},
         "130010": {"name": "東京地方"},
         "130020": {"name": "伊豆諸島北部"},
         "460010": {"name": "薩摩地方"},
         "471010": {"name": "本島中南部"},
+    },
+    "class15s": {
+        "430011": {"name": "熊本地方", "children": ["8610"]},
+        "430021": {"name": "阿蘇地方", "children": ["8611"]},
+        "430031": {"name": "天草・芦北地方", "children": ["8613"]},
+        "430041": {"name": "球磨地方", "children": ["8612"]},
+    },
+    "class20s": {
+        "8610": {"name": "熊本"},
+        "8611": {"name": "阿蘇乙姫"},
+        "8612": {"name": "人吉"},
+        "8613": {"name": "牛深"},
     },
 }
 
@@ -118,12 +130,13 @@ def check_forecast_parsing(check: Check) -> None:
     bundle = jma_weather.parse_forecast(AREA_MASTER, FORECAST, config, now=datetime(2026, 7, 24, 7, 0, tzinfo=JST))
     messages = jma_weather.format_forecast_message(bundle)
     message = "\n".join(messages)
-    check.add("forecast keeps report datetime", "7/24 05:00" in message)
+    check.add("forecast omits report datetime", "7/24 05:00" not in message and "発表" not in message)
+    check.add("forecast omits source text", "出典" not in message and "気象庁 7/24" not in message)
     check.add("forecast includes selected class10 only", "熊本地方" in message and "阿蘇地方" in message and "球磨地方" not in message)
     check.add("weather text is included", "晴れ時々曇り" in message and "曇り時々雨" in message)
     check.add("precipitation aligns with timeDefines", "6-12時 10%" in message and "12-18時 20%" in message)
     check.add("past precipitation window is omitted", "0-6時" not in message)
-    check.add("representative temperatures are separate", "代表地点の気温" in message and "熊本: 最低 26℃ / 最高 35℃" in message)
+    check.add("representative temperatures are selected only", "代表地点の気温" in message and "熊本: 最低 26℃ / 最高 35℃" in message and "阿蘇乙姫" in message and "人吉" not in message)
     check.add("missing values are not converted to zero", "最低 0℃" not in message and "最高 0℃" not in message)
 
 
@@ -141,6 +154,12 @@ def check_subdivision_filtering(check: Check) -> None:
         {"office_code": "430000", "area_codes": ["430010", "430040"]},
         now=now,
     )
+    aso_bundle = jma_weather.parse_forecast(
+        AREA_MASTER,
+        FORECAST,
+        {"office_code": "430000", "area_codes": ["430020"]},
+        now=now,
+    )
     alias_bundle = jma_weather.parse_forecast(
         AREA_MASTER,
         FORECAST,
@@ -155,9 +174,31 @@ def check_subdivision_filtering(check: Check) -> None:
     )
 
     check.add("single selected subdivision generates one area", len(single_bundle.area_lines) == 1, str(single_bundle.area_lines))
+    single_message = "\n".join(jma_weather.format_forecast_message(single_bundle))
+    check.add("single subdivision temperatures are filtered", "熊本: 最低 26℃ / 最高 35℃" in single_message and "阿蘇乙姫" not in single_message and "人吉" not in single_message)
     check.add("multiple selected subdivisions generate selected areas", len(multi_bundle.area_lines) == 2, str(multi_bundle.area_lines))
+    multi_message = "\n".join(jma_weather.format_forecast_message(multi_bundle))
+    check.add("multiple subdivision temperatures are filtered", "熊本: 最低 26℃ / 最高 35℃" in multi_message and "人吉" in multi_message and "阿蘇乙姫" not in multi_message)
+    aso_message = "\n".join(jma_weather.format_forecast_message(aso_bundle))
+    check.add("aso subdivision temperatures are filtered", "阿蘇乙姫" in aso_message and "熊本: 最低 26℃" not in aso_message and "人吉" not in aso_message)
     check.add("primary subdivision alias generates selected area", len(alias_bundle.area_lines) == 1, str(alias_bundle.area_lines))
     check.add("all selected subdivisions keep available areas", len(all_bundle.area_lines) == 3, str(all_bundle.area_lines))
+    all_message = "\n".join(jma_weather.format_forecast_message(all_bundle))
+    check.add("all selected subdivisions keep available temperatures", "熊本: 最低 26℃ / 最高 35℃" in all_message and "阿蘇乙姫" in all_message and "人吉" in all_message)
+    no_temp_payload = [
+        {
+            "reportDatetime": FORECAST[0]["reportDatetime"],
+            "timeSeries": FORECAST[0]["timeSeries"][:2],
+        }
+    ]
+    no_temp_bundle = jma_weather.parse_forecast(
+        AREA_MASTER,
+        no_temp_payload,
+        {"office_code": "430000", "area_codes": ["430010"]},
+        now=now,
+    )
+    no_temp_message = "\n".join(jma_weather.format_forecast_message(no_temp_bundle))
+    check.add("missing temperature data still generates weather", "熊本地方" in no_temp_message and "代表地点の気温" not in no_temp_message)
 
     try:
         jma_weather.parse_forecast(

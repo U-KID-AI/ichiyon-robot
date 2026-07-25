@@ -161,6 +161,27 @@ def get_class10_name(area_master: Dict[str, Any], area_code: str) -> str:
     return str(area.get("name") or area_code)
 
 
+def build_temperature_area_to_class10_map(area_master: Dict[str, Any], office_code: str) -> Dict[str, str]:
+    class10s = area_master.get("class10s") or {}
+    class15s = area_master.get("class15s") or {}
+    class20s = area_master.get("class20s") or {}
+    mapping: Dict[str, str] = {}
+    for class10 in list_class10_areas(area_master, office_code):
+        class10_code = str(class10["code"])
+        mapping[class10_code] = class10_code
+        class10_item = class10s.get(class10_code) or {}
+        for class15_code in class10_item.get("children") or []:
+            class15_code = str(class15_code)
+            mapping[class15_code] = class10_code
+            class15_item = class15s.get(class15_code) or {}
+            for class20_code in class15_item.get("children") or []:
+                mapping[str(class20_code)] = class10_code
+        for class20_code, class20_item in class20s.items():
+            if str(class20_item.get("parent") or "") == class10_code:
+                mapping[str(class20_code)] = class10_code
+    return mapping
+
+
 def parse_datetime(value: Any) -> Optional[datetime]:
     text = str(value or "").strip()
     if not text:
@@ -256,10 +277,17 @@ def format_precipitation(times: List[Any], values: List[str], now: Optional[date
     return " / ".join(parts)
 
 
-def format_temperatures(time_series: List[Dict[str, Any]]) -> List[str]:
+def format_temperatures(
+    time_series: List[Dict[str, Any]],
+    area_master: Dict[str, Any],
+    office_code: str,
+    selected_area_codes: List[str],
+) -> List[str]:
     time_defines, temps_by_area = build_value_by_area(time_series, "temps")
     _ = time_defines
     lines = []
+    selected = set(selected_area_codes)
+    temp_area_to_class10 = build_temperature_area_to_class10_map(area_master, office_code)
     for series in time_series:
         areas = series.get("areas") if isinstance(series, dict) else None
         if not isinstance(areas, list):
@@ -268,6 +296,10 @@ def format_temperatures(time_series: List[Dict[str, Any]]) -> List[str]:
             if not isinstance(area, dict) or "temps" not in area:
                 continue
             area_info = area.get("area") or {}
+            code = str(area_info.get("code") or "").strip()
+            class10_code = temp_area_to_class10.get(code)
+            if selected and class10_code not in selected and code not in selected:
+                continue
             name = str(area_info.get("name") or area_info.get("code") or "").strip()
             temps = [str(value or "").strip() for value in area.get("temps") or []]
             present = [value for value in temps if value]
@@ -327,7 +359,7 @@ def parse_forecast(area_master: Dict[str, Any], payload: List[Dict[str, Any]], c
         report_datetime=str(first.get("reportDatetime") or ""),
         office_name=get_office_name(area_master, office_code),
         area_lines=area_lines,
-        temperature_lines=format_temperatures(time_series),
+        temperature_lines=format_temperatures(time_series, area_master, office_code, area_codes),
     )
 
 
@@ -354,12 +386,10 @@ def split_message(text: str, limit: int = MAX_DISCORD_MESSAGE_LENGTH) -> List[st
 def format_forecast_message(bundle: JmaForecastBundle) -> List[str]:
     parts = [
         "【天気】{0}".format(bundle.office_name),
-        "気象庁 {0}発表".format(format_datetime(bundle.report_datetime)),
     ]
     parts.extend(bundle.area_lines)
     if bundle.temperature_lines:
         parts.append("【代表地点の気温】\n{0}".format("\n".join(bundle.temperature_lines)))
-    parts.append("出典: 気象庁")
     return split_message("\n\n".join(parts))
 
 
