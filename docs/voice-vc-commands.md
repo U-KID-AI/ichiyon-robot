@@ -197,3 +197,6 @@ Dockerイメージには比較用にNode.js 22も入れています。通常のB
 URL音楽再生は、BotをVCに入れた状態で `@Bot 歌え <URL1>`、再生中に `@Bot 歌え <URL2>`、`@Bot キュー`、`@Bot 今何`、`@Bot 一時停止`、`@Bot 再開`、`@Bot スキップ`、`@Bot 停止` を順に確認します。
 
 ログには `guild_id`、`channel_id`、`bot_instance_id`、`filename` が出ます。Tokenなどの秘密値は出しません。
+## Spotify public metadata
+
+Spotify track, album, playlist, and artist links are resolved from public Spotify pages or public embed HTML without Spotify login, OAuth, cookies, Premium, Client ID, or Client Secret. Spotify audio is never downloaded or played directly; the public metadata is used only to search YouTube through the existing music pipeline.
