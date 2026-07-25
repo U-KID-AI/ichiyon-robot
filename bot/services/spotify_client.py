@@ -95,6 +95,21 @@ class SpotifyAlbumMetadata:
         return ", ".join(self.artists)
 
 
+@dataclass(frozen=True)
+class SpotifyPlaylistMetadata:
+    playlist_id: str
+    name: str
+    spotify_url: str
+    image_url: str
+    tracks: List[SpotifyTrackMetadata]
+    skipped_tracks: int = 0
+    total_tracks: int = 0
+
+    @property
+    def total_duration_seconds(self) -> int:
+        return sum(track.duration_seconds or 0 for track in self.tracks)
+
+
 def spotify_market() -> str:
     return str(os.getenv(SPOTIFY_MARKET_ENV, DEFAULT_SPOTIFY_MARKET) or DEFAULT_SPOTIFY_MARKET).strip() or DEFAULT_SPOTIFY_MARKET
 
@@ -122,8 +137,19 @@ def _external_url(item: Dict[str, Any]) -> str:
     return str(urls.get("spotify") or "").strip()
 
 
+def _image_url(item: Dict[str, Any]) -> str:
+    images = item.get("images") or []
+    if not isinstance(images, list):
+        return ""
+    for image in images:
+        url = str((image or {}).get("url") or "").strip()
+        if url:
+            return url
+    return ""
+
+
 def _track_from_payload(payload: Dict[str, Any], album_name: str = "") -> Optional[SpotifyTrackMetadata]:
-    if not payload or payload.get("is_local"):
+    if not payload or payload.get("is_local") or payload.get("type") not in (None, "track"):
         return None
     track_id = str(payload.get("id") or "").strip()
     name = str(payload.get("name") or "").strip()
@@ -144,6 +170,15 @@ def _track_from_payload(payload: Dict[str, Any], album_name: str = "") -> Option
         disc_number=payload.get("disc_number"),
         track_number=payload.get("track_number"),
     )
+
+
+def _track_from_playlist_item(payload: Dict[str, Any]) -> Optional[SpotifyTrackMetadata]:
+    if not payload:
+        return None
+    track_payload = payload.get("track") or {}
+    if not isinstance(track_payload, dict):
+        return None
+    return _track_from_payload(track_payload)
 
 
 class SpotifyClient:
@@ -241,6 +276,17 @@ class SpotifyClient:
             raise SpotifyApiError(response.status_code)
         return response.json()
 
+    async def _get_next_page(self, next_url: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        parsed = urlparse(str(next_url or ""))
+        if parsed.scheme and parsed.netloc:
+            if parsed.netloc != "api.spotify.com":
+                raise SpotifyApiError(400)
+            path = parsed.path.replace("/v1", "", 1)
+            next_params = {key: values[-1] for key, values in parse_qs(parsed.query).items() if values}
+            next_params.update(params or {})
+            return await self._get_json(path, next_params)
+        return await self._get_json(str(next_url).replace(SPOTIFY_API_BASE_URL, ""), params or {})
+
     async def get_track(self, track_id: str) -> SpotifyTrackMetadata:
         data = await self._get_json("/tracks/{0}".format(track_id), {"market": self.market})
         track = _track_from_payload(data)
@@ -272,15 +318,7 @@ class SpotifyClient:
         _append_items(tracks_payload.get("items") or [])
         next_url = tracks_payload.get("next")
         while next_url and len(tracks) < limit:
-            parsed = urlparse(str(next_url))
-            if parsed.scheme and parsed.netloc:
-                path = parsed.path.replace("/v1", "", 1)
-                params = {key: values[-1] for key, values in parse_qs(parsed.query).items() if values}
-                params["market"] = self.market
-            else:
-                path = str(next_url).replace(SPOTIFY_API_BASE_URL, "")
-                params = {"market": self.market}
-            data = await self._get_json(path, params)
+            data = await self._get_next_page(str(next_url), {"market": self.market})
             _append_items(data.get("items") or [])
             next_url = data.get("next")
 
@@ -294,6 +332,54 @@ class SpotifyClient:
             tracks=tracks,
             skipped_tracks=skipped,
             truncated=truncated,
+        )
+
+    async def get_playlist(self, playlist_id: str) -> SpotifyPlaylistMetadata:
+        fields = (
+            "id,name,external_urls,images,"
+            "tracks(total,next,items(track(id,type,name,artists(name),album(name),duration_ms,external_ids,external_urls,disc_number,track_number,is_local,explicit)))"
+        )
+        playlist = await self._get_json(
+            "/playlists/{0}".format(playlist_id),
+            {"market": self.market, "fields": fields},
+        )
+        playlist_name = str(playlist.get("name") or "").strip()
+        playlist_url = _external_url(playlist)
+        image_url = _image_url(playlist)
+        tracks_payload = playlist.get("tracks") or {}
+        tracks: List[SpotifyTrackMetadata] = []
+        skipped = 0
+
+        def _append_items(items: Any) -> None:
+            nonlocal skipped
+            for item in items or []:
+                track = _track_from_playlist_item(item or {})
+                if track is None:
+                    skipped += 1
+                    continue
+                tracks.append(track)
+
+        seen_next = set()
+        _append_items(tracks_payload.get("items") or [])
+        next_url = tracks_payload.get("next")
+        while next_url:
+            next_text = str(next_url)
+            if next_text in seen_next:
+                raise SpotifyApiError(508)
+            seen_next.add(next_text)
+            data = await self._get_next_page(next_text, {"market": self.market})
+            _append_items(data.get("items") or [])
+            next_url = data.get("next")
+
+        total = int(tracks_payload.get("total") or len(tracks) + skipped)
+        return SpotifyPlaylistMetadata(
+            playlist_id=playlist_id,
+            name=playlist_name,
+            spotify_url=playlist_url,
+            image_url=image_url,
+            tracks=tracks,
+            skipped_tracks=skipped,
+            total_tracks=total,
         )
 
 

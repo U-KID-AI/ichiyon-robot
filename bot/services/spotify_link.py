@@ -3,7 +3,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 
-SUPPORTED_SPOTIFY_KINDS = {"track", "album"}
+SUPPORTED_SPOTIFY_KINDS = {"track", "album", "playlist"}
 KNOWN_SPOTIFY_KINDS = {"track", "album", "playlist", "episode", "show", "artist"}
 SPOTIFY_ID_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 SPOTIFY_ID_LENGTH = 22

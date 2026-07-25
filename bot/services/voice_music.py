@@ -27,6 +27,7 @@ from bot.services.spotify_client import (
     SpotifyApiError,
     SpotifyCredentialsMissing,
     SpotifyError,
+    SpotifyPlaylistMetadata,
     SpotifyRateLimitedError,
     SpotifyTrackMetadata,
     get_spotify_client,
@@ -93,6 +94,7 @@ MUSIC_LOOP_OFF = "off"
 MUSIC_LOOP_ONE = "one"
 MUSIC_LOOP_QUEUE = "queue"
 MENTION_MUSIC_LINK_LIMIT = 3
+SPOTIFY_PLAYLIST_PREFETCH_LIMIT = 2
 MUSIC_LINK_TRAILING_CHARS = ".,!?、。)]）＞>"
 HTTP_URL_PATTERN = re.compile(r"https?://[^\s<>()]+", re.IGNORECASE)
 SPOTIFY_URI_PATTERN = re.compile(r"spotify:(?:track|album|playlist|episode|show|artist):[A-Za-z0-9]+", re.IGNORECASE)
@@ -575,6 +577,13 @@ def log_music_action(
     )
 
 
+def _log_future_error(done_future) -> None:
+    try:
+        done_future.result()
+    except Exception as exc:  # pragma: no cover - defensive callback logging.
+        print("[WARN] voice music background task failed: error={0}".format(exc))
+
+
 def sanitize_playback_log_message(message: object) -> str:
     text = str(message or "")
     text = SIGNED_MEDIA_URL_PATTERN.sub("[redacted-youtube-stream-url]", text)
@@ -857,8 +866,14 @@ def preserve_track_metadata(source: MusicTrack, refreshed: MusicTrack) -> MusicT
     refreshed.source_url = source.source_url
     refreshed.source_type = source.source_type or refreshed.source_type
     refreshed.original_spotify_url = source.original_spotify_url
+    refreshed.spotify_track_id = source.spotify_track_id
     refreshed.spotify_title = source.spotify_title
     refreshed.spotify_artists = source.spotify_artists
+    refreshed.spotify_album_name = source.spotify_album_name
+    refreshed.spotify_playlist_id = source.spotify_playlist_id
+    refreshed.spotify_playlist_name = source.spotify_playlist_name
+    refreshed.spotify_playlist_index = source.spotify_playlist_index
+    refreshed.spotify_resolve_status = source.spotify_resolve_status
     refreshed.refresh_required = False
     refreshed.playback_http_403 = False
     refreshed.playback_retry_count = source.playback_retry_count
@@ -1174,6 +1189,164 @@ def should_retry_spotify_resolution(error: Exception) -> bool:
     return any(marker in message for marker in retry_markers)
 
 
+def spotify_display_title(track: SpotifyTrackMetadata) -> str:
+    artist = track.display_artist
+    return "{0} / {1}".format(track.name, artist) if artist else track.name
+
+
+def spotify_playlist_duration_text(playlist: SpotifyPlaylistMetadata) -> str:
+    seconds = playlist.total_duration_seconds
+    if not seconds:
+        return ""
+    return format_duration(seconds)
+
+
+def spotify_track_to_lazy_music_track(
+    spotify_track: SpotifyTrackMetadata,
+    requester_id: str,
+    original_spotify_url: str,
+    playlist: Optional[SpotifyPlaylistMetadata] = None,
+    playlist_index: Optional[int] = None,
+) -> MusicTrack:
+    return MusicTrack(
+        title=spotify_display_title(spotify_track),
+        webpage_url=spotify_track.spotify_url or original_spotify_url,
+        stream_url="",
+        requester_id=requester_id,
+        duration=spotify_track.duration_seconds,
+        source_url="",
+        refresh_required=True,
+        source_type="spotify_playlist" if playlist is not None else "spotify_lazy",
+        original_spotify_url=original_spotify_url,
+        spotify_track_id=spotify_track.track_id,
+        spotify_title=spotify_track.name,
+        spotify_artists=spotify_track.display_artist,
+        spotify_album_name=spotify_track.album_name,
+        spotify_playlist_id=playlist.playlist_id if playlist is not None else "",
+        spotify_playlist_name=playlist.name if playlist is not None else "",
+        spotify_playlist_index=playlist_index,
+        spotify_resolve_status="pending",
+    )
+
+
+def _spotify_metadata_from_music_track(track: MusicTrack) -> SpotifyTrackMetadata:
+    artists = [artist.strip() for artist in str(track.spotify_artists or "").split(",") if artist.strip()]
+    return SpotifyTrackMetadata(
+        track_id=track.spotify_track_id,
+        name=track.spotify_title or track.title,
+        artists=artists or [track.spotify_artists or ""],
+        album_name=track.spotify_album_name,
+        duration_ms=(int(track.duration) * 1000) if track.duration is not None else None,
+        isrc="",
+        explicit=False,
+        spotify_url=track.webpage_url,
+    )
+
+
+async def resolve_lazy_spotify_track_for_playback(
+    track: MusicTrack,
+    guild_id: str,
+    voice_client: Optional[discord.VoiceClient] = None,
+) -> Optional[MusicTrack]:
+    if not track.spotify_track_id:
+        return None
+    started = time.perf_counter()
+    try:
+        spotify_track = _spotify_metadata_from_music_track(track)
+        resolved = await resolve_spotify_track_to_music_track(
+            spotify_track,
+            track.requester_id,
+            guild_id,
+            voice_client,
+            track.original_spotify_url or track.webpage_url,
+        )
+    except Exception as exc:
+        track.spotify_resolve_status = "failed"
+        print(
+            "[WARN] spotify lazy resolve failed: bot_instance_id={0} guild_id={1} requester_id={2} playlist_id={3} track_id={4} error={5}".format(
+                config.BOT_INSTANCE_ID,
+                guild_id,
+                track.requester_id,
+                track.spotify_playlist_id,
+                track.spotify_track_id,
+                type(exc).__name__,
+            )
+        )
+        log_music_timing(
+            "spotify_playlist_track_failed",
+            guild_id,
+            voice_channel_id(voice_client),
+            track.requester_id,
+            total_ms=perf_ms(started),
+            error=type(exc).__name__,
+        )
+        return None
+
+    resolved.title = track.title or resolved.title
+    resolved.source_type = track.source_type or "spotify_playlist"
+    resolved.original_spotify_url = track.original_spotify_url
+    resolved.spotify_track_id = track.spotify_track_id
+    resolved.spotify_title = track.spotify_title
+    resolved.spotify_artists = track.spotify_artists
+    resolved.spotify_album_name = track.spotify_album_name
+    resolved.spotify_playlist_id = track.spotify_playlist_id
+    resolved.spotify_playlist_name = track.spotify_playlist_name
+    resolved.spotify_playlist_index = track.spotify_playlist_index
+    resolved.spotify_resolve_status = "resolved"
+    resolved.enqueued_at_monotonic = track.enqueued_at_monotonic
+    log_music_timing(
+        "spotify_playlist_track",
+        guild_id,
+        voice_channel_id(voice_client),
+        track.requester_id,
+        total_ms=perf_ms(started),
+        playlist_id=track.spotify_playlist_id,
+        track_index=track.spotify_playlist_index,
+    )
+    return resolved
+
+
+def copy_music_track_fields(target: MusicTrack, source: MusicTrack) -> None:
+    for field_name in source.__dataclass_fields__:
+        setattr(target, field_name, getattr(source, field_name))
+
+
+async def prefetch_spotify_playlist_tracks(
+    voice_client: Optional[discord.VoiceClient],
+    guild_id: str,
+    limit: int = SPOTIFY_PLAYLIST_PREFETCH_LIMIT,
+) -> None:
+    if limit <= 0:
+        return
+    state = get_music_state(guild_id)
+    candidates: List[MusicTrack] = []
+    for queue in (state.loop_queue, state.queue):
+        for track in list(queue):
+            if len(candidates) >= limit:
+                break
+            if track.source_type == "spotify_playlist" and not track.stream_url and track.spotify_resolve_status in ("", "pending"):
+                track.spotify_resolve_status = "prefetching"
+                candidates.append(track)
+        if len(candidates) >= limit:
+            break
+
+    for track in candidates:
+        resolved = await resolve_lazy_spotify_track_for_playback(track, guild_id, voice_client)
+        if resolved is None:
+            track.spotify_resolve_status = "pending"
+            continue
+        copy_music_track_fields(track, resolved)
+        track.spotify_resolve_status = "prefetched"
+
+
+def schedule_spotify_playlist_prefetch(voice_client: Optional[discord.VoiceClient], guild_id: str) -> None:
+    try:
+        task = asyncio.create_task(prefetch_spotify_playlist_tracks(voice_client, guild_id))
+        task.add_done_callback(_log_future_error)
+    except RuntimeError:
+        return
+
+
 async def resolve_spotify_track_to_music_track(
     spotify_track: SpotifyTrackMetadata,
     requester_id: str,
@@ -1254,6 +1427,39 @@ async def resolve_spotify_album_tracks(
     return [track for track in results if track is not None], failed_count
 
 
+async def send_spotify_playlist_summary(
+    message: discord.Message,
+    playlist: SpotifyPlaylistMetadata,
+    queued_count: int,
+    skipped_count: int,
+) -> None:
+    duration = spotify_playlist_duration_text(playlist)
+    duration_suffix = " / {0}".format(duration) if duration else ""
+    content = "Spotifyプレイリスト「{0}」から{1}曲をキューへ追加しました。{2}曲は再生対象外としてスキップしました。{3}".format(
+        playlist.name or "無題のプレイリスト",
+        queued_count,
+        skipped_count,
+        duration_suffix,
+    ).strip()
+    try:
+        embed = discord.Embed(
+            title="Spotifyプレイリストをキューへ追加",
+            description=playlist.name or "無題のプレイリスト",
+            color=0x1DB954,
+        )
+        embed.add_field(name="追加曲数", value=str(queued_count), inline=True)
+        embed.add_field(name="スキップ", value=str(skipped_count), inline=True)
+        if duration:
+            embed.add_field(name="合計時間", value=duration, inline=True)
+        if playlist.spotify_url:
+            embed.add_field(name="Spotify", value=playlist.spotify_url[:1024], inline=False)
+        if playlist.image_url:
+            embed.set_thumbnail(url=playlist.image_url)
+        await message.channel.send(content, embed=embed)
+    except TypeError:
+        await message.channel.send(content)
+
+
 async def enqueue_spotify_link(
     message: discord.Message,
     link: SpotifyLink,
@@ -1291,6 +1497,70 @@ async def enqueue_spotify_link(
         if should_start:
             await play_next_track(voice_client, guild_id)
         return True
+
+    if link.kind == "playlist":
+        lock_key = "playlist:{0}:{1}".format(config.BOT_INSTANCE_ID, guild_id)
+        lock = get_album_lock(lock_key)
+        if lock.locked():
+            await message.channel.send("このサーバーでは別のSpotifyプレイリストを処理中です。完了後にもう一度試してください。")
+            return True
+
+        try:
+            async with lock:
+                started = time.perf_counter()
+                try:
+                    playlist = await client.get_playlist(link.spotify_id)
+                    metadata_ms = perf_ms(started)
+                except Exception as exc:
+                    print("[WARN] spotify playlist fetch failed: bot_instance_id={0} guild_id={1} requester_id={2} error={3}".format(config.BOT_INSTANCE_ID, guild_id, requester_id, type(exc).__name__))
+                    log_music_timing("spotify_playlist_failed", guild_id, voice_channel_id(voice_client), requester_id, total_ms=perf_ms(started), error=type(exc).__name__)
+                    await message.channel.send(spotify_error_message(exc))
+                    return True
+
+                if not playlist.tracks:
+                    await message.channel.send("Spotifyプレイリストから追加できる曲が見つかりませんでした。")
+                    return True
+
+                should_start = state.current is None
+                for index, spotify_track in enumerate(playlist.tracks, start=1):
+                    state.queue.append(
+                        mark_track_enqueued(
+                            spotify_track_to_lazy_music_track(
+                                spotify_track,
+                                requester_id,
+                                link.original_url,
+                                playlist=playlist,
+                                playlist_index=index,
+                            )
+                        )
+                    )
+                skipped_count = playlist.skipped_tracks
+                log_music_action(
+                    "enqueue_spotify_playlist",
+                    guild_id,
+                    voice_channel_id(voice_client),
+                    requester_id,
+                    playlist.name,
+                    "tracks={0} skipped={1}".format(len(playlist.tracks), skipped_count),
+                )
+                log_music_timing(
+                    "spotify_playlist",
+                    guild_id,
+                    voice_channel_id(voice_client),
+                    requester_id,
+                    metadata_ms=metadata_ms,
+                    total_ms=perf_ms(started),
+                    tracks=len(playlist.tracks),
+                    skipped=skipped_count,
+                )
+                await send_spotify_playlist_summary(message, playlist, len(playlist.tracks), skipped_count)
+                if should_start:
+                    await play_next_track(voice_client, guild_id)
+                else:
+                    schedule_spotify_playlist_prefetch(voice_client, guild_id)
+                return True
+        finally:
+            remove_album_lock(lock_key, lock)
 
     lock_key = "{0}:{1}".format(config.BOT_INSTANCE_ID, guild_id)
     lock = get_album_lock(lock_key)
@@ -1354,14 +1624,16 @@ async def enqueue_spotify_link(
         remove_album_lock(lock_key, lock)
 
 
-async def refresh_track_for_playback(track: MusicTrack, guild_id: str) -> Optional[MusicTrack]:
+async def refresh_track_for_playback(track: MusicTrack, guild_id: str, voice_client: Optional[discord.VoiceClient] = None) -> Optional[MusicTrack]:
     if not track.refresh_required:
         return track
+    if track.source_type == "spotify_playlist" and track.spotify_track_id and not track.source_url:
+        return await resolve_lazy_spotify_track_for_playback(track, guild_id, voice_client)
     if not track.source_url:
         return replace(track, refresh_required=False)
 
     try:
-        refreshed = await extract_track_info_with_cookie_fallback(track.source_url, track.requester_id, guild_id)
+        refreshed = await extract_track_info_with_cookie_fallback(track.source_url, track.requester_id, guild_id, voice_client)
     except Exception as exc:
         error_status = classify_ytdlp_error(exc)
         print("[WARN] voice music loop refresh failed: guild_id={0} title={1} status={2} error={3}".format(guild_id, track.title, error_status, type(exc).__name__))
@@ -1492,13 +1764,6 @@ def _schedule_after_callback(voice_client: discord.VoiceClient, guild_id: str, e
         print("[WARN] voice music callback skipped without client loop: guild_id={0}".format(guild_id))
         return
     future = asyncio.run_coroutine_threadsafe(_handle_track_finished(voice_client, guild_id, error), loop)
-
-    def _log_future_error(done_future) -> None:
-        try:
-            done_future.result()
-        except Exception as exc:  # pragma: no cover - defensive callback logging.
-            print("[WARN] voice music finish handler failed: guild_id={0} error={1}".format(guild_id, exc))
-
     future.add_done_callback(_log_future_error)
 
 
@@ -1523,7 +1788,7 @@ async def retry_track_after_http_403(
         playback_retry_count=track.playback_retry_count + 1,
         enqueued_at_monotonic=0.0,
     )
-    refreshed = await refresh_track_for_playback(retry_seed, guild_id)
+    refreshed = await refresh_track_for_playback(retry_seed, guild_id, voice_client)
     if refreshed is None:
         log_music_action("ffmpeg_403_retry_failed", guild_id, channel_id, track.requester_id, track.title, "refresh_failed")
         return False
@@ -1592,7 +1857,7 @@ async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> b
         track = playback_queue.popleft()
         wait_ms = queue_wait_ms(track)
         refresh_started = time.perf_counter()
-        refreshed_track = await refresh_track_for_playback(track, guild_id)
+        refreshed_track = await refresh_track_for_playback(track, guild_id, voice_client)
         refresh_ms = perf_ms(refresh_started)
         if refreshed_track is None:
             log_music_timing(
@@ -1625,6 +1890,7 @@ async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> b
             ensure_mixer_playing(voice_client, guild_id)
             play_call_ms = perf_ms(play_call_started)
             log_music_action("play_start", guild_id, channel_id, refreshed_track.requester_id, refreshed_track.title)
+            schedule_spotify_playlist_prefetch(voice_client, guild_id)
             log_music_timing(
                 "play_setup",
                 guild_id,
@@ -1674,6 +1940,7 @@ async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> b
                     ensure_mixer_playing(voice_client, guild_id)
                     play_call_ms = perf_ms(play_call_started)
                     log_music_action("play_start", guild_id, channel_id, fallback_track.requester_id, fallback_track.title, "ffmpeg_fallback=direct_cookie")
+                    schedule_spotify_playlist_prefetch(voice_client, guild_id)
                     log_music_timing(
                         "play_setup",
                         guild_id,

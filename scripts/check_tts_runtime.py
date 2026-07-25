@@ -1,4 +1,5 @@
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -27,6 +28,9 @@ from bot.services.voice.tts import (
     maybe_enqueue_tts,
     should_tts_read_message,
     stop_tts_session,
+    tts_auto_join_enabled,
+    tts_feature_enabled,
+    tts_runtime_enabled,
 )
 
 
@@ -78,6 +82,8 @@ class FakeMessage:
 
 async def main() -> int:
     results = []
+    original_runtime_enabled = os.environ.get("TTS_RUNTIME_ENABLED")
+    os.environ.pop("TTS_RUNTIME_ENABLED", None)
     guild_id = "guild-tts"
     other_guild_id = "guild-tts-other"
     clear_voice_runtime_state(guild_id)
@@ -90,6 +96,11 @@ async def main() -> int:
     results.append(check("default settings bot/guild", default_tts_settings("ichiyon", guild_id)["guild_id"] == guild_id))
     fallback = TTSSettingsRepository(FailingConnection(), bot_id="irsia").get(guild_id)
     results.append(check("repository get fallback", fallback["bot_id"] == "irsia" and fallback["enabled"] is True))
+    results.append(check("tts runtime disabled by default", not tts_runtime_enabled()))
+    results.append(check("tts feature gate disabled by default", not tts_feature_enabled(guild_id) and not tts_auto_join_enabled(guild_id)))
+
+    os.environ["TTS_RUNTIME_ENABLED"] = "true"
+    results.append(check("tts runtime can be enabled by env", tts_runtime_enabled()))
 
     activate_tts_session(guild_id, "channel-a")
     session = get_voice_session_state(guild_id)
@@ -134,6 +145,12 @@ async def main() -> int:
     results.append(check("stop clears queue", not get_voice_session_state(guild_id).tts_enabled and len(get_voice_session_state(guild_id).tts_queue) == 0))
     await maybe_enqueue_tts(normal, None)
     results.append(check("stopped does not enqueue", len(get_voice_session_state(guild_id).tts_queue) == 0))
+    os.environ["TTS_RUNTIME_ENABLED"] = "false"
+    activate_tts_session(guild_id, "channel-b", force_enabled=True)
+    results.append(check("disabled runtime prevents session enable", not get_voice_session_state(guild_id).tts_enabled))
+    start_message = FakeMessage("cmd", guild_id=guild_id, channel_id="channel-b")
+    await tts_module.handle_tts_command(start_message, "読み上げ開始")
+    results.append(check("disabled runtime start command replies", any("一時停止中" in message for message in start_message.channel.messages), str(start_message.channel.messages)))
     tts_module._tts_worker = original_worker
 
     migration = Path("migrations/038_add_bot_tts_settings.sql").read_text(encoding="utf-8")
@@ -147,7 +164,12 @@ async def main() -> int:
     results.append(check("compose does not publish voicevox port", "50021:50021" not in compose))
     results.append(check("compose pins voicevox image", "voicevox/voicevox_engine:cpu-ubuntu24.04-0.25.0" in compose))
     results.append(check("bot receives voicevox env", compose.count("VOICEVOX_ENGINE_URL") >= 2 and compose.count("VOICEVOX_TIMEOUT_SECONDS") >= 2))
-    results.append(check("env documents voicevox", "VOICEVOX_ENGINE_IMAGE=" in env_example and "VOICEVOX_ENGINE_URL=" in env_example))
+    results.append(check("env documents voicevox", "VOICEVOX_ENGINE_IMAGE=" in env_example and "VOICEVOX_ENGINE_URL=" in env_example and "TTS_RUNTIME_ENABLED=false" in env_example))
+
+    if original_runtime_enabled is None:
+        os.environ.pop("TTS_RUNTIME_ENABLED", None)
+    else:
+        os.environ["TTS_RUNTIME_ENABLED"] = original_runtime_enabled
 
     print("tts runtime checks: {0}/{1}".format(sum(1 for value in results if value), len(results)))
     return 0 if all(results) else 1
