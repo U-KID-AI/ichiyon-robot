@@ -28,9 +28,14 @@ TRACK_ID_RE = re.compile(r"spotify:track:([A-Za-z0-9]{22})")
 ALBUM_ID_RE = re.compile(r"spotify:album:([A-Za-z0-9]{22})")
 ARTIST_ID_RE = re.compile(r"spotify:artist:([A-Za-z0-9]{22})")
 TRACK_URL_RE = re.compile(r"https://open\.spotify\.com/(?:intl-[a-z]{2}/)?track/([A-Za-z0-9]{22})")
+ALBUM_URL_RE = re.compile(r"https://open\.spotify\.com/(?:intl-[a-z]{2}/)?album/([A-Za-z0-9]{22})")
 NEXT_DATA_RE = re.compile(
     r"<script[^>]+id=[\"']__NEXT_DATA__[\"'][^>]*>(.*?)</script>",
     re.IGNORECASE | re.DOTALL,
+)
+META_TAG_RE = re.compile(
+    r"<meta[^>]+(?:property|name)=[\"'](?P<name>[^\"']+)[\"'][^>]+content=[\"'](?P<content>[^\"']*)[\"'][^>]*>",
+    re.IGNORECASE,
 )
 
 
@@ -126,6 +131,19 @@ def _extract_next_data(page_html: str) -> Dict[str, Any]:
         raise SpotifyPlaylistParseError("invalid next data") from exc
 
 
+def _meta_content(page_html: str, name: str) -> str:
+    for match in META_TAG_RE.finditer(page_html):
+        if match.group("name").strip().lower() == name.lower():
+            return html.unescape(match.group("content")).strip()
+    return ""
+
+
+def _album_id_from_public_page(page_html: str) -> str:
+    content = _meta_content(page_html, "music:album")
+    match = ALBUM_URL_RE.search(content)
+    return match.group(1) if match else ""
+
+
 def _image_from_payload(payload: Any) -> str:
     for item in _iter_dicts(payload, max_depth=10):
         for key in ("visualIdentity", "coverArt", "cover", "image", "images"):
@@ -204,6 +222,7 @@ def _track_from_public_dict(item: Dict[str, Any], index: int, album_name: str = 
         spotify_url=spotify_url,
         disc_number=item.get("disc_number") or item.get("discNumber") or 1,
         track_number=item.get("track_number") or item.get("trackNumber") or index,
+        image_url=_image_from_payload(item),
     )
 
 
@@ -355,10 +374,41 @@ async def _resolve_with_static_pages(kind: str, spotify_id: str, parser):
     raise SpotifyPublicResolveError(",".join(errors))
 
 
+async def fetch_public_track(track_id: str) -> SpotifyTrackMetadata:
+    embed_html = await _fetch_html(spotify_embed_url("track", track_id))
+    track = parse_public_track_html(track_id, embed_html, PUBLIC_PROVIDER)
+    if track.album_name:
+        return track
+    try:
+        public_html = await _fetch_html(spotify_public_url("track", track_id))
+        album_id = _album_id_from_public_page(public_html)
+        if not album_id:
+            return track
+        album_html = await _fetch_html(spotify_embed_url("album", album_id))
+        album = parse_public_album_html(album_id, album_html, PUBLIC_PROVIDER)
+        if not album.name:
+            return track
+        return SpotifyTrackMetadata(
+            track_id=track.track_id,
+            name=track.name,
+            artists=track.artists,
+            album_name=album.name,
+            duration_ms=track.duration_ms,
+            isrc=track.isrc,
+            explicit=track.explicit,
+            spotify_url=track.spotify_url,
+            disc_number=track.disc_number,
+            track_number=track.track_number,
+            image_url=track.image_url or (album.tracks[0].image_url if album.tracks else ""),
+        )
+    except Exception:
+        return track
+
+
 class SpotifyPublicResolver:
     async def get_track(self, track_id: str) -> SpotifyTrackMetadata:
         started = time.perf_counter()
-        track = await _resolve_with_static_pages("track", track_id, parse_public_track_html)
+        track = await fetch_public_track(track_id)
         print("[INFO] spotify_public_track_resolved provider={0} track_id={1} elapsed_ms={2}".format(PUBLIC_PROVIDER, track_id, int((time.perf_counter() - started) * 1000)))
         return track
 

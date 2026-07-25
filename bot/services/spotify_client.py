@@ -83,6 +83,7 @@ class SpotifyTrackMetadata:
     spotify_url: str
     disc_number: Optional[int] = None
     track_number: Optional[int] = None
+    image_url: str = ""
 
     @property
     def duration_seconds(self) -> Optional[int]:

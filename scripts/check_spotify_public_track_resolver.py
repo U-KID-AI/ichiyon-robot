@@ -45,6 +45,7 @@ async def run(urls) -> int:
         results.append(check("track artists exist {0}".format(index), bool(track.artists)))
         results.append(check("track album exists {0}".format(index), bool(track.album_name)))
         results.append(check("track duration exists {0}".format(index), track.duration_seconds is not None, str(track.duration_seconds)))
+        results.append(check("track cover exists {0}".format(index), bool(track.image_url)))
         results.append(check("track id preserved {0}".format(index), track.track_id == parsed.spotify_id, track.track_id))
         results.append(check("search queries generated {0}".format(index), bool(queries), str(len(queries))))
         results.append(check("lazy conversion avoids youtube pre-resolve {0}".format(index), not lazy.stream_url and not lazy.source_url))
