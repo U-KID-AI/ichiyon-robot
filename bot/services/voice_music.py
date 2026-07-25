@@ -24,12 +24,9 @@ from bot.repositories.music_settings import (
     MusicSettingsRepository,
 )
 from bot.services.spotify_client import (
-    SpotifyApiError,
-    SpotifyCredentialsMissing,
     SpotifyError,
     SpotifyArtistMetadata,
     SpotifyPlaylistMetadata,
-    SpotifyRateLimitedError,
     SpotifyTrackMetadata,
 )
 from bot.services.spotify_link import SpotifyLink, parse_spotify_link
@@ -40,7 +37,6 @@ from bot.services.spotify_resolver import (
     get_album_lock,
     invalidate_resolve_cache,
     remove_album_lock,
-    resolve_concurrency,
     resolve_spotify_track_to_youtube,
 )
 from bot.services.youtube_cookie_monitor import (
@@ -423,13 +419,9 @@ def extract_music_links_from_text(text: Optional[str], limit: int = MENTION_MUSI
 
 
 def spotify_unsupported_message(link: SpotifyLink) -> str:
-    if link.kind == "playlist":
-        return "現在のSpotify API仕様では、一般のプレイリストから曲一覧を取得できないため、このリンクにはまだ対応していません。曲またはアルバムのリンクを送ってください。"
     if link.kind == "invalid":
-        return "Spotifyリンクの形式が正しくありません。曲またはアルバムのリンクを送ってください。"
-    if link.kind in ("episode", "show", "artist"):
-        return "このSpotifyリンク種別にはまだ対応していません。曲またはアルバムのリンクを送ってください。"
-    return "このSpotifyリンクにはまだ対応していません。曲またはアルバムのリンクを送ってください。"
+        return "Spotifyリンクの形式が正しくありません。曲、アルバム、プレイリスト、アーティストの公開リンクを送ってください。"
+    return "このSpotifyリンク種別には対応していません。曲、アルバム、プレイリスト、アーティストの公開リンクを送ってください。"
 
 
 def _safe_cookie_suffix(guild_id: Optional[str]) -> str:
@@ -1156,12 +1148,6 @@ async def extract_track_info_with_cookie_fallback(
 
 
 def spotify_error_message(error: Exception) -> str:
-    if isinstance(error, SpotifyCredentialsMissing):
-        return error.user_message
-    if isinstance(error, SpotifyRateLimitedError):
-        return error.user_message
-    if isinstance(error, SpotifyApiError):
-        return error.user_message
     if isinstance(error, SpotifyError):
         return error.user_message
     if isinstance(error, SpotifyResolveError):
@@ -1392,54 +1378,6 @@ async def resolve_spotify_track_to_music_track(
     track.source_url = resolved.youtube_url
     track.webpage_url = resolved.youtube_url
     return track
-
-
-async def resolve_spotify_album_tracks(
-    album_tracks: List[SpotifyTrackMetadata],
-    requester_id: str,
-    guild_id: str,
-    voice_client: discord.VoiceClient,
-    original_spotify_url: str,
-) -> Tuple[List[MusicTrack], int]:
-    concurrency = min(resolve_concurrency(), max(1, len(album_tracks)))
-    results: List[Optional[MusicTrack]] = [None] * len(album_tracks)
-    failed_count = 0
-
-    if concurrency <= 1:
-        for index, item in enumerate(album_tracks):
-            try:
-                results[index] = await resolve_spotify_track_to_music_track(item, requester_id, guild_id, voice_client, original_spotify_url)
-            except Exception:
-                failed_count += 1
-        return [track for track in results if track is not None], failed_count
-
-    queue: asyncio.Queue = asyncio.Queue()
-    for index, item in enumerate(album_tracks):
-        queue.put_nowait((index, item))
-
-    async def _worker() -> None:
-        nonlocal failed_count
-        while True:
-            try:
-                index, item = queue.get_nowait()
-            except asyncio.QueueEmpty:
-                return
-            try:
-                results[index] = await resolve_spotify_track_to_music_track(item, requester_id, guild_id, voice_client, original_spotify_url)
-            except Exception:
-                failed_count += 1
-            finally:
-                queue.task_done()
-
-    workers = [asyncio.create_task(_worker()) for _ in range(concurrency)]
-    try:
-        await queue.join()
-    finally:
-        for worker in workers:
-            if not worker.done():
-                worker.cancel()
-        await asyncio.gather(*workers, return_exceptions=True)
-    return [track for track in results if track is not None], failed_count
 
 
 async def send_spotify_playlist_summary(
