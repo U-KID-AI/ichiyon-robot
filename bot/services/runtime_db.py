@@ -1,3 +1,4 @@
+import asyncio
 import calendar
 import random
 import re
@@ -69,6 +70,20 @@ RANDOM_DRAW_PULL_SUFFIX_RE = re.compile(r"^\s*([0-9]+)\s*連$")
 RANDOM_DRAW_PULL_INVALID_SUFFIX_RE = re.compile(r"^\s*(?:[+-]?[0-9]+|[A-Za-z]+)?\s*(?:連|回)$")
 DISCORD_SAFE_MESSAGE_LIMIT = 1900
 _PENDING_NEXT_EFFECTS: Dict[str, List[Dict[str, Any]]] = {}
+_RUNTIME_MESSAGE_LOCKS: Dict[str, asyncio.Lock] = {}
+
+
+def runtime_message_lock_key(guild_id: str) -> str:
+    return "{0}:{1}".format(config.BOT_INSTANCE_ID, guild_id)
+
+
+def get_runtime_message_lock(guild_id: str) -> asyncio.Lock:
+    key = runtime_message_lock_key(guild_id)
+    lock = _RUNTIME_MESSAGE_LOCKS.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _RUNTIME_MESSAGE_LOCKS[key] = lock
+    return lock
 
 
 @dataclass
@@ -2566,6 +2581,11 @@ async def handle_db_runtime_message(message: discord.Message) -> bool:
     if guild_id is None:
         return False
 
+    async with get_runtime_message_lock(guild_id):
+        return await handle_db_runtime_message_locked(message, guild_id)
+
+
+async def handle_db_runtime_message_locked(message: discord.Message, guild_id: str) -> bool:
     try:
         with get_connection() as connection:
             expired = await expire_mode_if_needed(message, guild_id, connection)
