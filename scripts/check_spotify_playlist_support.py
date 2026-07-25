@@ -1,4 +1,6 @@
 import asyncio
+import html
+import json
 import sys
 import time
 from pathlib import Path
@@ -10,7 +12,9 @@ if str(ROOT_DIR) not in sys.path:
 
 
 from bot.services.spotify_client import (
+    SpotifyAuthError,
     SpotifyApiError,
+    SpotifyCredentialsMissing,
     SpotifyClient,
     SpotifyPlaylistMetadata,
     SpotifyRateLimitedError,
@@ -18,6 +22,9 @@ from bot.services.spotify_client import (
     SpotifyTrackMetadata,
 )
 from bot.services.spotify_link import parse_spotify_link
+from bot.services.spotify_playlist.errors import SpotifyPlaylistNoTracks, SpotifyPlaylistResolveError
+import bot.services.spotify_playlist.public_embed as public_embed
+import bot.services.spotify_playlist.resolver as playlist_resolver
 from bot.services.spotify_resolver import ResolvedYouTubeTrack
 from bot.services.voice.models import MusicTrack
 from bot.services.voice.session import clear_music_state, get_music_state
@@ -141,6 +148,37 @@ def playlist_item_entry(index, field="item", **overrides):
     return {field: playlist_track_payload(index, **overrides)}
 
 
+def public_embed_html(track_count=17, playlist_id=REAL_PLAYLIST_ID):
+    tracks = []
+    for index in range(1, track_count + 1):
+        tracks.append(
+            {
+                "uri": "spotify:track:PUBLIC{0:016d}".format(index),
+                "title": "Public Song {0}".format(index),
+                "subtitle": "Public Artist {0}".format(index),
+                "duration": "3:{0:02d}".format(index % 60),
+            }
+        )
+    payload = {
+        "props": {
+            "pageProps": {
+                "state": {
+                    "data": {
+                        "entity": {
+                            "name": "Public Playlist",
+                            "coverArt": {"url": "https://image.example/public.jpg"},
+                            "trackList": tracks,
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return '<html><script id="__NEXT_DATA__" type="application/json">{0}</script></html>'.format(
+        html.escape(json.dumps(payload))
+    )
+
+
 async def run_client_pagination_checks(results):
     calls = []
     client = SpotifyClient("id", "secret")
@@ -251,6 +289,87 @@ async def run_items_endpoint_fallback_checks(results):
     results.append(check("embedded fallback still handles item field", playlist.item_field_tracks == 2, str(playlist.item_field_tracks)))
 
 
+async def run_public_playlist_provider_checks(results):
+    public_embed.clear_public_playlist_cache()
+    playlist = public_embed.parse_public_embed_html(REAL_PLAYLIST_ID, public_embed_html(17))
+    results.append(check("public embed static html extracts 17 tracks", len(playlist.tracks) == 17, str(len(playlist.tracks))))
+    results.append(check("public embed keeps order", [track.name for track in playlist.tracks[:3]] == ["Public Song 1", "Public Song 2", "Public Song 3"], str([track.name for track in playlist.tracks[:3]])))
+    results.append(check("public embed extracts artists", playlist.tracks[0].display_artist == "Public Artist 1", playlist.tracks[0].display_artist))
+    results.append(check("public embed extracts duration", playlist.tracks[0].duration_seconds == 181, str(playlist.tracks[0].duration_seconds)))
+    results.append(check("public embed extracts cover", playlist.image_url.endswith("public.jpg"), playlist.image_url))
+    duplicate_html = public_embed_html(2).replace("PUBLIC0000000000000002", "PUBLIC0000000000000001")
+    duplicate_playlist = public_embed.parse_public_embed_html(REAL_PLAYLIST_ID, duplicate_html)
+    results.append(check("public embed removes duplicate tracks", len(duplicate_playlist.tracks) == 1, str(len(duplicate_playlist.tracks))))
+
+    class FakeOfficialClient:
+        def __init__(self, result=None, error=None):
+            self.result = result
+            self.error = error
+
+        async def get_playlist(self, playlist_id):
+            if self.error is not None:
+                raise self.error
+            return self.result
+
+    original_public = playlist_resolver.fetch_public_embed_playlist
+    original_browser = playlist_resolver.browser_renderer.fetch_with_browser_renderer
+    try:
+        official_playlist = playlist_with_tracks(3)
+        resolved = await playlist_resolver.SpotifyPlaylistResolver(FakeOfficialClient(official_playlist)).resolve(PLAYLIST_ID)
+        results.append(check("official items 200 uses official provider", resolved is official_playlist and resolved.source_provider == "official_api"))
+
+        async def fake_public_fetch(playlist_id):
+            return public_embed.parse_public_embed_html(playlist_id, public_embed_html(17, playlist_id))
+
+        playlist_resolver.fetch_public_embed_playlist = fake_public_fetch
+        resolved_401 = await playlist_resolver.SpotifyPlaylistResolver(FakeOfficialClient(error=SpotifyAuthError(401))).resolve(REAL_PLAYLIST_ID)
+        results.append(check("official items 401 falls back to public embed", len(resolved_401.tracks) == 17 and resolved_401.source_provider == "public_embed", str((len(resolved_401.tracks), resolved_401.source_provider))))
+
+        resolved_403 = await playlist_resolver.SpotifyPlaylistResolver(FakeOfficialClient(error=SpotifyApiError(403))).resolve(REAL_PLAYLIST_ID)
+        results.append(check("official items 403 falls back to public embed", len(resolved_403.tracks) == 17 and resolved_403.source_provider == "public_embed", str((len(resolved_403.tracks), resolved_403.source_provider))))
+
+        resolved_missing_credentials = await playlist_resolver.SpotifyPlaylistResolver(FakeOfficialClient(error=SpotifyCredentialsMissing())).resolve(REAL_PLAYLIST_ID)
+        results.append(check("missing spotify app credentials falls back to public embed for playlist", len(resolved_missing_credentials.tracks) == 17 and resolved_missing_credentials.source_provider == "public_embed", str((len(resolved_missing_credentials.tracks), resolved_missing_credentials.source_provider))))
+
+        async def no_tracks_public(playlist_id):
+            raise SpotifyPlaylistNoTracks()
+
+        async def fake_browser_fetch(playlist_id):
+            browser_playlist = public_embed.parse_public_embed_html(playlist_id, public_embed_html(5, playlist_id))
+            return SpotifyPlaylistMetadata(
+                playlist_id=browser_playlist.playlist_id,
+                name=browser_playlist.name,
+                spotify_url=browser_playlist.spotify_url,
+                image_url=browser_playlist.image_url,
+                tracks=browser_playlist.tracks,
+                source_provider="browser_renderer",
+            )
+
+        playlist_resolver.fetch_public_embed_playlist = no_tracks_public
+        playlist_resolver.browser_renderer.fetch_with_browser_renderer = fake_browser_fetch
+        resolved_browser = await playlist_resolver.SpotifyPlaylistResolver(FakeOfficialClient(error=SpotifyAuthError(401))).resolve(REAL_PLAYLIST_ID)
+        results.append(check("static html shortage falls back to browser renderer", len(resolved_browser.tracks) == 5 and resolved_browser.source_provider == "browser_renderer", str((len(resolved_browser.tracks), resolved_browser.source_provider))))
+
+        playlist_resolver.browser_renderer.fetch_with_browser_renderer = no_tracks_public
+        try:
+            await playlist_resolver.SpotifyPlaylistResolver(FakeOfficialClient(error=SpotifyAuthError(401))).resolve(REAL_PLAYLIST_ID)
+        except SpotifyPlaylistResolveError:
+            results.append(check("zero public tracks and browser failure is distinct failure", True))
+        except Exception as exc:
+            results.append(check("zero public tracks and browser failure is distinct failure", False, type(exc).__name__))
+        else:
+            results.append(check("zero public tracks and browser failure is distinct failure", False, "no error"))
+
+        public_embed.clear_public_playlist_cache()
+        cached = public_embed.parse_public_embed_html(REAL_PLAYLIST_ID, public_embed_html(4))
+        public_embed._cache_put(REAL_PLAYLIST_ID, cached)
+        results.append(check("public embed cache returns playlist", public_embed._cache_get(REAL_PLAYLIST_ID) is cached))
+    finally:
+        playlist_resolver.fetch_public_embed_playlist = original_public
+        playlist_resolver.browser_renderer.fetch_with_browser_renderer = original_browser
+        public_embed.clear_public_playlist_cache()
+
+
 async def run_queue_checks(results):
     guild_id = "guild-playlist"
     clear_music_state(guild_id)
@@ -324,6 +443,15 @@ async def run_queue_checks(results):
         empty_message = FakeMessage("guild-empty")
         handled_empty = await voice_music.enqueue_spotify_link(empty_message, link, FakeVoiceClient())
         results.append(check("empty playlist handled with message", handled_empty and not get_music_state("guild-empty").queue and empty_message.channel.messages, str(empty_message.channel.messages)))
+        public_playlist = public_embed.parse_public_embed_html(REAL_PLAYLIST_ID, public_embed_html(17))
+        public_message = FakeMessage("guild-public-playlist")
+        public_client = FakeSpotifyClient(public_playlist)
+        voice_music.get_spotify_client = lambda: public_client
+        handled_public = await voice_music.enqueue_spotify_link(public_message, parse_spotify_link("https://open.spotify.com/playlist/{0}".format(REAL_PLAYLIST_ID)), FakeVoiceClient())
+        public_state = get_music_state("guild-public-playlist")
+        results.append(check("public playlist queues 17 lazy tracks", handled_public and len(public_state.queue) == 17 and all(track.source_type == "spotify_playlist" for track in public_state.queue), str(len(public_state.queue))))
+        results.append(check("public playlist keeps spotify unresolved", all(not track.stream_url and track.spotify_resolve_status == "pending" for track in public_state.queue)))
+        results.append(check("public playlist summary avoids provider detail", public_message.channel.messages and "public_embed" not in public_message.channel.messages[0], str(public_message.channel.messages)))
     finally:
         voice_music.get_spotify_client = original_get_client
         voice_music.resolve_spotify_track_to_youtube = original_resolve
@@ -331,6 +459,7 @@ async def run_queue_checks(results):
         voice_music.play_next_track = original_play_next
         clear_music_state(guild_id)
         clear_music_state("guild-empty")
+        clear_music_state("guild-public-playlist")
 
 
 async def main() -> int:
@@ -343,6 +472,7 @@ async def main() -> int:
     await run_legacy_track_field_checks(results)
     await run_api_error_checks(results)
     await run_items_endpoint_fallback_checks(results)
+    await run_public_playlist_provider_checks(results)
     await run_queue_checks(results)
     print("spotify playlist support checks: {0}/{1}".format(sum(1 for value in results if value), len(results)))
     return 0 if all(results) else 1

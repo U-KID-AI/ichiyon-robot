@@ -33,6 +33,8 @@ from bot.services.spotify_client import (
     get_spotify_client,
 )
 from bot.services.spotify_link import SpotifyLink, parse_spotify_link
+from bot.services.spotify_playlist.errors import SpotifyPlaylistResolveError
+from bot.services.spotify_playlist.resolver import get_spotify_playlist_resolver
 from bot.services.spotify_resolver import (
     SpotifyResolveError,
     get_album_lock,
@@ -1164,6 +1166,8 @@ def spotify_error_message(error: Exception) -> str:
         return error.user_message
     if isinstance(error, SpotifyResolveError):
         return "Spotify曲に一致するYouTube音源が見つかりませんでした。"
+    if isinstance(error, SpotifyPlaylistResolveError):
+        return error.user_message
     if is_youtube_cookie_required_error(error):
         return "YouTube側の確認要求により取得できませんでした。Cookie設定が必要な可能性があります。"
     return "Spotifyリンクから再生できる音源を特定できませんでした。"
@@ -1509,7 +1513,7 @@ async def enqueue_spotify_link(
             async with lock:
                 started = time.perf_counter()
                 try:
-                    playlist = await client.get_playlist(link.spotify_id)
+                    playlist = await get_spotify_playlist_resolver(client).resolve(link.spotify_id)
                     metadata_ms = perf_ms(started)
                 except Exception as exc:
                     print("[WARN] spotify playlist fetch failed: bot_instance_id={0} guild_id={1} requester_id={2} error={3}".format(config.BOT_INSTANCE_ID, guild_id, requester_id, type(exc).__name__))
