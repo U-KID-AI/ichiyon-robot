@@ -378,7 +378,7 @@ async def run_queue_checks(results):
     state = get_music_state(guild_id)
     state.current = MusicTrack("Current", "https://youtube.example/current", "stream", "other")
     fake_client = FakeSpotifyClient(playlist_with_tracks(30, skipped=2))
-    original_get_client = voice_music.get_spotify_client
+    original_get_public_resolver = voice_music.get_spotify_public_resolver
     original_resolve = voice_music.resolve_spotify_track_to_youtube
     original_extract = voice_music.extract_track_info_with_cookie_fallback
     original_play_next = voice_music.play_next_track
@@ -411,7 +411,7 @@ async def run_queue_checks(results):
         return True
 
     try:
-        voice_music.get_spotify_client = lambda: fake_client
+        voice_music.get_spotify_public_resolver = lambda: fake_client
         voice_music.resolve_spotify_track_to_youtube = fake_resolve
         voice_music.extract_track_info_with_cookie_fallback = fake_extract
         voice_music.play_next_track = fake_play_next
@@ -440,7 +440,7 @@ async def run_queue_checks(results):
         results.append(check("playlist prefetch leaves later tracks pending", queued[2].spotify_resolve_status == "pending" and not queued[2].stream_url, queued[2].spotify_resolve_status))
 
         empty_client = FakeSpotifyClient(playlist_with_tracks(0))
-        voice_music.get_spotify_client = lambda: empty_client
+        voice_music.get_spotify_public_resolver = lambda: empty_client
         clear_music_state("guild-empty")
         empty_message = FakeMessage("guild-empty")
         handled_empty = await voice_music.enqueue_spotify_link(empty_message, link, FakeVoiceClient())
@@ -448,14 +448,14 @@ async def run_queue_checks(results):
         public_playlist = public_embed.parse_public_embed_html(REAL_PLAYLIST_ID, public_embed_html(17))
         public_message = FakeMessage("guild-public-playlist")
         public_client = FakeSpotifyClient(public_playlist)
-        voice_music.get_spotify_client = lambda: public_client
+        voice_music.get_spotify_public_resolver = lambda: public_client
         handled_public = await voice_music.enqueue_spotify_link(public_message, parse_spotify_link("https://open.spotify.com/playlist/{0}".format(REAL_PLAYLIST_ID)), FakeVoiceClient())
         public_state = get_music_state("guild-public-playlist")
         results.append(check("public playlist queues 17 lazy tracks", handled_public and len(public_state.queue) == 17 and all(track.source_type == "spotify_playlist" for track in public_state.queue), str(len(public_state.queue))))
         results.append(check("public playlist keeps spotify unresolved", all(not track.stream_url and track.spotify_resolve_status == "pending" for track in public_state.queue)))
         results.append(check("public playlist summary avoids provider detail", public_message.channel.messages and "public_embed" not in public_message.channel.messages[0], str(public_message.channel.messages)))
     finally:
-        voice_music.get_spotify_client = original_get_client
+        voice_music.get_spotify_public_resolver = original_get_public_resolver
         voice_music.resolve_spotify_track_to_youtube = original_resolve
         voice_music.extract_track_info_with_cookie_fallback = original_extract
         voice_music.play_next_track = original_play_next
