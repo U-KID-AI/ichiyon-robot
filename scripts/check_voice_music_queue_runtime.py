@@ -25,6 +25,7 @@ from bot.services.voice_music import (
     get_music_state,
     get_ytdlp_cookie_tmp_path,
     handle_mention_music_links,
+    is_playback_http_403_message,
     loop_status_text,
     make_loop_track,
     parse_volume_percent,
@@ -32,6 +33,7 @@ from bot.services.voice_music import (
     is_http_url,
     parse_music_command,
     refresh_track_for_playback,
+    sanitize_playback_log_message,
     save_music_volume_percent,
     volume_factor,
 )
@@ -198,6 +200,82 @@ async def run_mention_link_checks():
     return results
 
 
+async def run_playback_retry_checks():
+    results = []
+    guild_id = "guild-403"
+    clear_music_state(guild_id)
+    fake_voice = FakeVoiceClient()
+    refresh_calls = []
+    play_calls = []
+    original_refresh = voice_music.refresh_track_for_playback
+    original_play_next = voice_music.play_next_track
+    try:
+        async def _fake_refresh(track, guild_id_arg):
+            refresh_calls.append((track.title, track.playback_retry_count, guild_id_arg))
+            return MusicTrack(
+                "retry",
+                track.webpage_url,
+                "https://fresh-stream.example.com/retry",
+                track.requester_id,
+                track.duration,
+                track.source_url,
+                youtube_route=voice_music.YOUTUBE_ROUTE_HOME_VPN,
+                ffmpeg_proxy_url="http://youtube-vpn-proxy:8888",
+            )
+
+        async def _fake_play_next(voice_client, guild_id_arg):
+            state = get_music_state(guild_id_arg)
+            play_calls.append([item.title for item in state.queue])
+            if state.queue:
+                state.current = state.queue.popleft()
+            return True
+
+        voice_music.refresh_track_for_playback = _fake_refresh
+        voice_music.play_next_track = _fake_play_next
+
+        state = get_music_state(guild_id)
+        state.current = MusicTrack(
+            "expired",
+            "https://www.youtube.com/watch?v=expired",
+            "https://rr1---sn.googlevideo.com/videoplayback?expire=old&sig=secret",
+            "user-1",
+            120,
+            "https://www.youtube.com/watch?v=expired",
+            youtube_route=voice_music.YOUTUBE_ROUTE_HOME_VPN,
+            ffmpeg_proxy_url="http://youtube-vpn-proxy:8888",
+        )
+        state.current.playback_http_403 = True
+        state.queue.append(MusicTrack("next", "https://youtu.be/next", "https://stream.example.com/next", "user-2", 100, "https://youtu.be/next"))
+        await voice_music._handle_track_finished(fake_voice, guild_id, None)
+        results.append(check("ffmpeg 403 refreshes same source once", refresh_calls == [("expired", 1, guild_id)], str(refresh_calls)))
+        results.append(check("ffmpeg 403 retry is queued before next track", play_calls and play_calls[0][0] == "retry", str(play_calls)))
+        results.append(check("ffmpeg 403 retry keeps next track queued", len(state.queue) == 1 and state.queue[0].title == "next", str(state.queue)))
+
+        clear_music_state(guild_id)
+        refresh_calls.clear()
+        play_calls.clear()
+        state = get_music_state(guild_id)
+        state.current = MusicTrack(
+            "retry-limit",
+            "https://www.youtube.com/watch?v=limit",
+            "https://stream.example.com/limit",
+            "user-1",
+            120,
+            "https://www.youtube.com/watch?v=limit",
+            playback_retry_count=1,
+        )
+        state.current.playback_http_403 = True
+        state.queue.append(MusicTrack("after-limit", "https://youtu.be/after", "https://stream.example.com/after", "user-2", 100, "https://youtu.be/after"))
+        await voice_music._handle_track_finished(fake_voice, guild_id, None)
+        results.append(check("ffmpeg 403 retry respects single retry limit", refresh_calls == [], str(refresh_calls)))
+        results.append(check("ffmpeg 403 retry limit advances to next track", play_calls and play_calls[0][0] == "after-limit", str(play_calls)))
+    finally:
+        voice_music.refresh_track_for_playback = original_refresh
+        voice_music.play_next_track = original_play_next
+        clear_music_state(guild_id)
+    return results
+
+
 def main() -> int:
     results = []
     play_examples = {
@@ -302,6 +380,10 @@ def main() -> int:
 
     bot_check_error = RuntimeError("Sign in to confirm you're not a bot. Use --cookies-from-browser or --cookies for the authentication.")
     results.append(check("youtube bot check error is detected", is_youtube_cookie_required_error(bot_check_error)))
+    signed_error = "HTTP error 403 Forbidden https://rr1---sn.googlevideo.com/videoplayback?expire=secret&sig=hidden"
+    sanitized_error = sanitize_playback_log_message(signed_error)
+    results.append(check("ffmpeg 403 error is detected", is_playback_http_403_message(signed_error)))
+    results.append(check("signed googlevideo URL is redacted from playback logs", "googlevideo" not in sanitized_error and "expire=secret" not in sanitized_error, sanitized_error))
 
     state = MusicState()
     first = MusicTrack("一曲目", "https://example.com/1", "https://stream.example.com/1", "111", 125)
@@ -347,6 +429,7 @@ def main() -> int:
     results.append(check("now playing shows requester", "リクエスト: <@111>" in now_text, now_text))
     results.append(check("empty queue message", format_queue(MusicState()) == "キューは空です。"))
     results.append(check("empty now playing message", format_now_playing(MusicState()) == "現在再生中の曲はありません。"))
+    results.extend(asyncio.run(run_playback_retry_checks()))
 
     ok_count = sum(1 for item in results if item)
     print("summary: {0}/{1} OK".format(ok_count, len(results)))

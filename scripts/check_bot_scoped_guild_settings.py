@@ -110,6 +110,14 @@ def main() -> int:
             ],
         ),
         (
+            "bot/repositories/random_reactions.py",
+            [
+                "self.bot_id = bot_id or config.BOT_INSTANCE_ID",
+                "WHERE bot_id = %s AND guild_id = %s",
+                "ON CONFLICT (bot_id, guild_id)",
+            ],
+        ),
+        (
             "bot/repositories/schedule_templates.py",
             [
                 "self.bot_id = bot_id or config.BOT_INSTANCE_ID",
@@ -131,6 +139,7 @@ def main() -> int:
         "admin/modes.py",
         "admin/ng_words_db.py",
         "admin/reaction_thresholds.py",
+        "admin/random_reactions.py",
         "admin/special_effects.py",
         "admin/schedule_templates.py",
     ]
