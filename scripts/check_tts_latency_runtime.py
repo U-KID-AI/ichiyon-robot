@@ -97,6 +97,7 @@ def main() -> int:
         client1 = tts.get_voicevox_client()
         client2 = tts.get_voicevox_client()
         results.append(check("http client is reused", client1 is client2))
+        results.append(check("voicevox client ignores environment proxy", "trust_env=False" in source_text))
     finally:
         if tts._HTTP_CLIENT is not None:
             try:
