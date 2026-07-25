@@ -42,6 +42,7 @@ from bot.services.schedule_recruitment import (
     is_schedule_command,
     parse_schedule_command,
 )
+from bot.services.random_reactions import maybe_add_random_emoji_reaction
 from bot.services.voice_audio import extract_reaction_audio_file, play_reaction_audio
 
 
@@ -2590,8 +2591,11 @@ async def handle_db_runtime_message(message: discord.Message) -> bool:
                 action = await process_db_auto_reaction(message, guild_id, connection)
 
             entered = await enter_mode_if_needed(message, guild_id, connection, action.pending_effects)
+            random_reacted = False
+            if get_mention_command_text(message) is None and not action.handled and not entered:
+                random_reacted = await maybe_add_random_emoji_reaction(message, guild_id, connection)
             connection.commit()
-            return action.handled or entered or expired
+            return action.handled or entered or expired or random_reacted
     except Exception as exc:
         print("[WARN] DB runtime backend failed: {0}".format(exc))
         return False

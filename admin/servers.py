@@ -7,7 +7,7 @@ from fastapi.templating import Jinja2Templates
 from admin.bot_context import selected_bot_id, set_selected_bot_id
 from admin.auth import get_current_user
 from bot.db import get_connection
-from bot.repositories import FeatureFlagRepository, PermissionRepository, VoiceLineRepository
+from bot.repositories import FeatureFlagRepository, PermissionRepository, RandomReactionRepository, VoiceLineRepository
 
 
 router = APIRouter()
@@ -129,6 +129,16 @@ DISPLAY_FEATURES = [
         "settings": "Bot別、サーバー別の入室セリフと復活セリフ、有効/無効",
         "off_behavior": "OFFにすると、この設定からのセリフ送信を止めます。",
         "notes": "未設定のいちよんロボは既存の復活セリフを維持します。",
+    },
+    {
+        "key": "random_reactions",
+        "label": "ランダム絵文字リアクション",
+        "edit_path": "random-reactions",
+        "required_role": "editor",
+        "overview": "通常投稿に低確率で絵文字リアクションを付けます。",
+        "settings": "絵文字、確率、クールダウン秒数、対象/除外チャンネル",
+        "off_behavior": "OFFにするとランダム絵文字リアクションを付けません。",
+        "notes": "Bot・Webhook・メンションコマンド・既存機能が処理した投稿は対象外です。",
     },
     {
         "key": "schedule_templates",
@@ -314,12 +324,21 @@ def build_feature_rows(
             with get_connection() as connection:
                 voice_line = VoiceLineRepository(connection).get(bot_id, guild_id)
             row["enabled"] = True if voice_line is None else bool(voice_line.get("enabled"))
+        elif feature["key"] == "random_reactions":
+            try:
+                with get_connection() as connection:
+                    settings = RandomReactionRepository(connection, bot_id=bot_id).get(guild_id)
+                row["enabled"] = bool(settings.get("enabled"))
+            except Exception:
+                row["enabled"] = False
         else:
             row["enabled"] = flags.get(feature["key"], True)
         row["can_toggle"] = role_allows(role, feature["required_role"])
         row["edit_url"] = "/guilds/{0}/{1}".format(guild_id, feature["edit_path"])
         if feature["key"] == "voice_lines":
             row["toggle_url"] = "/guilds/{0}/voice-lines/toggle".format(guild_id)
+        elif feature["key"] == "random_reactions":
+            row["toggle_url"] = "/guilds/{0}/random-reactions/toggle".format(guild_id)
         else:
             row["toggle_url"] = "/guilds/{0}/features/{1}/toggle".format(guild_id, feature["key"])
         rows.append(row)
