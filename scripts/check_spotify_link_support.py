@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -11,6 +12,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from bot.services.spotify_client import (
     SpotifyAlbumMetadata,
+    SpotifyAuthError,
     SpotifyClient,
     SpotifyCredentialsMissing,
     SpotifyRateLimitedError,
@@ -87,7 +89,9 @@ class FakeResponse:
 class FakeAsyncClient:
     token_calls = 0
     get_calls = 0
+    next_token_status = []
     next_get_status = []
+    last_post = {}
 
     def __init__(self, timeout=10.0):
         self.timeout = timeout
@@ -100,6 +104,10 @@ class FakeAsyncClient:
 
     async def post(self, url, data=None, auth=None, headers=None):
         FakeAsyncClient.token_calls += 1
+        FakeAsyncClient.last_post = {"url": url, "data": data, "auth": auth, "headers": headers}
+        if FakeAsyncClient.next_token_status:
+            status, data = FakeAsyncClient.next_token_status.pop(0)
+            return FakeResponse(status, data)
         return FakeResponse(200, {"access_token": "fake-token", "expires_in": 3600})
 
     async def get(self, url, params=None, headers=None):
@@ -313,11 +321,17 @@ async def run_client_checks(results):
         spotify_client.httpx.AsyncClient = FakeAsyncClient
         FakeAsyncClient.token_calls = 0
         FakeAsyncClient.get_calls = 0
+        FakeAsyncClient.next_token_status = []
         FakeAsyncClient.next_get_status = []
         client = SpotifyClient()
         token1 = await client.get_token()
         token2 = await client.get_token()
         results.append(check("spotify token is cached", token1 == token2 and FakeAsyncClient.token_calls == 1, str(FakeAsyncClient.token_calls)))
+        token_request = FakeAsyncClient.last_post
+        results.append(check("spotify token endpoint is correct", token_request.get("url", "").endswith("/api/token"), str(token_request.get("url"))))
+        results.append(check("spotify token grant type is client credentials", (token_request.get("data") or {}).get("grant_type") == "client_credentials", str(token_request.get("data"))))
+        results.append(check("spotify token uses form content type", (token_request.get("headers") or {}).get("Content-Type") == "application/x-www-form-urlencoded", str(token_request.get("headers"))))
+        results.append(check("spotify token uses basic auth tuple", isinstance(token_request.get("auth"), tuple) and len(token_request.get("auth")) == 2))
 
         client._token_expires_at = time.time() - 1
         await client.get_token()
@@ -338,6 +352,18 @@ async def run_client_checks(results):
         reset_spotify_client_cache()
         FakeAsyncClient.token_calls = 0
         FakeAsyncClient.get_calls = 0
+        FakeAsyncClient.next_token_status = [(401, {"error": "invalid_client"})]
+        token_error_safe = False
+        try:
+            await SpotifyClient().get_token()
+        except SpotifyAuthError as exc:
+            token_error_safe = exc.status_code == 401 and exc.error_code == "invalid_client"
+        results.append(check("spotify token 401 exposes safe error code", token_error_safe))
+
+        reset_spotify_client_cache()
+        FakeAsyncClient.token_calls = 0
+        FakeAsyncClient.get_calls = 0
+        FakeAsyncClient.next_token_status = []
         shared1 = get_spotify_client()
         shared2 = get_spotify_client()
         await shared1.get_track(TRACK_ID)
@@ -619,6 +645,38 @@ def run_env_checks(results):
                 os.environ[key] = value
 
 
+def run_compose_checks(results):
+    compose_text = (ROOT_DIR / "docker-compose.yml").read_text(encoding="utf-8")
+    service_matches = list(re.finditer(r"(?m)^  [A-Za-z0-9_-]+:\s*$", compose_text))
+    for service_name in ("bot", "bot-irsia"):
+        marker = "  {0}:".format(service_name)
+        start = compose_text.find(marker)
+        next_start = len(compose_text)
+        for match in service_matches:
+            if match.start() > start:
+                next_start = match.start()
+                break
+        section = compose_text[start:next_start] if start >= 0 else ""
+        results.append(
+            check(
+                "{0} passes spotify client id env".format(service_name),
+                "SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}" in section,
+            )
+        )
+        results.append(
+            check(
+                "{0} passes spotify client secret env".format(service_name),
+                "SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:-}" in section,
+            )
+        )
+        results.append(
+            check(
+                "{0} does not blank spotify env".format(service_name),
+                "SPOTIFY_CLIENT_ID: \n" not in section and "SPOTIFY_CLIENT_SECRET: \n" not in section,
+            )
+        )
+
+
 async def main_async() -> int:
     results = []
     run_url_checks(results)
@@ -627,6 +685,7 @@ async def main_async() -> int:
     await run_resolver_checks(results)
     await run_album_and_queue_checks(results)
     run_env_checks(results)
+    run_compose_checks(results)
 
     env_text = (ROOT_DIR / ".env.example").read_text(encoding="utf-8")
     doc_text = (ROOT_DIR / "docs" / "voice-vc-commands.md").read_text(encoding="utf-8")

@@ -31,6 +31,11 @@ class SpotifyCredentialsMissing(SpotifyError):
 class SpotifyAuthError(SpotifyError):
     user_message = "Spotify認証に失敗しました。管理者へ連絡してください。"
 
+    def __init__(self, status_code: int = 0, error_code: str = ""):
+        super().__init__("Spotify auth failed: status={0} error={1}".format(status_code, error_code or "unknown"))
+        self.status_code = status_code
+        self.error_code = error_code or "unknown"
+
 
 class SpotifyNotFoundError(SpotifyError):
     user_message = "Spotifyの曲またはアルバムが見つかりませんでした。"
@@ -301,12 +306,22 @@ class SpotifyClient:
             raise SpotifyAuthError() from exc
 
         if response.status_code != 200:
-            raise SpotifyAuthError()
-        data = response.json()
+            error_code = "unknown"
+            try:
+                data = response.json()
+                error_code = str(data.get("error") or "unknown").strip() or "unknown"
+            except ValueError:
+                pass
+            print("[WARN] spotify_token_error status={0} error={1}".format(response.status_code, error_code))
+            raise SpotifyAuthError(response.status_code, error_code)
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise SpotifyAuthError(response.status_code, "invalid_json") from exc
         token = str(data.get("access_token") or "").strip()
         expires_in = int(data.get("expires_in") or 3600)
         if not token:
-            raise SpotifyAuthError()
+            raise SpotifyAuthError(response.status_code, "missing_access_token")
         self._token = token
         self._token_expires_at = time.time() + max(60, expires_in - 60)
         return token
