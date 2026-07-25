@@ -32,6 +32,8 @@ class TTSItem:
     guild_id: str
     channel_id: str
     generation_id: int
+    accepted_monotonic: float = 0.0
+    normalize_ms: int = 0
 
 
 @dataclass

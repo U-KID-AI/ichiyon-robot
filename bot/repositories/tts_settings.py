@@ -21,6 +21,10 @@ DEFAULT_DUCKING_RELEASE_MS = 300
 DEFAULT_TTS_CREDIT_TEXT = "VOICEVOX: ずんだもん"
 
 
+def _value_or_default(value, default):
+    return default if value is None else value
+
+
 def default_tts_settings(bot_id: str, guild_id: str) -> Dict[str, Any]:
     return {
         "bot_id": bot_id,
@@ -119,18 +123,18 @@ class TTSSettingsRepository:
                     guild_id,
                     bool(merged.get("enabled")),
                     bool(merged.get("auto_join_enabled")),
-                    int(merged.get("speaker_id") or DEFAULT_TTS_SPEAKER_ID),
+                    int(_value_or_default(merged.get("speaker_id"), DEFAULT_TTS_SPEAKER_ID)),
                     str(merged.get("speaker_name") or ""),
-                    int(merged.get("tts_volume_percent") or DEFAULT_TTS_VOLUME_PERCENT),
-                    float(merged.get("speed_scale") or DEFAULT_TTS_SPEED_SCALE),
+                    int(_value_or_default(merged.get("tts_volume_percent"), DEFAULT_TTS_VOLUME_PERCENT)),
+                    float(_value_or_default(merged.get("speed_scale"), DEFAULT_TTS_SPEED_SCALE)),
                     bool(merged.get("user_pitch_enabled")),
-                    float(merged.get("pitch_variation") or DEFAULT_TTS_PITCH_VARIATION),
-                    int(merged.get("max_text_length") or DEFAULT_TTS_MAX_TEXT_LENGTH),
-                    int(merged.get("queue_limit") or DEFAULT_TTS_QUEUE_LIMIT),
+                    float(_value_or_default(merged.get("pitch_variation"), DEFAULT_TTS_PITCH_VARIATION)),
+                    int(_value_or_default(merged.get("max_text_length"), DEFAULT_TTS_MAX_TEXT_LENGTH)),
+                    int(_value_or_default(merged.get("queue_limit"), DEFAULT_TTS_QUEUE_LIMIT)),
                     bool(merged.get("ducking_enabled")),
-                    float(merged.get("ducking_music_gain") or DEFAULT_DUCKING_MUSIC_GAIN),
-                    int(merged.get("ducking_attack_ms") or DEFAULT_DUCKING_ATTACK_MS),
-                    int(merged.get("ducking_release_ms") or DEFAULT_DUCKING_RELEASE_MS),
+                    float(_value_or_default(merged.get("ducking_music_gain"), DEFAULT_DUCKING_MUSIC_GAIN)),
+                    int(_value_or_default(merged.get("ducking_attack_ms"), DEFAULT_DUCKING_ATTACK_MS)),
+                    int(_value_or_default(merged.get("ducking_release_ms"), DEFAULT_DUCKING_RELEASE_MS)),
                     str(merged.get("credit_text") or DEFAULT_TTS_CREDIT_TEXT),
                 ),
             )
