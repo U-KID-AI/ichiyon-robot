@@ -382,24 +382,39 @@ async def fetch_public_track(track_id: str) -> SpotifyTrackMetadata:
     try:
         public_html = await _fetch_html(spotify_public_url("track", track_id))
         album_id = _album_id_from_public_page(public_html)
+        image_url = _meta_content(public_html, "og:image") or _meta_content(public_html, "twitter:image")
         if not album_id:
-            return track
+            if not image_url:
+                return track
+            return SpotifyTrackMetadata(
+                track_id=track.track_id,
+                name=track.name,
+                artists=track.artists,
+                album_name=track.album_name,
+                duration_ms=track.duration_ms,
+                isrc=track.isrc,
+                explicit=track.explicit,
+                spotify_url=track.spotify_url,
+                disc_number=track.disc_number,
+                track_number=track.track_number,
+                image_url=track.image_url or image_url,
+            )
         album_html = await _fetch_html(spotify_embed_url("album", album_id))
         album = parse_public_album_html(album_id, album_html, PUBLIC_PROVIDER)
-        if not album.name:
+        if not album.name and not image_url:
             return track
         return SpotifyTrackMetadata(
             track_id=track.track_id,
             name=track.name,
             artists=track.artists,
-            album_name=album.name,
+            album_name=album.name or track.album_name,
             duration_ms=track.duration_ms,
             isrc=track.isrc,
             explicit=track.explicit,
             spotify_url=track.spotify_url,
             disc_number=track.disc_number,
             track_number=track.track_number,
-            image_url=track.image_url or (album.tracks[0].image_url if album.tracks else ""),
+            image_url=track.image_url or image_url or (album.tracks[0].image_url if album.tracks else ""),
         )
     except Exception:
         return track
