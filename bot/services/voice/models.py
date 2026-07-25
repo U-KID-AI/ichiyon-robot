@@ -16,8 +16,14 @@ class MusicTrack:
     refresh_required: bool = False
     source_type: str = "youtube"
     original_spotify_url: str = ""
+    spotify_track_id: str = ""
     spotify_title: str = ""
     spotify_artists: str = ""
+    spotify_album_name: str = ""
+    spotify_playlist_id: str = ""
+    spotify_playlist_name: str = ""
+    spotify_playlist_index: Optional[int] = None
+    spotify_resolve_status: str = ""
     enqueued_at_monotonic: float = 0.0
     youtube_route: str = "direct_cookie"
     ffmpeg_proxy_url: str = ""

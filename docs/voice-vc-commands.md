@@ -76,12 +76,14 @@ YouTube側の確認要求で取得できない場合は、サーバー上にcook
 
 ## Spotifyリンク再生
 
-同じURL音楽再生コマンドでSpotifyの曲/アルバムリンクを受け付けます。
+同じURL音楽再生コマンドでSpotifyの曲/アルバム/プレイリストリンクを受け付けます。
 
 - `@Bot 歌え https://open.spotify.com/track/...`
 - `@Bot 歌え https://open.spotify.com/album/...`
+- `@Bot 歌え https://open.spotify.com/playlist/...`
 - `@Bot 歌え spotify:track:...`
 - `@Bot 歌え spotify:album:...`
+- `@Bot 歌え spotify:playlist:...`
 
 Spotifyは曲名、アーティスト名、アルバム名、ISRC、曲の長さなどのメタデータ取得にだけ使います。Spotify上の音源やプレビュー音源を直接再生することはありません。実際の再生元は、取得した曲情報をもとに `yt-dlp` のYouTube検索で見つけたYouTube音源です。
 
@@ -89,24 +91,25 @@ Spotifyは曲名、アーティスト名、アルバム名、ISRC、曲の長さ
 
 Spotify曲から解決したYouTube URLはプロセス内メモリに一定時間キャッシュします。キャッシュ済みURLが削除、非公開、地域制限などで取得できなくなった場合は、該当曲だけキャッシュを無効化し、最大1回だけ再検索します。通常の一時的なネットワークエラーでは、不要な再検索を避けます。
 
+Spotifyプレイリストは、Spotify APIから曲一覧だけを取得して既存の音楽キューへ追加します。YouTube音源の探索は全曲分を投入時にまとめて行わず、再生直前に解決します。待機列の先頭1〜2曲だけは先読みし、現在再生中の曲を止めずに順番を維持します。ローカル曲や曲以外の項目はスキップします。
+
 対応URL:
 
 - Spotify曲URL
 - SpotifyアルバムURL
+- SpotifyプレイリストURL
 - `open.spotify.com/intl-ja/track/...` のようなロケール付きURL
 - `?si=...` などの共有パラメータ付きURL
 - `spotify:track:...`
 - `spotify:album:...`
+- `spotify:playlist:...`
 
 非対応URL:
 
-- Spotifyプレイリスト
 - Spotifyエピソード
 - Spotifyポッドキャスト/番組
 - Spotifyアーティストページ
 - Spotifyユーザー認証が必要な非公開データ
-
-プレイリストは、現在のSpotify API仕様では一般プレイリストから曲一覧を取得できないため、曲またはアルバムのリンクを送るよう案内します。将来、ユーザー認証やAPI仕様が変わった場合に拡張する想定です。
 
 アルバムリンクは全トラックをページネーションで取得し、曲ごとにYouTube音源を解決して既存のguild単位キューへ追加します。負荷を抑えるため、同時解決数はデフォルト1、曲数上限はデフォルト100です。ローカルトラック、利用不能トラック、null項目、一致スコア不足の曲はスキップします。
 

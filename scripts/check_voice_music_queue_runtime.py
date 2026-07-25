@@ -210,7 +210,7 @@ async def run_playback_retry_checks():
     original_refresh = voice_music.refresh_track_for_playback
     original_play_next = voice_music.play_next_track
     try:
-        async def _fake_refresh(track, guild_id_arg):
+        async def _fake_refresh(track, guild_id_arg, voice_client=None):
             refresh_calls.append((track.title, track.playback_retry_count, guild_id_arg))
             return MusicTrack(
                 "retry",

@@ -142,7 +142,7 @@ def run_url_checks(results):
     results.append(check("invalid spotify id is rejected", parse_spotify_link("https://open.spotify.com/track/short").kind == "invalid"))
     results.append(check("similar domain is ignored", parse_spotify_link("https://open.spotify.example.com/track/{0}".format(TRACK_ID)) is None))
     playlist = parse_spotify_link("https://open.spotify.com/playlist/{0}".format(TRACK_ID))
-    results.append(check("playlist has helpful unsupported message", "プレイリスト" in spotify_unsupported_message(playlist)))
+    results.append(check("playlist is supported", playlist is not None and playlist.is_supported))
     results.append(check("music command accepts spotify url position", parse_music_command("歌え https://open.spotify.com/track/{0}".format(TRACK_ID))[0] == "music_play"))
 
 
