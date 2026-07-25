@@ -1,0 +1,97 @@
+{% extends "layout.html" %}
+
+{% block title %}読み上げ設定 - Bot管理画面{% endblock %}
+{% block heading %}読み上げ設定{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="server-summary page-summary">
+      {% if server.icon_url %}
+        <img class="server-icon" src="{{ server.icon_url }}" alt="">
+      {% else %}
+        <div class="server-icon placeholder"></div>
+      {% endif %}
+      <div>
+        <h2>{{ server.name }}</h2>
+        <p class="empty">サーバーID: {{ guild_id }}</p>
+      </div>
+    </div>
+    <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+  </section>
+
+  {% if saved %}
+    <p class="flash success">保存しました。</p>
+  {% endif %}
+  {% if error %}
+    <p class="flash error">入力値を確認してください。</p>
+  {% endif %}
+
+  <section class="panel">
+    <form method="post" class="stack-form">
+      <label class="check-row">
+        <input type="checkbox" name="enabled" {% if settings.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+        <span>読み上げ機能を有効にする</span>
+      </label>
+      <label class="check-row">
+        <input type="checkbox" name="auto_join_enabled" {% if settings.auto_join_enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+        <span>VC参加時に読み上げをONにする</span>
+      </label>
+
+      <div class="form-grid">
+        <label>Speaker / Style ID
+          <input type="number" name="speaker_id" min="0" max="10000" value="{{ settings.speaker_id }}" {% if not can_edit %}disabled{% endif %}>
+        </label>
+        <label>話者名
+          <input type="text" name="speaker_name" value="{{ settings.speaker_name }}" {% if not can_edit %}disabled{% endif %}>
+        </label>
+        <label>読み上げ音量 (%)
+          <input type="number" name="tts_volume_percent" min="0" max="100" value="{{ settings.tts_volume_percent }}" {% if not can_edit %}disabled{% endif %}>
+        </label>
+        <label>読み上げ速度
+          <input type="number" name="speed_scale" min="0.5" max="2" step="0.05" value="{{ settings.speed_scale }}" {% if not can_edit %}disabled{% endif %}>
+        </label>
+        <label>最大読み上げ文字数
+          <input type="number" name="max_text_length" min="1" max="1000" value="{{ settings.max_text_length }}" {% if not can_edit %}disabled{% endif %}>
+        </label>
+        <label>TTSキュー上限
+          <input type="number" name="queue_limit" min="1" max="200" value="{{ settings.queue_limit }}" {% if not can_edit %}disabled{% endif %}>
+        </label>
+      </div>
+
+      <label class="check-row">
+        <input type="checkbox" name="user_pitch_enabled" {% if settings.user_pitch_enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+        <span>ユーザーごとに声の高さを少し変える</span>
+      </label>
+      <label>Pitch差の幅
+        <input type="number" name="pitch_variation" min="0" max="0.2" step="0.01" value="{{ settings.pitch_variation }}" {% if not can_edit %}disabled{% endif %}>
+      </label>
+
+      <hr>
+      <label class="check-row">
+        <input type="checkbox" name="ducking_enabled" {% if settings.ducking_enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+        <span>読み上げ中に音楽音量を下げる</span>
+      </label>
+      <div class="form-grid">
+        <label>音楽音量倍率
+          <input type="number" name="ducking_music_gain" min="0" max="1" step="0.05" value="{{ settings.ducking_music_gain }}" {% if not can_edit %}disabled{% endif %}>
+        </label>
+        <label>Attack (ms)
+          <input type="number" name="ducking_attack_ms" min="0" max="5000" value="{{ settings.ducking_attack_ms }}" {% if not can_edit %}disabled{% endif %}>
+        </label>
+        <label>Release (ms)
+          <input type="number" name="ducking_release_ms" min="0" max="5000" value="{{ settings.ducking_release_ms }}" {% if not can_edit %}disabled{% endif %}>
+        </label>
+      </div>
+
+      <label>クレジット表記
+        <input type="text" name="credit_text" value="{{ settings.credit_text }}" {% if not can_edit %}disabled{% endif %}>
+      </label>
+      <p class="empty">{{ voicevox_credit_note }}</p>
+
+      {% if can_edit %}
+        <button type="submit">保存</button>
+      {% endif %}
+    </form>
+  </section>
+{% endblock %}
+

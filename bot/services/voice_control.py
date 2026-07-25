@@ -16,7 +16,6 @@ from bot.services.voice_audio import (
     resolve_audio_file,
 )
 from bot.services.voice_music import (
-    clear_music_state,
     enqueue_music_url,
     parse_music_command,
     pause_music,
@@ -34,6 +33,7 @@ from bot.services.voice_music import (
     MUSIC_LOOP_ONE,
     MUSIC_LOOP_QUEUE,
 )
+from bot.services.voice.tts import activate_tts_session, handle_tts_command, reset_voice_session
 
 VOICE_JOIN_COMMANDS = {
     "もしもししよ",
@@ -137,6 +137,7 @@ async def join_author_voice_channel(message: discord.Message) -> None:
         if voice_client is None:
             await target_channel.connect()
             log_voice_action("join", guild_id, target_channel_id)
+            activate_tts_session(guild_id, str(getattr(message.channel, "id", "") or ""))
             await message.channel.send("VCに入りました。")
             return
 
@@ -148,6 +149,7 @@ async def join_author_voice_channel(message: discord.Message) -> None:
 
         await voice_client.move_to(target_channel)
         log_voice_action("move", guild_id, target_channel_id)
+        activate_tts_session(guild_id, str(getattr(message.channel, "id", "") or ""))
         await message.channel.send("VCを移動しました。")
     except (
         RuntimeError,
@@ -177,13 +179,13 @@ async def leave_voice_channel(message: discord.Message) -> None:
     guild_id = str(guild.id)
     voice_client = get_raw_guild_voice_client(guild)
     if voice_client is None:
-        clear_music_state(guild_id)
+        await reset_voice_session(guild_id)
         log_voice_action("leave_not_connected", guild_id, None)
         await message.channel.send("いまVCには入っていません。")
         return
     if not is_voice_client_connected(voice_client):
         await cleanup_stale_voice_client(voice_client)
-        clear_music_state(guild_id)
+        await reset_voice_session(guild_id)
         log_voice_action("leave_not_connected", guild_id, None)
         await message.channel.send("いまVCには入っていません。")
         return
@@ -192,7 +194,7 @@ async def leave_voice_channel(message: discord.Message) -> None:
     channel_id = str(getattr(current_channel, "id", "") or "")
     try:
         await voice_client.disconnect()
-        clear_music_state(guild_id)
+        await reset_voice_session(guild_id)
         log_voice_action("leave", guild_id, channel_id)
         await message.channel.send("VCから退出しました。")
     except (discord.ClientException, discord.HTTPException) as exc:
@@ -262,6 +264,9 @@ async def stop_audio(message: discord.Message) -> None:
 
 
 async def handle_voice_command(message: discord.Message, command_text: Optional[str]) -> bool:
+    if await handle_tts_command(message, command_text):
+        return True
+
     music_command, music_argument = parse_music_command(command_text)
     if music_command == "music_play":
         return await enqueue_music_url(message, music_argument)

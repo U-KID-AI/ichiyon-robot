@@ -48,6 +48,7 @@ from admin.special_effects import (
     router as special_effect_router,
 )
 from admin.voice_lines import register_voice_line_routes, router as voice_line_router
+from admin.tts_settings import register_tts_setting_routes, router as tts_setting_router
 from admin.x_updates import register_x_update_routes, router as x_update_router
 from admin.youtube_n_pull import register_youtube_n_pull_routes, router as youtube_n_pull_router
 
@@ -97,6 +98,7 @@ register_reaction_threshold_routes(templates)
 register_random_reaction_routes(templates)
 register_x_update_routes(templates)
 register_voice_line_routes(templates)
+register_tts_setting_routes(templates)
 register_schedule_template_routes(templates)
 register_youtube_n_pull_routes(templates)
 app.include_router(auth_router)
@@ -114,6 +116,7 @@ app.include_router(reaction_threshold_router)
 app.include_router(random_reaction_router)
 app.include_router(x_update_router)
 app.include_router(voice_line_router)
+app.include_router(tts_setting_router)
 app.include_router(schedule_template_router)
 app.include_router(youtube_n_pull_router)
 

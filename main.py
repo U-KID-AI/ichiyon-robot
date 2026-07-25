@@ -18,6 +18,7 @@ from bot.services.runtime_db import (
     parse_random_draw_pull_for_keyword,
 )
 from bot.services.voice_control import handle_voice_command
+from bot.services.voice.tts import maybe_enqueue_tts
 from bot.services.voice_music import handle_mention_music_links
 from bot.services.x_update_notifications import run_x_update_notifications_once
 from bot.services.youtube_n_pull import handle_youtube_n_pull_command
@@ -162,6 +163,8 @@ async def on_message(message: discord.Message):
 
     if await handle_developer_command(message, command_text):
         return
+
+    await maybe_enqueue_tts(message, command_text)
 
     if config.DATA_BACKEND == "db" and get_message_guild_id(message) is not None:
         await handle_db_runtime_message(message)

@@ -75,6 +75,21 @@ services:
       retries: 3
       start_period: 30s
 
+  voicevox-engine:
+    profiles:
+      - voicevox
+    image: ${VOICEVOX_ENGINE_IMAGE:-voicevox/voicevox_engine:cpu-ubuntu24.04-0.25.0}
+    container_name: ichiyon-robot-voicevox-engine
+    restart: unless-stopped
+    expose:
+      - "50021"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:50021/version', timeout=3).read()\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
   bot:
     profiles:
       - bot
@@ -106,6 +121,8 @@ services:
       YOUTUBE_HOME_VPN_CONNECT_TIMEOUT_SECONDS: ${YOUTUBE_HOME_VPN_CONNECT_TIMEOUT_SECONDS:-5}
       YOUTUBE_HOME_VPN_EXTRACT_TIMEOUT_SECONDS: ${YOUTUBE_HOME_VPN_EXTRACT_TIMEOUT_SECONDS:-30}
       YOUTUBE_HOME_VPN_FALLBACK_ENABLED: ${YOUTUBE_HOME_VPN_FALLBACK_ENABLED:-true}
+      VOICEVOX_ENGINE_URL: ${VOICEVOX_ENGINE_URL:-http://voicevox-engine:50021}
+      VOICEVOX_TIMEOUT_SECONDS: ${VOICEVOX_TIMEOUT_SECONDS:-10}
       STARTUP_CHANNEL_ID: ${STARTUP_CHANNEL_ID:-0}
       SCHEDULE_CHANNEL_ID: ${SCHEDULE_CHANNEL_ID:-0}
     command: python main.py
@@ -142,6 +159,8 @@ services:
       YOUTUBE_HOME_VPN_CONNECT_TIMEOUT_SECONDS: ${YOUTUBE_HOME_VPN_CONNECT_TIMEOUT_SECONDS:-5}
       YOUTUBE_HOME_VPN_EXTRACT_TIMEOUT_SECONDS: ${YOUTUBE_HOME_VPN_EXTRACT_TIMEOUT_SECONDS:-30}
       YOUTUBE_HOME_VPN_FALLBACK_ENABLED: ${YOUTUBE_HOME_VPN_FALLBACK_ENABLED:-true}
+      VOICEVOX_ENGINE_URL: ${VOICEVOX_ENGINE_URL:-http://voicevox-engine:50021}
+      VOICEVOX_TIMEOUT_SECONDS: ${VOICEVOX_TIMEOUT_SECONDS:-10}
       STARTUP_CHANNEL_ID: ${IRSIA_STARTUP_CHANNEL_ID:-0}
       SCHEDULE_CHANNEL_ID: ${IRSIA_SCHEDULE_CHANNEL_ID:-0}
       NORMAL_BOT_NICKNAME: ${IRSIA_NORMAL_BOT_NICKNAME:-イルシア}
