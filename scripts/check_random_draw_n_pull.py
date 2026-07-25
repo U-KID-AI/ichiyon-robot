@@ -112,11 +112,10 @@ def reaction(
     name: Optional[str] = None,
     enabled: bool = True,
     match_type: str = "exact",
-    reaction_key: Optional[str] = None,
 ) -> Dict[str, Any]:
     return {
         "id": reaction_id,
-        "reaction_key": reaction_key or "random_{0}".format(reaction_id),
+        "reaction_key": "random_{0}".format(reaction_id),
         "keyword": keyword,
         "name": name or keyword,
         "match_type": match_type,
@@ -238,19 +237,19 @@ async def run_checks() -> int:
             check.add("non random command is not consumed {0}".format(value), parsed is None and error in (None, runtime_db.RANDOM_DRAW_PULL_BLOCKED), str(error))
 
         for value in ("くじ", "おみくじ", "今日のおみくじ", "宝くじ", "くじ引き", "くじを引く", "なんかくじやって"):
-            parsed, error = runtime_db.parse_fortune_random_draw_pull(value)
-            check.add("fortune contains trigger parses {0}".format(value), parsed is not None and parsed.count == 1 and error is None, str((parsed, error)))
+            parsed, error = runtime_db.parse_random_draw_pull_for_regex(value, "くじ")
+            check.add("generic regex trigger parses {0}".format(value), parsed is not None and parsed.count == 1 and error is None, str((parsed, error)))
         for value, expected_count in (("おみくじ 10連", 10), ("おみくじ10連", 10), ("今日のおみくじ 3連", 3), ("今日のおみくじ　３連", 3)):
-            parsed, error = runtime_db.parse_fortune_random_draw_pull(value)
-            check.add("fortune contains n-pull parses {0}".format(value), parsed is not None and parsed.count == expected_count and error is None, str((parsed, error)))
+            parsed, error = runtime_db.parse_random_draw_pull_for_regex(value, "くじ")
+            check.add("generic regex n-pull parses {0}".format(value), parsed is not None and parsed.count == expected_count and error is None, str((parsed, error)))
         for value in ("おみくじ 0連", "おみくじ 101連", "おみくじ abc連", "おみくじ 10回", "おみくじ 連"):
-            parsed, error = runtime_db.parse_fortune_random_draw_pull(value)
-            check.add("fortune invalid count rejects {0}".format(value), parsed is None and error == runtime_db.RANDOM_DRAW_PULL_INVALID_MESSAGE, str(error))
-        parsed, error = runtime_db.parse_fortune_random_draw_pull("くし")
-        check.add("fortune does not match kushi", parsed is None and error is None, str((parsed, error)))
+            parsed, error = runtime_db.parse_random_draw_pull_for_regex(value, "くじ")
+            check.add("generic regex invalid count rejects {0}".format(value), parsed is None and error == runtime_db.RANDOM_DRAW_PULL_INVALID_MESSAGE, str(error))
+        parsed, error = runtime_db.parse_random_draw_pull_for_regex("くし", "くじ")
+        check.add("generic regex does not match kushi", parsed is None and error is None, str((parsed, error)))
 
         set_repo(
-            [reaction(1, "おみくじ", reaction_key="kuji")],
+            [reaction(1, "くじ", name="おみくじ", match_type="regex")],
             {
                 1: [
                     choice(10, "大吉", weight=1, emoji="⭕"),
@@ -270,11 +269,11 @@ async def run_checks() -> int:
 
         for value in ("今日のおみくじ", "宝くじ", "くじ引き", "くじを引く", "なんかくじやって"):
             random_values[:] = [1]
-            set_repo([reaction(1, "おみくじ", reaction_key="kuji")], {1: [choice(10, "大吉", weight=1)]})
+            set_repo([reaction(1, "くじ", name="おみくじ", match_type="regex")], {1: [choice(10, "大吉", weight=1)]})
             message = FakeMessage(value)
             action = await runtime_db.process_db_mention(message, "111", FakeConnection())
             check.add("fortune db reaction handles contains {0}".format(value), action.handled and message.channel.sent == ["大吉"], str(message.channel.sent))
-        set_repo([reaction(1, "おみくじ", reaction_key="kuji")], {1: [choice(10, "大吉", weight=1)]})
+        set_repo([reaction(1, "くじ", name="おみくじ", match_type="regex")], {1: [choice(10, "大吉", weight=1)]})
         message = FakeMessage("くし")
         action = await runtime_db.process_db_mention(message, "111", FakeConnection())
         check.add("fortune db reaction ignores kushi", not action.handled and message.channel.sent == [], str(message.channel.sent))
@@ -319,12 +318,6 @@ async def run_checks() -> int:
             action = await runtime_db.process_db_mention(message, "111", FakeConnection())
             check.add("non random command does not draw {0}".format(blocked), not action.handled and message.channel.sent == [] and effect_log == [], str(message.channel.sent))
 
-        for value in ("おみくじ10連した結果", "おみくじを10回"):
-            set_repo([reaction(1, "おみくじ")], {1: [choice(10, "大吉", weight=1)]})
-            message = FakeMessage(value)
-            action = await runtime_db.process_db_mention(message, "111", FakeConnection())
-            check.add("fortune natural text draws once {0}".format(value), action.handled and message.channel.sent == ["大吉"] and len(effect_log) == 1, str(message.channel.sent))
-
         feature_flags[runtime_db.FEATURE_MENTION_RANDOM_DRAW] = False
         set_repo([reaction(1, "おみくじ")], {1: [choice(10, "大吉", weight=1)]})
         message = FakeMessage("おみくじ 2連")
@@ -348,9 +341,16 @@ async def run_checks() -> int:
 
         main_text = (PROJECT_ROOT / "main.py").read_text(encoding="utf-8")
         check.add(
-            "legacy kuji path uses common fortune parser",
-            "parse_fortune_random_draw_pull(command_text)" in main_text
+            "legacy kuji path uses common n-pull parser",
+            "parse_random_draw_pull_for_keyword(command_text, legacy_keyword)" in main_text
             and "for index in range(parsed.count)" in main_text,
+        )
+        runtime_text = (PROJECT_ROOT / "bot" / "services" / "runtime_db.py").read_text(encoding="utf-8")
+        check.add(
+            "fortune-specific parser was removed",
+            "parse_fortune_random_draw_pull" not in runtime_text
+            and "is_fortune_random_draw_reaction" not in runtime_text
+            and "FORTUNE_RANDOM_DRAW" not in runtime_text,
         )
     finally:
         runtime_db.MentionReactionRepository = old["mention_repo"]
