@@ -119,7 +119,7 @@ def get_voicevox_client() -> httpx.Client:
                 _HTTP_CLIENT.close()
             except Exception:
                 pass
-        _HTTP_CLIENT = httpx.Client(base_url=base_url, timeout=timeout)
+        _HTTP_CLIENT = httpx.Client(base_url=base_url, timeout=timeout, trust_env=False)
         _HTTP_CLIENT_BASE_URL = base_url
         _HTTP_CLIENT_TIMEOUT = timeout
     return _HTTP_CLIENT
