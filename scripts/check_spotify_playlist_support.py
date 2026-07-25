@@ -9,7 +9,14 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 
-from bot.services.spotify_client import SpotifyClient, SpotifyPlaylistMetadata, SpotifyTrackMetadata
+from bot.services.spotify_client import (
+    SpotifyApiError,
+    SpotifyClient,
+    SpotifyPlaylistMetadata,
+    SpotifyRateLimitedError,
+    SpotifyTimeoutError,
+    SpotifyTrackMetadata,
+)
 from bot.services.spotify_link import parse_spotify_link
 from bot.services.spotify_resolver import ResolvedYouTubeTrack
 from bot.services.voice.models import MusicTrack
@@ -18,6 +25,7 @@ import bot.services.voice_music as voice_music
 
 
 PLAYLIST_ID = "1Q2W3E4R5T6Y7U8I9O0P1A"
+REAL_PLAYLIST_ID = "6wtgpQbVF1aJ4irWRKE0Rq"
 
 
 def check(name: str, ok: bool, detail: str = "") -> bool:
@@ -101,45 +109,146 @@ class FakeVoiceClient:
         return True
 
 
-def fake_playlist_payload(next_url=None):
+def playlist_metadata_payload(total=17, embedded_items=None, next_url=None):
     return {
         "id": PLAYLIST_ID,
         "name": "API Playlist",
         "external_urls": {"spotify": "https://open.spotify.com/playlist/{0}".format(PLAYLIST_ID)},
         "images": [{"url": "https://image.example/api.jpg"}],
-        "tracks": {
-            "total": 4,
-            "next": next_url,
-            "items": [
-                {"track": {"id": "TRACK000000000000001", "type": "track", "name": "A", "artists": [{"name": "Artist"}], "album": {"name": "Album"}, "duration_ms": 181000, "external_ids": {}, "external_urls": {"spotify": "https://open.spotify.com/track/TRACK000000000000001"}}},
-                {"track": {"id": "LOCAL000000000000001", "type": "track", "name": "Local", "artists": [{"name": "Artist"}], "is_local": True}},
-            ],
-        },
+        "tracks": {"total": total, "items": embedded_items or [], "next": next_url},
     }
+
+
+def playlist_track_payload(index, **overrides):
+    payload = {
+        "id": "TRACK{0:017d}".format(index),
+        "type": "track",
+        "name": "Song {0}".format(index),
+        "artists": [{"name": "Artist {0}".format(index)}],
+        "album": {"name": "Album {0}".format(index)},
+        "duration_ms": (180 + index) * 1000,
+        "external_ids": {},
+        "external_urls": {"spotify": "https://open.spotify.com/track/TRACK{0:017d}".format(index)},
+        "disc_number": 1,
+        "track_number": index,
+        "explicit": False,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def playlist_item_entry(index, field="item", **overrides):
+    return {field: playlist_track_payload(index, **overrides)}
 
 
 async def run_client_pagination_checks(results):
     calls = []
     client = SpotifyClient("id", "secret")
 
-    async def fake_get_json(path, params=None, retry_auth=True):
+    async def fake_get_json_with_status(path, params=None, retry_auth=True):
         calls.append((path, dict(params or {})))
         if path == "/playlists/{0}".format(PLAYLIST_ID):
-            return fake_playlist_payload("https://api.spotify.com/v1/playlists/{0}/tracks?offset=2&limit=2".format(PLAYLIST_ID))
+            return playlist_metadata_payload(20), 200
+        if path == "/playlists/{0}/items".format(PLAYLIST_ID) and str((params or {}).get("offset") or "") != "10":
+            return {
+                "next": "https://api.spotify.com/v1/playlists/{0}/items?offset=10&limit=10".format(PLAYLIST_ID),
+                "items": [playlist_item_entry(index, field="item", preview_url=None) for index in range(1, 11)],
+            }, 200
         return {
             "next": None,
             "items": [
-                {"track": {"id": "TRACK000000000000002", "type": "track", "name": "B", "artists": [{"name": "Artist"}], "album": {"name": "Album"}, "duration_ms": 182000, "external_ids": {}, "external_urls": {"spotify": "https://open.spotify.com/track/TRACK000000000000002"}}},
-                {"track": {"id": "EPISODE0000000000001", "type": "episode", "name": "Podcast"}},
+                playlist_item_entry(index, field="item", is_playable=None, available_markets=None)
+                for index in range(11, 18)
+            ]
+            + [
+                playlist_item_entry(18, field="item", is_local=True),
+                {"item": {"id": "EPISODE0000000000001", "type": "episode", "name": "Podcast"}},
+                {"item": None},
             ],
-        }
+        }, 200
 
-    client._get_json = fake_get_json
+    client._get_json_with_status = fake_get_json_with_status
     playlist = await client.get_playlist(PLAYLIST_ID)
-    results.append(check("playlist api keeps order", [track.name for track in playlist.tracks] == ["A", "B"], str([track.name for track in playlist.tracks])))
-    results.append(check("playlist api counts skipped items", playlist.skipped_tracks == 2, str(playlist.skipped_tracks)))
-    results.append(check("playlist api paginates next URL", any(call[0].endswith("/tracks") for call in calls), str(calls)))
+    results.append(check("playlist api uses metadata endpoint", calls[0][0] == "/playlists/{0}".format(PLAYLIST_ID), str(calls[:1])))
+    results.append(check("playlist metadata request sends market only", calls[0][1] == {"market": "JP"}, str(calls[0][1])))
+    results.append(check("playlist api uses items endpoint", any(call[0] == "/playlists/{0}/items".format(PLAYLIST_ID) for call in calls), str(calls)))
+    results.append(check("playlist api sends market JP", all(call[1].get("market") == "JP" for call in calls), str(calls)))
+    results.append(check("playlist item format keeps 17 tracks", len(playlist.tracks) == 17, str(len(playlist.tracks))))
+    results.append(check("playlist item format keeps order", [track.name for track in playlist.tracks[:3]] == ["Song 1", "Song 2", "Song 3"], str([track.name for track in playlist.tracks[:3]])))
+    results.append(check("playlist preview_url null is accepted", playlist.tracks[0].name == "Song 1", playlist.tracks[0].name))
+    results.append(check("playlist missing is_playable is accepted", playlist.tracks[10].name == "Song 11", playlist.tracks[10].name))
+    results.append(check("playlist missing available_markets is accepted", playlist.tracks[10].name == "Song 11", playlist.tracks[10].name))
+    results.append(check("playlist api counts skipped items", playlist.skipped_tracks == 3, str(playlist.skipped_tracks)))
+    results.append(check("playlist local tracks are skipped", playlist.local_tracks == 1, str(playlist.local_tracks)))
+    results.append(check("playlist episodes are skipped", playlist.episode_tracks == 1, str(playlist.episode_tracks)))
+    results.append(check("playlist null items are skipped", playlist.missing_metadata_tracks == 1, str(playlist.missing_metadata_tracks)))
+    results.append(check("playlist api paginates items URL", any(call[0].endswith("/items") and call[1].get("offset") == "10" for call in calls), str(calls)))
     results.append(check("playlist api keeps cover image", playlist.image_url.endswith("api.jpg"), playlist.image_url))
+
+
+async def run_legacy_track_field_checks(results):
+    client = SpotifyClient("id", "secret")
+
+    async def fake_get_json_with_status(path, params=None, retry_auth=True):
+        if path == "/playlists/{0}".format(PLAYLIST_ID):
+            return playlist_metadata_payload(2), 200
+        return {
+            "next": None,
+            "items": [
+                playlist_item_entry(1, field="track"),
+                playlist_item_entry(2, field="track"),
+            ],
+        }, 200
+
+    client._get_json_with_status = fake_get_json_with_status
+    playlist = await client.get_playlist(PLAYLIST_ID)
+    results.append(check("legacy track field format is supported", len(playlist.tracks) == 2 and playlist.track_field_tracks == 2, str((len(playlist.tracks), playlist.track_field_tracks))))
+
+
+async def run_api_error_checks(results):
+    async def playlist_for_error(error):
+        client = SpotifyClient("id", "secret")
+
+        async def fake_get_json_with_status(path, params=None, retry_auth=True):
+            if path == "/playlists/{0}".format(PLAYLIST_ID):
+                return playlist_metadata_payload(17), 200
+            raise error
+
+        client._get_json_with_status = fake_get_json_with_status
+        return await client.get_playlist(PLAYLIST_ID)
+
+    for name, error, error_type in (
+        ("playlist 403 is not treated as zero tracks", SpotifyApiError(403), SpotifyApiError),
+        ("playlist 429 is not treated as zero tracks", SpotifyRateLimitedError(30), SpotifyRateLimitedError),
+        ("playlist timeout is not treated as zero tracks", SpotifyTimeoutError(), SpotifyTimeoutError),
+    ):
+        try:
+            await playlist_for_error(error)
+        except error_type:
+            results.append(check(name, True))
+        except Exception as exc:
+            results.append(check(name, False, type(exc).__name__))
+        else:
+            results.append(check(name, False, "no error"))
+
+
+async def run_items_endpoint_fallback_checks(results):
+    calls = []
+    client = SpotifyClient("id", "secret")
+
+    async def fake_get_json_with_status(path, params=None, retry_auth=True):
+        calls.append((path, dict(params or {})))
+        if path == "/playlists/{0}".format(PLAYLIST_ID):
+            return playlist_metadata_payload(
+                2,
+                embedded_items=[playlist_item_entry(1, field="item"), playlist_item_entry(2, field="item")],
+            ), 200
+        raise SpotifyApiError(403)
+
+    client._get_json_with_status = fake_get_json_with_status
+    playlist = await client.get_playlist(PLAYLIST_ID)
+    results.append(check("items endpoint 403 can fall back to embedded playlist tracks", len(playlist.tracks) == 2, str((len(playlist.tracks), calls))))
+    results.append(check("embedded fallback still handles item field", playlist.item_field_tracks == 2, str(playlist.item_field_tracks)))
 
 
 async def run_queue_checks(results):
@@ -194,12 +303,14 @@ async def run_queue_checks(results):
         results.append(check("playlist queues all tracks lazily", len(state.queue) == 30 and all(track.source_type == "spotify_playlist" for track in state.queue), str(len(state.queue))))
         results.append(check("playlist enqueue does not resolve all youtube upfront", not resolve_calls and not extract_calls, str((resolve_calls, extract_calls))))
         results.append(check("playlist summary sends one message", len(message.channel.messages) == 1 and len(message.channel.embeds) == 1, str(message.channel.messages)))
+        results.append(check("playlist queue is guild scoped", not get_music_state("guild-other").queue, str(len(get_music_state("guild-other").queue))))
 
         first = state.queue[0]
         resolved_first = await voice_music.refresh_track_for_playback(first, guild_id, FakeVoiceClient())
         results.append(check("playlist track resolves at playback", resolved_first is not None and resolved_first.stream_url and resolved_first.source_url.startswith("https://www.youtube.com/watch"), str(resolved_first)))
         results.append(check("lazy resolved track keeps playlist metadata", resolved_first.spotify_playlist_id == PLAYLIST_ID and resolved_first.spotify_playlist_index == 1))
         results.append(check("lazy resolve uses existing youtube path", len(resolve_calls) == 1 and len(extract_calls) == 1, str((resolve_calls, extract_calls))))
+        results.append(check("only first track lazy resolves before prefetch", sum(1 for track in state.queue if track.stream_url) == 0, str(sum(1 for track in state.queue if track.stream_url))))
 
         await voice_music.prefetch_spotify_playlist_tracks(FakeVoiceClient(), guild_id, limit=2)
         queued = list(state.queue)
@@ -229,6 +340,9 @@ async def main() -> int:
     results.append(check("playlist url supported", playlist_link is not None and playlist_link.is_supported and playlist_link.kind == "playlist", str(playlist_link)))
     results.append(check("playlist uri supported", playlist_uri is not None and playlist_uri.is_supported and playlist_uri.kind == "playlist", str(playlist_uri)))
     await run_client_pagination_checks(results)
+    await run_legacy_track_field_checks(results)
+    await run_api_error_checks(results)
+    await run_items_endpoint_fallback_checks(results)
     await run_queue_checks(results)
     print("spotify playlist support checks: {0}/{1}".format(sum(1 for value in results if value), len(results)))
     return 0 if all(results) else 1

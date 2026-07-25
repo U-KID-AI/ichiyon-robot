@@ -2,7 +2,7 @@ import asyncio
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -16,6 +16,7 @@ SPOTIFY_MARKET_ENV = "SPOTIFY_MARKET"
 SPOTIFY_MAX_ALBUM_TRACKS_ENV = "SPOTIFY_MAX_ALBUM_TRACKS"
 DEFAULT_SPOTIFY_MARKET = "JP"
 DEFAULT_MAX_ALBUM_TRACKS = 100
+DEFAULT_PLAYLIST_ITEMS_PAGE_LIMIT = 50
 _SHARED_SPOTIFY_CLIENT: Optional["SpotifyClient"] = None
 
 
@@ -39,6 +40,7 @@ class SpotifyRateLimitedError(SpotifyError):
     def __init__(self, retry_after: Optional[int] = None):
         super().__init__("Spotify API rate limited")
         self.retry_after = retry_after
+        self.status_code = 429
         self.user_message = "Spotify APIの制限に達しました。少し時間を置いて再試行してください。"
 
 
@@ -47,13 +49,21 @@ class SpotifyApiError(SpotifyError):
         super().__init__("Spotify API failed: status={0}".format(status_code))
         self.status_code = status_code
         if status_code == 403:
-            self.user_message = "Spotify APIの権限またはアクセス制限により取得できませんでした。"
+            self.user_message = "Spotify APIの権限またはアクセス制限により取得できませんでした。\nSpotify API status: 403"
         elif status_code == 404:
             self.user_message = SpotifyNotFoundError.user_message
+        elif status_code:
+            self.user_message = "Spotify情報を取得できませんでした。\nSpotify API status: {0}".format(status_code)
 
 
 class SpotifyTimeoutError(SpotifyError):
     user_message = "Spotify APIがタイムアウトしました。時間を置いて再試行してください。"
+
+
+class SpotifyJsonError(SpotifyApiError):
+    def __init__(self):
+        super().__init__(400)
+        self.user_message = "Spotify APIのレスポンスを解析できませんでした。時間を置いて再試行してください。"
 
 
 @dataclass(frozen=True)
@@ -104,6 +114,11 @@ class SpotifyPlaylistMetadata:
     tracks: List[SpotifyTrackMetadata]
     skipped_tracks: int = 0
     total_tracks: int = 0
+    item_field_tracks: int = 0
+    track_field_tracks: int = 0
+    local_tracks: int = 0
+    episode_tracks: int = 0
+    missing_metadata_tracks: int = 0
 
     @property
     def total_duration_seconds(self) -> int:
@@ -172,13 +187,81 @@ def _track_from_payload(payload: Dict[str, Any], album_name: str = "") -> Option
     )
 
 
-def _track_from_playlist_item(payload: Dict[str, Any]) -> Optional[SpotifyTrackMetadata]:
-    if not payload:
+@dataclass
+class SpotifyPlaylistFetchStats:
+    playlist_id: str
+    market: str
+    page: int = 0
+    items_count: int = 0
+    item_field_count: int = 0
+    track_field_count: int = 0
+    local_count: int = 0
+    episode_count: int = 0
+    missing_metadata_count: int = 0
+    accepted_count: int = 0
+
+    @property
+    def skipped_count(self) -> int:
+        return self.local_count + self.episode_count + self.missing_metadata_count
+
+
+def _playlist_item_payload(entry: Dict[str, Any], stats: SpotifyPlaylistFetchStats) -> Optional[Dict[str, Any]]:
+    if not entry:
+        stats.missing_metadata_count += 1
         return None
-    track_payload = payload.get("track") or {}
-    if not isinstance(track_payload, dict):
+    has_item = "item" in entry
+    has_track = "track" in entry
+    if has_item:
+        stats.item_field_count += 1
+        payload = entry.get("item")
+    else:
+        payload = None
+    if payload is None and has_track:
+        stats.track_field_count += 1
+        payload = entry.get("track")
+    if not isinstance(payload, dict):
+        stats.missing_metadata_count += 1
         return None
-    return _track_from_payload(track_payload)
+    return payload
+
+
+def _track_from_playlist_entry(entry: Dict[str, Any], stats: SpotifyPlaylistFetchStats) -> Optional[SpotifyTrackMetadata]:
+    payload = _playlist_item_payload(entry, stats)
+    if payload is None:
+        return None
+    if payload.get("is_local"):
+        stats.local_count += 1
+        return None
+    payload_type = payload.get("type")
+    if payload_type not in (None, "track"):
+        stats.episode_count += 1
+        return None
+    track = _track_from_payload(payload)
+    if track is None:
+        stats.missing_metadata_count += 1
+        return None
+    stats.accepted_count += 1
+    return track
+
+
+def _log_spotify_playlist_fetch(stats: SpotifyPlaylistFetchStats, http_status: int) -> None:
+    print(
+        "[INFO] spotify_playlist_fetch playlist_id={0} http_status={1} page={2} market={3} "
+        "items_count={4} item_field_count={5} track_field_count={6} local_count={7} "
+        "episode_count={8} missing_metadata_count={9} accepted_count={10}".format(
+            stats.playlist_id,
+            http_status,
+            stats.page,
+            stats.market or "",
+            stats.items_count,
+            stats.item_field_count,
+            stats.track_field_count,
+            stats.local_count,
+            stats.episode_count,
+            stats.missing_metadata_count,
+            stats.accepted_count,
+        )
+    )
 
 
 class SpotifyClient:
@@ -244,7 +327,7 @@ class SpotifyClient:
     def cache_key(self) -> tuple:
         return (self.client_id, self.client_secret, self.market, self.timeout_seconds)
 
-    async def _get_json(self, path: str, params: Optional[Dict[str, Any]] = None, retry_auth: bool = True) -> Dict[str, Any]:
+    async def _get_json_with_status(self, path: str, params: Optional[Dict[str, Any]] = None, retry_auth: bool = True) -> Tuple[Dict[str, Any], int]:
         token = await self.get_token()
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
@@ -260,7 +343,7 @@ class SpotifyClient:
 
         if response.status_code == 401 and retry_auth:
             self.clear_token()
-            return await self._get_json(path, params=params, retry_auth=False)
+            return await self._get_json_with_status(path, params=params, retry_auth=False)
         if response.status_code == 401:
             raise SpotifyAuthError()
         if response.status_code == 429:
@@ -274,7 +357,25 @@ class SpotifyClient:
             raise SpotifyNotFoundError()
         if response.status_code < 200 or response.status_code >= 300:
             raise SpotifyApiError(response.status_code)
-        return response.json()
+        try:
+            return response.json(), response.status_code
+        except ValueError as exc:
+            raise SpotifyJsonError() from exc
+
+    async def _get_json(self, path: str, params: Optional[Dict[str, Any]] = None, retry_auth: bool = True) -> Dict[str, Any]:
+        data, _status = await self._get_json_with_status(path, params=params, retry_auth=retry_auth)
+        return data
+
+    async def _get_next_page_with_status(self, next_url: str, params: Optional[Dict[str, Any]] = None) -> Tuple[Dict[str, Any], int]:
+        parsed = urlparse(str(next_url or ""))
+        if parsed.scheme and parsed.netloc:
+            if parsed.netloc != "api.spotify.com":
+                raise SpotifyApiError(400)
+            path = parsed.path.replace("/v1", "", 1)
+            next_params = {key: values[-1] for key, values in parse_qs(parsed.query).items() if values}
+            next_params.update(params or {})
+            return await self._get_json_with_status(path, next_params)
+        return await self._get_json_with_status(str(next_url).replace(SPOTIFY_API_BASE_URL, ""), params or {})
 
     async def _get_next_page(self, next_url: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         parsed = urlparse(str(next_url or ""))
@@ -335,51 +436,92 @@ class SpotifyClient:
         )
 
     async def get_playlist(self, playlist_id: str) -> SpotifyPlaylistMetadata:
-        fields = (
-            "id,name,external_urls,images,"
-            "tracks(total,next,items(track(id,type,name,artists(name),album(name),duration_ms,external_ids,external_urls,disc_number,track_number,is_local,explicit)))"
-        )
-        playlist = await self._get_json(
-            "/playlists/{0}".format(playlist_id),
-            {"market": self.market, "fields": fields},
-        )
+        stats = SpotifyPlaylistFetchStats(playlist_id=playlist_id, market=self.market)
+        try:
+            playlist, _metadata_status = await self._get_json_with_status(
+                "/playlists/{0}".format(playlist_id),
+                {"market": self.market},
+            )
+        except SpotifyError as exc:
+            _log_spotify_playlist_fetch(stats, getattr(exc, "status_code", 0))
+            raise
         playlist_name = str(playlist.get("name") or "").strip()
         playlist_url = _external_url(playlist)
         image_url = _image_url(playlist)
         tracks_payload = playlist.get("tracks") or {}
         tracks: List[SpotifyTrackMetadata] = []
-        skipped = 0
 
         def _append_items(items: Any) -> None:
-            nonlocal skipped
             for item in items or []:
-                track = _track_from_playlist_item(item or {})
+                stats.items_count += 1
+                track = _track_from_playlist_entry(item or {}, stats)
                 if track is None:
-                    skipped += 1
                     continue
                 tracks.append(track)
 
         seen_next = set()
-        _append_items(tracks_payload.get("items") or [])
-        next_url = tracks_payload.get("next")
-        while next_url:
-            next_text = str(next_url)
-            if next_text in seen_next:
-                raise SpotifyApiError(508)
-            seen_next.add(next_text)
-            data = await self._get_next_page(next_text, {"market": self.market})
-            _append_items(data.get("items") or [])
-            next_url = data.get("next")
+        item_params = {
+            "market": self.market,
+            "limit": DEFAULT_PLAYLIST_ITEMS_PAGE_LIMIT,
+            "additional_types": "track,episode",
+        }
+        item_error: Optional[SpotifyError] = None
+        try:
+            items_page, items_status = await self._get_json_with_status(
+                "/playlists/{0}/items".format(playlist_id),
+                item_params,
+            )
+            stats.page = 1
+            _append_items(items_page.get("items") or [])
+            _log_spotify_playlist_fetch(stats, items_status)
+            next_url = items_page.get("next")
+            while next_url:
+                next_text = str(next_url)
+                if next_text in seen_next:
+                    raise SpotifyApiError(508)
+                seen_next.add(next_text)
+                data, status = await self._get_next_page_with_status(next_text, {"market": self.market})
+                stats.page += 1
+                _append_items(data.get("items") or [])
+                _log_spotify_playlist_fetch(stats, status)
+                next_url = data.get("next")
+        except SpotifyError as exc:
+            _log_spotify_playlist_fetch(stats, getattr(exc, "status_code", 0))
+            item_error = exc
 
-        total = int(tracks_payload.get("total") or len(tracks) + skipped)
+        if item_error is not None:
+            embedded_items = tracks_payload.get("items") or []
+            if not embedded_items:
+                raise item_error
+            stats.page = max(stats.page, 1)
+            _append_items(embedded_items)
+            _log_spotify_playlist_fetch(stats, _metadata_status)
+            next_url = tracks_payload.get("next")
+            while next_url:
+                next_text = str(next_url)
+                if next_text in seen_next:
+                    raise SpotifyApiError(508)
+                seen_next.add(next_text)
+                data, status = await self._get_next_page_with_status(next_text, {"market": self.market})
+                stats.page += 1
+                _append_items(data.get("items") or [])
+                _log_spotify_playlist_fetch(stats, status)
+                next_url = data.get("next")
+
+        total = int(tracks_payload.get("total") or len(tracks) + stats.skipped_count)
         return SpotifyPlaylistMetadata(
             playlist_id=playlist_id,
             name=playlist_name,
             spotify_url=playlist_url,
             image_url=image_url,
             tracks=tracks,
-            skipped_tracks=skipped,
+            skipped_tracks=stats.skipped_count,
             total_tracks=total,
+            item_field_tracks=stats.item_field_count,
+            track_field_tracks=stats.track_field_count,
+            local_tracks=stats.local_count,
+            episode_tracks=stats.episode_count,
+            missing_metadata_tracks=stats.missing_metadata_count,
         )
 
 
