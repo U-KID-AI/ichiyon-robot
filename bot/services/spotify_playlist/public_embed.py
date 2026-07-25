@@ -170,7 +170,7 @@ def _track_from_public_dict(item: Dict[str, Any], index: int) -> Optional[Spotif
         or item.get("length")
         or item.get("time")
     )
-    if not name or not artists or (not track_id and duration_ms is None):
+    if not name or not artists or duration_ms is None:
         return None
     synthetic_id = "PUBLICPLAYLIST{0:08d}".format(index)[-22:]
     spotify_url = "https://open.spotify.com/track/{0}".format(track_id) if track_id else ""
