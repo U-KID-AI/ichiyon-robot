@@ -365,7 +365,9 @@ async def run_resolver_checks(results):
     original_cache = dict(spotify_resolver._RESOLVE_CACHE)
     original_resolve = voice_music.resolve_spotify_track_to_youtube
     original_extract = voice_music.extract_track_info
+    original_home_vpn_enabled = os.environ.get("YOUTUBE_HOME_VPN_ENABLED")
     try:
+        os.environ["YOUTUBE_HOME_VPN_ENABLED"] = "false"
         calls = {"count": 0}
 
         def fake_search(query, guild_id=None, limit=5):
@@ -474,6 +476,10 @@ async def run_resolver_checks(results):
         spotify_resolver._RESOLVE_CACHE.update(original_cache)
         voice_music.resolve_spotify_track_to_youtube = original_resolve
         voice_music.extract_track_info = original_extract
+        if original_home_vpn_enabled is None:
+            os.environ.pop("YOUTUBE_HOME_VPN_ENABLED", None)
+        else:
+            os.environ["YOUTUBE_HOME_VPN_ENABLED"] = original_home_vpn_enabled
 
 
 async def run_album_and_queue_checks(results):
