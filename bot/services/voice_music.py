@@ -27,14 +27,14 @@ from bot.services.spotify_client import (
     SpotifyApiError,
     SpotifyCredentialsMissing,
     SpotifyError,
+    SpotifyArtistMetadata,
     SpotifyPlaylistMetadata,
     SpotifyRateLimitedError,
     SpotifyTrackMetadata,
-    get_spotify_client,
 )
 from bot.services.spotify_link import SpotifyLink, parse_spotify_link
 from bot.services.spotify_playlist.errors import SpotifyPlaylistResolveError
-from bot.services.spotify_playlist.resolver import get_spotify_playlist_resolver
+from bot.services.spotify_public import SpotifyPublicResolveError, get_spotify_public_resolver
 from bot.services.spotify_resolver import (
     SpotifyResolveError,
     get_album_lock,
@@ -1205,13 +1205,24 @@ def spotify_playlist_duration_text(playlist: SpotifyPlaylistMetadata) -> str:
     return format_duration(seconds)
 
 
+def spotify_tracks_duration_text(tracks: List[SpotifyTrackMetadata]) -> str:
+    seconds = sum(track.duration_seconds or 0 for track in tracks)
+    if not seconds:
+        return ""
+    return format_duration(seconds)
+
+
 def spotify_track_to_lazy_music_track(
     spotify_track: SpotifyTrackMetadata,
     requester_id: str,
     original_spotify_url: str,
     playlist: Optional[SpotifyPlaylistMetadata] = None,
     playlist_index: Optional[int] = None,
+    source_type: str = "",
+    collection_id: str = "",
+    collection_name: str = "",
 ) -> MusicTrack:
+    resolved_source_type = source_type or ("spotify_playlist" if playlist is not None else "spotify_lazy")
     return MusicTrack(
         title=spotify_display_title(spotify_track),
         webpage_url=spotify_track.spotify_url or original_spotify_url,
@@ -1220,14 +1231,14 @@ def spotify_track_to_lazy_music_track(
         duration=spotify_track.duration_seconds,
         source_url="",
         refresh_required=True,
-        source_type="spotify_playlist" if playlist is not None else "spotify_lazy",
+        source_type=resolved_source_type,
         original_spotify_url=original_spotify_url,
         spotify_track_id=spotify_track.track_id,
         spotify_title=spotify_track.name,
         spotify_artists=spotify_track.display_artist,
         spotify_album_name=spotify_track.album_name,
-        spotify_playlist_id=playlist.playlist_id if playlist is not None else "",
-        spotify_playlist_name=playlist.name if playlist is not None else "",
+        spotify_playlist_id=collection_id or (playlist.playlist_id if playlist is not None else ""),
+        spotify_playlist_name=collection_name or (playlist.name if playlist is not None else ""),
         spotify_playlist_index=playlist_index,
         spotify_resolve_status="pending",
     )
@@ -1328,7 +1339,7 @@ async def prefetch_spotify_playlist_tracks(
         for track in list(queue):
             if len(candidates) >= limit:
                 break
-            if track.source_type == "spotify_playlist" and not track.stream_url and track.spotify_resolve_status in ("", "pending"):
+            if track.source_type.startswith("spotify_") and track.spotify_track_id and not track.stream_url and track.spotify_resolve_status in ("", "pending"):
                 track.spotify_resolve_status = "prefetching"
                 candidates.append(track)
         if len(candidates) >= limit:
@@ -1477,12 +1488,12 @@ async def enqueue_spotify_link(
     guild_id = str(guild.id)
     requester_id = str(getattr(message.author, "id", "") or "")
     state = get_music_state(guild_id)
-    client = get_spotify_client()
+    public_resolver = get_spotify_public_resolver()
 
     if link.kind == "track":
         started = time.perf_counter()
         try:
-            spotify_track = await client.get_track(link.spotify_id)
+            spotify_track = await public_resolver.get_track(link.spotify_id)
             metadata_ms = perf_ms(started)
             resolve_started = time.perf_counter()
             track = await resolve_spotify_track_to_music_track(spotify_track, requester_id, guild_id, voice_client, link.original_url)
@@ -1513,7 +1524,7 @@ async def enqueue_spotify_link(
             async with lock:
                 started = time.perf_counter()
                 try:
-                    playlist = await get_spotify_playlist_resolver(client).resolve(link.spotify_id)
+                    playlist = await public_resolver.get_playlist(link.spotify_id)
                     metadata_ms = perf_ms(started)
                 except Exception as exc:
                     print("[WARN] spotify playlist fetch failed: bot_instance_id={0} guild_id={1} requester_id={2} error={3}".format(config.BOT_INSTANCE_ID, guild_id, requester_id, type(exc).__name__))
@@ -1566,6 +1577,67 @@ async def enqueue_spotify_link(
         finally:
             remove_album_lock(lock_key, lock)
 
+    if link.kind == "artist":
+        lock_key = "artist:{0}:{1}".format(config.BOT_INSTANCE_ID, guild_id)
+        lock = get_album_lock(lock_key)
+        if lock.locked():
+            await message.channel.send("このサーバーでは別のSpotifyアーティストリンクを処理中です。完了後にもう一度試してください。")
+            return True
+
+        try:
+            async with lock:
+                started = time.perf_counter()
+                try:
+                    artist = await public_resolver.get_artist(link.spotify_id)
+                    metadata_ms = perf_ms(started)
+                except Exception as exc:
+                    print("[WARN] spotify artist fetch failed: bot_instance_id={0} guild_id={1} requester_id={2} error={3}".format(config.BOT_INSTANCE_ID, guild_id, requester_id, type(exc).__name__))
+                    log_music_timing("spotify_artist_failed", guild_id, voice_channel_id(voice_client), requester_id, total_ms=perf_ms(started), error=type(exc).__name__)
+                    await message.channel.send(spotify_error_message(exc))
+                    return True
+
+                if not artist.tracks:
+                    await message.channel.send("Spotifyアーティストページから追加できる曲が見つかりませんでした。")
+                    return True
+
+                should_start = state.current is None
+                queued_count = await enqueue_spotify_collection_tracks(
+                    message,
+                    voice_client,
+                    artist.tracks,
+                    requester_id,
+                    link.original_url,
+                    "spotify_artist",
+                    artist.artist_id,
+                    artist.name,
+                )
+                log_music_action("enqueue_spotify_artist", guild_id, voice_channel_id(voice_client), requester_id, artist.name, "tracks={0}".format(queued_count))
+                log_music_timing(
+                    "spotify_artist",
+                    guild_id,
+                    voice_channel_id(voice_client),
+                    requester_id,
+                    metadata_ms=metadata_ms,
+                    total_ms=perf_ms(started),
+                    tracks=queued_count,
+                )
+                duration = spotify_tracks_duration_text(artist.tracks)
+                duration_suffix = " / {0}".format(duration) if duration else ""
+                await message.channel.send(
+                    "Spotifyアーティスト「{0}」の人気曲から{1}曲をキューへ追加しました。{2}".format(
+                        artist.name or "無題のアーティスト",
+                        queued_count,
+                        duration_suffix,
+                    ).strip()
+                )
+                if should_start:
+                    await play_next_track(voice_client, guild_id)
+                else:
+                    schedule_spotify_playlist_prefetch(voice_client, guild_id)
+                return True
+        finally:
+            remove_album_lock(lock_key, lock)
+
     lock_key = "{0}:{1}".format(config.BOT_INSTANCE_ID, guild_id)
     lock = get_album_lock(lock_key)
     if lock.locked():
@@ -1576,7 +1648,7 @@ async def enqueue_spotify_link(
         async with lock:
             started = time.perf_counter()
             try:
-                album = await client.get_album(link.spotify_id)
+                album = await public_resolver.get_album(link.spotify_id)
                 metadata_ms = perf_ms(started)
             except Exception as exc:
                 print("[WARN] spotify album fetch failed: bot_instance_id={0} guild_id={1} requester_id={2} error={3}".format(config.BOT_INSTANCE_ID, guild_id, requester_id, type(exc).__name__))
@@ -1589,49 +1661,86 @@ async def enqueue_spotify_link(
                 return True
 
             await message.channel.send("Spotifyアルバム『{0}』を処理中です。曲数によって少し時間がかかります。".format(album.name))
-            resolve_started = time.perf_counter()
-            tracks, failed_count = await resolve_spotify_album_tracks(album.tracks, requester_id, guild_id, voice_client, link.original_url)
-            resolve_ms = perf_ms(resolve_started)
-            skipped_count = failed_count + album.skipped_tracks
-            if not tracks:
+            skipped_count = album.skipped_tracks
+            if not album.tracks:
                 await message.channel.send("Spotifyアルバム『{0}』から一致するYouTube音源を見つけられませんでした。".format(album.name))
                 return True
 
             should_start = state.current is None
-            for track in tracks:
-                state.queue.append(mark_track_enqueued(track))
-            log_music_action("enqueue_spotify_album", guild_id, voice_channel_id(voice_client), requester_id, album.name, "tracks={0} skipped={1}".format(len(tracks), skipped_count))
+            await enqueue_spotify_collection_tracks(
+                message,
+                voice_client,
+                album.tracks,
+                requester_id,
+                link.original_url,
+                "spotify_album",
+                album.album_id,
+                album.name,
+            )
+            log_music_action("enqueue_spotify_album", guild_id, voice_channel_id(voice_client), requester_id, album.name, "tracks={0} skipped={1}".format(len(album.tracks), skipped_count))
             log_music_timing(
                 "spotify_album",
                 guild_id,
                 voice_channel_id(voice_client),
                 requester_id,
                 metadata_ms=metadata_ms,
-                resolve_ms=resolve_ms,
                 total_ms=perf_ms(started),
-                tracks=len(tracks),
+                tracks=len(album.tracks),
                 skipped=skipped_count,
             )
             suffix = " 上限により一部の曲は処理していません。" if album.truncated else ""
             await message.channel.send(
                 "Spotifyアルバム『{0}』から{1}曲をキューへ追加しました。{2}曲は音源を特定できなかったためスキップしました。{3}".format(
                     album.name,
-                    len(tracks),
+                    len(album.tracks),
                     skipped_count,
                     suffix,
                 ).strip()
             )
             if should_start:
                 await play_next_track(voice_client, guild_id)
+            else:
+                schedule_spotify_playlist_prefetch(voice_client, guild_id)
             return True
     finally:
         remove_album_lock(lock_key, lock)
 
 
+async def enqueue_spotify_collection_tracks(
+    message: discord.Message,
+    voice_client: discord.VoiceClient,
+    tracks: List[SpotifyTrackMetadata],
+    requester_id: str,
+    original_spotify_url: str,
+    source_type: str,
+    collection_id: str,
+    collection_name: str,
+) -> int:
+    guild = message.guild
+    if guild is None:
+        return 0
+    state = get_music_state(str(guild.id))
+    for index, spotify_track in enumerate(tracks, start=1):
+        state.queue.append(
+            mark_track_enqueued(
+                spotify_track_to_lazy_music_track(
+                    spotify_track,
+                    requester_id,
+                    original_spotify_url,
+                    playlist_index=index,
+                    source_type=source_type,
+                    collection_id=collection_id,
+                    collection_name=collection_name,
+                )
+            )
+        )
+    return len(tracks)
+
+
 async def refresh_track_for_playback(track: MusicTrack, guild_id: str, voice_client: Optional[discord.VoiceClient] = None) -> Optional[MusicTrack]:
     if not track.refresh_required:
         return track
-    if track.source_type == "spotify_playlist" and track.spotify_track_id and not track.source_url:
+    if track.source_type.startswith("spotify_") and track.spotify_track_id and not track.source_url:
         return await resolve_lazy_spotify_track_for_playback(track, guild_id, voice_client)
     if not track.source_url:
         return replace(track, refresh_required=False)

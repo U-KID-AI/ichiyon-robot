@@ -11,8 +11,7 @@ if str(ROOT_DIR) not in sys.path:
 
 
 from bot.services.spotify_link import parse_spotify_link
-from bot.services.spotify_playlist.public_embed import clear_public_playlist_cache
-from bot.services.spotify_playlist.resolver import get_spotify_playlist_resolver
+from bot.services.spotify_public import get_spotify_public_resolver
 from bot.services.voice_music import spotify_track_to_lazy_music_track
 
 
@@ -31,9 +30,8 @@ async def run(url: str, expected_count: int) -> int:
     if parsed is None or parsed.kind != "playlist":
         return 1
 
-    clear_public_playlist_cache()
     started = time.perf_counter()
-    playlist = await get_spotify_playlist_resolver().resolve(parsed.spotify_id)
+    playlist = await get_spotify_public_resolver().get_playlist(parsed.spotify_id)
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     results.append(check("playlist track count", len(playlist.tracks) == expected_count, str(len(playlist.tracks))))
     results.append(check("playlist order is stable", [track.track_number for track in playlist.tracks] == list(range(1, len(playlist.tracks) + 1)), str([track.track_number for track in playlist.tracks[:5]])))

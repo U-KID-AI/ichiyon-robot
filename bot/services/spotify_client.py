@@ -131,6 +131,16 @@ class SpotifyPlaylistMetadata:
         return sum(track.duration_seconds or 0 for track in self.tracks)
 
 
+@dataclass(frozen=True)
+class SpotifyArtistMetadata:
+    artist_id: str
+    name: str
+    spotify_url: str
+    image_url: str
+    tracks: List[SpotifyTrackMetadata]
+    source_provider: str = "public_embed"
+
+
 def spotify_market() -> str:
     return str(os.getenv(SPOTIFY_MARKET_ENV, DEFAULT_SPOTIFY_MARKET) or DEFAULT_SPOTIFY_MARKET).strip() or DEFAULT_SPOTIFY_MARKET
 
