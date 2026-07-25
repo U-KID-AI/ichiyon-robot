@@ -3,7 +3,9 @@ import os
 import random
 import re
 import shutil
+import subprocess
 import tempfile
+import threading
 import time
 import unicodedata
 from collections import deque
@@ -88,6 +90,8 @@ SPOTIFY_URI_PATTERN = re.compile(r"spotify:(?:track|album|playlist|episode|show|
 DISCORD_CONNECTION_CLOSED = getattr(discord, "ConnectionClosed", discord.ClientException)
 STREAM_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
 STREAM_OPTIONS = "-vn"
+SIGNED_MEDIA_URL_PATTERN = re.compile(r"https?://[^\s'\"<>]*(?:googlevideo|videoplayback)[^\s'\"<>]*", re.IGNORECASE)
+HTTP_URL_LOG_PATTERN = re.compile(r"https?://[^\s'\"<>]+", re.IGNORECASE)
 YTDLP_COOKIES_FILE_ENV = "YTDLP_COOKIES_FILE"
 YTDLP_COOKIES_TMP_DIR = Path(tempfile.gettempdir())
 YOUTUBE_ROUTE_HOME_VPN = "home_vpn"
@@ -136,6 +140,8 @@ class MusicTrack:
     enqueued_at_monotonic: float = 0.0
     youtube_route: str = YOUTUBE_ROUTE_DIRECT_COOKIE
     ffmpeg_proxy_url: str = ""
+    playback_http_403: bool = False
+    playback_retry_count: int = 0
 
 
 @dataclass
@@ -619,6 +625,85 @@ def log_music_action(
     )
 
 
+def sanitize_playback_log_message(message: object) -> str:
+    text = str(message or "")
+    text = SIGNED_MEDIA_URL_PATTERN.sub("[redacted-youtube-stream-url]", text)
+
+    def _strip_query(match: re.Match) -> str:
+        raw_url = match.group(0)
+        parsed = urlparse(raw_url)
+        if not parsed.netloc:
+            return "[redacted-url]"
+        return "{0}://{1}{2}".format(parsed.scheme, parsed.netloc, parsed.path or "")
+
+    return HTTP_URL_LOG_PATTERN.sub(_strip_query, text)
+
+
+def is_playback_http_403_message(message: object) -> bool:
+    text = str(message or "").lower()
+    if "403" not in text and "forbidden" not in text:
+        return False
+    return any(marker in text for marker in ("http error", "server returned", "403", "forbidden"))
+
+
+def is_playback_http_403(track: Optional[MusicTrack], error: Optional[Exception]) -> bool:
+    return bool(getattr(track, "playback_http_403", False)) or is_playback_http_403_message(error)
+
+
+def _read_ffmpeg_stderr(
+    stream,
+    track: MusicTrack,
+    guild_id: str,
+    channel_id: str,
+) -> None:
+    try:
+        for raw_line in iter(stream.readline, b""):
+            if not raw_line:
+                break
+            try:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+            except AttributeError:
+                line = str(raw_line or "").strip()
+            if not line:
+                continue
+            safe_line = sanitize_playback_log_message(line)
+            if is_playback_http_403_message(line):
+                track.playback_http_403 = True
+                print(
+                    "[WARN] voice music ffmpeg http 403: guild_id={0} channel_id={1} requester_id={2} title={3} message={4}".format(
+                        guild_id,
+                        channel_id,
+                        track.requester_id,
+                        track.title,
+                        safe_line,
+                    )
+                )
+                log_music_action(
+                    "ffmpeg_http_403",
+                    guild_id,
+                    channel_id,
+                    track.requester_id,
+                    track.title,
+                    safe_youtube_route_for_log(track.youtube_route),
+                )
+    except Exception as exc:  # pragma: no cover - background log reader must never affect playback.
+        print("[WARN] voice music ffmpeg stderr reader failed: guild_id={0} error={1}".format(guild_id, type(exc).__name__))
+
+
+def start_ffmpeg_stderr_reader(raw_source, track: MusicTrack, guild_id: str, channel_id: str) -> None:
+    process = getattr(raw_source, "_process", None)
+    stderr = getattr(process, "stderr", None)
+    if stderr is None:
+        return
+    thread = threading.Thread(
+        target=_read_ffmpeg_stderr,
+        args=(stderr, track, guild_id, channel_id),
+        name="voice-ffmpeg-stderr-{0}".format(guild_id),
+        daemon=True,
+    )
+    thread.start()
+
+
 def format_duration(seconds: Optional[int]) -> str:
     if not seconds:
         return ""
@@ -770,8 +855,14 @@ def loop_status_text(loop_mode: str, state: Optional[MusicState] = None) -> str:
 
 def make_loop_track(track: MusicTrack) -> MusicTrack:
     if track.source_url:
-        return replace(track, stream_url="", refresh_required=True, enqueued_at_monotonic=time.perf_counter())
-    return replace(track, enqueued_at_monotonic=time.perf_counter())
+        return replace(
+            track,
+            stream_url="",
+            refresh_required=True,
+            enqueued_at_monotonic=time.perf_counter(),
+            playback_http_403=False,
+        )
+    return replace(track, enqueued_at_monotonic=time.perf_counter(), playback_http_403=False)
 
 
 def build_ffmpeg_before_options(track: Optional[MusicTrack]) -> str:
@@ -791,6 +882,8 @@ def preserve_track_metadata(source: MusicTrack, refreshed: MusicTrack) -> MusicT
     refreshed.spotify_title = source.spotify_title
     refreshed.spotify_artists = source.spotify_artists
     refreshed.refresh_required = False
+    refreshed.playback_http_403 = False
+    refreshed.playback_retry_count = source.playback_retry_count
     return refreshed
 
 
@@ -1428,6 +1521,45 @@ def _schedule_after_callback(voice_client: discord.VoiceClient, guild_id: str, e
     future.add_done_callback(_log_future_error)
 
 
+async def retry_track_after_http_403(
+    voice_client: discord.VoiceClient,
+    guild_id: str,
+    track: MusicTrack,
+) -> bool:
+    channel_id = voice_channel_id(voice_client)
+    if not track.source_url:
+        log_music_action("ffmpeg_403_retry_skipped", guild_id, channel_id, track.requester_id, track.title, "missing_source_url")
+        return False
+    if track.playback_retry_count >= 1:
+        log_music_action("ffmpeg_403_retry_skipped", guild_id, channel_id, track.requester_id, track.title, "retry_limit")
+        return False
+
+    retry_seed = replace(
+        track,
+        stream_url="",
+        refresh_required=True,
+        playback_http_403=False,
+        playback_retry_count=track.playback_retry_count + 1,
+        enqueued_at_monotonic=0.0,
+    )
+    refreshed = await refresh_track_for_playback(retry_seed, guild_id)
+    if refreshed is None:
+        log_music_action("ffmpeg_403_retry_failed", guild_id, channel_id, track.requester_id, track.title, "refresh_failed")
+        return False
+
+    refreshed.playback_retry_count = retry_seed.playback_retry_count
+    get_music_state(guild_id).queue.appendleft(refreshed)
+    log_music_action(
+        "ffmpeg_403_retry",
+        guild_id,
+        channel_id,
+        refreshed.requester_id,
+        refreshed.title,
+        "route={0}".format(safe_youtube_route_for_log(refreshed.youtube_route)),
+    )
+    return await play_next_track(voice_client, guild_id)
+
+
 async def _handle_track_finished(
     voice_client: discord.VoiceClient,
     guild_id: str,
@@ -1439,14 +1571,20 @@ async def _handle_track_finished(
     skip_requested = state.skip_requested
     state.skip_requested = False
     if error is not None:
-        print("[WARN] voice music playback error: guild_id={0} channel_id={1} error={2}".format(guild_id, channel_id, error))
-        log_music_action("playback_error", guild_id, channel_id, reason=str(error))
+        safe_error = sanitize_playback_log_message(error)
+        print("[WARN] voice music playback error: guild_id={0} channel_id={1} error={2}".format(guild_id, channel_id, safe_error))
+        log_music_action("playback_error", guild_id, channel_id, reason=safe_error)
     else:
         log_music_action("play_finish", guild_id, channel_id, title=state.current.title if state.current else "")
     state.current = None
     if state.stopping:
         state.stopping = False
         log_music_action("queue_empty", guild_id, channel_id, reason="stopped")
+        return
+    if finished_track is not None and not skip_requested and is_playback_http_403(finished_track, error):
+        if await retry_track_after_http_403(voice_client, guild_id, finished_track):
+            return
+        await play_next_track(voice_client, guild_id)
         return
     if finished_track is not None and state.loop_mode == MUSIC_LOOP_ONE and not skip_requested:
         state.queue.appendleft(make_loop_track(finished_track))
@@ -1495,7 +1633,9 @@ async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> b
                 refreshed_track.stream_url,
                 before_options=build_ffmpeg_before_options(refreshed_track),
                 options=STREAM_OPTIONS,
+                stderr=subprocess.PIPE,
             )
+            start_ffmpeg_stderr_reader(raw_source, refreshed_track, guild_id, channel_id)
             source = discord.PCMVolumeTransformer(raw_source, volume=volume_factor(load_music_volume_percent(guild_id, state)))
             ffmpeg_ms = perf_ms(ffmpeg_started)
             play_call_started = time.perf_counter()
@@ -1540,7 +1680,9 @@ async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> b
                         fallback_track.stream_url,
                         before_options=build_ffmpeg_before_options(fallback_track),
                         options=STREAM_OPTIONS,
+                        stderr=subprocess.PIPE,
                     )
+                    start_ffmpeg_stderr_reader(raw_source, fallback_track, guild_id, channel_id)
                     source = discord.PCMVolumeTransformer(raw_source, volume=volume_factor(load_music_volume_percent(guild_id, state)))
                     ffmpeg_ms = perf_ms(ffmpeg_started)
                     play_call_started = time.perf_counter()
