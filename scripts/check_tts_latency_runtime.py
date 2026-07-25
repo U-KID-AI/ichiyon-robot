@@ -89,6 +89,7 @@ def main() -> int:
         source_text = Path("bot/services/voice/tts.py").read_text(encoding="utf-8")
         results.append(check("tts path no longer uses temporary wav file", "NamedTemporaryFile" not in source_text and "cleanup_tts_file" not in source_text))
         results.append(check("tts path no longer starts ffmpeg", "FFmpegPCMAudio" not in source_text))
+        results.append(check("voicevox default timeout allows slow synthesis", tts.VOICEVOX_DEFAULT_TIMEOUT_SECONDS >= 30, str(tts.VOICEVOX_DEFAULT_TIMEOUT_SECONDS)))
 
         os.environ["VOICEVOX_ENGINE_URL"] = "http://voicevox-engine:50021"
         os.environ["VOICEVOX_TIMEOUT_SECONDS"] = "10"

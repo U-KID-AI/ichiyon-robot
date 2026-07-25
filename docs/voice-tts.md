@@ -22,7 +22,7 @@ docker compose --profile bot --profile irsia --profile voicevox up -d --build vo
 
 - `VOICEVOX_ENGINE_IMAGE`: VOICEVOX EngineのDocker image。既定は `voicevox/voicevox_engine:cpu-ubuntu24.04-0.25.0`
 - `VOICEVOX_ENGINE_URL`: Botから見たEngine URL。既定は `http://voicevox-engine:50021`
-- `VOICEVOX_TIMEOUT_SECONDS`: `/audio_query` と `/synthesis` のtimeout秒数。既定は10秒
+- `VOICEVOX_TIMEOUT_SECONDS`: `/audio_query` と `/synthesis` のtimeout秒数。既定は30秒
 
 ## Discord操作
 
