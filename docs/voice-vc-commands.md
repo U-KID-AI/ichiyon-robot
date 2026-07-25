@@ -91,7 +91,7 @@ Spotifyは曲名、アーティスト名、アルバム名、ISRC、曲の長さ
 
 Spotify曲から解決したYouTube URLはプロセス内メモリに一定時間キャッシュします。キャッシュ済みURLが削除、非公開、地域制限などで取得できなくなった場合は、該当曲だけキャッシュを無効化し、最大1回だけ再検索します。通常の一時的なネットワークエラーでは、不要な再検索を避けます。
 
-Spotifyプレイリストは、まずSpotify APIから曲一覧だけを取得して既存の音楽キューへ追加します。APIで曲一覧を取得できない公開プレイリストは、未ログインで表示されるSpotify公開EmbedのHTMLに含まれるメタデータを解析します。YouTube音源の探索は全曲分を投入時にまとめて行わず、再生直前に解決します。待機列の先頭1〜2曲だけは先読みし、現在再生中の曲を止めずに順番を維持します。ローカル曲や曲以外の項目はスキップします。
+Spotifyプレイリストは、Spotify公開ページまたは公開Embed HTMLに含まれる曲名、アーティスト名、曲時間だけを取得して既存の音楽キューへ追加します。Spotifyの認証付きAPI、Spotifyログイン、ユーザーOAuth、Spotify Cookie、Premium、Spotifyアプリ認証情報は使いません。YouTube音源の探索は全曲分を投入時にまとめて行わず、再生直前に解決します。待機列の先頭1〜2曲だけは先読みし、現在再生中の曲を止めずに順番を維持します。ローカル曲や曲以外の項目はスキップします。
 
 対応URL:
 
@@ -115,9 +115,6 @@ Spotifyプレイリストは、まずSpotify APIから曲一覧だけを取得�
 
 必要な環境変数:
 
-- `SPOTIFY_CLIENT_ID`
-- `SPOTIFY_CLIENT_SECRET`
-- `SPOTIFY_MARKET=JP`
 - `SPOTIFY_MAX_ALBUM_TRACKS=100`
 - `SPOTIFY_RESOLVE_CONCURRENCY=1`
 - `SPOTIFY_YOUTUBE_CANDIDATES_PER_QUERY=10`
@@ -130,7 +127,7 @@ Spotifyプレイリストは、まずSpotify APIから曲一覧だけを取得�
 - `SPOTIFY_PLAYLIST_BROWSER_ENABLED=false`
 - `SPOTIFY_PLAYLIST_BROWSER_TIMEOUT_SECONDS=30`
 
-Spotify認証はClient Credentials方式です。公開プレイリストのEmbed fallbackはSpotifyログイン、ユーザーOAuth、Spotify Cookieなしで、公開HTMLに直接含まれる曲名、アーティスト名、曲時間だけを使います。Client Secret、access token、Cookie、YouTube一時stream URLはログやDiscordメッセージへ出しません。`SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` が未設定の場合もBot起動は止めず、曲/アルバムリンクはSpotifyリンク送信時だけ設定不足を案内し、公開プレイリストはEmbed fallbackを試します。
+Spotify認証情報は不要です。Spotifyアプリ認証情報、Cookie、YouTube一時stream URLはログやDiscordメッセージへ出しません。公開情報を取得できない場合はSpotifyリンク送信時にだけ失敗を案内し、Bot起動は止めません。
 
 Cookie状態監視を使う場合は、以下を設定します。`YTDLP_COOKIE_CHECK_URL` が未設定の場合、定期検査は安全にスキップされます。
 
@@ -199,4 +196,4 @@ URL音楽再生は、BotをVCに入れた状態で `@Bot 歌え <URL1>`、再生
 ログには `guild_id`、`channel_id`、`bot_instance_id`、`filename` が出ます。Tokenなどの秘密値は出しません。
 ## Spotify public metadata
 
-Spotify track, album, playlist, and artist links are resolved from public Spotify pages or public embed HTML without Spotify login, OAuth, cookies, Premium, Client ID, or Client Secret. Spotify audio is never downloaded or played directly; the public metadata is used only to search YouTube through the existing music pipeline.
+Spotify track, album, playlist, and artist links are resolved from public Spotify pages or public embed HTML without Spotify login, OAuth, cookies, Premium, or Spotify app credentials. Spotify audio is never downloaded or played directly; the public metadata is used only to search YouTube through the existing music pipeline.

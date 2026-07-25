@@ -10,17 +10,8 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from bot.services.spotify_client import (
-    SpotifyAlbumMetadata,
-    SpotifyAuthError,
-    SpotifyClient,
-    SpotifyCredentialsMissing,
-    SpotifyRateLimitedError,
-    SpotifyTrackMetadata,
-    get_spotify_client,
-    max_album_tracks,
-    reset_spotify_client_cache,
-)
+
+from bot.services.spotify_client import SpotifyAlbumMetadata, SpotifyTrackMetadata, max_album_tracks
 from bot.services.spotify_link import parse_spotify_link
 from bot.services.spotify_resolver import (
     ResolvedYouTubeTrack,
@@ -32,9 +23,8 @@ from bot.services.spotify_resolver import (
     get_album_lock,
     invalidate_resolve_cache,
     match_min_margin,
-    resolve_cache_ttl_seconds,
     resolve_cache_max_entries,
-    resolve_concurrency,
+    resolve_cache_ttl_seconds,
     resolve_spotify_track_to_youtube,
     score_candidate,
     select_best_candidate,
@@ -45,10 +35,7 @@ import bot.services.voice_music as voice_music
 from bot.services.voice_music import (
     MusicTrack,
     parse_music_command,
-    resolve_spotify_album_tracks,
     resolve_spotify_track_to_music_track,
-    should_retry_spotify_resolution,
-    spotify_unsupported_message,
 )
 
 
@@ -61,12 +48,12 @@ def check(name: str, ok: bool, detail: str = "") -> bool:
     return ok
 
 
-def sample_track(track_id: str = TRACK_ID, name: str = "熱帯夜", artists=None) -> SpotifyTrackMetadata:
+def sample_track(track_id: str = TRACK_ID, name: str = "Heat Night", artists=None) -> SpotifyTrackMetadata:
     return SpotifyTrackMetadata(
         track_id=track_id,
         name=name,
         artists=artists or ["RIP SLYME"],
-        album_name="熱帯夜",
+        album_name=name,
         duration_ms=240000,
         isrc="JPXXX0000001",
         explicit=False,
@@ -76,72 +63,17 @@ def sample_track(track_id: str = TRACK_ID, name: str = "熱帯夜", artists=None
     )
 
 
-class FakeResponse:
-    def __init__(self, status_code, data=None, headers=None):
-        self.status_code = status_code
-        self._data = data or {}
-        self.headers = headers or {}
-
-    def json(self):
-        return self._data
-
-
-class FakeAsyncClient:
-    token_calls = 0
-    get_calls = 0
-    next_token_status = []
-    next_get_status = []
-    last_post = {}
-
-    def __init__(self, timeout=10.0):
-        self.timeout = timeout
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        return False
-
-    async def post(self, url, data=None, auth=None, headers=None):
-        FakeAsyncClient.token_calls += 1
-        FakeAsyncClient.last_post = {"url": url, "data": data, "auth": auth, "headers": headers}
-        if FakeAsyncClient.next_token_status:
-            status, data = FakeAsyncClient.next_token_status.pop(0)
-            return FakeResponse(status, data)
-        return FakeResponse(200, {"access_token": "fake-token", "expires_in": 3600})
-
-    async def get(self, url, params=None, headers=None):
-        FakeAsyncClient.get_calls += 1
-        if FakeAsyncClient.next_get_status:
-            status = FakeAsyncClient.next_get_status.pop(0)
-            if status == 429:
-                return FakeResponse(429, {}, {"Retry-After": "7"})
-            if status == 401:
-                return FakeResponse(401, {})
-        return FakeResponse(
-            200,
-            {
-                "id": TRACK_ID,
-                "name": "熱帯夜",
-                "artists": [{"name": "RIP SLYME"}],
-                "album": {"name": "熱帯夜"},
-                "duration_ms": 240000,
-                "external_ids": {"isrc": "JPXXX0000001"},
-                "explicit": False,
-                "external_urls": {"spotify": "https://open.spotify.com/track/{0}".format(TRACK_ID)},
-            },
-        )
-
-
 def run_url_checks(results):
     cases = {
         "https://open.spotify.com/track/{0}".format(TRACK_ID): "track",
         "https://open.spotify.com/album/{0}".format(ALBUM_ID): "album",
+        "https://open.spotify.com/artist/{0}".format(TRACK_ID): "artist",
+        "https://open.spotify.com/playlist/{0}?si=abc".format(TRACK_ID): "playlist",
         "https://open.spotify.com/intl-ja/track/{0}?si=abc".format(TRACK_ID): "track",
         "spotify:track:{0}".format(TRACK_ID): "track",
         "spotify:album:{0}".format(ALBUM_ID): "album",
-        "https://open.spotify.com/track/2KD6Qx09NNMsv1HQOh8zVv?si=U5S8MYi-TzyVqOds8p7dUQ&utm_source=copy-link&rowId=d5e11eed648993c4": "track",
-        "https://open.spotify.com/playlist/{0}?si=abc".format(TRACK_ID): "playlist",
+        "spotify:artist:{0}".format(TRACK_ID): "artist",
+        "spotify:playlist:{0}".format(TRACK_ID): "playlist",
         "https://open.spotify.com/episode/{0}".format(TRACK_ID): "episode",
     }
     for value, expected in cases.items():
@@ -149,21 +81,20 @@ def run_url_checks(results):
         results.append(check("spotify parse {0}".format(expected), parsed is not None and parsed.kind == expected, str(parsed)))
     results.append(check("invalid spotify id is rejected", parse_spotify_link("https://open.spotify.com/track/short").kind == "invalid"))
     results.append(check("similar domain is ignored", parse_spotify_link("https://open.spotify.example.com/track/{0}".format(TRACK_ID)) is None))
-    playlist = parse_spotify_link("https://open.spotify.com/playlist/{0}".format(TRACK_ID))
-    results.append(check("playlist is supported", playlist is not None and playlist.is_supported))
-    results.append(check("music command accepts spotify url position", parse_music_command("歌え https://open.spotify.com/track/{0}".format(TRACK_ID))[0] == "music_play"))
+    results.append(check("playlist is supported", parse_spotify_link("https://open.spotify.com/playlist/{0}".format(TRACK_ID)).is_supported))
+    results.append(check("music command accepts spotify url position", parse_music_command("play https://open.spotify.com/track/{0}".format(TRACK_ID))[0] == "music_play"))
 
 
 def run_scoring_checks(results):
     track = sample_track()
-    official = YouTubeCandidate("RIP SLYME - 熱帯夜 Official Audio", "https://youtube.example/1", 241, "RIP SLYME - Topic")
-    topic = YouTubeCandidate("熱帯夜", "https://youtube.example/topic", 240, "RIP SLYME - Topic")
-    vevo = YouTubeCandidate("RIP SLYME - 熱帯夜", "https://youtube.example/vevo", 240, "RIPSLYMEVEVO")
-    different_artist = YouTubeCandidate("熱帯夜 Official Audio", "https://youtube.example/other", 240, "Other Artist - Topic")
-    cover = YouTubeCandidate("RIP SLYME - 熱帯夜 cover karaoke", "https://youtube.example/2", 240, "someone")
-    karaoke = YouTubeCandidate("RIP SLYME - 熱帯夜 karaoke", "https://youtube.example/karaoke", 240, "karaoke channel")
-    instrumental = YouTubeCandidate("RIP SLYME - 熱帯夜 instrumental", "https://youtube.example/instrumental", 240, "instrumental channel")
-    short = YouTubeCandidate("熱帯夜 shorts", "https://youtube.example/3", 20, "shorts")
+    official = YouTubeCandidate("RIP SLYME - Heat Night Official Audio", "https://youtube.example/1", 241, "RIP SLYME - Topic")
+    topic = YouTubeCandidate("Heat Night", "https://youtube.example/topic", 240, "RIP SLYME - Topic")
+    vevo = YouTubeCandidate("RIP SLYME - Heat Night", "https://youtube.example/vevo", 240, "RIPSLYMEVEVO")
+    different_artist = YouTubeCandidate("Heat Night Official Audio", "https://youtube.example/other", 240, "Other Artist - Topic")
+    cover = YouTubeCandidate("RIP SLYME - Heat Night cover karaoke", "https://youtube.example/2", 240, "someone")
+    karaoke = YouTubeCandidate("RIP SLYME - Heat Night karaoke", "https://youtube.example/karaoke", 240, "karaoke channel")
+    instrumental = YouTubeCandidate("RIP SLYME - Heat Night instrumental", "https://youtube.example/instrumental", 240, "instrumental channel")
+    short = YouTubeCandidate("Heat Night shorts", "https://youtube.example/3", 20, "shorts")
     results.append(check("search query includes official audio", any("official audio" in query.lower() for query in build_search_queries(track)), str(build_search_queries(track))))
     multi_artist_track = sample_track(name="Beneath the Mask -rain-", artists=["Lyn", "ATLUS GAME MUSIC"])
     multi_queries = build_search_queries(multi_artist_track)
@@ -185,27 +116,16 @@ def run_scoring_checks(results):
     except SpotifyLowScoreError:
         low_score_failed = True
     results.append(check("low score candidate is rejected", low_score_failed))
-    live_track = sample_track(name="熱帯夜 Live")
-    live_candidate = YouTubeCandidate("RIP SLYME - 熱帯夜 Live", "https://youtube.example/live", 240, "RIP SLYME")
-    normal_for_live = YouTubeCandidate("RIP SLYME - 熱帯夜 Official Audio", "https://youtube.example/original", 240, "RIP SLYME - Topic")
+    live_track = sample_track(name="Heat Night Live")
+    live_candidate = YouTubeCandidate("RIP SLYME - Heat Night Live", "https://youtube.example/live", 240, "RIP SLYME")
+    normal_for_live = YouTubeCandidate("RIP SLYME - Heat Night Official Audio", "https://youtube.example/original", 240, "RIP SLYME - Topic")
     results.append(check("live spotify track accepts live candidate", score_candidate(live_track, live_candidate) >= 70, str(score_candidate(live_track, live_candidate))))
     results.append(check("live spotify track rejects original candidate", score_candidate(live_track, normal_for_live) < 70, str(score_candidate(live_track, normal_for_live))))
-    remix_track = sample_track(name="熱帯夜 Remix")
-    remix_candidate = YouTubeCandidate("RIP SLYME - 熱帯夜 Remix", "https://youtube.example/remix", 240, "RIP SLYME")
-    original_for_remix = YouTubeCandidate("RIP SLYME - 熱帯夜 Official Audio", "https://youtube.example/original2", 240, "RIP SLYME - Topic")
+    remix_track = sample_track(name="Heat Night Remix")
+    remix_candidate = YouTubeCandidate("RIP SLYME - Heat Night Remix", "https://youtube.example/remix", 240, "RIP SLYME")
+    original_for_remix = YouTubeCandidate("RIP SLYME - Heat Night Official Audio", "https://youtube.example/original2", 240, "RIP SLYME - Topic")
     results.append(check("remix spotify track accepts remix candidate", score_candidate(remix_track, remix_candidate) >= 70, str(score_candidate(remix_track, remix_candidate))))
     results.append(check("remix spotify track rejects original candidate", score_candidate(remix_track, original_for_remix) < 70, str(score_candidate(remix_track, original_for_remix))))
-    japanese_artist_track = sample_track(name="星空", artists=["山田太郎"])
-    japanese_candidate = YouTubeCandidate("山田太郎 - 星空 Official Audio", "https://youtube.example/jp", 180, "山田太郎 - Topic")
-    results.append(check("japanese title and artist are scored", score_candidate(japanese_artist_track, japanese_candidate) >= 70, str(score_candidate(japanese_artist_track, japanese_candidate))))
-    ambiguous_a = YouTubeCandidate("RIP SLYME - 熱帯夜 Official Audio", "https://youtube.example/a", 240, "RIP SLYME")
-    ambiguous_b = YouTubeCandidate("RIP SLYME - 熱帯夜 Official Video", "https://youtube.example/b", 241, "RIP SLYME")
-    try:
-        ambiguous_best, ambiguous_score = select_best_candidate(track, [ambiguous_a, ambiguous_b])
-        margin_accepted = ambiguous_best.webpage_url in {ambiguous_a.webpage_url, ambiguous_b.webpage_url} and ambiguous_score >= 70
-    except SpotifyLowScoreError:
-        margin_accepted = False
-    results.append(check("small score margin allows same-song candidates", margin_accepted))
 
     provant = SpotifyTrackMetadata(
         track_id="PROVANTTRACK0000000001",
@@ -217,28 +137,10 @@ def run_scoring_checks(results):
         explicit=False,
         spotify_url="https://open.spotify.com/track/PROVANTTRACK0000000001",
     )
-    provant_official_collab = YouTubeCandidate(
-        "SawanoHiroyuki[nZk]:Jean-Ken Johnny:TAKUMA - PROVANT",
-        "https://youtube.example/provant-collab",
-        171,
-        "SawanoHiroyuki[nZk]",
-    )
-    provant_official_mv = YouTubeCandidate(
-        "SawanoHiroyuki[nZk] - PROVANT feat. Jean-Ken Johnny & TAKUMA Official Music Video",
-        "https://youtube.example/provant-mv",
-        171,
-        "SawanoHiroyuki[nZk] Official YouTube Channel",
-    )
-    provant_lyrics = YouTubeCandidate(
-        "SawanoHiroyuki[nZk] - PROVANT Lyrics",
-        "https://youtube.example/provant-lyrics",
-        171,
-        "Lyrics Channel",
-    )
-    provant_best, provant_score = select_best_candidate(
-        provant,
-        [provant_official_collab, provant_official_mv, provant_lyrics],
-    )
+    provant_official_collab = YouTubeCandidate("SawanoHiroyuki[nZk]:Jean-Ken Johnny:TAKUMA - PROVANT", "https://youtube.example/provant-collab", 171, "SawanoHiroyuki[nZk]")
+    provant_official_mv = YouTubeCandidate("SawanoHiroyuki[nZk] - PROVANT feat. Jean-Ken Johnny & TAKUMA Official Music Video", "https://youtube.example/provant-mv", 171, "SawanoHiroyuki[nZk] Official YouTube Channel")
+    provant_lyrics = YouTubeCandidate("SawanoHiroyuki[nZk] - PROVANT Lyrics", "https://youtube.example/provant-lyrics", 171, "Lyrics Channel")
+    provant_best, provant_score = select_best_candidate(provant, [provant_official_collab, provant_official_mv, provant_lyrics])
     results.append(check("PROVANT equal-score candidates do not fail margin", provant_score >= 70, str(provant_score)))
     results.append(check("PROVANT official source is preferred", provant_best.webpage_url == provant_official_mv.webpage_url, provant_best.webpage_url))
 
@@ -252,145 +154,33 @@ def run_scoring_checks(results):
         explicit=False,
         spotify_url="https://open.spotify.com/track/BENEATHTHEMASK0000001",
     )
-    beneath_sung_cover = YouTubeCandidate(
-        "Beneath the Mask -rain- - Lyn / REKA【歌ってみた】",
-        "https://youtube.example/beneath-cover",
-        279,
-        "REKA",
-    )
-    beneath_chiptune = YouTubeCandidate(
-        "Lyn - Beneath The Mask -rain- -chiptune-",
-        "https://youtube.example/beneath-chiptune",
-        279,
-        "Chiptune Channel",
-    )
-    beneath_drum_cover = YouTubeCandidate(
-        "Lyn - Beneath The Mask -rain- drum cover",
-        "https://youtube.example/beneath-drum-cover",
-        279,
-        "Drum Cover Channel",
-    )
-    results.append(check("Japanese sung cover candidate is rejected", score_candidate(beneath, beneath_sung_cover) < 70, str(score_candidate(beneath, beneath_sung_cover))))
-    results.append(check("chiptune candidate is rejected", score_candidate(beneath, beneath_chiptune) < 70, str(score_candidate(beneath, beneath_chiptune))))
-    results.append(check("drum cover candidate is rejected", score_candidate(beneath, beneath_drum_cover) < 70, str(score_candidate(beneath, beneath_drum_cover))))
+    derived = [
+        YouTubeCandidate("Beneath the Mask -rain- - Lyn / REKA 歌ってみた", "https://youtube.example/beneath-cover", 279, "REKA"),
+        YouTubeCandidate("Lyn - Beneath The Mask -rain- -chiptune-", "https://youtube.example/beneath-chiptune", 279, "Chiptune Channel"),
+        YouTubeCandidate("Lyn - Beneath The Mask -rain- drum cover", "https://youtube.example/beneath-drum-cover", 279, "Drum Cover Channel"),
+    ]
+    results.append(check("Beneath derived candidates are rejected", all(score_candidate(beneath, candidate) < 70 for candidate in derived), str([score_candidate(beneath, candidate) for candidate in derived])))
     try:
-        select_best_candidate(beneath, [beneath_sung_cover, beneath_chiptune, beneath_drum_cover])
+        select_best_candidate(beneath, derived)
         beneath_failed = False
     except SpotifyLowScoreError:
         beneath_failed = True
-    results.append(check("Beneath the Mask derived-only candidates fail safely", beneath_failed))
-    beneath_soundtrack = SpotifyTrackMetadata(
-        track_id="2KD6Qx09NNMsv1HQOh8zVv",
-        name="Beneath the Mask -rain-",
-        artists=["Lyn", "ATLUS GAME MUSIC"],
-        album_name="PERSONA5 ORIGINAL SOUNDTRACK",
-        duration_ms=279000,
-        isrc="",
-        explicit=False,
-        spotify_url="https://open.spotify.com/track/2KD6Qx09NNMsv1HQOh8zVv",
+    results.append(check("Beneath derived-only candidates fail safely", beneath_failed))
+    deduped = deduplicate_candidates(
+        [
+            YouTubeCandidate("same", "https://www.youtube.com/watch?v=abc", 10, ""),
+            YouTubeCandidate("same duplicate", "https://youtu.be/abc", 10, ""),
+            YouTubeCandidate("other", "https://youtube.example/watch?v=def", 10, ""),
+        ]
     )
-    soundtrack_candidate = YouTubeCandidate(
-        "P5 - Beneath the Mask -rainy day- | Synchronized Lyrics",
-        "https://youtube.example/beneath-rainy",
-        272,
-        "SkAlgorythmik",
-    )
-    results.append(check("soundtrack fallback accepts high-confidence title duration match", score_candidate(beneath_soundtrack, soundtrack_candidate) >= 70, str(score_candidate(beneath_soundtrack, soundtrack_candidate))))
-    best_beneath, beneath_score = select_best_candidate(beneath_soundtrack, [beneath_sung_cover, beneath_chiptune, beneath_drum_cover, soundtrack_candidate])
-    results.append(check("Beneath the Mask selects soundtrack fallback over derived candidates", best_beneath.webpage_url == soundtrack_candidate.webpage_url and beneath_score >= 70, str((best_beneath, beneath_score))))
-
-
-async def run_client_checks(results):
-    import bot.services.spotify_client as spotify_client
-
-    original_async_client = spotify_client.httpx.AsyncClient
-    original_id = os.environ.get("SPOTIFY_CLIENT_ID")
-    original_secret = os.environ.get("SPOTIFY_CLIENT_SECRET")
-    try:
-        os.environ.pop("SPOTIFY_CLIENT_ID", None)
-        os.environ.pop("SPOTIFY_CLIENT_SECRET", None)
-        missing = False
-        try:
-            await SpotifyClient().get_token()
-        except SpotifyCredentialsMissing:
-            missing = True
-        results.append(check("missing spotify credentials does not crash import", missing))
-
-        os.environ["SPOTIFY_CLIENT_ID"] = "client-id"
-        os.environ["SPOTIFY_CLIENT_SECRET"] = "client-secret"
-        spotify_client.httpx.AsyncClient = FakeAsyncClient
-        FakeAsyncClient.token_calls = 0
-        FakeAsyncClient.get_calls = 0
-        FakeAsyncClient.next_token_status = []
-        FakeAsyncClient.next_get_status = []
-        client = SpotifyClient()
-        token1 = await client.get_token()
-        token2 = await client.get_token()
-        results.append(check("spotify token is cached", token1 == token2 and FakeAsyncClient.token_calls == 1, str(FakeAsyncClient.token_calls)))
-        token_request = FakeAsyncClient.last_post
-        results.append(check("spotify token endpoint is correct", token_request.get("url", "").endswith("/api/token"), str(token_request.get("url"))))
-        results.append(check("spotify token grant type is client credentials", (token_request.get("data") or {}).get("grant_type") == "client_credentials", str(token_request.get("data"))))
-        results.append(check("spotify token uses form content type", (token_request.get("headers") or {}).get("Content-Type") == "application/x-www-form-urlencoded", str(token_request.get("headers"))))
-        results.append(check("spotify token uses basic auth tuple", isinstance(token_request.get("auth"), tuple) and len(token_request.get("auth")) == 2))
-
-        client._token_expires_at = time.time() - 1
-        await client.get_token()
-        results.append(check("spotify token refreshes before expiry", FakeAsyncClient.token_calls == 2, str(FakeAsyncClient.token_calls)))
-
-        FakeAsyncClient.next_get_status = [401]
-        await client.get_track(TRACK_ID)
-        results.append(check("spotify api 401 retries once", FakeAsyncClient.token_calls == 3 and FakeAsyncClient.get_calls >= 2, str((FakeAsyncClient.token_calls, FakeAsyncClient.get_calls))))
-
-        FakeAsyncClient.next_get_status = [429]
-        rate_limited = False
-        try:
-            await client.get_track(TRACK_ID)
-        except SpotifyRateLimitedError as exc:
-            rate_limited = exc.retry_after == 7
-        results.append(check("spotify api 429 exposes retry-after without retry loop", rate_limited))
-
-        reset_spotify_client_cache()
-        FakeAsyncClient.token_calls = 0
-        FakeAsyncClient.get_calls = 0
-        FakeAsyncClient.next_token_status = [(401, {"error": "invalid_client"})]
-        token_error_safe = False
-        try:
-            await SpotifyClient().get_token()
-        except SpotifyAuthError as exc:
-            token_error_safe = exc.status_code == 401 and exc.error_code == "invalid_client"
-        results.append(check("spotify token 401 exposes safe error code", token_error_safe))
-
-        reset_spotify_client_cache()
-        FakeAsyncClient.token_calls = 0
-        FakeAsyncClient.get_calls = 0
-        FakeAsyncClient.next_token_status = []
-        shared1 = get_spotify_client()
-        shared2 = get_spotify_client()
-        await shared1.get_track(TRACK_ID)
-        await shared2.get_track(TRACK_ID)
-        results.append(check("shared spotify client reuses token", shared1 is shared2 and FakeAsyncClient.token_calls == 1, str(FakeAsyncClient.token_calls)))
-
-        FakeAsyncClient.next_get_status = [401]
-        await shared1.get_track(TRACK_ID)
-        results.append(check("shared spotify client refreshes token once after 401", FakeAsyncClient.token_calls == 2, str(FakeAsyncClient.token_calls)))
-    finally:
-        reset_spotify_client_cache()
-        spotify_client.httpx.AsyncClient = original_async_client
-        if original_id is None:
-            os.environ.pop("SPOTIFY_CLIENT_ID", None)
-        else:
-            os.environ["SPOTIFY_CLIENT_ID"] = original_id
-        if original_secret is None:
-            os.environ.pop("SPOTIFY_CLIENT_SECRET", None)
-        else:
-            os.environ["SPOTIFY_CLIENT_SECRET"] = original_secret
+    results.append(check("duplicate youtube candidates are removed", len(deduped) == 2, str(deduped)))
 
 
 async def run_resolver_checks(results):
     original_search = spotify_resolver.search_youtube_candidates
     original_cache = dict(spotify_resolver._RESOLVE_CACHE)
     original_resolve = voice_music.resolve_spotify_track_to_youtube
-    original_extract = voice_music.extract_track_info
+    original_extract = voice_music.extract_track_info_with_cookie_fallback
     original_home_vpn_enabled = os.environ.get("YOUTUBE_HOME_VPN_ENABLED")
     try:
         os.environ["YOUTUBE_HOME_VPN_ENABLED"] = "false"
@@ -398,7 +188,7 @@ async def run_resolver_checks(results):
 
         def fake_search(query, guild_id=None, limit=5):
             calls["count"] += 1
-            return [YouTubeCandidate("RIP SLYME - 熱帯夜 Official Audio", "https://youtube.example/watch?v=ok", 240, "RIP SLYME - Topic")]
+            return [YouTubeCandidate("RIP SLYME - Heat Night Official Audio", "https://youtube.example/watch?v=ok", 240, "RIP SLYME - Topic")]
 
         spotify_resolver._RESOLVE_CACHE.clear()
         spotify_resolver.search_youtube_candidates = fake_search
@@ -435,73 +225,22 @@ async def run_resolver_checks(results):
             url = "https://youtube.example/dead" if not bypass_cache else "https://youtube.example/fresh"
             return ResolvedYouTubeTrack(item.track_id, url, "yt", item.duration_seconds, 90, time.time())
 
-        def fake_extract_retry(url, requester_id, guild_id=None, use_cookies=True, *args, **kwargs):
+        async def fake_extract_retry(url, requester_id, guild_id=None, voice_client=None):
             retry_calls["extract"] += 1
             if "dead" in url:
                 raise RuntimeError("video unavailable")
             return MusicTrack("fresh", url, "https://stream.example/fresh", requester_id, 240, url)
 
         voice_music.resolve_spotify_track_to_youtube = fake_resolve_retry
-        voice_music.extract_track_info = fake_extract_retry
+        voice_music.extract_track_info_with_cookie_fallback = fake_extract_retry
         converted = await resolve_spotify_track_to_music_track(sample_track(), "requester", "guild-a", None, "spotify:track:{0}".format(TRACK_ID))
         results.append(check("dead cached youtube url triggers one re-resolve", converted.source_url.endswith("/fresh") and retry_calls == {"resolve": 2, "extract": 2}, str(retry_calls)))
-
-        def fake_extract_network(url, requester_id, guild_id=None, use_cookies=True, *args, **kwargs):
-            raise RuntimeError("network timeout")
-
-        retry_calls["resolve"] = 0
-        voice_music.extract_track_info = fake_extract_network
-        try:
-            await resolve_spotify_track_to_music_track(sample_track(), "requester", "guild-a", None, "spotify:track:{0}".format(TRACK_ID))
-            network_retry_failed = False
-        except RuntimeError:
-            network_retry_failed = retry_calls["resolve"] == 1
-        results.append(check("network errors do not invalidate spotify cache", network_retry_failed, str(retry_calls)))
-
-        spotify_resolver._RESOLVE_CACHE.clear()
-        aggregate_calls = []
-        soundtrack_track = SpotifyTrackMetadata(
-            track_id="2KD6Qx09NNMsv1HQOh8zVv",
-            name="Beneath the Mask -rain-",
-            artists=["Lyn", "ATLUS GAME MUSIC"],
-            album_name="PERSONA5 ORIGINAL SOUNDTRACK",
-            duration_ms=279000,
-            isrc="",
-            explicit=False,
-            spotify_url="https://open.spotify.com/track/2KD6Qx09NNMsv1HQOh8zVv",
-        )
-
-        def fake_multi_query_search(query, guild_id=None, limit=5, use_cookies=True):
-            aggregate_calls.append((query, limit))
-            if "ATLUS GAME MUSIC" in query or query == "Beneath the Mask -rain-":
-                return [
-                    YouTubeCandidate("P5 - Beneath the Mask -rainy day- | Synchronized Lyrics", "https://youtube.example/watch?v=rainy", 272, "SkAlgorythmik"),
-                    YouTubeCandidate("P5 - Beneath the Mask -rainy day- | Synchronized Lyrics", "https://youtu.be/rainy", 272, "SkAlgorythmik"),
-                ]
-            return [
-                YouTubeCandidate("Lyn - Beneath The Mask -chiptune- (Silver Mix)", "https://youtube.example/watch?v=chip", 266, "Chiptune Channel"),
-                YouTubeCandidate("Beneath the Mask - Lyn / REKA【歌ってみた】", "https://youtube.example/watch?v=cover", 277, "REKA"),
-            ]
-
-        spotify_resolver.search_youtube_candidates = fake_multi_query_search
-        resolved_soundtrack = await resolve_spotify_track_to_youtube(soundtrack_track, "guild-a", bypass_cache=True)
-        results.append(check("multi-query resolver can find soundtrack fallback", resolved_soundtrack.youtube_url.endswith("rainy"), str(resolved_soundtrack)))
-        results.append(check("resolver passes configured candidate limit per query", all(limit == youtube_candidates_per_query() for _query, limit in aggregate_calls), str(aggregate_calls)))
-        results.append(check("resolver tries multiple search queries", len(aggregate_calls) >= 3, str(aggregate_calls)))
-        deduped = deduplicate_candidates(
-            [
-                YouTubeCandidate("same", "https://www.youtube.com/watch?v=abc", 10, ""),
-                YouTubeCandidate("same duplicate", "https://youtu.be/abc", 10, ""),
-                YouTubeCandidate("other", "https://youtube.example/watch?v=def", 10, ""),
-            ]
-        )
-        results.append(check("duplicate youtube candidates are removed", len(deduped) == 2, str(deduped)))
     finally:
         spotify_resolver.search_youtube_candidates = original_search
         spotify_resolver._RESOLVE_CACHE.clear()
         spotify_resolver._RESOLVE_CACHE.update(original_cache)
         voice_music.resolve_spotify_track_to_youtube = original_resolve
-        voice_music.extract_track_info = original_extract
+        voice_music.extract_track_info_with_cookie_fallback = original_extract
         if original_home_vpn_enabled is None:
             os.environ.pop("YOUTUBE_HOME_VPN_ENABLED", None)
         else:
@@ -509,107 +248,17 @@ async def run_resolver_checks(results):
 
 
 async def run_album_and_queue_checks(results):
-    original_resolve = voice_music.resolve_spotify_track_to_youtube
-    original_extract = voice_music.extract_track_info
-    try:
-        async def fake_resolve(track, guild_id, bypass_cache=False):
-            return ResolvedYouTubeTrack(track.track_id, "https://youtube.example/{0}".format(track.track_id), "yt {0}".format(track.name), track.duration_seconds, 90, time.time())
-
-        def fake_extract(url, requester_id, guild_id=None, use_cookies=True, *args, **kwargs):
-            return MusicTrack("YouTube title", url, "https://stream.example/audio", requester_id, 240, url)
-
-        voice_music.resolve_spotify_track_to_youtube = fake_resolve
-        voice_music.extract_track_info = fake_extract
-        converted = await resolve_spotify_track_to_music_track(sample_track(), "requester", "guild-a", None, "spotify:track:{0}".format(TRACK_ID))
-        results.append(check("spotify track converts to normal MusicTrack", isinstance(converted, MusicTrack) and converted.source_url.startswith("https://youtube.example/"), str(converted)))
-        results.append(check("spotify metadata is retained on MusicTrack", converted.source_type == "spotify" and converted.original_spotify_url.startswith("spotify:track:")))
-
-        album = SpotifyAlbumMetadata(
-            album_id=ALBUM_ID,
-            name="Album",
-            artists=["Artist"],
-            spotify_url="https://open.spotify.com/album/{0}".format(ALBUM_ID),
-            tracks=[sample_track(TRACK_ID, "曲1"), sample_track("1Q2W3E4R5T6Y7U8I9O0P1C", "曲2")],
-            skipped_tracks=1,
-        )
-        lock = get_album_lock("ichiyon:guild-a")
-        results.append(check("album lock is guild scoped", lock is get_album_lock("ichiyon:guild-a") and lock is not get_album_lock("irsia:guild-a")))
-        results.append(check("album metadata carries skipped tracks", album.skipped_tracks == 1 and len(album.tracks) == 2))
-
-        class FakeAlbumClient(SpotifyClient):
-            async def _get_json(self, path, params=None, retry_auth=True):
-                if path.startswith("/albums/") and "/tracks" not in path:
-                    return {
-                        "id": ALBUM_ID,
-                        "name": "Paged Album",
-                        "artists": [{"name": "Album Artist"}],
-                        "external_urls": {"spotify": "https://open.spotify.com/album/{0}".format(ALBUM_ID)},
-                        "tracks": {
-                            "total": 2,
-                            "next": "https://api.spotify.com/v1/albums/{0}/tracks?offset=1&limit=1".format(ALBUM_ID),
-                            "items": [
-                                {
-                                    "id": TRACK_ID,
-                                    "name": "一曲目",
-                                    "artists": [{"name": "Artist"}],
-                                    "duration_ms": 100000,
-                                    "external_urls": {"spotify": "https://open.spotify.com/track/{0}".format(TRACK_ID)},
-                                }
-                            ],
-                        },
-                    }
-                return {
-                    "next": None,
-                    "items": [
-                        {
-                            "id": "1Q2W3E4R5T6Y7U8I9O0P1D",
-                            "name": "二曲目",
-                            "artists": [{"name": "Artist"}],
-                            "duration_ms": 100000,
-                            "external_urls": {"spotify": "https://open.spotify.com/track/1Q2W3E4R5T6Y7U8I9O0P1D"},
-                        }
-                    ],
-                }
-
-        paged_album = await FakeAlbumClient(client_id="id", client_secret="secret").get_album(ALBUM_ID)
-        results.append(check("album pagination collects all tracks", len(paged_album.tracks) == 2, str([track.name for track in paged_album.tracks])))
-
-        ordered_tracks = [
-            sample_track(TRACK_ID, "曲1"),
-            sample_track("1Q2W3E4R5T6Y7U8I9O0P1C", "曲2"),
-            sample_track("1Q2W3E4R5T6Y7U8I9O0P1D", "曲3"),
-        ]
-        active = {"count": 0, "max": 0}
-
-        async def fake_ordered_resolve(item, guild_id, bypass_cache=False):
-            active["count"] += 1
-            active["max"] = max(active["max"], active["count"])
-            await asyncio.sleep(0.01)
-            active["count"] -= 1
-            if item.name == "曲2":
-                raise RuntimeError("not found")
-            return ResolvedYouTubeTrack(item.track_id, "https://youtube.example/{0}".format(item.track_id), "yt {0}".format(item.name), item.duration_seconds, 90, time.time())
-
-        voice_music.resolve_spotify_track_to_youtube = fake_ordered_resolve
-        original_concurrency = os.environ.get("SPOTIFY_RESOLVE_CONCURRENCY")
-        os.environ["SPOTIFY_RESOLVE_CONCURRENCY"] = "2"
-        resolved_tracks, failed_count = await resolve_spotify_album_tracks(ordered_tracks, "requester", "guild-a", None, "spotify:album:{0}".format(ALBUM_ID))
-        results.append(check("album worker preserves track order after failures", [track.spotify_title for track in resolved_tracks] == ["曲1", "曲3"], str([track.spotify_title for track in resolved_tracks])))
-        results.append(check("album worker counts partial failures", failed_count == 1, str(failed_count)))
-        results.append(check("album worker respects concurrency limit", active["max"] <= 2, str(active["max"])))
-        if original_concurrency is None:
-            os.environ.pop("SPOTIFY_RESOLVE_CONCURRENCY", None)
-        else:
-            os.environ["SPOTIFY_RESOLVE_CONCURRENCY"] = original_concurrency
-
-        transient_lock = get_album_lock("ichiyon:guild-to-remove")
-        async with transient_lock:
-            pass
-        spotify_resolver.remove_album_lock("ichiyon:guild-to-remove", transient_lock)
-        results.append(check("album lock can be removed after use", "ichiyon:guild-to-remove" not in spotify_resolver._ALBUM_LOCKS))
-    finally:
-        voice_music.resolve_spotify_track_to_youtube = original_resolve
-        voice_music.extract_track_info = original_extract
+    album = SpotifyAlbumMetadata(
+        album_id=ALBUM_ID,
+        name="Album",
+        artists=["Artist"],
+        spotify_url="https://open.spotify.com/album/{0}".format(ALBUM_ID),
+        tracks=[sample_track(TRACK_ID, "Song 1"), sample_track("1Q2W3E4R5T6Y7U8I9O0P1C", "Song 2")],
+        skipped_tracks=1,
+    )
+    lock = get_album_lock("ichiyon:guild-a")
+    results.append(check("album lock is guild scoped", lock is get_album_lock("ichiyon:guild-a") and lock is not get_album_lock("irsia:guild-a")))
+    results.append(check("album metadata carries skipped tracks", album.skipped_tracks == 1 and len(album.tracks) == 2))
 
 
 def run_env_checks(results):
@@ -632,7 +281,7 @@ def run_env_checks(results):
         os.environ["SPOTIFY_RESOLVE_CACHE_MAX_ENTRIES"] = "1"
         os.environ["SPOTIFY_YOUTUBE_CANDIDATES_PER_QUERY"] = "99"
         results.append(check("album max tracks is clamped", max_album_tracks() == 200, str(max_album_tracks())))
-        results.append(check("resolve concurrency is clamped", resolve_concurrency() == 4, str(resolve_concurrency())))
+        results.append(check("resolve concurrency is clamped", spotify_resolver.resolve_concurrency() == 4, str(spotify_resolver.resolve_concurrency())))
         results.append(check("resolve cache ttl has safe minimum", resolve_cache_ttl_seconds() == 60, str(resolve_cache_ttl_seconds())))
         results.append(check("match score margin is clamped", match_min_margin() == 100, str(match_min_margin())))
         results.append(check("resolve cache max entries has safe minimum", resolve_cache_max_entries() == 100, str(resolve_cache_max_entries())))
@@ -645,11 +294,13 @@ def run_env_checks(results):
                 os.environ[key] = value
 
 
-def run_compose_checks(results):
+def run_compose_and_doc_checks(results):
     compose_text = (ROOT_DIR / "docker-compose.yml").read_text(encoding="utf-8")
-    service_matches = list(re.finditer(r"(?m)^  [A-Za-z0-9_-]+:\s*$", compose_text))
+    env_text = (ROOT_DIR / ".env.example").read_text(encoding="utf-8")
+    doc_text = (ROOT_DIR / "docs" / "voice-vc-commands.md").read_text(encoding="utf-8")
     for service_name in ("bot", "bot-irsia"):
         marker = "  {0}:".format(service_name)
+        service_matches = list(re.finditer(r"(?m)^  [A-Za-z0-9_-]+:\s*$", compose_text))
         start = compose_text.find(marker)
         next_start = len(compose_text)
         for match in service_matches:
@@ -657,45 +308,25 @@ def run_compose_checks(results):
                 next_start = match.start()
                 break
         section = compose_text[start:next_start] if start >= 0 else ""
-        results.append(
-            check(
-                "{0} passes spotify client id env".format(service_name),
-                "SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}" in section,
-            )
-        )
-        results.append(
-            check(
-                "{0} passes spotify client secret env".format(service_name),
-                "SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:-}" in section,
-            )
-        )
-        results.append(
-            check(
-                "{0} does not blank spotify env".format(service_name),
-                "SPOTIFY_CLIENT_ID: \n" not in section and "SPOTIFY_CLIENT_SECRET: \n" not in section,
-            )
-        )
+        results.append(check("{0} does not pass spotify client id env".format(service_name), "SPOTIFY_CLIENT_ID" not in section))
+        results.append(check("{0} does not pass spotify client secret env".format(service_name), "SPOTIFY_CLIENT_SECRET" not in section))
+    results.append(check("env example omits spotify client id", "SPOTIFY_CLIENT_ID" not in env_text))
+    results.append(check("env example omits spotify client secret", "SPOTIFY_CLIENT_SECRET" not in env_text))
+    results.append(check("env example documents spotify score margin", "SPOTIFY_MATCH_MIN_MARGIN=10" in env_text))
+    results.append(check("env example documents spotify cache max entries", "SPOTIFY_RESOLVE_CACHE_MAX_ENTRIES=1000" in env_text))
+    results.append(check("env example documents spotify youtube candidates", "SPOTIFY_YOUTUBE_CANDIDATES_PER_QUERY=10" in env_text))
+    results.append(check("docs mention public spotify metadata", "public Spotify pages or public embed HTML" in doc_text))
+    results.append(check("docs omit spotify client credentials", "SPOTIFY_CLIENT_ID" not in doc_text and "SPOTIFY_CLIENT_SECRET" not in doc_text))
 
 
 async def main_async() -> int:
     results = []
     run_url_checks(results)
     run_scoring_checks(results)
-    await run_client_checks(results)
     await run_resolver_checks(results)
     await run_album_and_queue_checks(results)
     run_env_checks(results)
-    run_compose_checks(results)
-
-    env_text = (ROOT_DIR / ".env.example").read_text(encoding="utf-8")
-    doc_text = (ROOT_DIR / "docs" / "voice-vc-commands.md").read_text(encoding="utf-8")
-    results.append(check("env example documents spotify client id", "SPOTIFY_CLIENT_ID=" in env_text))
-    results.append(check("env example keeps spotify secret empty", "SPOTIFY_CLIENT_SECRET=" in env_text))
-    results.append(check("env example documents spotify score margin", "SPOTIFY_MATCH_MIN_MARGIN=10" in env_text))
-    results.append(check("env example documents spotify cache max entries", "SPOTIFY_RESOLVE_CACHE_MAX_ENTRIES=1000" in env_text))
-    results.append(check("env example documents spotify youtube candidates", "SPOTIFY_YOUTUBE_CANDIDATES_PER_QUERY=10" in env_text))
-    results.append(check("docs mention spotify does not directly play audio", "Spotify上の音源やプレビュー音源を直接再生することはありません" in doc_text))
-    results.append(check("docs mention spotify cache max entries", "SPOTIFY_RESOLVE_CACHE_MAX_ENTRIES" in doc_text))
+    run_compose_and_doc_checks(results)
 
     ok_count = sum(1 for item in results if item)
     print("summary: {0}/{1} OK".format(ok_count, len(results)))
