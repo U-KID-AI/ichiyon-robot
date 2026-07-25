@@ -37,8 +37,11 @@ from bot.services.voice.text_normalizer import (
 
 VOICEVOX_URL_ENV = "VOICEVOX_ENGINE_URL"
 VOICEVOX_TIMEOUT_ENV = "VOICEVOX_TIMEOUT_SECONDS"
+TTS_RUNTIME_ENABLED_ENV = "TTS_RUNTIME_ENABLED"
 VOICEVOX_DEFAULT_URL = "http://voicevox-engine:50021"
 VOICEVOX_DEFAULT_TIMEOUT_SECONDS = 30
+TTS_RUNTIME_DEFAULT_ENABLED = False
+TTS_RUNTIME_DISABLED_MESSAGE = "読み上げ機能は現在一時停止中です。"
 TTS_START_COMMAND = "読み上げ開始"
 TTS_STOP_COMMAND = "読み上げ停止"
 TTS_SAMPLE_RATE = 48000
@@ -104,6 +107,17 @@ def voicevox_timeout_seconds() -> int:
     return _env_int(VOICEVOX_TIMEOUT_ENV, VOICEVOX_DEFAULT_TIMEOUT_SECONDS, 1)
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = str(os.getenv(name, "") or "").strip().lower()
+    if not value:
+        return default
+    return value in {"1", "true", "yes", "on"}
+
+
+def tts_runtime_enabled() -> bool:
+    return _env_bool(TTS_RUNTIME_ENABLED_ENV, TTS_RUNTIME_DEFAULT_ENABLED)
+
+
 _HTTP_CLIENT: Optional[httpx.Client] = None
 _HTTP_CLIENT_BASE_URL = ""
 _HTTP_CLIENT_TIMEOUT = 0
@@ -147,17 +161,17 @@ def load_tts_settings(guild_id: str) -> Dict[str, Any]:
 
 
 def tts_feature_enabled(guild_id: str) -> bool:
-    return bool(load_tts_settings(guild_id).get("enabled"))
+    return tts_runtime_enabled() and bool(load_tts_settings(guild_id).get("enabled"))
 
 
 def tts_auto_join_enabled(guild_id: str) -> bool:
     settings = load_tts_settings(guild_id)
-    return bool(settings.get("enabled")) and bool(settings.get("auto_join_enabled"))
+    return tts_runtime_enabled() and bool(settings.get("enabled")) and bool(settings.get("auto_join_enabled"))
 
 
 def activate_tts_session(guild_id: str, text_channel_id: str, force_enabled: Optional[bool] = None) -> bool:
     settings = load_tts_settings(guild_id)
-    enabled = bool(settings.get("enabled"))
+    enabled = tts_runtime_enabled() and bool(settings.get("enabled"))
     if force_enabled is not None:
         enabled = enabled and bool(force_enabled)
     else:
@@ -397,6 +411,8 @@ async def _tts_worker(message: discord.Message, guild_id: str, generation_id: in
 
 async def maybe_enqueue_tts(message: discord.Message, command_text: Optional[str]) -> bool:
     accepted_at = time.perf_counter()
+    if not tts_runtime_enabled():
+        return False
     if not should_tts_read_message(message, command_text):
         return False
     guild_id = str(getattr(message.guild, "id", "") or "")
@@ -453,6 +469,10 @@ async def handle_tts_command(message: discord.Message, command_text: Optional[st
     if command == "stop":
         await stop_tts_session(guild_id)
         await message.channel.send("読み上げを停止しました。")
+        return True
+    if not tts_runtime_enabled():
+        await stop_tts_session(guild_id)
+        await message.channel.send(TTS_RUNTIME_DISABLED_MESSAGE)
         return True
     activate_tts_session(guild_id, str(getattr(message.channel, "id", "") or ""), force_enabled=True)
     await message.channel.send("このチャンネルの読み上げを開始しました。")
