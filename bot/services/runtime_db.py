@@ -68,6 +68,9 @@ RANDOM_DRAW_PULL_INVALID_MESSAGE = "抽選回数は1～100連で指定してく�
 RANDOM_DRAW_PULL_BLOCKED = "__random_draw_pull_blocked__"
 RANDOM_DRAW_PULL_SUFFIX_RE = re.compile(r"^\s*([0-9]+)\s*連$")
 RANDOM_DRAW_PULL_INVALID_SUFFIX_RE = re.compile(r"^\s*(?:[+-]?[0-9]+|[A-Za-z]+)?\s*(?:連|回)$")
+FORTUNE_RANDOM_DRAW_KEYWORDS = ("くじ", "おみくじ")
+FORTUNE_RANDOM_DRAW_KEYS = ("kuji", "omikuji")
+FORTUNE_RANDOM_DRAW_RE = re.compile(r"くじ")
 DISCORD_SAFE_MESSAGE_LIMIT = 1900
 _PENDING_NEXT_EFFECTS: Dict[str, List[Dict[str, Any]]] = {}
 _RUNTIME_MESSAGE_LOCKS: Dict[str, asyncio.Lock] = {}
@@ -297,6 +300,7 @@ def sort_mention_matches(matches: List[MatchResult]) -> List[MatchResult]:
     return sorted(
         matches,
         key=lambda item: (
+            0 if item.groups.get("_random_draw_keyword_match") else 1,
             -len(item.row.get("keyword") or ""),
             -MATCH_TYPE_RANK.get(item.row.get("match_type"), 0),
             item.row.get("created_at"),
@@ -372,11 +376,47 @@ def parse_random_draw_pull_for_keyword(command_text: str, keyword: str) -> Tuple
     return RandomDrawPullParse(count, normalized_keyword), None
 
 
+def is_fortune_random_draw_reaction(reaction: Dict[str, Any]) -> bool:
+    reaction_key = normalize_random_draw_pull_text(reaction.get("reaction_key") or "").lower()
+    if reaction_key in FORTUNE_RANDOM_DRAW_KEYS:
+        return True
+    for field_name in ("keyword", "name"):
+        value = normalize_random_draw_pull_text(reaction.get(field_name) or "")
+        if value in FORTUNE_RANDOM_DRAW_KEYWORDS:
+            return True
+    return False
+
+
+def parse_fortune_random_draw_pull(command_text: str) -> Tuple[Optional[RandomDrawPullParse], Optional[str]]:
+    normalized_command = normalize_random_draw_pull_text(command_text)
+    matched = FORTUNE_RANDOM_DRAW_RE.search(normalized_command)
+    if matched is None:
+        return None, None
+    suffix = normalized_command[matched.end() :]
+    count, error, consumed = parse_random_draw_pull_suffix(suffix)
+    if error:
+        return None, error
+    if consumed and count is not None:
+        return RandomDrawPullParse(count, "くじ", {"_fortune_contains_match": "1"}), None
+    return RandomDrawPullParse(1, "くじ", {"_fortune_contains_match": "1"}), None
+
+
 def parse_random_draw_pull_for_reaction(reaction: Dict[str, Any], command_text: str) -> Tuple[Optional[RandomDrawPullParse], Optional[str]]:
     keyword = str(reaction.get("keyword") or "")
+    is_fortune = is_fortune_random_draw_reaction(reaction)
     parsed, error = parse_random_draw_pull_for_keyword(command_text, keyword)
     if parsed is not None or error is not None:
+        if parsed is not None:
+            parsed.groups["_random_draw_keyword_match"] = "1"
+        if error == RANDOM_DRAW_PULL_BLOCKED and is_fortune:
+            fortune_parsed, fortune_error = parse_fortune_random_draw_pull(command_text)
+            if fortune_parsed is not None or fortune_error is not None:
+                return fortune_parsed, fortune_error
         return parsed, error
+    if is_fortune:
+        parsed, error = parse_fortune_random_draw_pull(command_text)
+        if parsed is not None or error is not None:
+            return parsed, error
     groups = match_pattern(keyword, reaction.get("match_type") or "exact", command_text)
     if groups is None:
         return None, None
