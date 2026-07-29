@@ -47,9 +47,36 @@
           {% endfor %}
         </select>
       </label>
-      <label>追加投稿テキスト<textarea name="additional_text" {% if not can_edit %}disabled{% endif %}>{{ tag.additional_text }}</textarea></label>
-      <label>最大倍率<input type="number" min="0" step="any" name="max_multiplier" value="{{ tag.max_multiplier }}" placeholder="空なら制限なし" {% if not can_edit %}disabled{% endif %}></label>
-      <p class="hint">確率倍率系だけに使用。空なら今まで通り制限なし。</p>
+      <div data-effect-section="text">
+        <label>追加投稿テキスト<textarea name="additional_text" {% if not can_edit %}disabled{% endif %}>{{ tag.additional_text }}</textarea></label>
+      </div>
+      <div data-effect-section="multiplier">
+        <label>最大倍率<input type="number" min="0" step="any" name="max_multiplier" value="{{ tag.max_multiplier }}" placeholder="空なら制限なし" {% if not can_edit %}disabled{% endif %}></label>
+        <p class="hint">確率倍率系だけに使用。空なら今まで通り制限なし。</p>
+      </div>
+
+      <section class="subpanel" data-effect-section="reaction">
+        <h3>リアクション設定</h3>
+        <div class="form-grid">
+          <label>付ける絵文字
+            <input type="text" name="reaction_emoji" value="{{ tag.reaction_emoji }}" placeholder="🍞 または <:name:id>" {% if not can_edit %}disabled{% endif %}>
+          </label>
+          <label>対象
+            <select name="reaction_target" {% if not can_edit %}disabled{% endif %}>
+              {% for item in reaction_targets %}
+                <option value="{{ item }}" {% if tag.reaction_target == item %}selected{% endif %}>{{ reaction_target_labels.get(item, item) }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>確率 分子
+            <input type="number" min="0" step="1" name="reaction_probability_numerator" value="{{ tag.reaction_probability_numerator }}" placeholder="空なら毎回" {% if not can_edit %}disabled{% endif %}>
+          </label>
+          <label>確率 分母
+            <input type="number" min="1" step="1" name="reaction_probability_denominator" value="{{ tag.reaction_probability_denominator }}" placeholder="例: 1000" {% if not can_edit %}disabled{% endif %}>
+          </label>
+        </div>
+        <p class="hint">1/1は毎回、0/1は発火しません。1/1000のような分数指定に対応します。</p>
+      </section>
 
       <section class="subpanel">
         <h3>使えるテンプレート</h3>
@@ -82,7 +109,7 @@
               <option value="ng_word_detected" {% if tag.trigger_timing == "ng_word_detected" %}selected{% endif %}>NGワードを検知した時</option>
             </select>
           </label>
-          <label>追加投稿タイミング
+          <label data-effect-section="text">追加投稿タイミング
             <select name="additional_post_timing" {% if not can_edit %}disabled{% endif %}>
               {% for item in additional_post_timings %}
                 <option value="{{ item }}" {% if tag.additional_post_timing == item %}selected{% endif %}>{{ additional_post_timing_labels.get(item, item) }}</option>
@@ -133,6 +160,27 @@
   </section>
 
   <script>
+    function updateEffectSections() {
+      var selector = document.querySelector('select[name="effect_type"]');
+      var effectType = selector ? selector.value : "";
+      document.querySelectorAll("[data-effect-section]").forEach(function (node) {
+        var section = node.dataset.effectSection;
+        var visible = true;
+        if (section === "reaction") {
+          visible = effectType === "reaction";
+        } else if (section === "text") {
+          visible = effectType !== "reaction";
+        } else if (section === "multiplier") {
+          visible = effectType === "probability_multiplier";
+        }
+        node.hidden = !visible;
+      });
+    }
+    var effectTypeSelector = document.querySelector('select[name="effect_type"]');
+    if (effectTypeSelector) {
+      effectTypeSelector.addEventListener("change", updateEffectSections);
+      updateEffectSections();
+    }
     document.querySelectorAll("[data-confirm]").forEach(function (form) {
       form.addEventListener("submit", function (event) {
         if (!confirm(form.dataset.confirm)) { event.preventDefault(); }

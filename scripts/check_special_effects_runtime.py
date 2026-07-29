@@ -233,6 +233,17 @@ async def check_execute_effects(check: Check) -> None:
         )
         check.add("probability reaction miss does nothing", miss_message.reactions == [], str(miss_message.reactions))
         check.add("probability reaction miss is unhandled", miss_result.handled is False, "handled={0}".format(miss_result.handled))
+
+        never_message = FakeMessage()
+        never_result = await execute_effects(
+            None,
+            "guild",
+            [effect("reaction", {"emoji": "🍞", "probability": {"numerator": 0, "denominator": 1}})],
+            never_message,
+            values,
+        )
+        check.add("zero probability reaction does nothing", never_message.reactions == [], str(never_message.reactions))
+        check.add("zero probability reaction is unhandled", never_result.handled is False, "handled={0}".format(never_result.handled))
     finally:
         runtime_db.random.randint = original_randint
         runtime_db._SPECIAL_EFFECT_COOLDOWNS.clear()

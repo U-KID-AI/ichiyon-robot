@@ -68,7 +68,7 @@
       <div class="table-wrap">
         <table class="admin-table">
           <thead>
-            <tr><th>選択</th><th>状態</th><th>タグ名</th><th>色</th><th>効果の種類</th><th>最大倍率</th><th>管理者限定</th><th>追加投稿</th><th>クールタイム</th><th>操作</th></tr>
+            <tr><th>選択</th><th>状態</th><th>タグ名</th><th>色</th><th>効果の種類</th><th>設定</th><th>最大倍率</th><th>管理者限定</th><th>追加投稿</th><th>クールタイム</th><th>操作</th></tr>
           </thead>
           <tbody>
             {% for tag in tags %}
@@ -78,6 +78,7 @@
                 <td data-label="タグ名">{{ tag.name }}</td>
                 <td data-label="色"><span class="color-swatch" style="background: {{ tag.color }}"></span>{{ tag.color }}</td>
                 <td data-label="効果の種類">{{ tag.effect_type_label }}</td>
+                <td data-label="設定">{{ tag.effect_summary }}</td>
                 <td data-label="最大倍率">{{ tag.max_multiplier_label }}</td>
                 <td data-label="管理者限定">{% if tag.admin_only %}あり{% else %}なし{% endif %}</td>
                 <td data-label="追加投稿">{% if tag.has_additional_text %}あり{% else %}なし{% endif %}</td>
