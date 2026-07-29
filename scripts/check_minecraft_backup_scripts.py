@@ -29,10 +29,12 @@ def main() -> int:
 
     assert "[switch]$Apply" in backup
     assert "dry_run=true" in backup
+    assert "APPLY=\"__APPLY__\"" in backup
+    assert '$RemoteScript.Replace("__APPLY__", [string][bool]$Apply)' in backup
     assert "[switch]$ConfirmWorldReplace" in restore
     assert "restore requires both -Apply and -ConfirmWorldReplace" in restore
-    assert 'docker compose stop "$Service"' in backup
-    assert 'docker compose up -d "$Service"' in backup
+    assert 'docker compose stop "$SERVICE"' in backup
+    assert 'docker compose up -d "$SERVICE"' in backup
     assert 'docker compose stop "$SERVICE"' in apply_settings
     assert 'docker compose up -d "$SERVICE"' in apply_settings
     print("check_minecraft_backup_scripts OK")
