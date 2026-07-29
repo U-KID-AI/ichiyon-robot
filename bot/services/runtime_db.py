@@ -612,7 +612,7 @@ def parse_probability(config: Dict[str, Any]) -> Optional[Dict[str, int]]:
         denominator_value = int(denominator)
     except (TypeError, ValueError):
         return None
-    if numerator_value <= 0 or denominator_value <= 0:
+    if numerator_value < 0 or denominator_value <= 0:
         return None
     return {"numerator": numerator_value, "denominator": denominator_value}
 

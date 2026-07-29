@@ -49,6 +49,11 @@ ADDITIONAL_POST_TIMINGS = ("none", "tag_triggered", "effect_success", "effect_en
 EXPIRES_TYPES = ("immediate", "next_bot_action", "next_special_roll", "seconds", "count", "permanent")
 COOLDOWN_SCOPES = ("none", "guild", "channel", "user", "assigned_event")
 COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
+REACTION_TARGETS = ("source_message",)
+REACTION_TARGET_LABELS = {
+    "source_message": "発言元メッセージ",
+}
+DEFAULT_REACTION_TARGET = "source_message"
 
 
 def register_special_effect_routes(templates: Jinja2Templates) -> None:
@@ -248,6 +253,10 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         cooldown_seconds: str = Form("0"),
         cooldown_scope: str = Form("none"),
         max_multiplier: str = Form(""),
+        reaction_emoji: str = Form(""),
+        reaction_target: str = Form(DEFAULT_REACTION_TARGET),
+        reaction_probability_numerator: str = Form(""),
+        reaction_probability_denominator: str = Form(""),
     ):
         user = get_current_user(request)
         if user is None:
@@ -277,6 +286,10 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
             cooldown_seconds,
             cooldown_scope,
             max_multiplier,
+            reaction_emoji,
+            reaction_target,
+            reaction_probability_numerator,
+            reaction_probability_denominator,
         )
         if form["admin_only"] and not role_allows(server["role"], "guild_admin"):
             errors.append("管理者限定タグはサーバー管理者以上だけ作成可。")
@@ -354,6 +367,10 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         cooldown_seconds: str = Form("0"),
         cooldown_scope: str = Form("none"),
         max_multiplier: str = Form(""),
+        reaction_emoji: str = Form(""),
+        reaction_target: str = Form(DEFAULT_REACTION_TARGET),
+        reaction_probability_numerator: str = Form(""),
+        reaction_probability_denominator: str = Form(""),
     ):
         user = get_current_user(request)
         if user is None:
@@ -388,6 +405,10 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
                 cooldown_seconds,
                 cooldown_scope,
                 max_multiplier,
+                reaction_emoji,
+                reaction_target,
+                reaction_probability_numerator,
+                reaction_probability_denominator,
             )
             if form["admin_only"] != bool(tag["admin_only"]) and not role_allows(server["role"], "guild_admin"):
                 errors.append("管理者限定の変更はサーバー管理者以上だけ。")
@@ -506,6 +527,13 @@ def default_form() -> Dict[str, Any]:
         "cooldown_scope": "none",
         "max_multiplier": "",
         "max_multiplier_label": "制限なし",
+        "reaction_emoji": "",
+        "reaction_target": DEFAULT_REACTION_TARGET,
+        "reaction_target_label": REACTION_TARGET_LABELS[DEFAULT_REACTION_TARGET],
+        "reaction_probability_numerator": "",
+        "reaction_probability_denominator": "",
+        "reaction_probability_label": "毎回",
+        "effect_summary": "",
     }
 
 
@@ -540,7 +568,104 @@ def build_form_from_tag(tag: Dict[str, Any]) -> Dict[str, Any]:
             "max_multiplier_label": format_max_multiplier(tag.get("max_multiplier")),
         }
     )
+    apply_reaction_fields_from_config(form)
     return form
+
+
+def parse_effect_config_text(value: str) -> Tuple[Dict[str, Any], Optional[str]]:
+    try:
+        parsed = json.loads((value or "").strip() or "{}")
+    except json.JSONDecodeError:
+        return {}, "詳細設定のJSONが不正。"
+    if not isinstance(parsed, dict):
+        return {}, "詳細設定はオブジェクト形式。"
+    return parsed, None
+
+
+def get_probability_source(config: Dict[str, Any]) -> Dict[str, Any]:
+    source = config.get("probability")
+    if isinstance(source, dict):
+        return source
+    return config
+
+
+def format_reaction_probability_label(numerator: Any, denominator: Any) -> str:
+    if numerator in (None, "") or denominator in (None, ""):
+        return "毎回"
+    return "{0}/{1}".format(numerator, denominator)
+
+
+def apply_reaction_fields_from_config(form: Dict[str, Any]) -> None:
+    config, _ = parse_effect_config_text(form.get("effect_config_json") or "{}")
+    emoji = config.get("emoji") or config.get("reaction") or config.get("emoji_internal") or ""
+    target = config.get("target") or config.get("reaction_target") or DEFAULT_REACTION_TARGET
+    if target not in REACTION_TARGETS:
+        target = DEFAULT_REACTION_TARGET
+    probability = get_probability_source(config)
+    numerator = probability.get("numerator", "")
+    denominator = probability.get("denominator", probability.get("chance_denominator", ""))
+    form["reaction_emoji"] = str(emoji)
+    form["reaction_target"] = target
+    form["reaction_target_label"] = REACTION_TARGET_LABELS.get(target, target)
+    form["reaction_probability_numerator"] = "" if numerator in (None, "") else str(numerator)
+    form["reaction_probability_denominator"] = "" if denominator in (None, "") else str(denominator)
+    form["reaction_probability_label"] = format_reaction_probability_label(
+        form["reaction_probability_numerator"],
+        form["reaction_probability_denominator"],
+    )
+    if form.get("effect_type") == "reaction":
+        form["effect_summary"] = "絵文字 {0} / 確率 {1} / 対象 {2}".format(
+            form["reaction_emoji"] or "未設定",
+            form["reaction_probability_label"],
+            form["reaction_target_label"],
+        )
+    else:
+        form["effect_summary"] = form.get("effect_config_summary") or "{}"
+
+
+def build_reaction_effect_config(
+    base_config: Dict[str, Any],
+    emoji: str,
+    target: str,
+    numerator: str,
+    denominator: str,
+) -> Tuple[Dict[str, Any], List[str]]:
+    errors: List[str] = []
+    config = dict(base_config)
+    emoji_value = (emoji or "").strip()
+    target_value = (target or DEFAULT_REACTION_TARGET).strip()
+    if not emoji_value:
+        errors.append("リアクション絵文字を入力。")
+    if target_value not in REACTION_TARGETS:
+        errors.append("リアクション対象を選択。")
+        target_value = DEFAULT_REACTION_TARGET
+
+    numerator_text = (numerator or "").strip()
+    denominator_text = (denominator or "").strip()
+    if bool(numerator_text) != bool(denominator_text):
+        errors.append("確率は分子と分母を両方入力。")
+    elif numerator_text and denominator_text:
+        try:
+            numerator_value = int(numerator_text)
+            denominator_value = int(denominator_text)
+        except ValueError:
+            errors.append("確率は整数で入力。")
+        else:
+            if numerator_value < 0:
+                errors.append("確率の分子は0以上。")
+            if denominator_value <= 0:
+                errors.append("確率の分母は1以上。")
+            if numerator_value >= 0 and denominator_value > 0:
+                config["probability"] = {
+                    "numerator": numerator_value,
+                    "denominator": denominator_value,
+                }
+    else:
+        config.pop("probability", None)
+
+    config["emoji"] = emoji_value
+    config["target"] = target_value
+    return config, errors
 
 
 def build_form(
@@ -561,6 +686,10 @@ def build_form(
     cooldown_seconds: str,
     cooldown_scope: str,
     max_multiplier: str,
+    reaction_emoji: str = "",
+    reaction_target: str = DEFAULT_REACTION_TARGET,
+    reaction_probability_numerator: str = "",
+    reaction_probability_denominator: str = "",
 ) -> Tuple[Dict[str, Any], List[str]]:
     errors = []
     form = default_form()
@@ -580,6 +709,10 @@ def build_form(
             "expires_type": expires_type,
             "cooldown_scope": cooldown_scope,
             "max_multiplier": max_multiplier.strip(),
+            "reaction_emoji": reaction_emoji.strip(),
+            "reaction_target": reaction_target.strip() or DEFAULT_REACTION_TARGET,
+            "reaction_probability_numerator": reaction_probability_numerator.strip(),
+            "reaction_probability_denominator": reaction_probability_denominator.strip(),
         }
     )
     form["priority"] = parse_int(priority, 0)
@@ -608,7 +741,10 @@ def build_form(
         errors.append("クールタイム単位を選択。")
     if form["cooldown_scope"] == "none":
         form["cooldown_seconds"] = 0
-    if form["max_multiplier"]:
+    if form["effect_type"] == "reaction":
+        form["max_multiplier"] = None
+        form["max_multiplier_label"] = "制限なし"
+    elif form["max_multiplier"]:
         try:
             parsed_multiplier = float(form["max_multiplier"])
         except ValueError:
@@ -622,17 +758,30 @@ def build_form(
         form["max_multiplier"] = None
         form["max_multiplier_label"] = "制限なし"
 
-    try:
-        parsed_json = json.loads(form["effect_config_json"])
-        if not isinstance(parsed_json, dict):
-            errors.append("詳細設定はオブジェクト形式。")
-        else:
-            form["effect_config"] = parsed_json
-            form["effect_config_summary"] = compact_json(form["effect_config_json"])
-    except json.JSONDecodeError:
-        errors.append("詳細設定のJSONが不正。")
+    parsed_json, json_error = parse_effect_config_text(form["effect_config_json"])
+    if json_error:
+        errors.append(json_error)
         form["effect_config"] = {}
         form["effect_config_summary"] = form["effect_config_json"]
+    elif form["effect_type"] == "reaction":
+        reaction_config, reaction_errors = build_reaction_effect_config(
+            parsed_json,
+            form["reaction_emoji"],
+            form["reaction_target"],
+            form["reaction_probability_numerator"],
+            form["reaction_probability_denominator"],
+        )
+        errors.extend(reaction_errors)
+        form["effect_config"] = reaction_config
+        form["effect_config_json"] = json.dumps(reaction_config, ensure_ascii=False, indent=2, sort_keys=True)
+        form["effect_config_summary"] = compact_json(form["effect_config_json"])
+        form["additional_text"] = ""
+        form["additional_post_timing"] = "none"
+    else:
+        form["effect_config"] = parsed_json
+        form["effect_config_summary"] = compact_json(form["effect_config_json"])
+
+    apply_reaction_fields_from_config(form)
 
     return form, errors
 
@@ -764,6 +913,8 @@ def render_form(
             "additional_post_timings": ADDITIONAL_POST_TIMINGS,
             "expires_types": EXPIRES_TYPES,
             "cooldown_scopes": COOLDOWN_SCOPES,
+            "reaction_targets": REACTION_TARGETS,
+            "reaction_target_labels": REACTION_TARGET_LABELS,
         },
         status_code=status_code,
     )
