@@ -1,0 +1,50 @@
+name: checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  python-and-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Compile Python
+        run: python -m compileall admin bot scripts
+
+      - name: Run static checks
+        run: |
+          python scripts/check_spotify_premium_free_runtime.py
+          python scripts/check_spotify_web_api_removed.py
+          python scripts/check_spotify_link_support.py
+          python scripts/check_spotify_playlist_support.py
+          python scripts/check_voice_music_queue_runtime.py
+          python scripts/check_youtube_home_vpn_proxy.py
+          python scripts/check_youtube_cookie_monitor.py
+          python scripts/check_bot_scoped_guild_settings.py
+          python scripts/check_admin_feature_flags.py
+          python scripts/check_compose_profiles.py
+          python scripts/check_service_environment_scoping.py
+          python scripts/check_external_http_policy.py
+          python scripts/check_deploy_scripts.py
+          python scripts/check_voicevox_optional_runtime.py
+
+      - name: Whitespace check
+        run: git diff --check
+
+      - name: Compose config
+        run: |
+          docker compose --env-file .env.example config --quiet
+          docker compose --env-file .env.example --profile bot --profile youtube-vpn config --quiet
