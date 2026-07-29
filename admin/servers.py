@@ -42,13 +42,13 @@ DISPLAY_FEATURES = [
     },
     {
         "key": "mention_limited",
-        "label": "限定機能",
+        "label": "特殊ユーザーメンションルール",
         "edit_path": "mention-reactions/limited",
         "required_role": "editor",
-        "overview": "特定ユーザーに追加効果を付ける。",
+        "overview": "特定ユーザーからBotへのメンションを条件に特殊効果タグを発動する。",
         "settings": "対象ユーザーID、特殊効果タグ、有効/無効",
-        "off_behavior": "OFFにすると、限定機能だけを止める。",
-        "notes": "限定タグはDB backend時のみ実行。",
+        "off_behavior": "OFFにすると、特殊ユーザーメンションルールだけを止める。",
+        "notes": "設定により通常のメンション応答を中止できます。",
     },
     {
         "key": "reactions",
