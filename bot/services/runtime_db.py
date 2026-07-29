@@ -71,6 +71,7 @@ RANDOM_DRAW_PULL_INVALID_SUFFIX_RE = re.compile(r"^\s*(?:[+-]?[0-9]+|[A-Za-z]+)?
 DISCORD_SAFE_MESSAGE_LIMIT = 1900
 _PENDING_NEXT_EFFECTS: Dict[str, List[Dict[str, Any]]] = {}
 _RUNTIME_MESSAGE_LOCKS: Dict[str, asyncio.Lock] = {}
+_SPECIAL_EFFECT_COOLDOWNS: Dict[str, float] = {}
 
 
 def runtime_message_lock_key(guild_id: str) -> str:
@@ -105,6 +106,7 @@ class EffectExecutionResult:
     count_changed: bool = False
     repeat_count: int = 0
     pending_effects: List[Dict[str, Any]] = field(default_factory=list)
+    handled: bool = False
 
 
 @dataclass
@@ -1154,6 +1156,48 @@ async def add_message_reaction_safe(message: discord.Message, emoji: str, contex
     return False
 
 
+def special_effect_cooldown_key(effect: Dict[str, Any], guild_id: str, message: discord.Message) -> str:
+    scope = str(effect.get("cooldown_scope") or "none")
+    effect_id = str(effect.get("id") or effect.get("name") or "unknown")
+    parts = [config.BOT_INSTANCE_ID, guild_id, effect_id, scope]
+    if scope == "channel":
+        channel = getattr(message, "channel", None)
+        parts.append(str(getattr(channel, "id", "") or ""))
+    elif scope == "user":
+        author = getattr(message, "author", None)
+        parts.append(str(getattr(author, "id", "") or ""))
+    elif scope == "assigned_event":
+        parts.append(str(effect.get("target_type") or ""))
+        parts.append(str(effect.get("target_id") or ""))
+    return ":".join(parts)
+
+
+def special_effect_cooldown_allows(effect: Dict[str, Any], guild_id: str, message: discord.Message, now: Optional[float] = None) -> bool:
+    try:
+        seconds = int(effect.get("cooldown_seconds") or 0)
+    except (TypeError, ValueError):
+        seconds = 0
+    scope = str(effect.get("cooldown_scope") or "none")
+    if seconds <= 0 or scope == "none":
+        return True
+    current = now if now is not None else datetime.now(timezone.utc).timestamp()
+    key = special_effect_cooldown_key(effect, guild_id, message)
+    last_at = _SPECIAL_EFFECT_COOLDOWNS.get(key)
+    return last_at is None or current - last_at >= seconds
+
+
+def mark_special_effect_cooldown(effect: Dict[str, Any], guild_id: str, message: discord.Message, now: Optional[float] = None) -> None:
+    try:
+        seconds = int(effect.get("cooldown_seconds") or 0)
+    except (TypeError, ValueError):
+        seconds = 0
+    scope = str(effect.get("cooldown_scope") or "none")
+    if seconds <= 0 or scope == "none":
+        return
+    current = now if now is not None else datetime.now(timezone.utc).timestamp()
+    _SPECIAL_EFFECT_COOLDOWNS[special_effect_cooldown_key(effect, guild_id, message)] = current
+
+
 async def repeat_text_image_action(
     message: discord.Message,
     text: str,
@@ -1354,6 +1398,7 @@ async def execute_destroy_effect(
             )
         )
         print("[INFO] destroy effect send_message executed: id={0}".format(effect.get("id")))
+        result.handled = True
         return result
 
     if action == "counter_reset":
@@ -1369,6 +1414,7 @@ async def execute_destroy_effect(
         repository.ensure_counter(guild_id, counter_key, counter_key)
         repository.set_value(guild_id, counter_key, value)
         result.count_changed = True
+        result.handled = True
         print(
             "[INFO] destroy effect counter_reset executed: id={0} counter_key={1} value={2}".format(
                 effect.get("id"),
@@ -1419,6 +1465,7 @@ async def execute_effects(
                         multiplier,
                         multiplier,
                     )
+                    result.handled = True
             elif effect_type == "message":
                 additional = get_additional_message(effect) or get_config_text(
                     config,
@@ -1435,13 +1482,25 @@ async def execute_effects(
                         template_values,
                         additional,
                     )
+                    result.handled = True
             elif effect_type == "reaction":
+                if not special_effect_cooldown_allows(effect, guild_id, message):
+                    continue
+                multiplier = get_probability_multiplier_for_target(
+                    pending,
+                    "special_effect_tag",
+                    int(effect.get("id") or 0),
+                )
+                if not probability_hit_with_multiplier(config, multiplier):
+                    continue
                 emoji = get_config_text(config, ["emoji", "reaction", "emoji_internal"])
                 if not emoji:
                     print("[WARN] reaction effect skipped without emoji")
                     continue
                 try:
                     await message.add_reaction(emoji)
+                    mark_special_effect_cooldown(effect, guild_id, message)
+                    result.handled = True
                 except discord.DiscordException as exc:
                     print("[WARN] Failed to add special effect reaction {0!r}: {1}".format(emoji, exc))
             elif effect_type == "counter_delta":
@@ -1454,6 +1513,7 @@ async def execute_effects(
                 repository.ensure_counter(guild_id, counter_key, counter_key)
                 repository.increment(guild_id, counter_key, delta, get_counter_period_key(connection, guild_id, counter_key))
                 result.count_changed = True
+                result.handled = True
                 additional = get_additional_message(effect)
                 timing = effect.get("additional_message_timing") or effect.get("additional_post_timing")
                 if additional and timing in (None, "", "effect_success", "tag_triggered"):
@@ -1486,6 +1546,7 @@ async def execute_effects(
                 repository.ensure_counter(guild_id, counter_key, counter_key)
                 repository.set_value(guild_id, counter_key, value, get_counter_period_key(connection, guild_id, counter_key))
                 result.count_changed = True
+                result.handled = True
                 additional = get_additional_message(effect)
                 timing = effect.get("additional_message_timing") or effect.get("additional_post_timing")
                 if additional and timing in (None, "", "effect_success", "tag_triggered"):
@@ -1509,6 +1570,7 @@ async def execute_effects(
                         result.pending_effects.extend(get_pending_probability_multipliers(pending))
                         carried_probability_multipliers = True
                     result.pending_effects.append(effect)
+                    result.handled = True
                     display_target_type, display_target_id = get_probability_multiplier_display_target(effect, config)
                     effective_multiplier = get_probability_multiplier_for_target(
                         result.pending_effects,
@@ -1540,6 +1602,7 @@ async def execute_effects(
                     print("[WARN] next_action_count skipped invalid count: {0}".format(count))
                     continue
                 result.pending_effects.append(effect)
+                result.handled = True
                 print("[INFO] next_action_count queued for next action: id={0}".format(effect.get("id")))
             elif effect_type == "destroy":
                 destroy_result = await execute_destroy_effect(
@@ -1551,6 +1614,7 @@ async def execute_effects(
                     config,
                 )
                 result.count_changed = result.count_changed or destroy_result.count_changed
+                result.handled = result.handled or destroy_result.count_changed
         except Exception as exc:
             print("[WARN] Failed to execute special effect {0}: {1}".format(effect.get("id"), exc))
             try:
@@ -1803,7 +1867,7 @@ async def process_db_auto_reaction(message: discord.Message, guild_id: str, conn
     if effect_result.repeat_count:
         repeated = await repeat_text_image_action(message, text, image_path, emoji, effect_result.repeat_count)
         sent = sent or repeated
-    return RuntimeAction(sent or bool(effects), effect_result.count_changed, effect_result.pending_effects)
+    return RuntimeAction(sent or effect_result.handled, effect_result.count_changed, effect_result.pending_effects)
 
 
 async def handle_db_auto_reaction(message: discord.Message, guild_id: str, connection) -> bool:

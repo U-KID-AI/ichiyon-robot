@@ -184,6 +184,59 @@ async def check_execute_effects(check: Check) -> None:
         "count_changed={0}".format(destroy_result.count_changed),
     )
 
+    original_randint = runtime_db.random.randint
+    try:
+        hit_message = FakeMessage()
+        runtime_db.random.randint = lambda start, end: 1
+        hit_result = await execute_effects(
+            None,
+            "guild",
+            [
+                {
+                    **effect("reaction", {"emoji": "🍞", "probability": {"numerator": 1, "denominator": 1000}}),
+                    "cooldown_seconds": 600,
+                    "cooldown_scope": "guild",
+                }
+            ],
+            hit_message,
+            values,
+        )
+        check.add("probability reaction hit adds source emoji", hit_message.reactions == ["🍞"], str(hit_message.reactions))
+        check.add("probability reaction hit is handled", hit_result.handled is True, "handled={0}".format(hit_result.handled))
+
+        cooldown_message = FakeMessage()
+        cooldown_result = await execute_effects(
+            None,
+            "guild",
+            [
+                {
+                    **effect("reaction", {"emoji": "🍞", "probability": {"numerator": 1, "denominator": 1000}}),
+                    "cooldown_seconds": 600,
+                    "cooldown_scope": "guild",
+                }
+            ],
+            cooldown_message,
+            values,
+        )
+        check.add("probability reaction cooldown blocks duplicate", cooldown_message.reactions == [], str(cooldown_message.reactions))
+        check.add("probability reaction cooldown miss is unhandled", cooldown_result.handled is False, "handled={0}".format(cooldown_result.handled))
+
+        miss_message = FakeMessage()
+        runtime_db._SPECIAL_EFFECT_COOLDOWNS.clear()
+        runtime_db.random.randint = lambda start, end: end
+        miss_result = await execute_effects(
+            None,
+            "guild",
+            [effect("reaction", {"emoji": "🍞", "probability": {"numerator": 1, "denominator": 1000}})],
+            miss_message,
+            values,
+        )
+        check.add("probability reaction miss does nothing", miss_message.reactions == [], str(miss_message.reactions))
+        check.add("probability reaction miss is unhandled", miss_result.handled is False, "handled={0}".format(miss_result.handled))
+    finally:
+        runtime_db.random.randint = original_randint
+        runtime_db._SPECIAL_EFFECT_COOLDOWNS.clear()
+
 
 def check_multiplier(check: Check) -> None:
     effects = [
