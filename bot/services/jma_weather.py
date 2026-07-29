@@ -4,12 +4,19 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-import httpx
+from bot.services.external_http import ExternalHttpError, ExternalHttpPolicy, fetch_json as fetch_external_json
 
 
 JMA_AREA_MASTER_URL = "https://www.jma.go.jp/bosai/common/const/area.json"
 JMA_FORECAST_URL = "https://www.jma.go.jp/bosai/forecast/data/forecast/{office_code}.json"
 JMA_TIMEOUT_SECONDS = 10.0
+JMA_HTTP_POLICY = ExternalHttpPolicy(
+    connect_timeout=5.0,
+    read_timeout=JMA_TIMEOUT_SECONDS,
+    retries=1,
+    trust_env=False,
+    user_agent="ichiyon-robot-jma-weather/1.0",
+)
 MAX_DISCORD_MESSAGE_LENGTH = 1800
 JST = timezone(timedelta(hours=9))
 
@@ -42,16 +49,10 @@ def parse_config(value: Any) -> Dict[str, Any]:
 
 async def fetch_json(url: str) -> Any:
     try:
-        async with httpx.AsyncClient(timeout=JMA_TIMEOUT_SECONDS) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            return response.json()
-    except httpx.TimeoutException as exc:
-        raise JmaWeatherError("JMA request timed out") from exc
-    except httpx.HTTPStatusError as exc:
-        status = getattr(exc.response, "status_code", "unknown")
-        raise JmaWeatherError("JMA request failed with status {0}".format(status)) from exc
-    except (httpx.HTTPError, ValueError) as exc:
+        return await fetch_external_json(url, policy=JMA_HTTP_POLICY)
+    except ExternalHttpError as exc:
+        if exc.status_code is not None:
+            raise JmaWeatherError("JMA request failed with status {0}".format(exc.status_code)) from exc
         raise JmaWeatherError("JMA response could not be loaded") from exc
 
 
