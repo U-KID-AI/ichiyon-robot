@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 
-{% block title %}限定機能 - Bot管理画面{% endblock %}
-{% block heading %}限定機能{% endblock %}
+{% block title %}特殊ユーザーメンションルール - Bot管理画面{% endblock %}
+{% block heading %}特殊ユーザーメンションルール{% endblock %}
 
 {% block content %}
   <section class="panel">
@@ -9,18 +9,17 @@
       {% if server.icon_url %}<img class="server-icon" src="{{ server.icon_url }}" alt="">{% else %}<div class="server-icon placeholder"></div>{% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">特定ユーザーのメンションに追加効果を付ける。</p>
+        <p class="empty">特定ユーザーからBotへのメンションを条件に特殊効果タグを発動します。設定により通常のメンション応答を中止できます。</p>
         {% if server.role %}<strong class="status enabled" title="{{ server.role|role_description }}">{{ server.role|role_label }}</strong>{% endif %}
       </div>
     </div>
     <div class="page-actions">
       <a class="button-link secondary" href="/servers">サーバー選択へ戻る</a>
       <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
-      <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
       {% if can_create %}
-        <a class="button-link" href="/guilds/{{ guild_id }}/mention-reactions/limited/new">+ 限定機能を追加</a>
+        <a class="button-link" href="/guilds/{{ guild_id }}/mention-reactions/limited/new">+ ルールを追加</a>
       {% else %}
-        <button type="button" disabled>+ 限定機能を追加</button>
+        <button type="button" disabled>+ ルールを追加</button>
       {% endif %}
     </div>
   </section>
@@ -50,7 +49,7 @@
     <h2>一覧</h2>
     {% if entries %}
       {% if can_create %}
-        <form id="bulk-limited-effects" method="post" action="/guilds/{{ guild_id }}/mention-reactions/limited/bulk-enabled" onsubmit="return confirm('選択した限定機能をまとめて変更する？');"></form>
+        <form id="bulk-limited-effects" method="post" action="/guilds/{{ guild_id }}/mention-reactions/limited/bulk-enabled" onsubmit="return confirm('選択したルールをまとめて変更しますか？');"></form>
         <div class="bulk-actions">
           <button form="bulk-limited-effects" type="submit" name="action" value="on">選択をON</button>
           <button form="bulk-limited-effects" type="submit" name="action" value="off" class="secondary">選択をOFF</button>
@@ -75,10 +74,10 @@
                   <div class="row-actions">
                     <a class="button-link secondary" href="{{ entry.edit_url }}">編集</a>
                     <form method="post" action="{{ entry.toggle_url }}">
-                      <button type="submit" {% if not entry.can_manage %}disabled title="権限なし"{% endif %}>{% if entry.enabled %}OFF{% else %}ON{% endif %}</button>
+                      <button type="submit" {% if not entry.can_manage %}disabled title="権限がありません"{% endif %}>{% if entry.enabled %}OFF{% else %}ON{% endif %}</button>
                     </form>
-                    <form method="post" action="{{ entry.delete_url }}" data-confirm="この限定機能を削除する？">
-                      <button class="danger" type="submit" {% if not entry.can_manage %}disabled title="権限なし"{% endif %}>削除</button>
+                    <form method="post" action="{{ entry.delete_url }}" data-confirm="このルールを削除しますか？">
+                      <button class="danger" type="submit" {% if not entry.can_manage %}disabled title="権限がありません"{% endif %}>削除</button>
                     </form>
                   </div>
                 </td>
@@ -88,7 +87,7 @@
         </table>
       </div>
     {% else %}
-      <p class="empty">限定機能はまだなし。</p>
+      <p class="empty">特殊ユーザーメンションルールはまだありません。</p>
     {% endif %}
   </section>
 

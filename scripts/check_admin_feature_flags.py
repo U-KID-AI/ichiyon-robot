@@ -98,7 +98,7 @@ def check_display_definitions() -> int:
     all_edit_paths = [feature["edit_path"] for feature in servers.DISPLAY_FEATURES]
     results.append(check(labels.get("mention_random_draw") == "ランダム抽選", "random draw label is independent", labels))
     results.append(check(labels.get("mention_search") == "検索", "search label is independent", labels))
-    results.append(check(labels.get("mention_limited") == "限定機能", "limited label is independent", labels))
+    results.append(check(labels.get("mention_limited") == "特殊ユーザーメンションルール", "limited label is descriptive", labels))
     results.append(check(all("メンション:" not in label for label in labels.values()), "mention prefix is removed", labels))
     results.append(check(len(keys) == len(set(keys)), "mention feature keys are unique", keys))
     results.append(check(all("flag_key" not in feature for feature in features), "mention features do not share flag_key", features))

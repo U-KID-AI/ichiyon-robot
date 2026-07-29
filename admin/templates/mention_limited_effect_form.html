@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 
-{% block title %}{% if mode == "new" %}限定機能を追加{% else %}限定機能を編集{% endif %} - Bot管理画面{% endblock %}
-{% block heading %}{% if mode == "new" %}限定機能を追加{% else %}限定機能を編集{% endif %}{% endblock %}
+{% block title %}{% if mode == "new" %}特殊ユーザーメンションルールを追加{% else %}特殊ユーザーメンションルールを編集{% endif %} - Bot管理画面{% endblock %}
+{% block heading %}{% if mode == "new" %}特殊ユーザーメンションルールを追加{% else %}特殊ユーザーメンションルールを編集{% endif %}{% endblock %}
 
 {% block content %}
   <section class="panel">
@@ -9,16 +9,15 @@
       {% if server.icon_url %}<img class="server-icon" src="{{ server.icon_url }}" alt="">{% else %}<div class="server-icon placeholder"></div>{% endif %}
       <div>
         <h2>{{ server.name }}</h2>
-        <p class="empty">特定ユーザーのメンションに追加効果を付ける。</p>
+        <p class="empty">特定ユーザーからBotへのメンションを条件に特殊効果タグを発動します。設定により通常のメンション応答を中止できます。</p>
         {% if server.role %}<strong class="status enabled" title="{{ server.role|role_description }}">{{ server.role|role_label }}</strong>{% endif %}
       </div>
     </div>
     <div class="page-actions">
       <a class="button-link secondary" href="/servers">サーバー選択へ戻る</a>
       <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
-      <a class="button-link secondary" href="/guilds/{{ guild_id }}/mention-reactions/limited">限定機能一覧へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}/mention-reactions/limited">特殊ユーザーメンションルール一覧へ戻る</a>
     </div>
-    <p class="hint">対象ユーザーがBotへメンションした時、選んだタグを必ず実行対象に追加。</p>
   </section>
 
   {% if errors %}
@@ -32,7 +31,7 @@
     <form class="quote-form" method="post">
       <div class="form-grid">
         <label>対象ユーザーID<input type="text" name="discord_user_id" value="{{ entry.discord_user_id }}" {% if not can_edit %}disabled{% endif %}></label>
-        <label>表示名/メモ<input type="text" name="display_name" value="{{ entry.display_name }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>表示名・メモ<input type="text" name="display_name" value="{{ entry.display_name }}" {% if not can_edit %}disabled{% endif %}></label>
       </div>
       <label>
         付与する特殊効果タグ
@@ -54,8 +53,8 @@
       {% endif %}
     </form>
     {% if mode == "edit" %}
-      <form method="post" action="/guilds/{{ guild_id }}/mention-reactions/limited/{{ entry_id }}/delete" data-confirm="この限定機能を削除する？">
-        <button class="danger" type="submit" {% if not can_edit %}disabled title="権限なし"{% endif %}>削除</button>
+      <form method="post" action="/guilds/{{ guild_id }}/mention-reactions/limited/{{ entry_id }}/delete" data-confirm="このルールを削除しますか？">
+        <button class="danger" type="submit" {% if not can_edit %}disabled title="権限がありません"{% endif %}>削除</button>
       </form>
     {% endif %}
   </section>
