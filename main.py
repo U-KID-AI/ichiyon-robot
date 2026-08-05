@@ -9,7 +9,7 @@ from bot.quotes import draw_quote_message
 from bot.reactions import handle_word_response
 from bot.services.auto_posts import run_db_auto_posts_once
 from bot.services.reaction_thresholds import handle_db_reaction_threshold
-from bot.services.interaction_panel import handle_interaction_panel_mention, register_persistent_views
+from bot.services.interaction_panel import mention_text_is_empty, register_persistent_views, send_main_panel
 from bot.services.runtime_db import (
     RANDOM_DRAW_PULL_BLOCKED,
     RANDOM_DRAW_PULL_INVALID_MESSAGE,
@@ -72,6 +72,20 @@ async def handle_mention_message(message: discord.Message) -> bool:
             quote.get("image_path", ""),
         )
     return True
+
+
+async def handle_empty_mention_message(message: discord.Message, command_text: str | None) -> bool:
+    if getattr(message, "guild", None) is None:
+        return False
+    if not mention_text_is_empty(command_text):
+        return False
+
+    if config.DATA_BACKEND == "db" and get_message_guild_id(message) is not None:
+        if await handle_db_runtime_message(message):
+            await send_main_panel(message)
+            return True
+
+    return await send_main_panel(message)
 
 
 @bot.event
@@ -158,7 +172,7 @@ async def on_message(message: discord.Message):
         return
 
     command_text = messages.get_mention_command_text(message)
-    if await handle_interaction_panel_mention(message, command_text):
+    if await handle_empty_mention_message(message, command_text):
         return
 
     if await handle_mention_music_links(message, command_text):
