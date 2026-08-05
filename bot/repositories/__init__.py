@@ -1,9 +1,11 @@
 from bot.repositories.auto_reactions import AutoReactionRepository
 from bot.repositories.auto_posts import AutoPostRepository
+from bot.repositories.audio_assets import AudioAssetRepository
 from bot.repositories.bot_instances import BotInstanceRepository, BotPermissionRepository
 from bot.repositories.counters import CounterRepository
 from bot.repositories.deck_search_settings import DeckSearchSettingsRepository
 from bot.repositories.feature_flags import FeatureFlagRepository
+from bot.repositories.games import GameRepository
 from bot.repositories.guilds import GuildRepository
 from bot.repositories.mention_reactions import MentionReactionRepository
 from bot.repositories.modes import ModeRepository
@@ -23,11 +25,13 @@ from bot.repositories.youtube_n_pull import YouTubeNPullRepository
 __all__ = [
     "AutoReactionRepository",
     "AutoPostRepository",
+    "AudioAssetRepository",
     "BotInstanceRepository",
     "BotPermissionRepository",
     "CounterRepository",
     "DeckSearchSettingsRepository",
     "FeatureFlagRepository",
+    "GameRepository",
     "GuildRepository",
     "MentionReactionRepository",
     "ModeRepository",

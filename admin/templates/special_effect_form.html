@@ -78,6 +78,24 @@
         <p class="hint">1/1は毎回、0/1は発火しません。1/1000のような分数指定に対応します。</p>
       </section>
 
+      <section class="subpanel" data-effect-section="audio_asset">
+        <h3>音声・SE再生</h3>
+        <div class="form-grid">
+          <label>音声ファイル
+            <select name="audio_asset_id" {% if not can_edit %}disabled{% endif %}>
+              <option value="">選択してください</option>
+              {% for asset in audio_assets %}
+                <option value="{{ asset.id }}" {% if tag.audio_asset_id|string == asset.id|string %}selected{% endif %}>{{ asset.display_name }}{% if asset.category %} / {{ asset.category }}{% endif %}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>音量 0-100
+            <input type="number" min="0" max="100" step="1" name="audio_volume_percent" value="{{ tag.audio_volume_percent }}" placeholder="未指定なら音声の既定音量" {% if not can_edit %}disabled{% endif %}>
+          </label>
+        </div>
+        <p class="hint">特殊効果が発火した時、BotがVCにいる場合だけ前景音として再生します。音楽キューは停止しません。</p>
+      </section>
+
       <section class="subpanel">
         <h3>使えるテンプレート</h3>
         <ul class="config-list">
@@ -168,8 +186,10 @@
         var visible = true;
         if (section === "reaction") {
           visible = effectType === "reaction";
+        } else if (section === "audio_asset") {
+          visible = effectType === "audio_asset";
         } else if (section === "text") {
-          visible = effectType !== "reaction";
+          visible = effectType !== "reaction" && effectType !== "audio_asset";
         } else if (section === "multiplier") {
           visible = effectType === "probability_multiplier";
         }

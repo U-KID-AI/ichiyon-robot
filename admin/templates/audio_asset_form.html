@@ -1,0 +1,21 @@
+{% extends "layout.html" %}
+{% block title %}音声ファイル編集 - Bot管理画面{% endblock %}
+{% block heading %}{% if mode == "new" %}音声ファイル追加{% else %}音声ファイル編集{% endif %}{% endblock %}
+{% block content %}
+<section class="panel">
+  <div class="page-actions">
+    <a class="button-link secondary" href="/guilds/{{ guild_id }}/audio-assets">一覧へ戻る</a>
+  </div>
+  {% for error in errors %}<p class="error">{{ error }}</p>{% endfor %}
+  <form class="quote-form" method="post" enctype="multipart/form-data">
+    <label>表示名<input type="text" name="display_name" value="{{ asset.display_name }}" {% if not can_edit %}disabled{% endif %}></label>
+    <label>説明<textarea name="description" {% if not can_edit %}disabled{% endif %}>{{ asset.description }}</textarea></label>
+    <label>カテゴリ<input type="text" name="category" value="{{ asset.category }}" {% if not can_edit %}disabled{% endif %}></label>
+    <label>既定音量<input type="number" min="0" max="100" name="default_volume" value="{{ asset.default_volume }}" {% if not can_edit %}disabled{% endif %}></label>
+    <label class="check-row"><input type="checkbox" name="enabled" {% if asset.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>有効</label>
+    <label>音声ファイル<input type="file" name="audio_file" accept=".mp3,.wav,.ogg,.m4a" {% if not can_edit %}disabled{% endif %}></label>
+    <p class="hint">保存先: {{ audio_root }}。mp3 / wav / ogg / m4a に対応します。編集時にファイル未指定なら既存ファイルを維持します。</p>
+    {% if can_edit %}<button type="submit">保存</button>{% endif %}
+  </form>
+</section>
+{% endblock %}

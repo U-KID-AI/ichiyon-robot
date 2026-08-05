@@ -43,7 +43,7 @@ from bot.services.schedule_recruitment import (
     is_schedule_command,
     parse_schedule_command,
 )
-from bot.services.voice_audio import extract_reaction_audio_file, play_reaction_audio
+from bot.services.voice_audio import extract_reaction_audio_file, play_audio_asset_by_id, play_reaction_audio
 
 
 FEATURE_MENTION_RANDOM_DRAW = "mention_random_draw"
@@ -1591,6 +1591,39 @@ async def execute_effects(
                     result.handled = True
                 except discord.DiscordException as exc:
                     print("[WARN] Failed to add special effect reaction {0!r}: {1}".format(emoji, exc))
+            elif effect_type == "audio_asset":
+                if not reaction_effect_message_allowed(config, message):
+                    continue
+                if not special_effect_cooldown_allows(effect, guild_id, message):
+                    continue
+                multiplier = get_probability_multiplier_for_target(
+                    pending,
+                    "special_effect_tag",
+                    int(effect.get("id") or 0),
+                )
+                if not probability_hit_with_multiplier(config, multiplier):
+                    continue
+                asset_id = get_config_int(config, ["audio_asset_id", "asset_id"], 0)
+                if asset_id <= 0:
+                    print("[WARN] audio_asset effect skipped without audio_asset_id: id={0}".format(effect.get("id")))
+                    continue
+                volume = config.get("volume_percent")
+                try:
+                    volume_percent = None if volume in (None, "") else max(0, min(100, int(volume)))
+                except (TypeError, ValueError):
+                    volume_percent = None
+                played, reason = await play_audio_asset_by_id(
+                    message,
+                    asset_id,
+                    volume_percent,
+                    "special_effect",
+                    str(effect.get("id") or ""),
+                )
+                if played:
+                    mark_special_effect_cooldown(effect, guild_id, message)
+                    result.handled = True
+                elif reason not in ("not_connected",):
+                    print("[WARN] audio_asset effect skipped: id={0} reason={1}".format(effect.get("id"), reason))
             elif effect_type == "counter_delta":
                 counter_key = get_counter_key(config)
                 if counter_key is None:
