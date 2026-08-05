@@ -44,14 +44,15 @@ class FakeChannel:
 
 
 class FakeMessage:
-    def __init__(self, content: str, fail_reaction: bool = False) -> None:
+    def __init__(self, content: str, fail_reaction: bool = False, bot: bool = False, webhook_id=None) -> None:
         self.content = content
         self.channel = FakeChannel()
-        self.author = SimpleNamespace(id=222, display_name="tester", name="tester", mention="<@222>")
+        self.author = SimpleNamespace(id=222, display_name="tester", name="tester", mention="<@222>", bot=bot)
         self.guild = SimpleNamespace(id=111)
         self.mentions = []
         self.reactions = []
         self.fail_reaction = fail_reaction
+        self.webhook_id = webhook_id
 
     async def add_reaction(self, emoji):
         if self.fail_reaction:
@@ -151,6 +152,19 @@ def make_auto_row(response_text: str, emoji_internal: str) -> Dict[str, Any]:
     }
 
 
+def make_effect_only_row(row_id: int = 21) -> Dict[str, Any]:
+    return {
+        "id": row_id,
+        "trigger_text": ".+",
+        "response_text": None,
+        "image_path": None,
+        "emoji_internal": None,
+        "match_type": "regex",
+        "priority": -100,
+        "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+    }
+
+
 def make_choice(body: str, emoji_internal: str) -> Dict[str, Any]:
     return {
         "id": 30,
@@ -242,6 +256,37 @@ async def run_checks() -> int:
             action.handled and message.channel.sent == [],
             str(message.channel.sent),
         )
+
+        reaction_effect = {
+            "id": 100,
+            "effect_type": "reaction",
+            "effect_config_json": {"emoji": "🍞", "target": "source_message", "probability": {"numerator": 1, "denominator": 1}},
+        }
+        runtime_db.execute_effects = old["execute_effects"]
+        runtime_db.list_effects = lambda connection, guild_id, target_type, target_id: [reaction_effect] if target_id == 21 else []
+        FakeAutoReactionRepository.rows = [make_effect_only_row(21), make_auto_row("pong", "")]
+        message = FakeMessage("ping")
+        action = await runtime_db.process_db_auto_reaction(message, "111", None)
+        check.add("effect-only reaction adds source emoji", message.reactions == ["🍞"], str(message.reactions))
+        check.add("effect-only reaction does not suppress normal auto reply", action.handled and message.channel.sent[0]["content"] == "pong", str(message.channel.sent))
+
+        FakeAutoReactionRepository.rows = [make_effect_only_row(21)]
+        message = FakeMessage("plain")
+        action = await runtime_db.process_db_auto_reaction(message, "111", None)
+        check.add("effect-only reaction alone is non-consuming", action.handled is False and message.reactions == ["🍞"], str(message.reactions))
+
+        bot_message = FakeMessage("plain", bot=True)
+        action = await runtime_db.process_db_auto_reaction(bot_message, "111", None)
+        check.add("effect-only reaction ignores bot messages", action.handled is False and bot_message.reactions == [], str(bot_message.reactions))
+
+        webhook_message = FakeMessage("plain", webhook_id="wh")
+        action = await runtime_db.process_db_auto_reaction(webhook_message, "111", None)
+        check.add("effect-only reaction ignores webhook messages", action.handled is False and webhook_message.reactions == [], str(webhook_message.reactions))
+
+        mention_message = FakeMessage("<@999> plain")
+        mention_message.mentions = [messages.get_bot().user]
+        action = await runtime_db.process_db_auto_reaction(mention_message, "111", None)
+        check.add("effect-only reaction ignores mention commands", action.handled is False and mention_message.reactions == [], str(mention_message.reactions))
     finally:
         restore_runtime(old)
     return check.finish()

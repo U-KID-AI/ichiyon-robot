@@ -7,7 +7,7 @@ from fastapi.templating import Jinja2Templates
 from admin.bot_context import selected_bot_id, set_selected_bot_id
 from admin.auth import get_current_user
 from bot.db import get_connection
-from bot.repositories import FeatureFlagRepository, PermissionRepository, RandomReactionRepository, TTSSettingsRepository, VoiceLineRepository
+from bot.repositories import FeatureFlagRepository, PermissionRepository, TTSSettingsRepository, VoiceLineRepository
 
 
 router = APIRouter()
@@ -139,16 +139,6 @@ DISPLAY_FEATURES = [
         "settings": "VOICEVOX話者、音量、速度、ユーザー別ピッチ、キュー、ダッキング",
         "off_behavior": "OFFにすると読み上げの自動開始と投稿読み上げを止めます。",
         "notes": "音楽とは別キューで扱い、読み上げ停止は音楽再生に影響しません。",
-    },
-    {
-        "key": "random_reactions",
-        "label": "ランダム絵文字リアクション",
-        "edit_path": "random-reactions",
-        "required_role": "editor",
-        "overview": "通常投稿に低確率で絵文字リアクションを付けます。",
-        "settings": "絵文字、確率、クールダウン秒数、対象/除外チャンネル",
-        "off_behavior": "OFFにするとランダム絵文字リアクションを付けません。",
-        "notes": "Bot・Webhook・メンションコマンド・既存機能が処理した投稿は対象外です。",
     },
     {
         "key": "schedule_templates",
@@ -341,13 +331,6 @@ def build_feature_rows(
                 row["enabled"] = bool(settings.get("enabled"))
             except Exception:
                 row["enabled"] = True
-        elif feature["key"] == "random_reactions":
-            try:
-                with get_connection() as connection:
-                    settings = RandomReactionRepository(connection, bot_id=bot_id).get(guild_id)
-                row["enabled"] = bool(settings.get("enabled"))
-            except Exception:
-                row["enabled"] = False
         else:
             row["enabled"] = flags.get(feature["key"], True)
         row["can_toggle"] = role_allows(role, feature["required_role"])
@@ -356,8 +339,6 @@ def build_feature_rows(
             row["toggle_url"] = "/guilds/{0}/voice-lines/toggle".format(guild_id)
         elif feature["key"] == "tts_settings":
             row["toggle_url"] = "/guilds/{0}/tts-settings/toggle".format(guild_id)
-        elif feature["key"] == "random_reactions":
-            row["toggle_url"] = "/guilds/{0}/random-reactions/toggle".format(guild_id)
         else:
             row["toggle_url"] = "/guilds/{0}/features/{1}/toggle".format(guild_id, feature["key"])
         rows.append(row)

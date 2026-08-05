@@ -12,7 +12,6 @@ from bot.repositories.tts_settings import TTSSettingsRepository
 from bot.repositories.mention_limited_effects import MentionLimitedEffectRepository
 from bot.repositories.ng_words import NgWordRepository
 from bot.repositories.permissions import PermissionRepository
-from bot.repositories.random_reactions import RandomReactionRepository
 from bot.repositories.reaction_thresholds import ReactionThresholdRepository
 from bot.repositories.schedule_templates import ScheduleTemplateRepository
 from bot.repositories.special_effects import SpecialEffectRepository
@@ -36,7 +35,6 @@ __all__ = [
     "MentionLimitedEffectRepository",
     "NgWordRepository",
     "PermissionRepository",
-    "RandomReactionRepository",
     "ReactionThresholdRepository",
     "ScheduleTemplateRepository",
     "SpecialEffectRepository",

@@ -36,7 +36,6 @@ from admin.reaction_thresholds import (
     register_reaction_threshold_routes,
     router as reaction_threshold_router,
 )
-from admin.random_reactions import register_random_reaction_routes, router as random_reaction_router
 from admin.role_labels import ROLE_DESCRIPTIONS, ROLE_LABELS, role_description, role_label
 from admin.servers import register_server_routes, router as server_router
 from admin.schedule_templates import (
@@ -95,7 +94,6 @@ register_ng_word_routes(templates)
 register_mode_routes(templates)
 register_auto_post_routes(templates)
 register_reaction_threshold_routes(templates)
-register_random_reaction_routes(templates)
 register_x_update_routes(templates)
 register_voice_line_routes(templates)
 register_tts_setting_routes(templates)
@@ -113,7 +111,6 @@ app.include_router(ng_word_router)
 app.include_router(mode_router)
 app.include_router(auto_post_router)
 app.include_router(reaction_threshold_router)
-app.include_router(random_reaction_router)
 app.include_router(x_update_router)
 app.include_router(voice_line_router)
 app.include_router(tts_setting_router)
