@@ -50,17 +50,39 @@ def list_enabled_random_reaction_settings(connection, bot_id: Optional[str], gui
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-def set_random_reaction_enabled(connection, bot_id: str, guild_id: str, enabled: bool, updated_by: str) -> None:
+def table_has_column(connection, table_name: str, column_name: str) -> bool:
     with connection.cursor() as cursor:
         cursor.execute(
             """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = %s
+              AND column_name = %s
+            LIMIT 1
+            """,
+            (table_name, column_name),
+        )
+        return cursor.fetchone() is not None
+
+
+def set_random_reaction_enabled(connection, bot_id: str, guild_id: str, enabled: bool, updated_by: str) -> None:
+    assignments = ["enabled = %s"]
+    params: List[Any] = [enabled]
+    if table_has_column(connection, "random_reaction_settings", "updated_by"):
+        assignments.append("updated_by = %s")
+        params.append(updated_by)
+    if table_has_column(connection, "random_reaction_settings", "updated_at"):
+        assignments.append("updated_at = NOW()")
+    params.extend([bot_id, guild_id])
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
             UPDATE random_reaction_settings
-            SET enabled = %s,
-                updated_by = %s,
-                updated_at = NOW()
+            SET {", ".join(assignments)}
             WHERE bot_id = %s AND guild_id = %s
             """,
-            (enabled, updated_by, bot_id, guild_id),
+            params,
         )
 
 
