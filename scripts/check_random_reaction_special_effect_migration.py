@@ -45,8 +45,12 @@ def main() -> int:
     )
     source = Path(migration.__file__).read_text(encoding="utf-8")
     check.add("script does not delete random reaction table data", "DELETE" not in source and "DROP" not in source and "TRUNCATE" not in source)
-    check.add("old path is disabled only through scoped repository", "RandomReactionRepository(connection, bot_id=bot_id).set_enabled(guild_id, False" in source)
+    check.add("old path is disabled by scoped update", "UPDATE random_reaction_settings" in source and "WHERE bot_id = %s AND guild_id = %s" in source)
     check.add("special effect remains generic reaction type", '"reaction"' in source and "probability_reaction" not in source)
+    check.add("migrated reaction is non-consuming", '"non_consuming": True' in source)
+    check.add("channel filters are preserved in special effect config", "target_channel_ids" in source and "excluded_channel_ids" in source)
+    check.add("old repository dependency is removed", "RandomReactionRepository" not in source)
+    check.add("existing trigger lookup only reuses empty effect-only rows", "not row.get(\"response_text\")" in source and "not row.get(\"emoji_internal\")" in source)
     check.print_results()
     return 0 if check.ok() else 1
 

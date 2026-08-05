@@ -43,7 +43,6 @@ from bot.services.schedule_recruitment import (
     is_schedule_command,
     parse_schedule_command,
 )
-from bot.services.random_reactions import maybe_add_random_emoji_reaction
 from bot.services.voice_audio import extract_reaction_audio_file, play_reaction_audio
 
 
@@ -1156,6 +1155,93 @@ async def add_message_reaction_safe(message: discord.Message, emoji: str, contex
     return False
 
 
+def is_human_regular_message(message: discord.Message) -> bool:
+    author = getattr(message, "author", None)
+    if author is not None and bool(getattr(author, "bot", False)):
+        return False
+    if getattr(message, "webhook_id", None) is not None:
+        return False
+    if not str(getattr(message, "content", "") or "").strip():
+        return False
+    if get_mention_command_text(message) is not None:
+        return False
+    return True
+
+
+def split_config_id_list(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        raw_items = value
+    else:
+        raw_items = re.split(r"[\s,]+", str(value))
+    ids = []
+    seen = set()
+    for item in raw_items:
+        text = str(item or "").strip()
+        if text.startswith("<#") and text.endswith(">"):
+            text = text[2:-1]
+        normalized = "".join(ch for ch in text if ch.isdigit())
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        ids.append(normalized)
+    return ids
+
+
+def reaction_effect_message_allowed(config: Dict[str, Any], message: discord.Message) -> bool:
+    channel = getattr(message, "channel", None)
+    channel_id = str(getattr(channel, "id", "") or "")
+    target_channel_ids = split_config_id_list(config.get("target_channel_ids"))
+    excluded_channel_ids = split_config_id_list(config.get("excluded_channel_ids"))
+    if channel_id and channel_id in excluded_channel_ids:
+        return False
+    if target_channel_ids and channel_id not in target_channel_ids:
+        return False
+    return True
+
+
+def is_non_consuming_reaction_effect_rule(reaction: Dict[str, Any], effects: List[Dict[str, Any]]) -> bool:
+    if reaction.get("response_text") or reaction.get("image_path") or reaction.get("emoji_internal"):
+        return False
+    if not effects:
+        return False
+    for effect in effects:
+        if effect.get("effect_type") != "reaction":
+            return False
+        effect_config = normalize_json(effect.get("effect_config_json"))
+        target = get_config_text(effect_config, ["target", "reaction_target"]) or "source_message"
+        if target != "source_message":
+            return False
+        if effect_config.get("non_consuming") is False:
+            return False
+    return True
+
+
+async def execute_non_consuming_auto_reaction_effects(
+    connection,
+    guild_id: str,
+    message: discord.Message,
+    matches: List[MatchResult],
+    effects_by_reaction_id: Dict[int, List[Dict[str, Any]]],
+) -> bool:
+    if not is_human_regular_message(message):
+        return False
+    count_changed = False
+    for match in sort_auto_matches(matches):
+        reaction_id = int(match.row["id"])
+        effects = effects_by_reaction_id.get(reaction_id)
+        if effects is None:
+            effects = list_effects(connection, guild_id, "auto_reaction", reaction_id)
+            effects_by_reaction_id[reaction_id] = effects
+        if not is_non_consuming_reaction_effect_rule(match.row, effects):
+            continue
+        values = build_template_values(message, message.content, match.groups)
+        effect_result = await execute_effects(connection, guild_id, effects, message, values, [])
+        count_changed = count_changed or effect_result.count_changed
+    return count_changed
+
+
 def special_effect_cooldown_key(effect: Dict[str, Any], guild_id: str, message: discord.Message) -> str:
     scope = str(effect.get("cooldown_scope") or "none")
     effect_id = str(effect.get("id") or effect.get("name") or "unknown")
@@ -1484,6 +1570,8 @@ async def execute_effects(
                     )
                     result.handled = True
             elif effect_type == "reaction":
+                if not reaction_effect_message_allowed(config, message):
+                    continue
                 if not special_effect_cooldown_allows(effect, guild_id, message):
                     continue
                 multiplier = get_probability_multiplier_for_target(
@@ -1832,15 +1920,40 @@ async def process_db_auto_reaction(message: discord.Message, guild_id: str, conn
     if not matches:
         return RuntimeAction(False)
 
+    effects_by_reaction_id: Dict[int, List[Dict[str, Any]]] = {}
+    non_consuming_count_changed = await execute_non_consuming_auto_reaction_effects(
+        connection,
+        guild_id,
+        message,
+        matches,
+        effects_by_reaction_id,
+    )
+    normal_matches = []
+    for match in matches:
+        reaction_id = int(match.row["id"])
+        effects = effects_by_reaction_id.get(reaction_id)
+        if effects is None:
+            effects = list_effects(connection, guild_id, "auto_reaction", reaction_id)
+            effects_by_reaction_id[reaction_id] = effects
+        if is_non_consuming_reaction_effect_rule(match.row, effects):
+            continue
+        normal_matches.append(match)
+    if not normal_matches:
+        return RuntimeAction(False, non_consuming_count_changed)
+
     pending_effects = pop_pending_next_effects(guild_id, message)
-    selected = choose_auto_match_with_effects(connection, guild_id, matches, pending_effects)
+    selected = choose_auto_match_with_effects(connection, guild_id, normal_matches, pending_effects)
     if selected is None:
         store_pending_next_effects(guild_id, message, pending_effects)
-        return RuntimeAction(False)
+        return RuntimeAction(False, non_consuming_count_changed)
     values = build_template_values(message, message.content, selected.groups)
     text = render_template(selected.row.get("response_text"), values)
     image_path = selected.row.get("image_path") or ""
-    effects = list_effects(connection, guild_id, "auto_reaction", int(selected.row["id"]))
+    selected_id = int(selected.row["id"])
+    effects = effects_by_reaction_id.get(selected_id)
+    if effects is None:
+        effects = list_effects(connection, guild_id, "auto_reaction", selected_id)
+        effects_by_reaction_id[selected_id] = effects
     effect_result = None
     if any(is_shikocchi_counter_set_effect(effect) for effect in effects):
         effect_result = await execute_effects(connection, guild_id, effects, message, values, pending_effects)
@@ -1867,7 +1980,11 @@ async def process_db_auto_reaction(message: discord.Message, guild_id: str, conn
     if effect_result.repeat_count:
         repeated = await repeat_text_image_action(message, text, image_path, emoji, effect_result.repeat_count)
         sent = sent or repeated
-    return RuntimeAction(sent or effect_result.handled, effect_result.count_changed, effect_result.pending_effects)
+    return RuntimeAction(
+        sent or effect_result.handled,
+        effect_result.count_changed or non_consuming_count_changed,
+        effect_result.pending_effects,
+    )
 
 
 async def handle_db_auto_reaction(message: discord.Message, guild_id: str, connection) -> bool:
@@ -2704,11 +2821,8 @@ async def handle_db_runtime_message_locked(message: discord.Message, guild_id: s
                 action = await process_db_auto_reaction(message, guild_id, connection)
 
             entered = await enter_mode_if_needed(message, guild_id, connection, action.pending_effects)
-            random_reacted = False
-            if get_mention_command_text(message) is None and not action.handled and not entered:
-                random_reacted = await maybe_add_random_emoji_reaction(message, guild_id, connection)
             connection.commit()
-            return action.handled or entered or expired or random_reacted
+            return action.handled or entered or expired
     except Exception as exc:
         print("[WARN] DB runtime backend failed: {0}".format(exc))
         return False

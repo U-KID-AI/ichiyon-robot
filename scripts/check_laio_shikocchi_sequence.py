@@ -80,7 +80,6 @@ class PatchRuntime:
             "get_mention_command_text": runtime_db.get_mention_command_text,
             "process_db_auto_reaction": runtime_db.process_db_auto_reaction,
             "enter_mode_if_needed": runtime_db.enter_mode_if_needed,
-            "maybe_add_random_emoji_reaction": runtime_db.maybe_add_random_emoji_reaction,
         }
         runtime_db.get_connection = lambda: FakeConnection(self.log)
         runtime_db.expire_mode_if_needed = self._expire_mode_if_needed
@@ -89,7 +88,6 @@ class PatchRuntime:
         runtime_db.get_mention_command_text = lambda message: None
         runtime_db.process_db_auto_reaction = self._process_db_auto_reaction
         runtime_db.enter_mode_if_needed = self._enter_mode_if_needed
-        runtime_db.maybe_add_random_emoji_reaction = self._maybe_add_random_emoji_reaction
         runtime_db._RUNTIME_MESSAGE_LOCKS.clear()
         runtime_db._PENDING_NEXT_EFFECTS.clear()
         return self
@@ -130,10 +128,6 @@ class PatchRuntime:
     async def _enter_mode_if_needed(self, message, guild_id, connection, pending_effects=None) -> bool:
         self.log.append("{0}:enter_mode:{1}".format(guild_id, message.content))
         return False
-
-    async def _maybe_add_random_emoji_reaction(self, message, guild_id, connection) -> bool:
-        return False
-
 
 async def check_same_guild_sequence(check: Check) -> None:
     log: List[str] = []

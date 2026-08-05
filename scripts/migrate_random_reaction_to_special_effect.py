@@ -4,13 +4,14 @@ from fractions import Fraction
 from typing import Any, Dict, Iterable, List, Optional
 
 from bot.db import get_connection
-from bot.repositories import AutoReactionRepository, RandomReactionRepository, SpecialEffectRepository
+from bot.repositories import AutoReactionRepository, SpecialEffectRepository
 
 
 TRIGGER_TEXT = r".+"
 MATCH_TYPE = "regex"
 REACTION_PRIORITY = -100
-TAG_NAME = "ランダム絵文字リアクション（特殊効果）"
+TAG_NAME = "ランダム🍞"
+LEGACY_TAG_NAMES = ("ランダム絵文字リアクション（特殊効果）",)
 REACTION_RESPONSE_TEXT = None
 REACTION_IMAGE_PATH = None
 REACTION_EMOJI = None
@@ -49,17 +50,39 @@ def list_enabled_random_reaction_settings(connection, bot_id: Optional[str], gui
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
+def set_random_reaction_enabled(connection, bot_id: str, guild_id: str, enabled: bool, updated_by: str) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE random_reaction_settings
+            SET enabled = %s,
+                updated_by = %s,
+                updated_at = NOW()
+            WHERE bot_id = %s AND guild_id = %s
+            """,
+            (enabled, updated_by, bot_id, guild_id),
+        )
+
+
 def find_existing_reaction(repository: AutoReactionRepository, guild_id: str) -> Optional[Dict[str, Any]]:
     for row in repository.list_reactions(guild_id, enabled=None):
-        if row.get("trigger_text") == TRIGGER_TEXT and row.get("match_type") == MATCH_TYPE:
+        if (
+            row.get("trigger_text") == TRIGGER_TEXT
+            and row.get("match_type") == MATCH_TYPE
+            and not row.get("response_text")
+            and not row.get("image_path")
+            and not row.get("emoji_internal")
+        ):
             return row
     return None
 
 
 def find_existing_tag(repository: SpecialEffectRepository, guild_id: str) -> Optional[Dict[str, Any]]:
-    for row in repository.list_tags(guild_id, query=TAG_NAME, target_type="auto_reaction", enabled=None):
-        if row.get("name") == TAG_NAME:
-            return row
+    names = (TAG_NAME,) + LEGACY_TAG_NAMES
+    for name in names:
+        for row in repository.list_tags(guild_id, query=name, target_type="auto_reaction", enabled=None):
+            if row.get("name") == name:
+                return row
     return None
 
 
@@ -69,11 +92,12 @@ def ensure_special_effect_path(connection, setting: Dict[str, Any], apply: bool)
     emoji = str(setting.get("emoji") or "").strip()
     if not emoji:
         return {"status": "skipped", "reason": "missing emoji", "bot_id": bot_id, "guild_id": guild_id}
-    if str(setting.get("target_channel_ids") or "").strip() or str(setting.get("excluded_channel_ids") or "").strip():
-        return {"status": "skipped", "reason": "channel filters are not yet supported by auto-reaction trigger", "bot_id": bot_id, "guild_id": guild_id}
 
     probability = probability_percent_to_fraction(setting.get("probability_percent"))
     cooldown_seconds = int(setting.get("cooldown_seconds") or 0)
+    cooldown_scope = "guild" if cooldown_seconds > 0 else "none"
+    target_channel_ids = str(setting.get("target_channel_ids") or "").strip()
+    excluded_channel_ids = str(setting.get("excluded_channel_ids") or "").strip()
     reaction_repository = AutoReactionRepository(connection, bot_id=bot_id)
     effect_repository = SpecialEffectRepository(connection, bot_id=bot_id)
 
@@ -87,6 +111,9 @@ def ensure_special_effect_path(connection, setting: Dict[str, Any], apply: bool)
             "emoji": emoji,
             "probability": probability,
             "cooldown_seconds": cooldown_seconds,
+            "cooldown_scope": cooldown_scope,
+            "target_channel_ids": target_channel_ids,
+            "excluded_channel_ids": excluded_channel_ids,
             "reaction_exists": existing_reaction is not None,
             "tag_exists": existing_tag is not None,
         }
@@ -115,7 +142,16 @@ def ensure_special_effect_path(connection, setting: Dict[str, Any], apply: bool)
             True,
         )
 
-    effect_config = {"emoji": emoji, "probability": probability, "target": "source_message"}
+    effect_config = {
+        "emoji": emoji,
+        "probability": probability,
+        "target": "source_message",
+        "non_consuming": True,
+    }
+    if target_channel_ids:
+        effect_config["target_channel_ids"] = target_channel_ids
+    if excluded_channel_ids:
+        effect_config["excluded_channel_ids"] = excluded_channel_ids
     if existing_tag is None:
         tag = effect_repository.create_tag(
             guild_id,
@@ -134,7 +170,7 @@ def ensure_special_effect_path(connection, setting: Dict[str, Any], apply: bool)
             "permanent",
             None,
             cooldown_seconds,
-            "guild" if cooldown_seconds > 0 else "none",
+            cooldown_scope,
         )
     else:
         tag = effect_repository.update_tag(
@@ -155,11 +191,21 @@ def ensure_special_effect_path(connection, setting: Dict[str, Any], apply: bool)
             "permanent",
             None,
             cooldown_seconds,
-            "guild" if cooldown_seconds > 0 else "none",
+            cooldown_scope,
         )
     effect_repository.assign_tag(guild_id, int(tag["id"]), "auto_reaction", int(reaction["id"]))
-    RandomReactionRepository(connection, bot_id=bot_id).set_enabled(guild_id, False, "migration:special_effect")
-    return {"status": "updated", "bot_id": bot_id, "guild_id": guild_id, "reaction_id": reaction["id"], "tag_id": tag["id"]}
+    set_random_reaction_enabled(connection, bot_id, guild_id, False, "migration:special_effect")
+    return {
+        "status": "updated",
+        "bot_id": bot_id,
+        "guild_id": guild_id,
+        "reaction_id": reaction["id"],
+        "tag_id": tag["id"],
+        "emoji": emoji,
+        "probability": probability,
+        "cooldown_seconds": cooldown_seconds,
+        "cooldown_scope": cooldown_scope,
+    }
 
 
 def migrate(bot_id: Optional[str], guild_id: Optional[str], apply: bool) -> List[Dict[str, Any]]:
