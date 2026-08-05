@@ -51,6 +51,7 @@ EFFECT_TYPE_LABELS = {
     "mention_suffix_guard": "さん付け確認",
     "custom": "カスタム",
 }
+EFFECT_TYPE_LABELS["audio_asset"] = "音声・SE再生"
 
 TARGET_TYPE_LABELS = {
     "mention_reaction_choice": "抽選候補",

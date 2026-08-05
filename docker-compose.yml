@@ -40,12 +40,16 @@ services:
       X_SEARCH_ENABLED: ${X_SEARCH_ENABLED:-false}
       X_BEARER_TOKEN: ${X_BEARER_TOKEN:-}
       YTDLP_COOKIES_FILE: ${YTDLP_COOKIES_FILE:-}
+      AUDIO_ASSETS_DIR: ${AUDIO_ASSETS_DIR:-/app/data/audio-assets}
+      AUDIO_ASSET_MAX_BYTES: ${AUDIO_ASSET_MAX_BYTES:-20971520}
+      AUDIO_ASSET_MAX_DURATION_SECONDS: ${AUDIO_ASSET_MAX_DURATION_SECONDS:-300}
     command: >
       sh -c "uvicorn admin.main:app --host $${ADMIN_HOST:-0.0.0.0} --port $${ADMIN_PORT:-8080}"
     ports:
       - "${ADMIN_PORT:-8080}:${ADMIN_PORT:-8080}"
     volumes:
       - .:/app
+      - ./data/audio-assets:/app/data/audio-assets
       - ./secrets:/app/secrets:ro
 
   youtube-vpn-proxy:
@@ -129,11 +133,15 @@ services:
       SPOTIFY_MATCH_MIN_MARGIN: ${SPOTIFY_MATCH_MIN_MARGIN:-10}
       VOICEVOX_ENGINE_URL: ${VOICEVOX_ENGINE_URL:-http://voicevox-engine:50021}
       VOICEVOX_TIMEOUT_SECONDS: ${VOICEVOX_TIMEOUT_SECONDS:-10}
+      AUDIO_ASSETS_DIR: ${AUDIO_ASSETS_DIR:-/app/data/audio-assets}
+      AUDIO_ASSET_MAX_BYTES: ${AUDIO_ASSET_MAX_BYTES:-20971520}
+      AUDIO_ASSET_MAX_DURATION_SECONDS: ${AUDIO_ASSET_MAX_DURATION_SECONDS:-300}
       STARTUP_CHANNEL_ID: ${STARTUP_CHANNEL_ID:-0}
       SCHEDULE_CHANNEL_ID: ${SCHEDULE_CHANNEL_ID:-0}
     command: python main.py
     volumes:
       - .:/app
+      - ./data/audio-assets:/app/data/audio-assets
       - ./secrets:/app/secrets:ro
 
   bot-irsia:
@@ -174,6 +182,9 @@ services:
       SPOTIFY_MATCH_MIN_MARGIN: ${SPOTIFY_MATCH_MIN_MARGIN:-10}
       VOICEVOX_ENGINE_URL: ${VOICEVOX_ENGINE_URL:-http://voicevox-engine:50021}
       VOICEVOX_TIMEOUT_SECONDS: ${VOICEVOX_TIMEOUT_SECONDS:-10}
+      AUDIO_ASSETS_DIR: ${AUDIO_ASSETS_DIR:-/app/data/audio-assets}
+      AUDIO_ASSET_MAX_BYTES: ${AUDIO_ASSET_MAX_BYTES:-20971520}
+      AUDIO_ASSET_MAX_DURATION_SECONDS: ${AUDIO_ASSET_MAX_DURATION_SECONDS:-300}
       STARTUP_CHANNEL_ID: ${IRSIA_STARTUP_CHANNEL_ID:-0}
       SCHEDULE_CHANNEL_ID: ${IRSIA_SCHEDULE_CHANNEL_ID:-0}
       NORMAL_BOT_NICKNAME: ${IRSIA_NORMAL_BOT_NICKNAME:-イルシア}
@@ -181,6 +192,7 @@ services:
     command: python main.py
     volumes:
       - .:/app
+      - ./data/audio-assets:/app/data/audio-assets
       - ./secrets:/app/secrets:ro
 
 volumes:

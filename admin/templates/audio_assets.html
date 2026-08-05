@@ -1,0 +1,38 @@
+{% extends "layout.html" %}
+{% block title %}音声ファイル - Bot管理画面{% endblock %}
+{% block heading %}音声ファイル・SE{% endblock %}
+{% block content %}
+<section class="panel">
+  <div class="page-actions">
+    <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+    {% if can_edit %}<a class="button-link" href="/guilds/{{ guild_id }}/audio-assets/new">新規追加</a>{% endif %}
+  </div>
+  {% if message %}<p class="success">{{ message }}</p>{% endif %}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <table>
+    <thead><tr><th>表示名</th><th>カテゴリ</th><th>音量</th><th>長さ</th><th>状態</th><th>操作</th></tr></thead>
+    <tbody>
+      {% for asset in assets %}
+        <tr>
+          <td>{{ asset.display_name }}</td>
+          <td>{{ asset.category or "未分類" }}</td>
+          <td>{{ asset.default_volume }}%</td>
+          <td>{% if asset.duration_ms %}{{ (asset.duration_ms / 1000)|round(1) }}s{% else %}未取得{% endif %}</td>
+          <td>{% if asset.enabled %}有効{% else %}無効{% endif %}</td>
+          <td>
+            <a href="/guilds/{{ guild_id }}/audio-assets/{{ asset.id }}">編集</a>
+            <a href="/guilds/{{ guild_id }}/audio-assets/{{ asset.id }}/preview">プレビュー</a>
+            {% if can_edit %}
+              <form method="post" action="/guilds/{{ guild_id }}/audio-assets/{{ asset.id }}/toggle" style="display:inline">
+                <button type="submit">{% if asset.enabled %}無効化{% else %}有効化{% endif %}</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6">音声ファイルはまだありません。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

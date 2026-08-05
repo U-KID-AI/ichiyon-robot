@@ -6,6 +6,7 @@
 __pycache__/
 *.pyc
 data/backups/
+data/audio-assets/
 *.key
 *.pem
 *.crt

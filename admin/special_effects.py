@@ -21,7 +21,7 @@ from admin.ux import (
     parse_show_test_data,
 )
 from bot.db import get_connection
-from bot.repositories import SpecialEffectRepository
+from bot.repositories import AudioAssetRepository, SpecialEffectRepository
 
 
 router = APIRouter()
@@ -32,6 +32,7 @@ EFFECT_TYPES = (
     "probability_message",
     "message",
     "reaction",
+    "audio_asset",
     "counter_delta",
     "counter_set",
     "probability_multiplier",
@@ -257,6 +258,8 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         reaction_target: str = Form(DEFAULT_REACTION_TARGET),
         reaction_probability_numerator: str = Form(""),
         reaction_probability_denominator: str = Form(""),
+        audio_asset_id: str = Form(""),
+        audio_volume_percent: str = Form(""),
     ):
         user = get_current_user(request)
         if user is None:
@@ -290,6 +293,8 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
             reaction_target,
             reaction_probability_numerator,
             reaction_probability_denominator,
+            audio_asset_id,
+            audio_volume_percent,
         )
         if form["admin_only"] and not role_allows(server["role"], "guild_admin"):
             errors.append("管理者限定タグはサーバー管理者以上だけ作成可。")
@@ -371,6 +376,8 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         reaction_target: str = Form(DEFAULT_REACTION_TARGET),
         reaction_probability_numerator: str = Form(""),
         reaction_probability_denominator: str = Form(""),
+        audio_asset_id: str = Form(""),
+        audio_volume_percent: str = Form(""),
     ):
         user = get_current_user(request)
         if user is None:
@@ -409,6 +416,8 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
                 reaction_target,
                 reaction_probability_numerator,
                 reaction_probability_denominator,
+                audio_asset_id,
+                audio_volume_percent,
             )
             if form["admin_only"] != bool(tag["admin_only"]) and not role_allows(server["role"], "guild_admin"):
                 errors.append("管理者限定の変更はサーバー管理者以上だけ。")
@@ -533,6 +542,8 @@ def default_form() -> Dict[str, Any]:
         "reaction_probability_numerator": "",
         "reaction_probability_denominator": "",
         "reaction_probability_label": "毎回",
+        "audio_asset_id": "",
+        "audio_volume_percent": "",
         "effect_summary": "",
     }
 
@@ -569,6 +580,7 @@ def build_form_from_tag(tag: Dict[str, Any]) -> Dict[str, Any]:
         }
     )
     apply_reaction_fields_from_config(form)
+    apply_audio_fields_from_config(form)
     return form
 
 
@@ -623,6 +635,17 @@ def apply_reaction_fields_from_config(form: Dict[str, Any]) -> None:
         form["effect_summary"] = form.get("effect_config_summary") or "{}"
 
 
+def apply_audio_fields_from_config(form: Dict[str, Any]) -> None:
+    config, _ = parse_effect_config_text(form.get("effect_config_json") or "{}")
+    form["audio_asset_id"] = "" if config.get("audio_asset_id") in (None, "") else str(config.get("audio_asset_id"))
+    form["audio_volume_percent"] = "" if config.get("volume_percent") in (None, "") else str(config.get("volume_percent"))
+    if form.get("effect_type") == "audio_asset":
+        form["effect_summary"] = "audio_asset_id={0} volume={1}".format(
+            form["audio_asset_id"] or "未設定",
+            form["audio_volume_percent"] or "default",
+        )
+
+
 def build_reaction_effect_config(
     base_config: Dict[str, Any],
     emoji: str,
@@ -668,6 +691,39 @@ def build_reaction_effect_config(
     return config, errors
 
 
+def build_audio_asset_effect_config(
+    base_config: Dict[str, Any],
+    asset_id: str,
+    volume_percent: str,
+) -> Tuple[Dict[str, Any], List[str]]:
+    errors: List[str] = []
+    config = dict(base_config)
+    try:
+        parsed_asset_id = int(str(asset_id or "").strip())
+    except ValueError:
+        parsed_asset_id = 0
+    if parsed_asset_id <= 0:
+        errors.append("音声ファイルを選択してください。")
+    else:
+        config["audio_asset_id"] = parsed_asset_id
+
+    text_volume = str(volume_percent or "").strip()
+    if text_volume:
+        try:
+            parsed_volume = int(text_volume)
+        except ValueError:
+            errors.append("音量は0〜100で指定してください。")
+        else:
+            if parsed_volume < 0 or parsed_volume > 100:
+                errors.append("音量は0〜100で指定してください。")
+            else:
+                config["volume_percent"] = parsed_volume
+    else:
+        config.pop("volume_percent", None)
+    config.setdefault("foreground", True)
+    return config, errors
+
+
 def build_form(
     name: str,
     description: str,
@@ -690,6 +746,8 @@ def build_form(
     reaction_target: str = DEFAULT_REACTION_TARGET,
     reaction_probability_numerator: str = "",
     reaction_probability_denominator: str = "",
+    audio_asset_id: str = "",
+    audio_volume_percent: str = "",
 ) -> Tuple[Dict[str, Any], List[str]]:
     errors = []
     form = default_form()
@@ -713,6 +771,8 @@ def build_form(
             "reaction_target": reaction_target.strip() or DEFAULT_REACTION_TARGET,
             "reaction_probability_numerator": reaction_probability_numerator.strip(),
             "reaction_probability_denominator": reaction_probability_denominator.strip(),
+            "audio_asset_id": audio_asset_id.strip(),
+            "audio_volume_percent": audio_volume_percent.strip(),
         }
     )
     form["priority"] = parse_int(priority, 0)
@@ -777,11 +837,24 @@ def build_form(
         form["effect_config_summary"] = compact_json(form["effect_config_json"])
         form["additional_text"] = ""
         form["additional_post_timing"] = "none"
+    elif form["effect_type"] == "audio_asset":
+        audio_config, audio_errors = build_audio_asset_effect_config(
+            parsed_json,
+            form["audio_asset_id"],
+            form["audio_volume_percent"],
+        )
+        errors.extend(audio_errors)
+        form["effect_config"] = audio_config
+        form["effect_config_json"] = json.dumps(audio_config, ensure_ascii=False, indent=2, sort_keys=True)
+        form["effect_config_summary"] = compact_json(form["effect_config_json"])
+        form["additional_text"] = ""
+        form["additional_post_timing"] = "none"
     else:
         form["effect_config"] = parsed_json
         form["effect_config_summary"] = compact_json(form["effect_config_json"])
 
     apply_reaction_fields_from_config(form)
+    apply_audio_fields_from_config(form)
 
     return form, errors
 
@@ -888,6 +961,12 @@ def render_form(
     can_edit: bool = True,
     status_code: int = 200,
 ):
+    audio_assets: List[Dict[str, Any]] = []
+    try:
+        with get_connection() as connection:
+            audio_assets = AudioAssetRepository(connection, bot_id=current_selected_bot_id()).list_assets(guild_id, enabled=True)
+    except Exception:
+        audio_assets = []
     return templates.TemplateResponse(
         request,
         "special_effect_form.html",
@@ -915,6 +994,7 @@ def render_form(
             "cooldown_scopes": COOLDOWN_SCOPES,
             "reaction_targets": REACTION_TARGETS,
             "reaction_target_labels": REACTION_TARGET_LABELS,
+            "audio_assets": audio_assets,
         },
         status_code=status_code,
     )

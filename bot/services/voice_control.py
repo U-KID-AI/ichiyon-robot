@@ -7,12 +7,12 @@ from bot import config
 from bot.services.voice_audio import (
     AUDIO_ROOT,
     cleanup_stale_voice_client,
+    enqueue_foreground_audio,
     format_audio_file_list,
     get_guild_voice_client,
     get_raw_guild_voice_client,
     is_voice_client_connected,
     list_audio_files,
-    play_audio_on_voice_client,
     resolve_audio_file,
 )
 from bot.services.voice_music import (
@@ -221,7 +221,7 @@ async def play_audio_file(message: discord.Message, name: str) -> None:
     if voice_client is None:
         await message.channel.send("先にVCへ呼んでください。")
         return
-    if voice_client.is_playing() or voice_client.is_paused():
+    if False and (voice_client.is_playing() or voice_client.is_paused()):
         await message.channel.send("現在再生中です。")
         return
 
@@ -235,7 +235,7 @@ async def play_audio_file(message: discord.Message, name: str) -> None:
     channel_id = str(getattr(current_channel, "id", "") or "")
     filename = audio_path.name
 
-    played, reason = play_audio_on_voice_client(voice_client, audio_path, guild_id, channel_id)
+    played, reason = enqueue_foreground_audio(voice_client, audio_path, guild_id, channel_id)
     if played:
         log_voice_action("play_start", guild_id, channel_id, filename)
         await message.channel.send("再生します: {0}".format(filename))

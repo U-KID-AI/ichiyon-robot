@@ -1,0 +1,28 @@
+{% extends "layout.html" %}
+{% block title %}ゲーム管理 - Bot管理画面{% endblock %}
+{% block heading %}ゲーム情報・価格{% endblock %}
+{% block content %}
+<section class="panel">
+  <div class="page-actions">
+    <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+  </div>
+  <p class="hint">{{ provider_status }}</p>
+  <table>
+    <thead><tr><th>タイトル</th><th>Provider</th><th>ID</th><th>価格</th><th>取得時刻</th><th>ユーザー数</th></tr></thead>
+    <tbody>
+      {% for game in games %}
+        <tr>
+          <td><a href="{{ game.store_url }}">{{ game.title }}</a></td>
+          <td>{{ game.provider }}</td>
+          <td>{{ game.provider_game_id }}</td>
+          <td>{% if game.last_known_price is not none %}{{ game.last_known_price }} {{ game.currency }}{% else %}未取得{% endif %}</td>
+          <td>{{ game.fetched_at or "未取得" }}</td>
+          <td>{{ game.user_count }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6">ゲームキャッシュはまだありません。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

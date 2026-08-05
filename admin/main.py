@@ -18,9 +18,11 @@ from admin.auto_reactions import (
     router as auto_reaction_router,
 )
 from admin.auto_posts import register_auto_post_routes, router as auto_post_router
+from admin.audio_assets import register_audio_asset_routes, router as audio_asset_router
 from admin.auth import get_session_secret, register_auth_routes, router as auth_router
 from admin.bots import register_bot_routes, router as bot_router
 from admin.bot_context import bot_id_from_path, current_bot_instance_for_request
+from admin.games import register_game_routes, router as game_router
 from admin.mention_reactions import (
     register_mention_reaction_routes,
     router as mention_reaction_router,
@@ -99,6 +101,8 @@ register_voice_line_routes(templates)
 register_tts_setting_routes(templates)
 register_schedule_template_routes(templates)
 register_youtube_n_pull_routes(templates)
+register_audio_asset_routes(templates)
+register_game_routes(templates)
 app.include_router(auth_router)
 app.include_router(public_router)
 app.include_router(bot_router)
@@ -116,6 +120,8 @@ app.include_router(voice_line_router)
 app.include_router(tts_setting_router)
 app.include_router(schedule_template_router)
 app.include_router(youtube_n_pull_router)
+app.include_router(audio_asset_router)
+app.include_router(game_router)
 
 
 LEGACY_JSON_PATHS = ("/quotes", "/reactions", "/ng-words", "/kuji")
