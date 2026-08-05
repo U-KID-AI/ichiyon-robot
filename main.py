@@ -9,6 +9,7 @@ from bot.quotes import draw_quote_message
 from bot.reactions import handle_word_response
 from bot.services.auto_posts import run_db_auto_posts_once
 from bot.services.reaction_thresholds import handle_db_reaction_threshold
+from bot.services.interaction_panel import handle_interaction_panel_mention, register_persistent_views
 from bot.services.runtime_db import (
     RANDOM_DRAW_PULL_BLOCKED,
     RANDOM_DRAW_PULL_INVALID_MESSAGE,
@@ -34,6 +35,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 messages.configure(bot)
 hayusu.configure(bot)
 scheduler.configure(bot)
+_PERSISTENT_VIEWS_REGISTERED = False
 
 
 async def handle_mention_message(message: discord.Message) -> bool:
@@ -74,6 +76,7 @@ async def handle_mention_message(message: discord.Message) -> bool:
 
 @bot.event
 async def on_ready():
+    global _PERSISTENT_VIEWS_REGISTERED
     print(f"Logged in as {bot.user}")
     print(
         "APP_ENV={0} ENABLE_DEV_COMMANDS={1} bot_instance_id={2} bot_instance_name={3} token_env_key={4}".format(
@@ -86,6 +89,9 @@ async def on_ready():
     )
 
     await messages.sync_bot_identity_for_all_guilds()
+    if not _PERSISTENT_VIEWS_REGISTERED:
+        register_persistent_views(bot)
+        _PERSISTENT_VIEWS_REGISTERED = True
 
     if config.DATA_BACKEND == "db":
         if not db_auto_post_task.is_running():
@@ -152,6 +158,9 @@ async def on_message(message: discord.Message):
         return
 
     command_text = messages.get_mention_command_text(message)
+    if await handle_interaction_panel_mention(message, command_text):
+        return
+
     if await handle_mention_music_links(message, command_text):
         return
 
