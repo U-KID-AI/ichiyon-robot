@@ -162,6 +162,31 @@ DISPLAY_FEATURES = [
     },
 ]
 
+DISPLAY_FEATURES.extend(
+    [
+        {
+            "key": "audio_assets",
+            "label": "音声ファイル・SE",
+            "edit_path": "audio-assets",
+            "required_role": "editor",
+            "overview": "Discord VCで再生する音声ファイルを管理します。",
+            "settings": "表示名、説明、カテゴリ、音量、音声ファイル、有効/無効",
+            "off_behavior": "OFF時はパネルや特殊効果からの音声再生を使いません。",
+            "notes": "ファイル本体はdata/audio-assetsに保存され、DBにはメタデータだけ保存します。",
+        },
+        {
+            "key": "games",
+            "label": "ゲーム情報・価格",
+            "edit_path": "games",
+            "required_role": "editor",
+            "overview": "Steamゲーム情報とユーザー別の所持・ほしいもの・積みを確認します。",
+            "settings": "ゲームキャッシュ、価格、取得時刻、ユーザー登録状況",
+            "off_behavior": "OFF時はDiscordパネルのゲーム検索を使いません。",
+            "notes": "現在価格はSteam Store API、過去最安は未取得表示です。",
+        },
+    ]
+)
+
 
 def register_server_routes(templates: Jinja2Templates) -> None:
     @router.get("/servers")
