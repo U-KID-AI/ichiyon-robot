@@ -6,6 +6,7 @@ from bot.repositories.counters import CounterRepository
 from bot.repositories.deck_search_settings import DeckSearchSettingsRepository
 from bot.repositories.feature_flags import FeatureFlagRepository
 from bot.repositories.games import GameRepository
+from bot.repositories.mention_shortcuts import MentionShortcutRepository
 from bot.repositories.guilds import GuildRepository
 from bot.repositories.mention_reactions import MentionReactionRepository
 from bot.repositories.modes import ModeRepository

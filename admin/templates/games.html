@@ -6,7 +6,11 @@
   <div class="page-actions">
     <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
   </div>
-  <p class="hint">{{ provider_status }}</p>
+  <div class="info-list">
+    {% for row in provider_status %}
+      <p><strong>{{ row.provider }}</strong>: {{ row.status }}</p>
+    {% endfor %}
+  </div>
   <table>
     <thead><tr><th>タイトル</th><th>Provider</th><th>ID</th><th>価格</th><th>取得時刻</th><th>ユーザー数</th></tr></thead>
     <tbody>
@@ -15,7 +19,7 @@
           <td><a href="{{ game.store_url }}">{{ game.title }}</a></td>
           <td>{{ game.provider }}</td>
           <td>{{ game.provider_game_id }}</td>
-          <td>{% if game.last_known_price is not none %}{{ game.last_known_price }} {{ game.currency }}{% else %}未取得{% endif %}</td>
+          <td>{{ format_price(game.last_known_price, game.currency, game.metadata_json.formatted_price if game.metadata_json else "") }}</td>
           <td>{{ game.fetched_at or "未取得" }}</td>
           <td>{{ game.user_count }}</td>
         </tr>

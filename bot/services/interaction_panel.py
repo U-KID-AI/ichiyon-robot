@@ -337,8 +337,19 @@ class GameSearchModal(discord.ui.Modal, title="ゲーム検索"):
 
 
 def build_game_embed(game) -> discord.Embed:
-    price = game_provider.format_price(game.get("last_known_price"), game.get("currency") or "JPY")
-    regular = game_provider.format_price(game.get("last_known_regular_price"), game.get("currency") or "JPY")
+    metadata = game.get("metadata_json") or {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    price = game_provider.format_price(
+        game.get("last_known_price"),
+        game.get("currency") or "JPY",
+        str(metadata.get("formatted_price") or ""),
+    )
+    regular = game_provider.format_price(
+        game.get("last_known_regular_price"),
+        game.get("currency") or "JPY",
+        str(metadata.get("formatted_regular_price") or ""),
+    )
     embed = discord.Embed(title=str(game.get("title") or "Steam game"), url=str(game.get("store_url") or ""))
     embed.add_field(name="現在価格", value=price, inline=True)
     embed.add_field(name="通常価格", value=regular, inline=True)

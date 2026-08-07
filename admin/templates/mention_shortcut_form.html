@@ -1,0 +1,71 @@
+{% extends "layout.html" %}
+{% block title %}メンションショートカット編集 - Bot管理画面{% endblock %}
+{% block heading %}メンションショートカット{% endblock %}
+{% block content %}
+<section class="panel">
+  <div class="page-actions">
+    <a class="button-link secondary" href="/guilds/{{ guild_id }}/mention-shortcuts">一覧へ戻る</a>
+  </div>
+  {% if errors %}
+    <div class="status disabled">
+      {% for error in errors %}<p>{{ error }}</p>{% endfor %}
+    </div>
+  {% endif %}
+  <form method="post">
+    <fieldset {% if not can_edit %}disabled{% endif %}>
+      <label>名前
+        <input type="text" name="name" value="{{ shortcut.name }}" required>
+      </label>
+      <label>呼び出し文字
+        <input type="text" name="trigger_text" value="{{ shortcut.trigger_text }}" required>
+      </label>
+      <label>
+        <input type="checkbox" name="enabled" {% if shortcut.enabled %}checked{% endif %}>
+        有効
+      </label>
+
+      <h2>価格表示</h2>
+      {% for target in shortcut.targets %}
+        {% set idx = loop.index %}
+        <div class="form-grid">
+          <label>Provider {{ idx }}
+            <select name="provider_{{ idx }}">
+              <option value="" {% if not target.provider %}selected{% endif %}>未設定</option>
+              <option value="steam" {% if target.provider == "steam" %}selected{% endif %}>Steam</option>
+              <option value="itad" {% if target.provider == "itad" %}selected{% endif %}>IsThereAnyDeal</option>
+              <option value="ntprices" {% if target.provider == "ntprices" %}selected{% endif %}>NTPrices</option>
+            </select>
+          </label>
+          <label>Lookup
+            <input type="text" name="lookup_type_{{ idx }}" value="{{ target.lookup_type }}" placeholder="app_id / steam_app_id / ppid / nsuid">
+          </label>
+          <label>Product ID
+            <input type="text" name="product_id_{{ idx }}" value="{{ target.provider_product_id }}">
+          </label>
+          <label>表示名
+            <input type="text" name="display_name_{{ idx }}" value="{{ target.display_name }}">
+          </label>
+        </div>
+      {% endfor %}
+
+      <h2>SE</h2>
+      <p class="hint">BotがVC接続中の場合のみ、選択した音声アセットを前景SEとして再生します。未接続時は価格表示だけ行います。</p>
+      <label>音声アセット
+        <select name="audio_asset_id">
+          <option value="">未設定</option>
+          {% for asset in audio_assets %}
+            <option value="{{ asset.id }}" {% if shortcut.audio_asset_id|string == asset.id|string %}selected{% endif %}>{{ asset.display_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>音量上書き
+        <input type="number" min="0" max="100" name="volume_override" value="{{ shortcut.volume_override }}">
+      </label>
+
+      {% if can_edit %}
+        <button type="submit">保存</button>
+      {% endif %}
+    </fieldset>
+  </form>
+</section>
+{% endblock %}
