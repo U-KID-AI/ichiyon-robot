@@ -240,7 +240,7 @@ def main() -> int:
 
     music_view = interaction_panel.MusicPanelView()
     music_ids = custom_ids(music_view)
-    for required in ("join", "pause", "resume", "skip", "stop", "now", "queue", "loop", "shuffle", "volume", "add", "n_pull", "back"):
+    for required in ("join", "pause", "resume", "skip", "stop", "now", "queue", "loop", "shuffle", "volume", "search_add", "add", "n_pull", "back"):
         results.append(check("music button {0}".format(required), any("music:{0}".format(required) in item for item in music_ids)))
 
     game_ids = custom_ids(interaction_panel.GamePanelView())

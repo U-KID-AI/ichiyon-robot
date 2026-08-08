@@ -19,8 +19,10 @@ from bot.services.voice_audio import (
 from bot.services.voice_control import join_author_voice_channel
 from bot.services.voice_music import (
     enqueue_music_url,
+    format_duration,
     pause_music,
     resume_music,
+    search_youtube_music_candidates,
     send_music_queue,
     send_now_playing,
     set_music_loop,
@@ -222,6 +224,59 @@ class MusicUrlModal(discord.ui.Modal, title="曲を追加"):
         await enqueue_music_url(adapter, str(self.url))
 
 
+class MusicSearchModal(discord.ui.Modal, title="検索して追加"):
+    query = discord.ui.TextInput(label="検索キーワード", max_length=200)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        if guild is None:
+            await interaction.followup.send("サーバー内で使ってください。", ephemeral=True)
+            return
+        keyword = str(self.query or "").strip()
+        if not keyword:
+            await interaction.followup.send("検索キーワードを入力してください。", ephemeral=True)
+            return
+        try:
+            candidates = await search_youtube_music_candidates(keyword, str(guild.id), str(getattr(interaction.user, "id", "") or ""))
+        except Exception:
+            await interaction.followup.send("検索に失敗しました。時間をおいて試してください。", ephemeral=True)
+            return
+        if not candidates:
+            await interaction.followup.send("候補が見つかりませんでした。", ephemeral=True)
+            return
+        await interaction.followup.send("候補を選んでください。", view=MusicSearchResultView(candidates), ephemeral=True)
+
+
+class YouTubeNPullCountModal(discord.ui.Modal, title="N連を実行"):
+    def __init__(self, preset) -> None:
+        super().__init__()
+        self.preset = dict(preset or {})
+        default_count = max(1, min(100, int(self.preset.get("max_pulls") or 1)))
+        self.count = discord.ui.TextInput(
+            label="何連しますか？",
+            default=str(default_count),
+            placeholder=str(default_count),
+            max_length=3,
+        )
+        self.add_item(self.count)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        command_name = str(self.preset.get("command_name") or "").strip()
+        if not command_name:
+            await interaction.followup.send("N連プリセットのコマンド名が未設定です。", ephemeral=True)
+            return
+        count_text = str(self.count or "").strip()
+        if not count_text or not count_text.isdigit():
+            await interaction.followup.send("N連の件数は1〜100で指定してください。", ephemeral=True)
+            return
+        command_text = "{0} {1}連".format(command_name, int(count_text))
+        handled = await handle_youtube_n_pull_command(InteractionMessageAdapter(interaction, command_text), command_text)
+        if not handled:
+            await interaction.followup.send("N連プリセットを実行できませんでした。", ephemeral=True)
+
+
 class VolumeModal(discord.ui.Modal, title="音量変更"):
     volume = discord.ui.TextInput(label="音量 0-100", max_length=3)
 
@@ -291,7 +346,11 @@ class MusicPanelView(discord.ui.View):
     async def volume(self, interaction: discord.Interaction, _button: discord.ui.Button):
         await interaction.response.send_modal(VolumeModal())
 
-    @discord.ui.button(label="曲を追加", style=discord.ButtonStyle.primary, custom_id=custom_id("music", "add"))
+    @discord.ui.button(label="検索して追加", style=discord.ButtonStyle.primary, custom_id=custom_id("music", "search_add"))
+    async def search_add(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        await interaction.response.send_modal(MusicSearchModal())
+
+    @discord.ui.button(label="URLで追加", style=discord.ButtonStyle.primary, custom_id=custom_id("music", "add"))
     async def add(self, interaction: discord.Interaction, _button: discord.ui.Button):
         await interaction.response.send_modal(MusicUrlModal())
 
@@ -317,6 +376,55 @@ class MusicPanelView(discord.ui.View):
     @discord.ui.button(label="戻る", style=discord.ButtonStyle.secondary, custom_id=custom_id("music", "back"))
     async def back(self, interaction: discord.Interaction, _button: discord.ui.Button):
         await interaction.response.send_message(MENTION_ONLY_MESSAGE, view=MainPanelView(), ephemeral=True)
+
+
+class MusicSearchResultSelect(discord.ui.Select):
+    def __init__(self, candidates):
+        self.candidates = {}
+        self.processed_interactions = set()
+        options = []
+        for index, candidate in enumerate(candidates[:25], start=1):
+            video_id = str(candidate.get("video_id") or "")
+            if not video_id:
+                continue
+            self.candidates[video_id] = candidate
+            title = str(candidate.get("title") or video_id)
+            uploader = str(candidate.get("uploader") or "")
+            duration = format_duration(candidate.get("duration"))
+            description_parts = [part for part in (uploader, duration) if part]
+            options.append(
+                discord.SelectOption(
+                    label="{0}. {1}".format(index, title)[:100],
+                    value=video_id[:100],
+                    description=" / ".join(description_parts)[:100] if description_parts else None,
+                )
+            )
+        if not options:
+            options = [discord.SelectOption(label="候補なし", value="__none__")]
+        super().__init__(placeholder="追加する曲を選んでください", min_values=1, max_values=1, options=options, custom_id=custom_id("music", "search_select"))
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        interaction_key = str(getattr(interaction, "id", "") or id(interaction))
+        if interaction_key in self.processed_interactions:
+            await interaction.response.send_message("この操作は処理済みです。", ephemeral=True)
+            return
+        self.processed_interactions.add(interaction_key)
+        video_id = str(self.values[0])
+        if video_id == "__none__":
+            await interaction.response.send_message("候補が見つかりませんでした。", ephemeral=True)
+            return
+        candidate = self.candidates.get(video_id)
+        if not candidate:
+            await interaction.response.send_message("候補が見つかりませんでした。", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        await enqueue_music_url(InteractionMessageAdapter(interaction, str(candidate.get("webpage_url") or "")), str(candidate.get("webpage_url") or ""))
+
+
+class MusicSearchResultView(discord.ui.View):
+    def __init__(self, candidates) -> None:
+        super().__init__(timeout=300)
+        self.add_item(MusicSearchResultSelect(candidates))
 
 
 class YouTubeNPullPresetSelect(discord.ui.Select):
@@ -346,12 +454,7 @@ class YouTubeNPullPresetSelect(discord.ui.Select):
         if not command_name:
             await interaction.response.send_message("N連プリセットのコマンド名が未設定です。", ephemeral=True)
             return
-        count = max(1, min(100, int(preset.get("max_pulls") or 1)))
-        command_text = "{0} {1}連".format(command_name, count)
-        await interaction.response.defer(ephemeral=True)
-        handled = await handle_youtube_n_pull_command(InteractionMessageAdapter(interaction, command_text), command_text)
-        if not handled:
-            await interaction.followup.send("N連プリセットを実行できませんでした。", ephemeral=True)
+        await interaction.response.send_modal(YouTubeNPullCountModal(preset))
 
 
 class YouTubeNPullPresetView(discord.ui.View):
