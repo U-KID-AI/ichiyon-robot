@@ -37,6 +37,8 @@ from bot.services.youtube_n_pull import handle_youtube_n_pull_command, is_youtub
 PANEL_CUSTOM_ID_PREFIX = "ichiyon_panel"
 MENTION_ONLY_MESSAGE = "何をしますか？"
 MAX_SELECT_OPTIONS = 25
+SOUNDBOARD_ASSETS_PER_PAGE = 20
+DISCORD_BUTTON_LABEL_MAX_LENGTH = 80
 FEATURE_AUDIO_ASSETS = "audio_assets"
 FEATURE_GAMES = "games"
 
@@ -83,6 +85,22 @@ def panel_feature_enabled(guild_id: str, feature_key: str) -> bool:
             return FeatureFlagRepository(connection).is_enabled(guild_id, feature_key, True)
     except Exception:
         return True
+
+
+def load_enabled_audio_assets(guild_id: str):
+    with get_connection() as connection:
+        return AudioAssetRepository(connection).list_assets(str(guild_id), enabled=True)
+
+
+def truncate_button_label(value: object, fallback: str) -> str:
+    label = str(value or fallback or "").strip() or str(fallback)
+    return label[:DISCORD_BUTTON_LABEL_MAX_LENGTH]
+
+
+def build_audio_soundboard_content(assets) -> str:
+    if assets:
+        return "\u97f3\u58f0\u30fbSE"
+    return "\u97f3\u58f0\u30fbSE\n\u767b\u9332\u3055\u308c\u3066\u3044\u308b\u97f3\u58f0\u304c\u3042\u308a\u307e\u305b\u3093\u3002"
 
 
 async def send_main_panel(message: discord.Message) -> bool:
@@ -135,9 +153,8 @@ async def handle_context_panel_command(message: discord.Message, command_text: O
         if not panel_feature_enabled(str(guild.id), FEATURE_AUDIO_ASSETS):
             await message.channel.send("音声・SE機能はOFFです。", allowed_mentions=discord.AllowedMentions.none())
             return True
-        with get_connection() as connection:
-            categories = AudioAssetRepository(connection).list_categories(str(guild.id), enabled=True)
-        await message.channel.send("音声・SE", view=AudioCategoryView(categories), allowed_mentions=discord.AllowedMentions.none())
+        assets = load_enabled_audio_assets(str(guild.id))
+        await message.channel.send(build_audio_soundboard_content(assets), view=AudioSoundboardView(assets), allowed_mentions=discord.AllowedMentions.none())
         return True
 
     await message.channel.send("音楽操作", view=MusicPanelView(), allowed_mentions=discord.AllowedMentions.none())
@@ -174,11 +191,10 @@ class MainPanelView(discord.ui.View):
         if interaction.guild is not None and not panel_feature_enabled(str(interaction.guild.id), FEATURE_AUDIO_ASSETS):
             await interaction.response.send_message("音声・SE機能はOFFです。", ephemeral=True)
             return
-        categories = []
+        assets = []
         if interaction.guild is not None:
-            with get_connection() as connection:
-                categories = AudioAssetRepository(connection).list_categories(str(interaction.guild.id), enabled=True)
-        await interaction.response.send_message("音声・SE", view=AudioCategoryView(categories), ephemeral=True)
+            assets = load_enabled_audio_assets(str(interaction.guild.id))
+        await interaction.response.send_message(build_audio_soundboard_content(assets), view=AudioSoundboardView(assets), ephemeral=True)
 
     @discord.ui.button(label="ゲーム", style=discord.ButtonStyle.secondary, custom_id=custom_id("main", "game"))
     async def game(self, interaction: discord.Interaction, _button: discord.ui.Button):
@@ -342,6 +358,93 @@ class YouTubeNPullPresetView(discord.ui.View):
     def __init__(self, presets) -> None:
         super().__init__(timeout=300)
         self.add_item(YouTubeNPullPresetSelect(presets))
+
+
+class AudioAssetButton(discord.ui.Button):
+    def __init__(self, asset) -> None:
+        self.asset_id = int(asset.get("id"))
+        label = truncate_button_label(asset.get("display_name"), str(self.asset_id))
+        super().__init__(
+            label=label,
+            style=discord.ButtonStyle.secondary,
+            custom_id=custom_id("audio", "asset", self.asset_id),
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        if guild is None:
+            await interaction.followup.send("サーバー内で使ってください。", ephemeral=True)
+            return
+        try:
+            with get_connection() as connection:
+                asset = AudioAssetRepository(connection).get_asset(str(guild.id), self.asset_id, enabled=True)
+        except Exception:
+            await interaction.followup.send("音声の取得に失敗しました。時間をおいて試してください。", ephemeral=True)
+            return
+        if asset is None:
+            await interaction.followup.send("音声が見つかりません。", ephemeral=True)
+            return
+        voice_client = get_guild_voice_client(guild)
+        if voice_client is None:
+            voice_state = getattr(interaction.user, "voice", None)
+            target_channel = getattr(voice_state, "channel", None)
+            if target_channel is None:
+                await interaction.followup.send("再生先のVCがありません。先にVCへ入ってください。", ephemeral=True)
+                return
+            try:
+                await target_channel.connect()
+            except Exception:
+                await interaction.followup.send("VCへの接続に失敗しました。", ephemeral=True)
+                return
+        played, reason = await play_audio_asset_row(guild, asset)
+        if not played:
+            await interaction.followup.send("再生できませんでした: {0}".format(reason), ephemeral=True)
+
+
+class AudioSoundboardPageButton(discord.ui.Button):
+    def __init__(self, page: int, label: str, direction: str, disabled: bool = False) -> None:
+        self.target_page = page
+        super().__init__(
+            label=label,
+            style=discord.ButtonStyle.secondary,
+            custom_id=custom_id("audio", "page", direction, page),
+            disabled=disabled,
+            row=4,
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message("サーバー内で使ってください。", ephemeral=True)
+            return
+        assets = load_enabled_audio_assets(str(guild.id))
+        await interaction.response.edit_message(content=build_audio_soundboard_content(assets), view=AudioSoundboardView(assets, self.target_page))
+
+
+class AudioSoundboardBackButton(discord.ui.Button):
+    def __init__(self) -> None:
+        super().__init__(label="戻る", style=discord.ButtonStyle.secondary, custom_id=custom_id("audio", "soundboard_back"), row=4)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_message(MENTION_ONLY_MESSAGE, view=MainPanelView(), ephemeral=True)
+
+
+class AudioSoundboardView(discord.ui.View):
+    def __init__(self, assets=None, page: int = 0) -> None:
+        super().__init__(timeout=300)
+        self.assets = list(assets or [])
+        self.page_count = max(1, (len(self.assets) + SOUNDBOARD_ASSETS_PER_PAGE - 1) // SOUNDBOARD_ASSETS_PER_PAGE)
+        self.page = max(0, min(int(page or 0), self.page_count - 1))
+        start = self.page * SOUNDBOARD_ASSETS_PER_PAGE
+        page_assets = self.assets[start : start + SOUNDBOARD_ASSETS_PER_PAGE]
+        for asset in page_assets:
+            self.add_item(AudioAssetButton(asset))
+        if self.page_count > 1:
+            self.add_item(AudioSoundboardPageButton(max(0, self.page - 1), "←", "prev", disabled=self.page <= 0))
+            self.add_item(discord.ui.Button(label="{0}/{1}".format(self.page + 1, self.page_count), style=discord.ButtonStyle.secondary, custom_id=custom_id("audio", "page_label", self.page), disabled=True, row=4))
+            self.add_item(AudioSoundboardPageButton(min(self.page_count - 1, self.page + 1), "→", "next", disabled=self.page >= self.page_count - 1))
+        self.add_item(AudioSoundboardBackButton())
 
 
 class AudioCategorySelect(discord.ui.Select):
