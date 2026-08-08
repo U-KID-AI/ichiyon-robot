@@ -54,6 +54,24 @@
       </div>
       <div class="form-grid">
         <label>
+          再生SE（任意）
+          <select name="audio_asset_id" {% if not can_edit %}disabled{% endif %}>
+            <option value="">再生しない</option>
+            {% for asset in audio_assets %}
+              <option value="{{ asset.id }}" {% if reaction.audio_asset_id|string == asset.id|string %}selected{% endif %}>
+                {{ asset.display_name }}{% if asset.category %} / {{ asset.category }}{% endif %}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          SE音量（任意・0〜100）
+          <input type="number" name="audio_volume_percent" min="0" max="100" value="{{ reaction.audio_volume_percent }}" {% if not can_edit %}disabled{% endif %}>
+        </label>
+      </div>
+      <p class="hint">BotがVCにいる場合だけ、選択した音声アセットを通常音楽とは別のSEとして再生します。</p>
+      <div class="form-grid">
+        <label>
           一致方式
           <select name="match_type" {% if not can_edit %}disabled{% endif %}>
             {% for item in match_types %}

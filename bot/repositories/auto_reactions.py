@@ -92,6 +92,7 @@ class AutoReactionRepository:
         match_type: str,
         priority: int,
         enabled: bool,
+        audio_config_json: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -105,9 +106,10 @@ class AutoReactionRepository:
                     emoji_internal,
                     match_type,
                     priority,
-                    enabled
+                    enabled,
+                    audio_config_json
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s::JSONB, '{}'::JSONB))
                 RETURNING *
                 """,
                 (
@@ -120,6 +122,7 @@ class AutoReactionRepository:
                     match_type,
                     priority,
                     enabled,
+                    json_dumps(audio_config_json or {}),
                 ),
             )
             return fetch_one(cursor)
@@ -135,6 +138,7 @@ class AutoReactionRepository:
         match_type: str,
         priority: int,
         enabled: bool,
+        audio_config_json: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -147,6 +151,7 @@ class AutoReactionRepository:
                     match_type = %s,
                     priority = %s,
                     enabled = %s,
+                    audio_config_json = COALESCE(%s::JSONB, '{}'::JSONB),
                     updated_at = NOW()
                 WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
@@ -159,6 +164,7 @@ class AutoReactionRepository:
                     match_type,
                     priority,
                     enabled,
+                    json_dumps(audio_config_json or {}),
                     self.bot_id,
                     guild_id,
                     reaction_id,

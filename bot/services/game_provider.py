@@ -139,7 +139,7 @@ def _cached(provider: str, lookup_type: str, product_id: str) -> Optional[GamePr
     clone = GamePriceQuote(**{**quote.__dict__})
     clone.metadata = dict(quote.metadata)
     clone.metadata["cache"] = "hit"
-    return clone
+    return _repair_steam_quote_price(clone)
 
 
 def _store_cache(provider: str, lookup_type: str, product_id: str, quote: GamePriceQuote) -> GamePriceQuote:
@@ -183,13 +183,21 @@ def _as_int(value: Any) -> Optional[int]:
         return None
 
 
+def _format_jpy_price(value: Optional[int]) -> str:
+    if value is None:
+        return ""
+    if value == 0:
+        return "無料"
+    return "{0:,}円".format(int(value))
+
+
 def _format_from_minor(value: Optional[int], currency: str) -> str:
     if value is None:
         return ""
     if value == 0:
         return "無料"
     if currency == "JPY":
-        return "{0:,}円".format(int(value))
+        return _format_jpy_price(value)
     return "{0} {1}".format(currency or "", value)
 
 
@@ -206,9 +214,24 @@ def _steam_price_value(overview: Dict[str, Any], key: str, formatted_key: str, c
             digits = re.sub(r"[^0-9]+", "", formatted)
             if digits:
                 raw = int(digits)
-            return raw, formatted.replace("¥", "").replace("￥", "").strip()
+            return raw, _format_jpy_price(raw)
         return raw, formatted
     return raw, _format_from_minor(raw, currency)
+
+
+def _repair_steam_quote_price(quote: GamePriceQuote) -> GamePriceQuote:
+    if quote.provider != "steam" or str(quote.currency or "").upper() != "JPY":
+        return quote
+    if quote.discount_percent not in (None, 0):
+        return quote
+    current = quote.current_price
+    regular = quote.regular_price
+    if current is None or regular is None:
+        return quote
+    if regular == current * 100 and quote.formatted_regular_price == _format_jpy_price(regular):
+        quote.regular_price = current
+        quote.formatted_regular_price = quote.formatted_current_price or _format_jpy_price(current)
+    return quote
 
 
 def _parse_price_overview(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -234,10 +257,20 @@ def _parse_price_overview(data: Dict[str, Any]) -> Dict[str, Any]:
     currency = str(overview.get("currency") or "JPY").upper()
     final, final_formatted = _steam_price_value(overview, "final", "final_formatted", currency)
     initial, initial_formatted = _steam_price_value(overview, "initial", "initial_formatted", currency)
+    discount = _as_int(overview.get("discount_percent"))
+    if (
+        currency == "JPY"
+        and discount == 0
+        and final is not None
+        and overview.get("initial") == overview.get("final")
+        and not str(overview.get("initial_formatted") or "").strip()
+    ):
+        initial = final
+        initial_formatted = final_formatted
     return {
         "price": final,
         "regular_price": initial,
-        "discount": _as_int(overview.get("discount_percent")),
+        "discount": discount,
         "currency": currency,
         "formatted_price": final_formatted,
         "formatted_regular_price": initial_formatted,
@@ -361,6 +394,7 @@ async def fetch_steam_price_quote(app_id: str, display_name: str = "") -> GamePr
         fetched_at=time.time(),
         metadata=dict(candidate.metadata),
     )
+    quote = _repair_steam_quote_price(quote)
     return _store_cache("steam", "app_id", str(app_id), quote)
 
 
@@ -393,7 +427,7 @@ async def fetch_itad_price_quote(steam_app_id: str, display_name: str = "") -> G
     cached = _cached("itad", "steam_app_id", str(steam_app_id))
     if cached:
         return cached
-    headers = {"Authorization": "Bearer {0}".format(key)}
+    headers = {"ITAD-API-Key": key}
     try:
         lookup = await fetch_json(ITAD_LOOKUP_URL.format(app_id=quote(str(steam_app_id))), policy=game_http_policy(), headers=headers)
         game = lookup.get("game") if isinstance(lookup, dict) and lookup.get("found") else None
@@ -427,7 +461,14 @@ async def fetch_itad_price_quote(steam_app_id: str, display_name: str = "") -> G
         currency=current[2] or low[2] or "",
         store_url=str((game or {}).get("url") or ""),
         fetched_at=time.time(),
-        metadata={"steam_app_id": str(steam_app_id), "cache": "miss"},
+        metadata={
+            "steam_app_id": str(steam_app_id),
+            "itad_game_id": itad_id,
+            "itad_title": title,
+            "itad_low_shop": low[3],
+            "itad_low_timestamp": low[4],
+            "cache": "miss",
+        },
     )
     return _store_cache("itad", "steam_app_id", str(steam_app_id), quote_obj)
 
@@ -435,22 +476,42 @@ async def fetch_itad_price_quote(steam_app_id: str, display_name: str = "") -> G
 def _parse_price_object(price: Any) -> Tuple[Optional[int], str, str]:
     if not isinstance(price, dict):
         return None, "", ""
-    amount = price.get("amount")
     currency = str(price.get("currency") or "").upper()
     formatted = str(price.get("formatted") or price.get("formattedAmount") or "").strip()
-    value = _as_int(amount)
+    value = _as_int(price.get("amountInt"))
+    if value is None:
+        amount = price.get("amount")
+        if currency == "JPY":
+            value = _as_int(amount)
+        else:
+            try:
+                value = int(round(float(amount) * 100))
+            except (TypeError, ValueError):
+                value = None
     if formatted:
         return value, formatted, currency
     return value, _format_from_minor(value, currency), currency
 
 
 def _parse_itad_overview(payload: Any, itad_id: str) -> Tuple[Optional[int], str, str]:
-    items = payload if isinstance(payload, list) else payload.get("data") if isinstance(payload, dict) else []
+    items = []
+    if isinstance(payload, list):
+        items = payload
+    elif isinstance(payload, dict):
+        raw_items = payload.get("prices")
+        if raw_items is None:
+            raw_items = payload.get("data")
+        items = raw_items
     if not isinstance(items, list):
         return None, "", ""
     for item in items:
         if not isinstance(item, dict) or str(item.get("id") or "") != itad_id:
             continue
+        current = item.get("current")
+        if isinstance(current, dict):
+            price = current.get("price")
+            if isinstance(price, dict):
+                return _parse_price_object(price)
         deals = item.get("deals")
         if isinstance(deals, list) and deals:
             return _parse_price_object(deals[0].get("price") if isinstance(deals[0], dict) else None)
@@ -459,16 +520,18 @@ def _parse_itad_overview(payload: Any, itad_id: str) -> Tuple[Optional[int], str
     return None, "", ""
 
 
-def _parse_itad_history_low(payload: Any, itad_id: str) -> Tuple[Optional[int], str, str]:
+def _parse_itad_history_low(payload: Any, itad_id: str) -> Tuple[Optional[int], str, str, str, str]:
     items = payload if isinstance(payload, list) else payload.get("data") if isinstance(payload, dict) else []
     if not isinstance(items, list):
-        return None, "", ""
+        return None, "", "", "", ""
     for item in items:
         if not isinstance(item, dict) or str(item.get("id") or "") != itad_id:
             continue
         low = item.get("low") if isinstance(item.get("low"), dict) else item
-        return _parse_price_object(low.get("price") if isinstance(low, dict) else None)
-    return None, "", ""
+        price = _parse_price_object(low.get("price") if isinstance(low, dict) else None)
+        shop = low.get("shop") if isinstance(low, dict) and isinstance(low.get("shop"), dict) else {}
+        return price[0], price[1], price[2], str(shop.get("name") or ""), str(low.get("timestamp") or "")
+    return None, "", "", "", ""
 
 
 async def fetch_ntprices_price_quote(product_id: str, lookup_type: str = "ppid", display_name: str = "") -> GamePriceQuote:
