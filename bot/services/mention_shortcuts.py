@@ -152,6 +152,9 @@ def _quote_value(quote: game_provider.GamePriceQuote) -> str:
     ]
     if quote.historical_low is not None or quote.formatted_historical_low:
         lines.append("過去最安: {0}".format(game_provider.format_price(quote.historical_low, quote.currency, quote.formatted_historical_low)))
+        low_shop = str((quote.metadata or {}).get("itad_low_shop") or "").strip()
+        if low_shop:
+            lines.append("ストア: {0}".format(low_shop))
     if quote.store_url:
         lines.append(quote.store_url)
     return "\n".join(lines)

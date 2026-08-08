@@ -31,14 +31,34 @@ async def main_async():
     original_post = game_provider._post_json
 
     async def fake_fetch_json(url, policy=None, headers=None):
-        results.append(check("ITAD key is passed as authorization header", headers and "Authorization" in headers))
+        results.append(check("ITAD key is passed as ITAD-API-Key header", headers and "ITAD-API-Key" in headers and "Authorization" not in headers))
         return {"found": True, "game": {"id": "itad-game-id", "title": "Nickelodeon", "url": "https://example.com/itad"}}
 
     async def fake_post_json(url, body, headers):
         results.append(check("ITAD POST body uses game id list", body == ["itad-game-id"], body))
+        results.append(check("ITAD POST uses API key header", headers and "ITAD-API-Key" in headers and "Authorization" not in headers))
         if "overview" in url:
-            return [{"id": "itad-game-id", "deals": [{"price": {"amount": 1234, "currency": "JPY", "formatted": "1,234円"}}]}]
-        return [{"id": "itad-game-id", "low": {"price": {"amount": 999, "currency": "JPY", "formatted": "999円"}}}]
+            return {
+                "prices": [
+                    {
+                        "id": "itad-game-id",
+                        "current": {
+                            "shop": {"name": "Steam"},
+                            "price": {"amount": 12.34, "amountInt": 1234, "currency": "JPY", "formatted": "1,234円"},
+                        },
+                    }
+                ]
+            }
+        return [
+            {
+                "id": "itad-game-id",
+                "low": {
+                    "shop": {"name": "Steam"},
+                    "price": {"amount": 9.99, "amountInt": 999, "currency": "JPY", "formatted": "999円"},
+                    "timestamp": "2026-08-09T02:00:00+09:00",
+                },
+            }
+        ]
 
     game_provider._PRICE_CACHE.clear()
     game_provider.fetch_json = fake_fetch_json
@@ -54,6 +74,8 @@ async def main_async():
             os.environ["ITAD_API_KEY"] = old_key
     results.append(check("ITAD current price parsed", quote.current_price == 1234 and quote.formatted_current_price == "1,234円", quote))
     results.append(check("ITAD historical low parsed", quote.historical_low == 999 and quote.formatted_historical_low == "999円", quote))
+    results.append(check("ITAD low shop is preserved", quote.metadata.get("itad_low_shop") == "Steam", quote.metadata))
+    results.append(check("ITAD low timestamp is preserved", quote.metadata.get("itad_low_timestamp") == "2026-08-09T02:00:00+09:00", quote.metadata))
     return all(results)
 
 
