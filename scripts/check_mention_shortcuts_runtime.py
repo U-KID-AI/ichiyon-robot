@@ -208,6 +208,76 @@ async def main_async():
     finally:
         mention_shortcuts.game_provider.fetch_price_quote = original_provider_fetch
 
+    itad_quote = GamePriceQuote(
+        provider="itad",
+        store_name="PC過去最安(ITAD)",
+        provider_product_id="itad-game-id",
+        title="Nickelodeon All-Star Brawl",
+        current_price=3785,
+        historical_low=206,
+        currency="JPY",
+        formatted_current_price="3,785円",
+        formatted_historical_low="206円",
+        current_store_name="GameBillet",
+        historical_low_store_name="Fanatical",
+        fetched_at=1786208400.0,
+        status="ok",
+        metadata={"itad_current_shop": "GameBillet", "itad_low_shop": "Fanatical"},
+    )
+    itad_embeds = mention_shortcuts.build_shortcut_embeds({"name": "ニコロデオン"}, [itad_quote])
+    itad_fields = {field.name: field.value for field in itad_embeds[0].fields} if itad_embeds else {}
+    current_field = itad_fields.get("PC現在最安(ITAD)", "")
+    low_field = itad_fields.get("PC過去最安(ITAD)", "")
+    results.append(check("ITAD current best is displayed separately", "現在最安: 3,785円" in current_field and "販売店: GameBillet" in current_field, current_field))
+    results.append(check("ITAD history low is displayed separately", "過去最安: 206円" in low_field and "販売店: Fanatical" in low_field, low_field))
+    results.append(check("ITAD embed does not show regular price", all("通常価格" not in value and "割引" not in value for value in itad_fields.values()), itad_fields))
+    legacy_itad_quote = GamePriceQuote(
+        provider="itad",
+        store_name="PC過去最安(ITAD)",
+        provider_product_id="itad-game-id",
+        title="legacy cache",
+        current_price=3785,
+        historical_low=206,
+        currency="JPY",
+        formatted_current_price="3,785円",
+        formatted_historical_low="206円",
+        fetched_at=1786208400.0,
+        status="ok",
+        metadata={"itad_current_shop": "GameBillet", "itad_low_shop": "Fanatical"},
+    )
+    legacy_fields = {field.name: field.value for field in mention_shortcuts.build_shortcut_embeds({"name": "ニコロデオン"}, [legacy_itad_quote])[0].fields}
+    results.append(check("legacy ITAD cache metadata keeps current shop", "販売店: GameBillet" in legacy_fields.get("PC現在最安(ITAD)", ""), legacy_fields))
+    overview_failed = GamePriceQuote(
+        provider="itad",
+        store_name="PC過去最安(ITAD)",
+        provider_product_id="itad-game-id",
+        title="overview failed",
+        historical_low=206,
+        currency="JPY",
+        formatted_historical_low="206円",
+        historical_low_store_name="Fanatical",
+        fetched_at=1786208400.0,
+        status="ok",
+        metadata={"itad_overview_error": "http_500"},
+    )
+    overview_failed_fields = {field.name: field.value for field in mention_shortcuts.build_shortcut_embeds({"name": "ニコロデオン"}, [overview_failed])[0].fields}
+    results.append(check("ITAD overview failure does not hide history low", "過去最安: 206円" in overview_failed_fields.get("PC過去最安(ITAD)", ""), overview_failed_fields))
+    history_failed = GamePriceQuote(
+        provider="itad",
+        store_name="PC過去最安(ITAD)",
+        provider_product_id="itad-game-id",
+        title="history failed",
+        current_price=3785,
+        currency="JPY",
+        formatted_current_price="3,785円",
+        current_store_name="GameBillet",
+        fetched_at=1786208400.0,
+        status="ok",
+        metadata={"itad_historylow_error": "http_503"},
+    )
+    history_failed_fields = {field.name: field.value for field in mention_shortcuts.build_shortcut_embeds({"name": "ニコロデオン"}, [history_failed])[0].fields}
+    results.append(check("ITAD history failure does not hide current best", "現在最安: 3,785円" in history_failed_fields.get("PC現在最安(ITAD)", ""), history_failed_fields))
+
     original_fetch_json = mention_shortcuts.game_provider.fetch_json
     mention_shortcuts.game_provider._PRICE_CACHE.clear()
 

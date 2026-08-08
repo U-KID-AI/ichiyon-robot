@@ -75,6 +75,8 @@ class GamePriceQuote:
     historical_low: Optional[int] = None
     formatted_historical_low: str = ""
     store_url: str = ""
+    current_store_name: str = ""
+    historical_low_store_name: str = ""
     fetched_at: float = 0.0
     status: str = "ok"
     error_code: str = ""
@@ -435,8 +437,6 @@ async def fetch_itad_price_quote(steam_app_id: str, display_name: str = "") -> G
         if not itad_id:
             _set_provider_status("itad", "error", "not_found")
             return GamePriceQuote("itad", "PC過去最安(ITAD)", str(steam_app_id), display_name or str(steam_app_id), status="error", error_code="not_found")
-        overview = await _post_json(ITAD_OVERVIEW_URL, [itad_id], headers)
-        history = await _post_json(ITAD_HISTORY_LOW_URL, [itad_id], headers)
     except ExternalHttpError as exc:
         code = "http_{0}".format(exc.status_code) if exc.status_code else "request_failed"
         _set_provider_status("itad", "error", code)
@@ -445,8 +445,30 @@ async def fetch_itad_price_quote(steam_app_id: str, display_name: str = "") -> G
         _set_provider_status("itad", "error", "request_failed")
         return GamePriceQuote("itad", "PC過去最安(ITAD)", str(steam_app_id), display_name or str(steam_app_id), status="error", error_code="request_failed")
 
-    current = _parse_itad_overview(overview, itad_id)
-    low = _parse_itad_history_low(history, itad_id)
+    overview_error = ""
+    history_error = ""
+    try:
+        overview = await _post_json(ITAD_OVERVIEW_URL, [itad_id], headers)
+        current = _parse_itad_overview(overview, itad_id)
+    except ExternalHttpError as exc:
+        overview_error = "http_{0}".format(exc.status_code) if exc.status_code else "request_failed"
+        current = (None, "", "", "", "")
+    except Exception:
+        overview_error = "request_failed"
+        current = (None, "", "", "", "")
+    try:
+        history = await _post_json(ITAD_HISTORY_LOW_URL, [itad_id], headers)
+        low = _parse_itad_history_low(history, itad_id)
+    except ExternalHttpError as exc:
+        history_error = "http_{0}".format(exc.status_code) if exc.status_code else "request_failed"
+        low = (None, "", "", "", "")
+    except Exception:
+        history_error = "request_failed"
+        low = (None, "", "", "", "")
+    if current[0] is None and not current[1] and low[0] is None and not low[1]:
+        error_code = overview_error or history_error or "not_found"
+        _set_provider_status("itad", "error", error_code)
+        return GamePriceQuote("itad", "PC過去最安(ITAD)", str(steam_app_id), display_name or str(steam_app_id), status="error", error_code=error_code)
     title = str((game or {}).get("title") or display_name or steam_app_id)
     _set_provider_status("itad", "ok")
     quote_obj = GamePriceQuote(
@@ -460,13 +482,19 @@ async def fetch_itad_price_quote(steam_app_id: str, display_name: str = "") -> G
         formatted_historical_low=low[1],
         currency=current[2] or low[2] or "",
         store_url=str((game or {}).get("url") or ""),
+        current_store_name=current[3],
+        historical_low_store_name=low[3],
         fetched_at=time.time(),
         metadata={
             "steam_app_id": str(steam_app_id),
             "itad_game_id": itad_id,
             "itad_title": title,
+            "itad_current_shop": current[3],
+            "itad_current_url": current[4],
             "itad_low_shop": low[3],
             "itad_low_timestamp": low[4],
+            "itad_overview_error": overview_error,
+            "itad_historylow_error": history_error,
             "cache": "miss",
         },
     )
@@ -493,7 +521,7 @@ def _parse_price_object(price: Any) -> Tuple[Optional[int], str, str]:
     return value, _format_from_minor(value, currency), currency
 
 
-def _parse_itad_overview(payload: Any, itad_id: str) -> Tuple[Optional[int], str, str]:
+def _parse_itad_overview(payload: Any, itad_id: str) -> Tuple[Optional[int], str, str, str, str]:
     items = []
     if isinstance(payload, list):
         items = payload
@@ -503,21 +531,28 @@ def _parse_itad_overview(payload: Any, itad_id: str) -> Tuple[Optional[int], str
             raw_items = payload.get("data")
         items = raw_items
     if not isinstance(items, list):
-        return None, "", ""
+        return None, "", "", "", ""
     for item in items:
         if not isinstance(item, dict) or str(item.get("id") or "") != itad_id:
             continue
         current = item.get("current")
         if isinstance(current, dict):
             price = current.get("price")
+            shop = current.get("shop") if isinstance(current.get("shop"), dict) else {}
+            url = str(current.get("url") or current.get("shopUrl") or "")
             if isinstance(price, dict):
-                return _parse_price_object(price)
+                parsed = _parse_price_object(price)
+                return parsed[0], parsed[1], parsed[2], str(shop.get("name") or ""), url
         deals = item.get("deals")
         if isinstance(deals, list) and deals:
-            return _parse_price_object(deals[0].get("price") if isinstance(deals[0], dict) else None)
+            deal = deals[0] if isinstance(deals[0], dict) else {}
+            parsed = _parse_price_object(deal.get("price"))
+            shop = deal.get("shop") if isinstance(deal.get("shop"), dict) else {}
+            return parsed[0], parsed[1], parsed[2], str(shop.get("name") or ""), str(deal.get("url") or "")
         price = item.get("price") or item.get("current")
-        return _parse_price_object(price)
-    return None, "", ""
+        parsed = _parse_price_object(price)
+        return parsed[0], parsed[1], parsed[2], "", ""
+    return None, "", "", "", ""
 
 
 def _parse_itad_history_low(payload: Any, itad_id: str) -> Tuple[Optional[int], str, str, str, str]:
