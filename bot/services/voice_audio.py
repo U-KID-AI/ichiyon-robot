@@ -253,12 +253,60 @@ def extract_audio_file_from_config(config_value: Any) -> str:
     return ""
 
 
+def extract_audio_asset_id_from_config(config_value: Any) -> Optional[int]:
+    audio_config = normalize_audio_config(config_value)
+    raw_value = audio_config.get("audio_asset_id")
+    if raw_value in (None, ""):
+        voice = audio_config.get("voice")
+        if isinstance(voice, dict):
+            raw_value = voice.get("audio_asset_id")
+    if raw_value in (None, ""):
+        return None
+    try:
+        asset_id = int(raw_value)
+    except (TypeError, ValueError):
+        return None
+    return asset_id if asset_id > 0 else None
+
+
+def extract_audio_volume_percent_from_config(config_value: Any) -> Optional[int]:
+    audio_config = normalize_audio_config(config_value)
+    raw_value = audio_config.get("volume_percent")
+    if raw_value in (None, ""):
+        voice = audio_config.get("voice")
+        if isinstance(voice, dict):
+            raw_value = voice.get("volume_percent")
+    if raw_value in (None, ""):
+        return None
+    try:
+        volume = int(raw_value)
+    except (TypeError, ValueError):
+        return None
+    return max(0, min(100, volume))
+
+
 def extract_reaction_audio_file(row: Dict[str, Any]) -> str:
     for key in ("audio_config_json", "config_json"):
         audio_file = extract_audio_file_from_config(row.get(key))
         if audio_file:
             return audio_file
     return extract_audio_file_from_config(row)
+
+
+def extract_reaction_audio_asset_id(row: Dict[str, Any]) -> Optional[int]:
+    for key in ("audio_config_json", "config_json"):
+        asset_id = extract_audio_asset_id_from_config(row.get(key))
+        if asset_id is not None:
+            return asset_id
+    return extract_audio_asset_id_from_config(row)
+
+
+def extract_reaction_audio_volume_percent(row: Dict[str, Any]) -> Optional[int]:
+    for key in ("audio_config_json", "config_json"):
+        volume = extract_audio_volume_percent_from_config(row.get(key))
+        if volume is not None:
+            return volume
+    return extract_audio_volume_percent_from_config(row)
 
 
 def _voice_channel_id(voice_client: discord.VoiceClient) -> str:

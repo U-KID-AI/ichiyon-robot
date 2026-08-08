@@ -43,7 +43,13 @@ from bot.services.schedule_recruitment import (
     is_schedule_command,
     parse_schedule_command,
 )
-from bot.services.voice_audio import extract_reaction_audio_file, play_audio_asset_by_id, play_reaction_audio
+from bot.services.voice_audio import (
+    extract_reaction_audio_asset_id,
+    extract_reaction_audio_file,
+    extract_reaction_audio_volume_percent,
+    play_audio_asset_by_id,
+    play_reaction_audio,
+)
 
 
 FEATURE_MENTION_RANDOM_DRAW = "mention_random_draw"
@@ -279,9 +285,6 @@ async def play_configured_reaction_audio(
     reaction_type: str,
     fallback_key: str = "",
 ) -> bool:
-    audio_file = extract_reaction_audio_file(row)
-    if not audio_file:
-        return False
     reaction_key = str(
         row.get("id")
         or row.get("reaction_key")
@@ -290,6 +293,20 @@ async def play_configured_reaction_audio(
         or fallback_key
         or ""
     )
+    audio_asset_id = extract_reaction_audio_asset_id(row)
+    if audio_asset_id is not None:
+        played, _reason = await play_audio_asset_by_id(
+            message,
+            audio_asset_id,
+            extract_reaction_audio_volume_percent(row),
+            reaction_type,
+            reaction_key,
+        )
+        return played
+
+    audio_file = extract_reaction_audio_file(row)
+    if not audio_file:
+        return False
     played, _reason = await play_reaction_audio(message, audio_file, reaction_type, reaction_key)
     return played
 

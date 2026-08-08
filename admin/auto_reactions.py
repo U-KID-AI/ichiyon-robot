@@ -19,7 +19,7 @@ from admin.ux import (
     save_uploaded_image,
 )
 from bot.db import get_connection
-from bot.repositories import AutoReactionRepository, SpecialEffectRepository
+from bot.repositories import AutoReactionRepository, AudioAssetRepository, SpecialEffectRepository
 
 
 router = APIRouter()
@@ -192,6 +192,8 @@ def register_auto_reaction_routes(templates: Jinja2Templates) -> None:
         match_type: str = Form("contains"),
         priority: str = Form("0"),
         enabled: Optional[str] = Form(None),
+        audio_asset_id: str = Form(""),
+        audio_volume_percent: str = Form(""),
     ):
         user = get_current_user(request)
         if user is None:
@@ -205,13 +207,25 @@ def register_auto_reaction_routes(templates: Jinja2Templates) -> None:
         uploaded_path, upload_error = await save_uploaded_image(image_upload, "auto_reactions")
         if uploaded_path:
             image_path = uploaded_path
-        form, errors = build_form(trigger_text, response_text, image_path, emoji_internal, match_type, priority, enabled)
+        form, errors = build_form(
+            trigger_text,
+            response_text,
+            image_path,
+            emoji_internal,
+            match_type,
+            priority,
+            enabled,
+            audio_asset_id,
+            audio_volume_percent,
+        )
         if upload_error:
             errors.append(upload_error)
         with get_connection() as connection:
             repository = AutoReactionRepository(connection, bot_id=current_selected_bot_id())
             if not errors and repository.trigger_exists(guild_id, form["trigger_text"], form["match_type"]):
                 errors.append(DUPLICATE_ERROR)
+            if not errors:
+                validate_audio_asset_selection(connection, guild_id, form, errors)
             if not errors:
                 reaction = repository.create_reaction(
                     guild_id,
@@ -222,6 +236,7 @@ def register_auto_reaction_routes(templates: Jinja2Templates) -> None:
                     form["match_type"],
                     form["priority"],
                     form["enabled"],
+                    form["audio_config_json"],
                 )
                 connection.commit()
                 return RedirectResponse(
@@ -272,6 +287,8 @@ def register_auto_reaction_routes(templates: Jinja2Templates) -> None:
         match_type: str = Form("contains"),
         priority: str = Form("0"),
         enabled: Optional[str] = Form(None),
+        audio_asset_id: str = Form(""),
+        audio_volume_percent: str = Form(""),
     ):
         user = get_current_user(request)
         if user is None:
@@ -287,7 +304,17 @@ def register_auto_reaction_routes(templates: Jinja2Templates) -> None:
         uploaded_path, upload_error = await save_uploaded_image(image_upload, "auto_reactions")
         if uploaded_path:
             image_path = uploaded_path
-        form, errors = build_form(trigger_text, response_text, image_path, emoji_internal, match_type, priority, enabled)
+        form, errors = build_form(
+            trigger_text,
+            response_text,
+            image_path,
+            emoji_internal,
+            match_type,
+            priority,
+            enabled,
+            audio_asset_id,
+            audio_volume_percent,
+        )
         if upload_error:
             errors.append(upload_error)
         with get_connection() as connection:
@@ -297,6 +324,8 @@ def register_auto_reaction_routes(templates: Jinja2Templates) -> None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="auto reaction not found")
             if not errors and repository.trigger_exists(guild_id, form["trigger_text"], form["match_type"], reaction_id):
                 errors.append(DUPLICATE_ERROR)
+            if not errors:
+                validate_audio_asset_selection(connection, guild_id, form, errors)
             if not errors:
                 repository.update_reaction(
                     guild_id,
@@ -308,6 +337,7 @@ def register_auto_reaction_routes(templates: Jinja2Templates) -> None:
                     form["match_type"],
                     form["priority"],
                     form["enabled"],
+                    form["audio_config_json"],
                 )
                 connection.commit()
                 return RedirectResponse(
@@ -493,6 +523,9 @@ def default_form() -> Dict[str, Any]:
         "priority": 0,
         "enabled": True,
         "effects": [],
+        "audio_asset_id": "",
+        "audio_volume_percent": "",
+        "audio_config_json": {},
     }
 
 
@@ -510,7 +543,66 @@ def build_form_from_reaction(reaction: Dict[str, Any]) -> Dict[str, Any]:
             "enabled": bool(reaction.get("enabled")),
         }
     )
+    apply_audio_config_to_form(form, reaction.get("audio_config_json"))
     return form
+
+
+def normalize_audio_config(value: Any) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except ValueError:
+            return {}
+        if isinstance(parsed, dict):
+            return parsed
+    return {}
+
+
+def apply_audio_config_to_form(form: Dict[str, Any], value: Any) -> None:
+    config = normalize_audio_config(value)
+    voice = config.get("voice")
+    asset_id = config.get("audio_asset_id")
+    volume = config.get("volume_percent")
+    if asset_id in (None, "") and isinstance(voice, dict):
+        asset_id = voice.get("audio_asset_id")
+    if volume in (None, "") and isinstance(voice, dict):
+        volume = voice.get("volume_percent")
+    form["audio_asset_id"] = "" if asset_id in (None, "") else str(asset_id)
+    form["audio_volume_percent"] = "" if volume in (None, "") else str(volume)
+    form["audio_config_json"] = build_audio_config(form["audio_asset_id"], form["audio_volume_percent"])
+
+
+def build_audio_config(audio_asset_id: str, audio_volume_percent: str) -> Dict[str, Any]:
+    raw_asset_id = str(audio_asset_id or "").strip()
+    if not raw_asset_id:
+        return {}
+    try:
+        parsed_asset_id = int(raw_asset_id)
+    except ValueError:
+        return {}
+    if parsed_asset_id <= 0:
+        return {}
+    config_value: Dict[str, Any] = {"audio_asset_id": parsed_asset_id}
+    raw_volume = str(audio_volume_percent or "").strip()
+    if raw_volume:
+        try:
+            parsed_volume = int(raw_volume)
+        except ValueError:
+            parsed_volume = None
+        if parsed_volume is not None:
+            config_value["volume_percent"] = max(0, min(100, parsed_volume))
+    return config_value
+
+
+def validate_audio_asset_selection(connection, guild_id: str, form: Dict[str, Any], errors: List[str]) -> None:
+    asset_id = form.get("audio_config_json", {}).get("audio_asset_id")
+    if not asset_id:
+        return
+    asset = AudioAssetRepository(connection, bot_id=current_selected_bot_id()).get_asset(guild_id, int(asset_id), enabled=True)
+    if asset is None:
+        errors.append("選択した音声SEが利用できません。")
 
 
 def build_form(
@@ -521,6 +613,8 @@ def build_form(
     match_type: str,
     priority: str,
     enabled: Optional[str],
+    audio_asset_id: str = "",
+    audio_volume_percent: str = "",
 ) -> Tuple[Dict[str, Any], List[str]]:
     form = default_form()
     try:
@@ -540,8 +634,11 @@ def build_form(
             "match_type": match_type if match_type in MATCH_TYPES else "contains",
             "priority": priority_value,
             "enabled": enabled == "on",
+            "audio_asset_id": str(audio_asset_id or "").strip(),
+            "audio_volume_percent": str(audio_volume_percent or "").strip(),
         }
     )
+    form["audio_config_json"] = build_audio_config(form["audio_asset_id"], form["audio_volume_percent"])
 
     errors = []
     if not form["trigger_text"]:
@@ -550,6 +647,13 @@ def build_form(
         errors.append("一致方式を選択。")
     if priority_error:
         errors.append("優先度は整数。")
+    if form["audio_asset_id"] and not form["audio_config_json"].get("audio_asset_id"):
+        errors.append("音声SEの指定が不正です。")
+    if form["audio_volume_percent"]:
+        try:
+            int(form["audio_volume_percent"])
+        except ValueError:
+            errors.append("音声音量は0〜100の数字で指定してください。")
     return form, errors
 
 
@@ -565,6 +669,8 @@ def render_form(
     reaction_id: Optional[int] = None,
     status_code: int = 200,
 ):
+    with get_connection() as connection:
+        audio_assets = AudioAssetRepository(connection, bot_id=current_selected_bot_id()).list_assets(guild_id, enabled=True)
     return templates.TemplateResponse(
         request,
         "auto_reaction_form.html",
@@ -579,6 +685,7 @@ def render_form(
             "can_edit": can_edit,
             "match_types": MATCH_TYPES,
             "match_type_labels": MATCH_TYPE_LABELS,
+            "audio_assets": audio_assets,
         },
         status_code=status_code,
     )

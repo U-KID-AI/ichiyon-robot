@@ -10,9 +10,13 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from bot.services import voice_audio
+from bot.services import runtime_db
 from bot.services.voice_audio import (
     extract_audio_file_from_config,
+    extract_audio_asset_id_from_config,
     extract_reaction_audio_file,
+    extract_reaction_audio_asset_id,
+    extract_reaction_audio_volume_percent,
     play_reaction_audio,
     resolve_audio_file,
 )
@@ -29,6 +33,44 @@ async def check_not_connected_skip() -> bool:
     return check("not connected skips without playback", played is False and reason == "not_connected", reason)
 
 
+async def check_configured_reaction_audio_asset_route() -> bool:
+    calls = []
+    original = runtime_db.play_audio_asset_by_id
+
+    async def fake_play_audio_asset_by_id(message, asset_id, volume_percent=None, reaction_type="audio_asset", reaction_key=""):
+        calls.append(
+            {
+                "asset_id": asset_id,
+                "volume_percent": volume_percent,
+                "reaction_type": reaction_type,
+                "reaction_key": reaction_key,
+            }
+        )
+        return True, "queued"
+
+    try:
+        runtime_db.play_audio_asset_by_id = fake_play_audio_asset_by_id
+        played = await runtime_db.play_configured_reaction_audio(
+            SimpleNamespace(guild=SimpleNamespace(id=12345, voice_client=None)),
+            {"id": 77, "audio_config_json": {"audio_asset_id": 42, "volume_percent": 65}},
+            "auto_reaction",
+            "fallback",
+        )
+    finally:
+        runtime_db.play_audio_asset_by_id = original
+
+    return check(
+        "configured reaction audio_asset_id uses audio asset playback",
+        played
+        and calls
+        and calls[0]["asset_id"] == 42
+        and calls[0]["volume_percent"] == 65
+        and calls[0]["reaction_type"] == "auto_reaction"
+        and calls[0]["reaction_key"] == "77",
+        str(calls),
+    )
+
+
 def main() -> int:
     results = []
     results.append(check("top-level audio_file is accepted", extract_audio_file_from_config({"audio_file": "test.mp3"}) == "test.mp3"))
@@ -39,6 +81,14 @@ def main() -> int:
         )
     )
     results.append(check("json string audio config is accepted", extract_audio_file_from_config('{"audio_file":"json.mp3"}') == "json.mp3"))
+    results.append(check("top-level audio_asset_id is accepted", extract_audio_asset_id_from_config({"audio_asset_id": "123"}) == 123))
+    results.append(
+        check(
+            "nested voice.audio_asset_id is accepted",
+            extract_audio_asset_id_from_config({"voice": {"audio_asset_id": 456}}) == 456,
+        )
+    )
+    results.append(check("invalid audio_asset_id is ignored", extract_audio_asset_id_from_config({"audio_asset_id": "../bad"}) is None))
     results.append(check("blank audio_file is ignored", extract_audio_file_from_config({"audio_file": "   "}) == ""))
     results.append(check("missing audio config is ignored", extract_audio_file_from_config({"voice": {}}) == ""))
     results.append(
@@ -65,6 +115,18 @@ def main() -> int:
             == "auto.mp3",
         )
     )
+    results.append(
+        check(
+            "auto reaction audio_asset_id is read",
+            extract_reaction_audio_asset_id({"audio_config_json": {"voice": {"audio_asset_id": "321"}}}) == 321,
+        )
+    )
+    results.append(
+        check(
+            "auto reaction audio volume is clamped",
+            extract_reaction_audio_volume_percent({"audio_config_json": {"volume_percent": "130"}}) == 100,
+        )
+    )
 
     original_root = voice_audio.AUDIO_ROOT
     try:
@@ -79,6 +141,7 @@ def main() -> int:
         voice_audio.AUDIO_ROOT = original_root
 
     results.append(asyncio.run(check_not_connected_skip()))
+    results.append(asyncio.run(check_configured_reaction_audio_asset_route()))
 
     ok_count = sum(1 for item in results if item)
     print("summary: {0}/{1} OK".format(ok_count, len(results)))
