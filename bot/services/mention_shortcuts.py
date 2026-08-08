@@ -125,6 +125,10 @@ def build_shortcut_embeds(shortcut: Dict[str, Any], quotes: List[game_provider.G
         ok_count += 1
         if ok_count == 1 and quote.store_url:
             embed.url = quote.store_url
+        if quote.provider == "itad":
+            for name, value in _itad_quote_fields(quote):
+                embed.add_field(name=name, value=value, inline=False)
+            continue
         embed.add_field(name=quote.store_name or quote.provider, value=_quote_value(quote), inline=False)
     embed.set_footer(text=_build_fetched_at_footer(quotes))
     return [embed]
@@ -158,6 +162,38 @@ def _quote_value(quote: game_provider.GamePriceQuote) -> str:
     if quote.store_url:
         lines.append(quote.store_url)
     return "\n".join(lines)
+
+
+def _itad_quote_fields(quote: game_provider.GamePriceQuote) -> List[tuple]:
+    fields: List[tuple] = []
+    current_value = game_provider.format_price(quote.current_price, quote.currency, quote.formatted_current_price)
+    current_shop = str(quote.current_store_name or (quote.metadata or {}).get("itad_current_shop") or "").strip()
+    overview_error = str((quote.metadata or {}).get("itad_overview_error") or "").strip()
+    if quote.current_price is not None or quote.formatted_current_price:
+        lines = ["現在最安: {0}".format(current_value)]
+        if current_shop:
+            lines.append("販売店: {0}".format(current_shop))
+        fields.append(("PC現在最安(ITAD)", "\n".join(lines)))
+    else:
+        fields.append(("PC現在最安(ITAD)", _itad_error_text(overview_error)))
+
+    low_value = game_provider.format_price(quote.historical_low, quote.currency, quote.formatted_historical_low)
+    low_shop = str(quote.historical_low_store_name or (quote.metadata or {}).get("itad_low_shop") or "").strip()
+    history_error = str((quote.metadata or {}).get("itad_historylow_error") or "").strip()
+    if quote.historical_low is not None or quote.formatted_historical_low:
+        lines = ["過去最安: {0}".format(low_value)]
+        if low_shop:
+            lines.append("販売店: {0}".format(low_shop))
+        fields.append(("PC過去最安(ITAD)", "\n".join(lines)))
+    else:
+        fields.append(("PC過去最安(ITAD)", _itad_error_text(history_error)))
+    return fields
+
+
+def _itad_error_text(error_code: str) -> str:
+    if not error_code:
+        return "未取得"
+    return "取得失敗: {0}".format(error_code)
 
 
 def _quote_error_label(quote: game_provider.GamePriceQuote) -> str:
