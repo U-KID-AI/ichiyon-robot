@@ -42,6 +42,10 @@ async def check_music_panel_without_voice() -> bool:
         interaction_panel.get_guild_voice_client = original_get_voice
 
 
+def custom_ids(view):
+    return [item.custom_id for item in view.children if hasattr(item, "custom_id")]
+
+
 def main() -> int:
     results = []
     results.append(check("mention-only empty command is detected", interaction_panel.mention_text_is_empty("")))
@@ -51,10 +55,11 @@ def main() -> int:
     results.append(check("game command opens game panel", interaction_panel.panel_command_kind("ゲーム") == "game"))
     results.append(check("audio command opens audio panel", interaction_panel.panel_command_kind("SE") == "audio"))
     results.append(check("music command opens music panel", interaction_panel.panel_command_kind("音楽") == "music"))
+    results.append(check("root panel command opens root panel", interaction_panel.panel_command_kind("パネル") == "root"))
     results.append(check("explicit music panel does not require VC connection", asyncio.run(check_music_panel_without_voice())))
     results.append(check("shortcut text is not panel command", interaction_panel.panel_command_kind("ニコロデオン") is None))
     view = interaction_panel.MainPanelView()
-    button_ids = [item.custom_id for item in view.children if hasattr(item, "custom_id")]
+    button_ids = custom_ids(view)
     results.append(check("main panel has music button", any("main:music" in item for item in button_ids)))
     results.append(check("main panel has audio button", any("main:audio" in item for item in button_ids)))
     results.append(check("main panel has game button", any("main:game" in item for item in button_ids)))
@@ -62,9 +67,19 @@ def main() -> int:
     results.append(check("main panel has close button", any("main:close" in item for item in button_ids)))
     results.append(check("custom ids are persistent scoped", all(item.startswith("ichiyon_panel:") for item in button_ids)))
     music_view = interaction_panel.MusicPanelView()
-    music_ids = [item.custom_id for item in music_view.children if hasattr(item, "custom_id")]
-    for required in ("join", "pause", "resume", "skip", "stop", "now", "queue", "loop", "shuffle", "volume", "add", "back"):
+    music_ids = custom_ids(music_view)
+    for required in ("join", "pause", "resume", "skip", "stop", "now", "queue", "loop", "shuffle", "volume", "add", "n_pull", "back"):
         results.append(check("music button {0}".format(required), any("music:{0}".format(required) in item for item in music_ids)))
+    game_ids = custom_ids(interaction_panel.GamePanelView())
+    results.append(check("game panel has search button", any("game:search" in item for item in game_ids)))
+    results.append(check("game panel has recent button", any("game:recent" in item for item in game_ids)))
+    results.append(check("game panel has back button", any("game:back" in item for item in game_ids)))
+    results.append(check("game panel removed owned list button", not any("game:owned_list" in item for item in game_ids), str(game_ids)))
+    results.append(check("game panel removed wishlist list button", not any("game:wishlist_list" in item for item in game_ids), str(game_ids)))
+    results.append(check("game panel removed backlog list button", not any("game:backlog_list" in item for item in game_ids), str(game_ids)))
+    presets = [{"id": 1, "display_name": "しゃろう", "command_name": "しゃろう", "max_pulls": 10}]
+    select_view = interaction_panel.YouTubeNPullPresetView(presets)
+    results.append(check("youtube n-pull preset view has select", any(item.custom_id.endswith("music:n_pull_select") for item in select_view.children if hasattr(item, "custom_id"))))
     return 0 if all(results) else 1
 
 

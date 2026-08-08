@@ -9,6 +9,7 @@ from bot.db import get_connection
 from bot.repositories.audio_assets import AudioAssetRepository
 from bot.repositories.feature_flags import FeatureFlagRepository
 from bot.repositories.games import GameRepository
+from bot.repositories.youtube_n_pull import YouTubeNPullRepository
 from bot.services import game_provider
 from bot.services.voice_audio import (
     get_guild_voice_client,
@@ -30,6 +31,7 @@ from bot.services.voice_music import (
     MUSIC_LOOP_ONE,
     MUSIC_LOOP_QUEUE,
 )
+from bot.services.youtube_n_pull import handle_youtube_n_pull_command, is_youtube_n_pull_schema_missing
 
 
 PANEL_CUSTOM_ID_PREFIX = "ichiyon_panel"
@@ -95,6 +97,8 @@ def normalize_panel_command(command_text: Optional[str]) -> str:
 
 def panel_command_kind(command_text: Optional[str]) -> Optional[str]:
     normalized = normalize_panel_command(command_text)
+    if normalized in {"パネル", "panel"}:
+        return "root"
     if normalized in {"ゲーム", "game"}:
         return "game"
     if normalized in {"音声", "se", "sound", "ボイス"}:
@@ -111,9 +115,14 @@ async def handle_context_panel_command(message: discord.Message, command_text: O
     if guild is None:
         return False
 
-    kind = panel_command_kind(command_text)
+    source_text = command_text if command_text is not None else getattr(message, "content", "")
+    kind = panel_command_kind(source_text)
     if kind is None:
         return False
+
+    if kind == "root":
+        await send_main_panel(message)
+        return True
 
     if kind == "game":
         if not panel_feature_enabled(str(guild.id), FEATURE_GAMES):
@@ -160,7 +169,7 @@ class MainPanelView(discord.ui.View):
     async def music(self, interaction: discord.Interaction, _button: discord.ui.Button):
         await interaction.response.send_message("音楽操作", view=MusicPanelView(), ephemeral=True)
 
-    @discord.ui.button(label="音声・SE", style=discord.ButtonStyle.secondary, custom_id=custom_id("main", "audio"))
+    @discord.ui.button(label="SE", style=discord.ButtonStyle.secondary, custom_id=custom_id("main", "audio"))
     async def audio(self, interaction: discord.Interaction, _button: discord.ui.Button):
         if interaction.guild is not None and not panel_feature_enabled(str(interaction.guild.id), FEATURE_AUDIO_ASSETS):
             await interaction.response.send_message("音声・SE機能はOFFです。", ephemeral=True)
@@ -270,9 +279,69 @@ class MusicPanelView(discord.ui.View):
     async def add(self, interaction: discord.Interaction, _button: discord.ui.Button):
         await interaction.response.send_modal(MusicUrlModal())
 
+    @discord.ui.button(label="N連プリセット", style=discord.ButtonStyle.secondary, custom_id=custom_id("music", "n_pull"))
+    async def n_pull(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message("サーバー内で使ってください。", ephemeral=True)
+            return
+        try:
+            with get_connection() as connection:
+                presets = YouTubeNPullRepository(connection).list_presets(str(guild.id), enabled=True)
+        except Exception as exc:
+            if is_youtube_n_pull_schema_missing(exc):
+                await interaction.response.send_message("N連プリセットはまだ利用できません。", ephemeral=True)
+                return
+            raise
+        if not presets:
+            await interaction.response.send_message("利用できるN連プリセットがありません。", ephemeral=True)
+            return
+        await interaction.response.send_message("N連プリセットを選んでください。", view=YouTubeNPullPresetView(presets), ephemeral=True)
+
     @discord.ui.button(label="戻る", style=discord.ButtonStyle.secondary, custom_id=custom_id("music", "back"))
     async def back(self, interaction: discord.Interaction, _button: discord.ui.Button):
         await interaction.response.send_message(MENTION_ONLY_MESSAGE, view=MainPanelView(), ephemeral=True)
+
+
+class YouTubeNPullPresetSelect(discord.ui.Select):
+    def __init__(self, presets):
+        self.presets = {str(preset.get("id")): preset for preset in presets[:MAX_SELECT_OPTIONS]}
+        options = []
+        for preset in presets[:MAX_SELECT_OPTIONS]:
+            preset_id = str(preset.get("id"))
+            name = str(preset.get("display_name") or preset.get("command_name") or preset_id)
+            command_name = str(preset.get("command_name") or "")
+            max_pulls = int(preset.get("max_pulls") or 1)
+            options.append(
+                discord.SelectOption(
+                    label=name[:100],
+                    value=preset_id[:100],
+                    description="{0} / 最大{1}連".format(command_name, max_pulls)[:100],
+                )
+            )
+        super().__init__(placeholder="N連プリセット", min_values=1, max_values=1, options=options, custom_id=custom_id("music", "n_pull_select"))
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        preset = self.presets.get(str(self.values[0]))
+        if not preset:
+            await interaction.response.send_message("N連プリセットが見つかりません。", ephemeral=True)
+            return
+        command_name = str(preset.get("command_name") or "").strip()
+        if not command_name:
+            await interaction.response.send_message("N連プリセットのコマンド名が未設定です。", ephemeral=True)
+            return
+        count = max(1, min(100, int(preset.get("max_pulls") or 1)))
+        command_text = "{0} {1}連".format(command_name, count)
+        await interaction.response.defer(ephemeral=True)
+        handled = await handle_youtube_n_pull_command(InteractionMessageAdapter(interaction, command_text), command_text)
+        if not handled:
+            await interaction.followup.send("N連プリセットを実行できませんでした。", ephemeral=True)
+
+
+class YouTubeNPullPresetView(discord.ui.View):
+    def __init__(self, presets) -> None:
+        super().__init__(timeout=300)
+        self.add_item(YouTubeNPullPresetSelect(presets))
 
 
 class AudioCategorySelect(discord.ui.Select):
@@ -445,18 +514,6 @@ class GamePanelView(discord.ui.View):
     @discord.ui.button(label="検索", style=discord.ButtonStyle.primary, custom_id=custom_id("game", "search"))
     async def search(self, interaction: discord.Interaction, _button: discord.ui.Button):
         await interaction.response.send_modal(GameSearchModal())
-
-    @discord.ui.button(label="所持リスト", style=discord.ButtonStyle.secondary, custom_id=custom_id("game", "owned_list"))
-    async def owned_list(self, interaction: discord.Interaction, _button: discord.ui.Button):
-        await self._send_list(interaction, "owned", "所持")
-
-    @discord.ui.button(label="ほしいもの", style=discord.ButtonStyle.secondary, custom_id=custom_id("game", "wishlist_list"))
-    async def wishlist_list(self, interaction: discord.Interaction, _button: discord.ui.Button):
-        await self._send_list(interaction, "wishlist", "ほしいもの")
-
-    @discord.ui.button(label="積み", style=discord.ButtonStyle.secondary, custom_id=custom_id("game", "backlog_list"))
-    async def backlog_list(self, interaction: discord.Interaction, _button: discord.ui.Button):
-        await self._send_list(interaction, "backlog", "積み")
 
     @discord.ui.button(label="最近の検索", style=discord.ButtonStyle.secondary, custom_id=custom_id("game", "recent"))
     async def recent(self, interaction: discord.Interaction, _button: discord.ui.Button):
