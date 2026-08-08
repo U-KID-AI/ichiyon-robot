@@ -131,9 +131,6 @@ async def handle_context_panel_command(message: discord.Message, command_text: O
         await message.channel.send("音声・SE", view=AudioCategoryView(categories), allowed_mentions=discord.AllowedMentions.none())
         return True
 
-    voice_client = get_guild_voice_client(guild)
-    if voice_client is None:
-        return False
     await message.channel.send("音楽操作", view=MusicPanelView(), allowed_mentions=discord.AllowedMentions.none())
     return True
 

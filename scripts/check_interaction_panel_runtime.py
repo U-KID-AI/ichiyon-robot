@@ -1,5 +1,7 @@
+import asyncio
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -14,6 +16,32 @@ def check(name, ok, detail=""):
     return ok
 
 
+class FakeChannel:
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, *args, **kwargs):
+        self.sent.append((args, kwargs))
+
+
+class FakeMessage:
+    def __init__(self):
+        self.author = SimpleNamespace(bot=False)
+        self.guild = SimpleNamespace(id="guild-a")
+        self.channel = FakeChannel()
+
+
+async def check_music_panel_without_voice() -> bool:
+    original_get_voice = interaction_panel.get_guild_voice_client
+    try:
+        interaction_panel.get_guild_voice_client = lambda guild: None
+        message = FakeMessage()
+        handled = await interaction_panel.handle_context_panel_command(message, "音楽")
+        return handled is True and len(message.channel.sent) == 1
+    finally:
+        interaction_panel.get_guild_voice_client = original_get_voice
+
+
 def main() -> int:
     results = []
     results.append(check("mention-only empty command is detected", interaction_panel.mention_text_is_empty("")))
@@ -23,6 +51,7 @@ def main() -> int:
     results.append(check("game command opens game panel", interaction_panel.panel_command_kind("ゲーム") == "game"))
     results.append(check("audio command opens audio panel", interaction_panel.panel_command_kind("SE") == "audio"))
     results.append(check("music command opens music panel", interaction_panel.panel_command_kind("音楽") == "music"))
+    results.append(check("explicit music panel does not require VC connection", asyncio.run(check_music_panel_without_voice())))
     results.append(check("shortcut text is not panel command", interaction_panel.panel_command_kind("ニコロデオン") is None))
     view = interaction_panel.MainPanelView()
     button_ids = [item.custom_id for item in view.children if hasattr(item, "custom_id")]
