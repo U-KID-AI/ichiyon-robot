@@ -52,6 +52,7 @@ async def main_async():
     original_flag_repo = mention_shortcuts.FeatureFlagRepository
     original_fetch = mention_shortcuts.fetch_shortcut_price_quotes
     original_audio = mention_shortcuts.run_shortcut_audio_actions
+    original_provider_fetch = mention_shortcuts.game_provider.fetch_price_quote
     calls = {"audio": 0, "fetch": 0}
 
     class DummyConnection:
@@ -120,8 +121,18 @@ async def main_async():
         results.append(check("exact shortcut is handled", handled))
         results.append(check("price embed is sent once", len(message.channel.sent) == 1, message.channel.sent))
         results.append(check("audio action runs independently", calls["audio"] == 1, calls))
+        spaced = FakeMessage(" ニコロデオン ")
+        results.append(check("shortcut trims surrounding spaces", await mention_shortcuts.handle_mention_shortcut_command(spaced, " ニコロデオン ") is True))
         miss = FakeMessage("ニコロデオン 価格")
         results.append(check("partial text is not handled", await mention_shortcuts.handle_mention_shortcut_command(miss, "ニコロデオン 価格") is False))
+        suffix = FakeMessage("ニコロデオンって何？")
+        results.append(check("exact shortcut rejects suffix text", await mention_shortcuts.handle_mention_shortcut_command(suffix, "ニコロデオンって何？") is False))
+        empty = FakeMessage("")
+        results.append(check("empty mention is not shortcut", await mention_shortcuts.handle_mention_shortcut_command(empty, "") is False))
+        voice_command = FakeMessage("もしもししよ")
+        results.append(check("voice command is not shortcut", await mention_shortcuts.handle_mention_shortcut_command(voice_command, "もしもししよ") is False))
+        deck_command = FakeMessage("デッキ エルフ")
+        results.append(check("deck command is not shortcut", await mention_shortcuts.handle_mention_shortcut_command(deck_command, "デッキ エルフ") is False))
         bot_message = FakeMessage("ニコロデオン", bot=True)
         results.append(check("bot author is ignored", await mention_shortcuts.handle_mention_shortcut_command(bot_message, "ニコロデオン") is False))
     finally:
@@ -130,6 +141,63 @@ async def main_async():
         mention_shortcuts.FeatureFlagRepository = original_flag_repo
         mention_shortcuts.fetch_shortcut_price_quotes = original_fetch
         mention_shortcuts.run_shortcut_audio_actions = original_audio
+        mention_shortcuts.game_provider.fetch_price_quote = original_provider_fetch
+
+    async def fake_provider_fetch(provider, product_id, lookup_type="", display_name=""):
+        if provider == "steam":
+            raise RuntimeError("steam unavailable")
+        return GamePriceQuote(
+            provider=provider,
+            store_name=display_name or provider,
+            provider_product_id=product_id,
+            title=display_name or product_id,
+            status="error",
+            error_code="not_configured",
+        )
+
+    mention_shortcuts.game_provider.fetch_price_quote = fake_provider_fetch
+    try:
+        quotes = await mention_shortcuts.fetch_shortcut_price_quotes(
+            [
+                {"provider": "steam", "provider_product_id": "1414850", "lookup_type": "app_id", "display_name": "Steam"},
+                {"provider": "itad", "provider_product_id": "1414850", "lookup_type": "app_id", "display_name": "ITAD"},
+            ]
+        )
+        results.append(check("provider exception does not abort shortcut prices", len(quotes) == 2, quotes))
+        results.append(check("steam failure is represented as error quote", quotes[0].provider == "steam" and quotes[0].status == "error"))
+        results.append(check("unset optional provider still returns status quote", quotes[1].provider == "itad" and quotes[1].error_code == "not_configured"))
+    finally:
+        mention_shortcuts.game_provider.fetch_price_quote = original_provider_fetch
+
+    async def fake_partial_provider_fetch(provider, product_id, lookup_type="", display_name=""):
+        if provider == "itad":
+            raise RuntimeError("itad unavailable")
+        return GamePriceQuote(
+            provider=provider,
+            store_name=display_name or provider,
+            provider_product_id=product_id,
+            title=display_name or product_id,
+            current_price=5500,
+            regular_price=5500,
+            discount_percent=0,
+            formatted_current_price="5,500円",
+            formatted_regular_price="5,500円",
+            status="ok",
+        )
+
+    mention_shortcuts.game_provider.fetch_price_quote = fake_partial_provider_fetch
+    try:
+        quotes = await mention_shortcuts.fetch_shortcut_price_quotes(
+            [
+                {"provider": "steam", "provider_product_id": "1414850", "lookup_type": "app_id", "display_name": "Steam"},
+                {"provider": "itad", "provider_product_id": "1414850", "lookup_type": "app_id", "display_name": "ITAD"},
+            ]
+        )
+        results.append(check("optional provider failure does not suppress steam", quotes[0].ok and quotes[1].status == "error"))
+        embeds = mention_shortcuts.build_shortcut_embeds({"name": "ニコロデオン"}, quotes)
+        results.append(check("partial failure still builds price embed", len(embeds) == 1 and len(embeds[0].fields) == 2))
+    finally:
+        mention_shortcuts.game_provider.fetch_price_quote = original_provider_fetch
     return all(results)
 
 

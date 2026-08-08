@@ -16,9 +16,14 @@ def check(name, ok, detail=""):
 
 def main() -> int:
     results = []
-    results.append(check("mention-only empty command opens panel", interaction_panel.mention_text_is_empty("")))
-    results.append(check("mention-only whitespace opens panel", interaction_panel.mention_text_is_empty(" \t")))
-    results.append(check("non-empty mention does not open panel", not interaction_panel.mention_text_is_empty("歌え https://youtu.be/x")))
+    results.append(check("mention-only empty command is detected", interaction_panel.mention_text_is_empty("")))
+    results.append(check("mention-only whitespace is detected", interaction_panel.mention_text_is_empty(" \t")))
+    results.append(check("non-empty mention is not empty", not interaction_panel.mention_text_is_empty("歌え https://youtu.be/x")))
+    results.append(check("empty mention is not panel command", interaction_panel.panel_command_kind("") is None))
+    results.append(check("game command opens game panel", interaction_panel.panel_command_kind("ゲーム") == "game"))
+    results.append(check("audio command opens audio panel", interaction_panel.panel_command_kind("SE") == "audio"))
+    results.append(check("music command opens music panel", interaction_panel.panel_command_kind("音楽") == "music"))
+    results.append(check("shortcut text is not panel command", interaction_panel.panel_command_kind("ニコロデオン") is None))
     view = interaction_panel.MainPanelView()
     button_ids = [item.custom_id for item in view.children if hasattr(item, "custom_id")]
     results.append(check("main panel has music button", any("main:music" in item for item in button_ids)))

@@ -42,6 +42,16 @@ async def handle_mention_shortcut_command(message: discord.Message, command_text
                 return False
             price_targets = repo.list_price_targets(int(shortcut["id"]), enabled=True)
             audio_actions = repo.list_audio_actions(int(shortcut["id"]), enabled=True)
+            print(
+                "[INFO] mention shortcut matched: bot_instance_id={0} guild_id={1} shortcut_id={2} trigger={3} targets={4} audio_actions={5}".format(
+                    config.BOT_INSTANCE_ID,
+                    guild_id,
+                    shortcut.get("id"),
+                    shortcut.get("trigger_key") or "",
+                    len(price_targets),
+                    len(audio_actions),
+                )
+            )
     except Exception as exc:
         print(
             "[WARN] mention shortcut lookup failed: bot_instance_id={0} guild_id={1} error={2}".format(
@@ -70,12 +80,30 @@ async def fetch_shortcut_price_quotes(targets: List[Dict[str, Any]]) -> List[gam
         product_id = str(target.get("provider_product_id") or "").strip()
         if not provider or not product_id:
             continue
-        quote = await game_provider.fetch_price_quote(
-            provider,
-            product_id,
-            str(target.get("lookup_type") or ""),
-            str(target.get("display_name") or ""),
-        )
+        display_name = str(target.get("display_name") or "")
+        try:
+            quote = await game_provider.fetch_price_quote(
+                provider,
+                product_id,
+                str(target.get("lookup_type") or ""),
+                display_name,
+            )
+        except Exception as exc:
+            print(
+                "[WARN] mention shortcut price target failed: provider={0} product_id={1} error={2}".format(
+                    provider,
+                    product_id,
+                    type(exc).__name__,
+                )
+            )
+            quote = game_provider.GamePriceQuote(
+                provider=provider,
+                store_name=display_name or provider,
+                provider_product_id=product_id,
+                title=display_name or product_id,
+                status="error",
+                error_code="request_failed",
+            )
         if not bool(target.get("include_historical_low", True)):
             quote.historical_low = None
             quote.formatted_historical_low = ""

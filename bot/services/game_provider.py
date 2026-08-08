@@ -331,7 +331,15 @@ async def fetch_steam_price_quote(app_id: str, display_name: str = "") -> GamePr
     cached = _cached("steam", "app_id", str(app_id))
     if cached:
         return cached
-    candidate = await fetch_steam_app_detail(app_id, display_name)
+    try:
+        candidate = await fetch_steam_app_detail(app_id, display_name)
+    except ExternalHttpError as exc:
+        code = "http_{0}".format(exc.status_code) if exc.status_code else "request_failed"
+        _set_provider_status("steam", "error", code)
+        return GamePriceQuote("steam", "Steam", str(app_id), display_name or str(app_id), status="error", error_code=code)
+    except Exception:
+        _set_provider_status("steam", "error", "request_failed")
+        return GamePriceQuote("steam", "Steam", str(app_id), display_name or str(app_id), status="error", error_code="request_failed")
     if candidate is None:
         _set_provider_status("steam", "error", "not_found")
         return GamePriceQuote("steam", "Steam", str(app_id), display_name or str(app_id), status="error", error_code="not_found")

@@ -114,6 +114,16 @@ def log_voice_action(
     )
 
 
+async def send_music_panel_after_voice_ready(message: discord.Message, content: str) -> None:
+    try:
+        from bot.services.interaction_panel import MusicPanelView
+
+        await message.channel.send(content, view=MusicPanelView(), allowed_mentions=discord.AllowedMentions.none())
+    except Exception as exc:
+        print("[WARN] music panel attach failed after voice command: error={0}".format(type(exc).__name__))
+        await message.channel.send(content)
+
+
 async def join_author_voice_channel(message: discord.Message) -> None:
     guild = message.guild
     if guild is None:
@@ -138,19 +148,19 @@ async def join_author_voice_channel(message: discord.Message) -> None:
             await target_channel.connect()
             log_voice_action("join", guild_id, target_channel_id)
             activate_tts_session(guild_id, str(getattr(message.channel, "id", "") or ""))
-            await message.channel.send("VCに入りました。")
+            await send_music_panel_after_voice_ready(message, "VCに入りました。")
             return
 
         current_channel = getattr(voice_client, "channel", None)
         if is_voice_client_connected(voice_client) and getattr(current_channel, "id", None) == getattr(target_channel, "id", None):
             log_voice_action("join_already_connected", guild_id, target_channel_id)
-            await message.channel.send("もう同じVCにいます。")
+            await send_music_panel_after_voice_ready(message, "もう同じVCにいます。")
             return
 
         await voice_client.move_to(target_channel)
         log_voice_action("move", guild_id, target_channel_id)
         activate_tts_session(guild_id, str(getattr(message.channel, "id", "") or ""))
-        await message.channel.send("VCを移動しました。")
+        await send_music_panel_after_voice_ready(message, "VCを移動しました。")
     except (
         RuntimeError,
         asyncio.TimeoutError,
