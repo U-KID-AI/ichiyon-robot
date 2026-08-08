@@ -139,7 +139,7 @@ def _cached(provider: str, lookup_type: str, product_id: str) -> Optional[GamePr
     clone = GamePriceQuote(**{**quote.__dict__})
     clone.metadata = dict(quote.metadata)
     clone.metadata["cache"] = "hit"
-    return clone
+    return _repair_steam_quote_price(clone)
 
 
 def _store_cache(provider: str, lookup_type: str, product_id: str, quote: GamePriceQuote) -> GamePriceQuote:
@@ -219,6 +219,21 @@ def _steam_price_value(overview: Dict[str, Any], key: str, formatted_key: str, c
     return raw, _format_from_minor(raw, currency)
 
 
+def _repair_steam_quote_price(quote: GamePriceQuote) -> GamePriceQuote:
+    if quote.provider != "steam" or str(quote.currency or "").upper() != "JPY":
+        return quote
+    if quote.discount_percent not in (None, 0):
+        return quote
+    current = quote.current_price
+    regular = quote.regular_price
+    if current is None or regular is None:
+        return quote
+    if regular == current * 100 and quote.formatted_regular_price == _format_jpy_price(regular):
+        quote.regular_price = current
+        quote.formatted_regular_price = quote.formatted_current_price or _format_jpy_price(current)
+    return quote
+
+
 def _parse_price_overview(data: Dict[str, Any]) -> Dict[str, Any]:
     overview = data.get("price_overview")
     if not isinstance(overview, dict):
@@ -242,10 +257,20 @@ def _parse_price_overview(data: Dict[str, Any]) -> Dict[str, Any]:
     currency = str(overview.get("currency") or "JPY").upper()
     final, final_formatted = _steam_price_value(overview, "final", "final_formatted", currency)
     initial, initial_formatted = _steam_price_value(overview, "initial", "initial_formatted", currency)
+    discount = _as_int(overview.get("discount_percent"))
+    if (
+        currency == "JPY"
+        and discount == 0
+        and final is not None
+        and overview.get("initial") == overview.get("final")
+        and not str(overview.get("initial_formatted") or "").strip()
+    ):
+        initial = final
+        initial_formatted = final_formatted
     return {
         "price": final,
         "regular_price": initial,
-        "discount": _as_int(overview.get("discount_percent")),
+        "discount": discount,
         "currency": currency,
         "formatted_price": final_formatted,
         "formatted_regular_price": initial_formatted,
@@ -369,6 +394,7 @@ async def fetch_steam_price_quote(app_id: str, display_name: str = "") -> GamePr
         fetched_at=time.time(),
         metadata=dict(candidate.metadata),
     )
+    quote = _repair_steam_quote_price(quote)
     return _store_cache("steam", "app_id", str(app_id), quote)
 
 

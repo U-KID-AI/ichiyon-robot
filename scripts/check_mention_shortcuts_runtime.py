@@ -207,6 +207,50 @@ async def main_async():
         results.append(check("shortcut footer marks failed provider as not fetched", "ITAD: 未取得" in embeds[0].footer.text, embeds[0].footer.text))
     finally:
         mention_shortcuts.game_provider.fetch_price_quote = original_provider_fetch
+
+    original_fetch_json = mention_shortcuts.game_provider.fetch_json
+    mention_shortcuts.game_provider._PRICE_CACHE.clear()
+
+    async def fake_steam_fetch_json(url, policy=None):
+        return {
+            "1414850": {
+                "success": True,
+                "data": {
+                    "name": "Nickelodeon All-Star Brawl",
+                    "type": "game",
+                    "price_overview": {
+                        "currency": "JPY",
+                        "initial": 515000,
+                        "final": 515000,
+                        "final_formatted": "¥ 5,150",
+                        "discount_percent": 0,
+                    },
+                },
+            }
+        }
+
+    mention_shortcuts.game_provider.fetch_json = fake_steam_fetch_json
+    try:
+        quotes = await mention_shortcuts.fetch_shortcut_price_quotes(
+            [
+                {"provider": "steam", "provider_product_id": "1414850", "lookup_type": "app_id", "display_name": "Steam"},
+            ]
+        )
+        embeds = mention_shortcuts.build_shortcut_embeds({"name": "ニコロデオン"}, quotes)
+        value = embeds[0].fields[0].value if embeds else ""
+        results.append(check("shortcut provider cache quote current is normalized", "現在価格: 5,150円" in value, value))
+        results.append(check("shortcut provider cache quote regular is normalized", "通常価格: 5,150円" in value, value))
+        cached_quotes = await mention_shortcuts.fetch_shortcut_price_quotes(
+            [
+                {"provider": "steam", "provider_product_id": "1414850", "lookup_type": "app_id", "display_name": "Steam"},
+            ]
+        )
+        cached_embeds = mention_shortcuts.build_shortcut_embeds({"name": "ニコロデオン"}, cached_quotes)
+        cached_value = cached_embeds[0].fields[0].value if cached_embeds else ""
+        results.append(check("shortcut cached quote regular remains normalized", "通常価格: 5,150円" in cached_value and "515,000円" not in cached_value, cached_value))
+    finally:
+        mention_shortcuts.game_provider.fetch_json = original_fetch_json
+        mention_shortcuts.game_provider._PRICE_CACHE.clear()
     return all(results)
 
 

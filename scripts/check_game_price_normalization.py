@@ -62,6 +62,22 @@ async def main_async():
     results.append(check("steam JPY initial raw/formatted uses formatted digits", nickelodeon.last_known_regular_price == 5150, nickelodeon.last_known_regular_price))
     results.append(check("steam JPY final display does not expose raw", nickelodeon.metadata["formatted_price"] == "5,150円", nickelodeon.metadata["formatted_price"]))
     results.append(check("steam JPY initial display does not expose raw", nickelodeon.metadata["formatted_regular_price"] == "5,150円", nickelodeon.metadata["formatted_regular_price"]))
+    missing_initial_formatted = {
+        "success": True,
+        "data": {
+            "name": "Nickelodeon All-Star Brawl",
+            "price_overview": {
+                "currency": "JPY",
+                "initial": 515000,
+                "final": 515000,
+                "final_formatted": "¥ 5,150",
+                "discount_percent": 0,
+            },
+        },
+    }
+    missing_initial = game_provider._candidate_from_detail("1414850", missing_initial_formatted)
+    results.append(check("steam JPY missing initial_formatted reuses normalized final", missing_initial.last_known_regular_price == 5150, missing_initial.last_known_regular_price))
+    results.append(check("steam JPY missing initial_formatted display is normalized", missing_initial.metadata["formatted_regular_price"] == "5,150円", missing_initial.metadata["formatted_regular_price"]))
     sale_detail = {
         "success": True,
         "data": {
@@ -94,6 +110,21 @@ async def main_async():
     }
     usd = game_provider._candidate_from_detail("2", usd_detail)
     results.append(check("non-JPY formatted value is kept as provider formatted", usd.metadata["formatted_price"] == "$9.99" and usd.metadata["formatted_regular_price"] == "$19.99", usd.metadata))
+    stale_quote = game_provider.GamePriceQuote(
+        provider="steam",
+        store_name="Steam",
+        provider_product_id="1414850",
+        title="Nickelodeon All-Star Brawl",
+        current_price=5150,
+        regular_price=515000,
+        discount_percent=0,
+        currency="JPY",
+        formatted_current_price="5,150円",
+        formatted_regular_price="515,000円",
+        status="ok",
+    )
+    repaired = game_provider._repair_steam_quote_price(stale_quote)
+    results.append(check("old steam cache regular raw is repaired", repaired.regular_price == 5150 and repaired.formatted_regular_price == "5,150円", repaired))
     return all(results)
 
 
