@@ -7,6 +7,7 @@ from admin.bot_context import selected_bot_id
 from admin.servers import can_access_guild, find_server, role_allows
 from bot.db import get_connection
 from bot.repositories.games import GameRepository
+from bot.services import game_provider
 
 
 router = APIRouter()
@@ -33,6 +34,11 @@ def register_game_routes(templates: Jinja2Templates) -> None:
                 "guild_id": guild_id,
                 "games": games,
                 "can_refresh": role_allows(server["role"], "editor"),
-                "provider_status": "Steam Store API / price history: unavailable",
+                "provider_status": [
+                    {"provider": "Steam", "status": "利用可能"},
+                    {"provider": "IsThereAnyDeal", "status": "API key設定済み" if game_provider.itad_api_key() else "API key未設定"},
+                    {"provider": "NTPrices", "status": "API key設定済み / Region: {0}".format(game_provider.ntprices_region()) if game_provider.ntprices_api_key() else "API key未設定 / Region: {0}".format(game_provider.ntprices_region())},
+                ],
+                "format_price": game_provider.format_price,
             },
         )

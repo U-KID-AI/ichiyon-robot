@@ -1,0 +1,56 @@
+{% extends "layout.html" %}
+{% block title %}メンションショートカット - Bot管理画面{% endblock %}
+{% block heading %}メンションショートカット{% endblock %}
+{% block content %}
+<section class="panel">
+  <div class="page-actions">
+    <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+    {% if can_edit %}
+      <a class="button-link" href="/guilds/{{ guild_id }}/mention-shortcuts/new">新規作成</a>
+    {% endif %}
+  </div>
+  {% if message %}<p class="status enabled">{{ message }}</p>{% endif %}
+  {% if error %}<p class="status disabled">{{ error }}</p>{% endif %}
+  <div class="info-list">
+    {% for row in provider_status %}
+      <p><strong>{{ row.provider }}</strong>: {{ row.status }}</p>
+    {% endfor %}
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>名前</th>
+        <th>呼び出し文字</th>
+        <th>価格対象</th>
+        <th>SE</th>
+        <th>状態</th>
+        <th>操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for shortcut in shortcuts %}
+        <tr>
+          <td>{{ shortcut.name }}</td>
+          <td>{{ shortcut.trigger_text }}</td>
+          <td>{{ shortcut.price_target_count }}</td>
+          <td>{{ shortcut.audio_action_count }}</td>
+          <td>{% if shortcut.enabled %}<strong class="status enabled">ON</strong>{% else %}<strong class="status disabled">OFF</strong>{% endif %}</td>
+          <td>
+            <a class="button-link secondary" href="/guilds/{{ guild_id }}/mention-shortcuts/{{ shortcut.id }}">編集</a>
+            {% if can_edit %}
+              <form method="post" action="/guilds/{{ guild_id }}/mention-shortcuts/{{ shortcut.id }}/toggle" style="display:inline">
+                <button type="submit">{% if shortcut.enabled %}OFF{% else %}ON{% endif %}</button>
+              </form>
+              <form method="post" action="/guilds/{{ guild_id }}/mention-shortcuts/{{ shortcut.id }}/delete" style="display:inline" onsubmit="return confirm('削除しますか？');">
+                <button class="danger" type="submit">削除</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6">登録済みショートカットはありません。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

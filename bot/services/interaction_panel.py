@@ -1,4 +1,5 @@
 import re
+import unicodedata
 from typing import Optional
 
 import discord
@@ -84,6 +85,53 @@ def panel_feature_enabled(guild_id: str, feature_key: str) -> bool:
 
 async def send_main_panel(message: discord.Message) -> bool:
     await message.channel.send(MENTION_ONLY_MESSAGE, view=build_main_view(), allowed_mentions=discord.AllowedMentions.none())
+    return True
+
+
+def normalize_panel_command(command_text: Optional[str]) -> str:
+    text = unicodedata.normalize("NFKC", str(command_text or "")).casefold()
+    return "".join(text.strip().split())
+
+
+def panel_command_kind(command_text: Optional[str]) -> Optional[str]:
+    normalized = normalize_panel_command(command_text)
+    if normalized in {"ゲーム", "game"}:
+        return "game"
+    if normalized in {"音声", "se", "sound", "ボイス"}:
+        return "audio"
+    if normalized in {"音楽", "music"}:
+        return "music"
+    return None
+
+
+async def handle_context_panel_command(message: discord.Message, command_text: Optional[str]) -> bool:
+    if getattr(getattr(message, "author", None), "bot", False):
+        return False
+    guild = getattr(message, "guild", None)
+    if guild is None:
+        return False
+
+    kind = panel_command_kind(command_text)
+    if kind is None:
+        return False
+
+    if kind == "game":
+        if not panel_feature_enabled(str(guild.id), FEATURE_GAMES):
+            await message.channel.send("ゲーム機能はOFFです。", allowed_mentions=discord.AllowedMentions.none())
+            return True
+        await message.channel.send("ゲーム操作", view=GamePanelView(), allowed_mentions=discord.AllowedMentions.none())
+        return True
+
+    if kind == "audio":
+        if not panel_feature_enabled(str(guild.id), FEATURE_AUDIO_ASSETS):
+            await message.channel.send("音声・SE機能はOFFです。", allowed_mentions=discord.AllowedMentions.none())
+            return True
+        with get_connection() as connection:
+            categories = AudioAssetRepository(connection).list_categories(str(guild.id), enabled=True)
+        await message.channel.send("音声・SE", view=AudioCategoryView(categories), allowed_mentions=discord.AllowedMentions.none())
+        return True
+
+    await message.channel.send("音楽操作", view=MusicPanelView(), allowed_mentions=discord.AllowedMentions.none())
     return True
 
 
@@ -337,8 +385,19 @@ class GameSearchModal(discord.ui.Modal, title="ゲーム検索"):
 
 
 def build_game_embed(game) -> discord.Embed:
-    price = game_provider.format_price(game.get("last_known_price"), game.get("currency") or "JPY")
-    regular = game_provider.format_price(game.get("last_known_regular_price"), game.get("currency") or "JPY")
+    metadata = game.get("metadata_json") or {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    price = game_provider.format_price(
+        game.get("last_known_price"),
+        game.get("currency") or "JPY",
+        str(metadata.get("formatted_price") or ""),
+    )
+    regular = game_provider.format_price(
+        game.get("last_known_regular_price"),
+        game.get("currency") or "JPY",
+        str(metadata.get("formatted_regular_price") or ""),
+    )
     embed = discord.Embed(title=str(game.get("title") or "Steam game"), url=str(game.get("store_url") or ""))
     embed.add_field(name="現在価格", value=price, inline=True)
     embed.add_field(name="通常価格", value=regular, inline=True)

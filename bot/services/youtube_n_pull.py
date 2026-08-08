@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse, urlunparse
 
+from psycopg import errors as psycopg_errors
+
 from bot import config
 from bot.db import get_connection
 from bot.repositories.feature_flags import FeatureFlagRepository
@@ -468,6 +470,10 @@ def log_n_pull(action: str, guild_id: str, requester_id: str = "", preset: Optio
     )
 
 
+def is_youtube_n_pull_schema_missing(exc: Exception) -> bool:
+    return isinstance(exc, (psycopg_errors.UndefinedTable, psycopg_errors.UndefinedColumn))
+
+
 async def handle_youtube_n_pull_command(message: discord.Message, command_text: Optional[str]) -> bool:
     if command_text is None:
         return False
@@ -482,7 +488,13 @@ async def handle_youtube_n_pull_command(message: discord.Message, command_text: 
 
     with get_connection() as connection:
         repository = YouTubeNPullRepository(connection)
-        presets = repository.list_presets(guild_id, enabled=True)
+        try:
+            presets = repository.list_presets(guild_id, enabled=True)
+        except Exception as exc:
+            if is_youtube_n_pull_schema_missing(exc):
+                log_n_pull("schema_missing", guild_id, requester_id, reason=type(exc).__name__)
+                return False
+            raise
         owned_preset, owned_command_name, count, error = find_owned_n_pull_command(command_text, presets)
         if owned_preset is None:
             return False

@@ -9,7 +9,8 @@ from bot.quotes import draw_quote_message
 from bot.reactions import handle_word_response
 from bot.services.auto_posts import run_db_auto_posts_once
 from bot.services.reaction_thresholds import handle_db_reaction_threshold
-from bot.services.interaction_panel import mention_text_is_empty, register_persistent_views, send_main_panel
+from bot.services.interaction_panel import handle_context_panel_command, mention_text_is_empty, register_persistent_views
+from bot.services.mention_shortcuts import handle_mention_shortcut_command
 from bot.services.runtime_db import (
     RANDOM_DRAW_PULL_BLOCKED,
     RANDOM_DRAW_PULL_INVALID_MESSAGE,
@@ -82,10 +83,9 @@ async def handle_empty_mention_message(message: discord.Message, command_text: s
 
     if config.DATA_BACKEND == "db" and get_message_guild_id(message) is not None:
         if await handle_db_runtime_message(message):
-            await send_main_panel(message)
             return True
 
-    return await send_main_panel(message)
+    return False
 
 
 @bot.event
@@ -185,6 +185,12 @@ async def on_message(message: discord.Message):
         return
 
     if await handle_developer_command(message, command_text):
+        return
+
+    if await handle_mention_shortcut_command(message, command_text):
+        return
+
+    if await handle_context_panel_command(message, command_text):
         return
 
     await maybe_enqueue_tts(message, command_text)

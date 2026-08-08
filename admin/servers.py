@@ -182,7 +182,17 @@ DISPLAY_FEATURES.extend(
             "overview": "Steamゲーム情報とユーザー別の所持・ほしいもの・積みを確認します。",
             "settings": "ゲームキャッシュ、価格、取得時刻、ユーザー登録状況",
             "off_behavior": "OFF時はDiscordパネルのゲーム検索を使いません。",
-            "notes": "現在価格はSteam Store API、過去最安は未取得表示です。",
+            "notes": "現在価格はSteam Store API、PC過去最安はITADで補助表示します。",
+        },
+        {
+            "key": "mention_shortcuts",
+            "label": "メンションショートカット",
+            "edit_path": "mention-shortcuts",
+            "required_role": "editor",
+            "overview": "特定のBotメンション文字で価格表示やSE再生をまとめて実行します。",
+            "settings": "呼び出し文字、価格Provider、対象ID、音声アセット、有効/無効",
+            "off_behavior": "OFFにすると、登録済みショートカットを実行しません。",
+            "notes": "空メンションや名言・おみくじなど既存メンション応答とは完全一致で分離します。",
         },
     ]
 )

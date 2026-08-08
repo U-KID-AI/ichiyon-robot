@@ -414,6 +414,19 @@ print("admin import ok")
         results.append(check("bot author does not trigger", asyncio.run(n_pull.handle_youtube_n_pull_command(FakeMessage(bot=True), "しゃろう 1連")) is False))
         results.append(check("non N-pull command does not trigger", asyncio.run(n_pull.handle_youtube_n_pull_command(FakeMessage(), "https://youtu.be/abc")) is False))
 
+        class MissingSchemaRepo:
+            def __init__(self, connection):
+                pass
+
+            def list_presets(self, guild_id, enabled=None):
+                raise n_pull.psycopg_errors.UndefinedTable("youtube_n_pull_presets missing")
+
+        n_pull.YouTubeNPullRepository = MissingSchemaRepo
+        missing_schema_message = FakeMessage()
+        handled = asyncio.run(n_pull.handle_youtube_n_pull_command(missing_schema_message, "ニコロデオン"))
+        results.append(check("missing youtube n-pull schema falls through to later handlers", handled is False and missing_schema_message.channel.messages == []))
+        n_pull.YouTubeNPullRepository = lambda connection: fake_connection.repository
+
         fake_connection.repository.preset["last_cache_refresh_at"] = datetime.now(timezone.utc) - timedelta(days=2)
         refresh_calls = []
 
