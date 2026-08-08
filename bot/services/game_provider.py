@@ -183,13 +183,21 @@ def _as_int(value: Any) -> Optional[int]:
         return None
 
 
+def _format_jpy_price(value: Optional[int]) -> str:
+    if value is None:
+        return ""
+    if value == 0:
+        return "無料"
+    return "{0:,}円".format(int(value))
+
+
 def _format_from_minor(value: Optional[int], currency: str) -> str:
     if value is None:
         return ""
     if value == 0:
         return "無料"
     if currency == "JPY":
-        return "{0:,}円".format(int(value))
+        return _format_jpy_price(value)
     return "{0} {1}".format(currency or "", value)
 
 
@@ -206,7 +214,7 @@ def _steam_price_value(overview: Dict[str, Any], key: str, formatted_key: str, c
             digits = re.sub(r"[^0-9]+", "", formatted)
             if digits:
                 raw = int(digits)
-            return raw, formatted.replace("¥", "").replace("￥", "").strip()
+            return raw, _format_jpy_price(raw)
         return raw, formatted
     return raw, _format_from_minor(raw, currency)
 

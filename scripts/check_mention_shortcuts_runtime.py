@@ -98,6 +98,7 @@ async def main_async():
                 currency="JPY",
                 formatted_current_price="5,500円",
                 formatted_regular_price="5,500円",
+                fetched_at=1786208400.0,
                 status="ok",
             )
         ]
@@ -120,6 +121,12 @@ async def main_async():
         handled = await mention_shortcuts.handle_mention_shortcut_command(message, "ニコロデオン")
         results.append(check("exact shortcut is handled", handled))
         results.append(check("price embed is sent once", len(message.channel.sent) == 1, message.channel.sent))
+        sent_embed = message.channel.sent[0][1]["embeds"][0]
+        field_value = sent_embed.fields[0].value
+        footer_text = sent_embed.footer.text
+        results.append(check("shortcut price current is normalized for Discord", "現在価格: 5,500円" in field_value, field_value))
+        results.append(check("shortcut price regular is normalized for Discord", "通常価格: 5,500円" in field_value, field_value))
+        results.append(check("shortcut footer shows provider timestamp", "Steam:" in footer_text and "providerごとの取得時刻" not in footer_text, footer_text))
         results.append(check("audio action runs independently", calls["audio"] == 1, calls))
         spaced = FakeMessage(" ニコロデオン ")
         results.append(check("shortcut trims surrounding spaces", await mention_shortcuts.handle_mention_shortcut_command(spaced, " ニコロデオン ") is True))
@@ -182,6 +189,7 @@ async def main_async():
             discount_percent=0,
             formatted_current_price="5,500円",
             formatted_regular_price="5,500円",
+            fetched_at=1786208400.0,
             status="ok",
         )
 
@@ -196,6 +204,7 @@ async def main_async():
         results.append(check("optional provider failure does not suppress steam", quotes[0].ok and quotes[1].status == "error"))
         embeds = mention_shortcuts.build_shortcut_embeds({"name": "ニコロデオン"}, quotes)
         results.append(check("partial failure still builds price embed", len(embeds) == 1 and len(embeds[0].fields) == 2))
+        results.append(check("shortcut footer marks failed provider as not fetched", "ITAD: 未取得" in embeds[0].footer.text, embeds[0].footer.text))
     finally:
         mention_shortcuts.game_provider.fetch_price_quote = original_provider_fetch
     return all(results)

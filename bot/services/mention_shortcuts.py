@@ -1,3 +1,4 @@
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 import discord
@@ -125,8 +126,22 @@ def build_shortcut_embeds(shortcut: Dict[str, Any], quotes: List[game_provider.G
         if ok_count == 1 and quote.store_url:
             embed.url = quote.store_url
         embed.add_field(name=quote.store_name or quote.provider, value=_quote_value(quote), inline=False)
-    embed.set_footer(text="最終取得: providerごとの取得時刻")
+    embed.set_footer(text=_build_fetched_at_footer(quotes))
     return [embed]
+
+
+def _build_fetched_at_footer(quotes: List[game_provider.GamePriceQuote]) -> str:
+    labels: List[str] = []
+    jst = timezone(timedelta(hours=9))
+    for quote in quotes:
+        name = quote.store_name or quote.provider
+        if quote.ok and quote.fetched_at:
+            labels.append("{0}: {1}".format(name, datetime.fromtimestamp(float(quote.fetched_at), jst).strftime("%Y/%m/%d %H:%M")))
+        else:
+            labels.append("{0}: 未取得".format(name))
+    if not labels:
+        return "最終取得: 未取得"
+    return "最終取得: " + " / ".join(labels)
 
 
 def _quote_value(quote: game_provider.GamePriceQuote) -> str:
