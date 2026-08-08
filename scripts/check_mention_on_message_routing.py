@@ -42,10 +42,14 @@ class FakeChannel:
 
 
 class FakeMessage:
-    def __init__(self, command_text, bot_user, author_bot=False):
-        mention = "<@{0}>".format(bot_user.id)
-        self.content = mention if command_text is None else "{0} {1}".format(mention, command_text)
-        self.mentions = [bot_user]
+    def __init__(self, command_text, bot_user, author_bot=False, mention=True):
+        mention_text = "<@{0}>".format(bot_user.id)
+        if mention:
+            self.content = mention_text if command_text is None else "{0} {1}".format(mention_text, command_text)
+            self.mentions = [bot_user]
+        else:
+            self.content = str(command_text or "")
+            self.mentions = []
         self.author = SimpleNamespace(id=1234, bot=author_bot)
         self.guild = SimpleNamespace(id="guild-a")
         self.channel = FakeChannel()
@@ -101,8 +105,9 @@ async def main_async():
         return command_text == "ニコロデオン"
 
     async def fake_panel(message, command_text):
-        events.append(("panel", command_text))
-        return command_text in {"音楽", "ゲーム", "音声", "SE"}
+        source_text = command_text if command_text is not None else getattr(message, "content", "")
+        events.append(("panel", source_text))
+        return source_text in {"音楽", "ゲーム", "音声", "SE", "パネル"}
 
     async def fake_tts(message, command_text):
         events.append(("tts", command_text))
@@ -151,6 +156,12 @@ async def main_async():
         await namespace["on_message"](message)
         return message, list(events)
 
+    async def run_standalone(content):
+        events.clear()
+        message = FakeMessage(content, bot_user, mention=False)
+        await namespace["on_message"](message)
+        return message, list(events)
+
     message, trace = await run(None)
     results.append(check("empty mention uses DB runtime", trace == [("db_runtime", "")], trace))
     results.append(check("empty mention sends existing DB response only", len(message.channel.sent) == 1 and "森羅万象" in message.channel.sent[0][0][0]))
@@ -159,19 +170,37 @@ async def main_async():
     results.append(check("non-empty voice text reaches voice handler", ("voice", "入って") in trace and ("db_runtime", "入って") not in trace, trace))
 
     _, trace = await run("音楽")
-    results.append(check("music text reaches explicit panel", ("panel", "音楽") in trace and ("db_runtime", "音楽") not in trace, trace))
+    results.append(check("music text reaches explicit panel first", trace == [("panel", "音楽")], trace))
 
     _, trace = await run("ゲーム")
-    results.append(check("game text reaches explicit panel", ("panel", "ゲーム") in trace, trace))
+    results.append(check("game text reaches explicit panel first", trace == [("panel", "ゲーム")], trace))
 
     _, trace = await run("音声")
-    results.append(check("audio text reaches explicit panel", ("panel", "音声") in trace, trace))
+    results.append(check("audio text reaches explicit panel first", trace == [("panel", "音声")], trace))
 
     _, trace = await run("SE")
-    results.append(check("SE text reaches explicit audio panel", ("panel", "SE") in trace, trace))
+    results.append(check("SE text reaches explicit audio panel first", trace == [("panel", "SE")], trace))
+
+    _, trace = await run("パネル")
+    results.append(check("root panel mention reaches explicit panel first", trace == [("panel", "パネル")], trace))
+
+    _, trace = await run_standalone("音楽")
+    results.append(check("standalone music opens panel", trace == [("panel", "音楽")], trace))
+
+    _, trace = await run_standalone("ゲーム")
+    results.append(check("standalone game opens panel", trace == [("panel", "ゲーム")], trace))
+
+    _, trace = await run_standalone("SE")
+    results.append(check("standalone SE opens panel", trace == [("panel", "SE")], trace))
+
+    _, trace = await run_standalone("パネル")
+    results.append(check("standalone root opens panel", trace == [("panel", "パネル")], trace))
+
+    _, trace = await run_standalone("音楽っぽい")
+    results.append(check("standalone partial panel command falls through", ("panel", "音楽っぽい") in trace and any(event[0] == "db_runtime" for event in trace), trace))
 
     _, trace = await run("ニコロデオン")
-    results.append(check("shortcut text reaches mention shortcut", ("shortcut", "ニコロデオン") in trace and ("panel", "ニコロデオン") not in trace, trace))
+    results.append(check("shortcut text reaches mention shortcut after panel miss", ("panel", "ニコロデオン") in trace and ("shortcut", "ニコロデオン") in trace, trace))
 
     _, trace = await run("デッキ エルフ")
     results.append(check("deck command falls through to DB runtime", ("db_runtime", "デッキ エルフ") in trace, trace))
