@@ -11,7 +11,7 @@ import unicodedata
 from collections import deque
 from dataclasses import replace
 from pathlib import Path
-from typing import Deque, Dict, List, Optional, Set, Tuple
+from typing import Any, Deque, Dict, List, Optional, Set, Tuple
 from urllib.parse import parse_qs, urlparse
 
 import discord
@@ -92,6 +92,7 @@ MUSIC_LOOP_OFF = "off"
 MUSIC_LOOP_ONE = "one"
 MUSIC_LOOP_QUEUE = "queue"
 MENTION_MUSIC_LINK_LIMIT = 3
+YOUTUBE_SEARCH_RESULT_LIMIT = 5
 SPOTIFY_PLAYLIST_PREFETCH_LIMIT = 2
 MUSIC_LINK_TRAILING_CHARS = ".,!?、。)]）＞>"
 HTTP_URL_PATTERN = re.compile(r"https?://[^\s<>()]+", re.IGNORECASE)
@@ -190,6 +191,156 @@ def extract_youtube_video_id(url: str) -> str:
         if len(parts) >= 2 and parts[0] in ("shorts", "live", "embed"):
             return parts[1]
     return ""
+
+
+def looks_like_youtube_video_id(video_id: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z0-9_-]{11}", str(video_id or "").strip()))
+
+
+def canonical_youtube_watch_url(video_id: str) -> str:
+    return "https://www.youtube.com/watch?v={0}".format(str(video_id or "").strip())
+
+
+def normalize_youtube_search_entry(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if not entry or entry.get("entries"):
+        return None
+    raw_url = str(entry.get("webpage_url") or entry.get("url") or "").strip()
+    video_id = extract_youtube_video_id(raw_url) if raw_url else ""
+    if not video_id:
+        candidate_id = str(entry.get("id") or "").strip()
+        if looks_like_youtube_video_id(candidate_id):
+            video_id = candidate_id
+    if not looks_like_youtube_video_id(video_id):
+        return None
+    title = str(entry.get("title") or "").strip()
+    if not title:
+        return None
+    duration = entry.get("duration")
+    try:
+        duration_value = int(duration) if duration is not None else None
+    except (TypeError, ValueError):
+        duration_value = None
+    return {
+        "video_id": video_id,
+        "webpage_url": canonical_youtube_watch_url(video_id),
+        "title": title,
+        "uploader": str(entry.get("uploader") or entry.get("channel") or "").strip(),
+        "duration": duration_value,
+    }
+
+
+def extract_youtube_search_candidates(
+    query: str,
+    guild_id: Optional[str] = None,
+    limit: int = YOUTUBE_SEARCH_RESULT_LIMIT,
+    use_cookies: bool = True,
+    youtube_route: str = YOUTUBE_ROUTE_DIRECT_COOKIE,
+    proxy_url: Optional[str] = None,
+    socket_timeout: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    if yt_dlp is None:
+        raise RuntimeError("yt-dlp is not installed")
+    search_query = str(query or "").strip()
+    if not search_query:
+        return []
+    safe_limit = max(1, min(YOUTUBE_SEARCH_RESULT_LIMIT, int(limit or YOUTUBE_SEARCH_RESULT_LIMIT)))
+    options = build_ytdl_options(
+        guild_id,
+        use_cookies=use_cookies,
+        proxy_url=proxy_url,
+        socket_timeout=socket_timeout,
+    )
+    options.update({"extract_flat": True, "skip_download": True, "playlistend": safe_limit})
+    with yt_dlp.YoutubeDL(options) as ydl:
+        info = ydl.extract_info("ytsearch{0}:{1}".format(safe_limit, search_query), download=False)
+    entries = [entry for entry in (info or {}).get("entries") or [] if entry]
+    candidates: List[Dict[str, Any]] = []
+    seen: Set[str] = set()
+    for entry in entries:
+        candidate = normalize_youtube_search_entry(entry)
+        if not candidate:
+            continue
+        video_id = str(candidate["video_id"])
+        if video_id in seen:
+            continue
+        seen.add(video_id)
+        candidates.append(candidate)
+        if len(candidates) >= safe_limit:
+            break
+    return candidates
+
+
+async def search_youtube_music_candidates(
+    query: str,
+    guild_id: str,
+    requester_id: str = "",
+    limit: int = YOUTUBE_SEARCH_RESULT_LIMIT,
+) -> List[Dict[str, Any]]:
+    search_started = time.perf_counter()
+    attempts = 0
+    if youtube_home_vpn_enabled():
+        attempts += 1
+        proxy_url = youtube_home_vpn_proxy_url()
+        try:
+            candidates = await asyncio.to_thread(
+                extract_youtube_search_candidates,
+                query,
+                guild_id,
+                limit,
+                False,
+                YOUTUBE_ROUTE_HOME_VPN,
+                proxy_url,
+                youtube_home_vpn_extract_timeout_seconds(),
+            )
+            log_music_timing(
+                "youtube_search",
+                guild_id,
+                requester_id=requester_id,
+                source_type="youtube",
+                route=YOUTUBE_ROUTE_HOME_VPN,
+                attempts=attempts,
+                total_ms=perf_ms(search_started),
+                result_count=len(candidates),
+            )
+            return candidates
+        except Exception as exc:
+            status = classify_ytdlp_error(exc)
+            log_music_timing(
+                "youtube_search_fallback",
+                guild_id,
+                requester_id=requester_id,
+                source_type="youtube",
+                from_route=YOUTUBE_ROUTE_HOME_VPN,
+                to_route=YOUTUBE_ROUTE_DIRECT_COOKIE,
+                reason=status,
+                attempts=attempts,
+                total_ms=perf_ms(search_started),
+            )
+            if not youtube_home_vpn_fallback_enabled():
+                raise exc
+
+    attempts += 1
+    candidates = await asyncio.to_thread(
+        extract_youtube_search_candidates,
+        query,
+        guild_id,
+        limit,
+        True,
+        YOUTUBE_ROUTE_DIRECT_COOKIE,
+        None,
+        None,
+    )
+    log_music_timing(
+        "youtube_search",
+        guild_id,
+        requester_id=requester_id,
+        source_type="youtube",
+        route=YOUTUBE_ROUTE_DIRECT_COOKIE,
+        attempts=attempts,
+        total_ms=perf_ms(search_started),
+        result_count=len(candidates),
+    )
+    return candidates
 
 
 def classify_ytdlp_stage(message: str) -> Optional[str]:
