@@ -27,6 +27,7 @@ def main() -> int:
     admin_block = compose.split("  admin:", 1)[1].split("\n  bot:", 1)[0]
     flat_options = service_source.split("YTDL_FLAT_OPTIONS = {", 1)[1].split("}", 1)[0]
     refresh_block = admin_source.split('async def refresh_youtube_n_pull', 1)[1].split("\ndef require_editor", 1)[0]
+    list_block = admin_source.split('async def youtube_n_pull_page', 1)[1].split('    @router.get("/guilds/{guild_id}/youtube-n-pull/new")', 1)[0]
 
     results.append(check("Dockerfile uses Python 3.11 runtime", "FROM python:3.11-slim" in dockerfile))
     results.append(check("requirements includes yt-dlp", "yt-dlp" in requirements))
@@ -63,6 +64,10 @@ print("admin import ok")
     probe = subprocess.run([sys.executable, "-c", import_probe], cwd=str(ROOT_DIR), text=True, capture_output=True)
     results.append(check("admin import keeps voice dependencies lazy", probe.returncode == 0, (probe.stdout + probe.stderr).strip()))
 
+    results.append(check("admin list imports schema missing detector", "is_youtube_n_pull_schema_missing" in admin_source))
+    results.append(check("admin list catches missing youtube n-pull schema", "is_youtube_n_pull_schema_missing(exc)" in list_block and "presets = []" in list_block))
+    results.append(check("admin list does not swallow non-schema errors", "if not is_youtube_n_pull_schema_missing(exc):" in list_block and "raise" in list_block))
+    results.append(check("admin list shows migration guidance instead of 500", "migration 035" in list_block))
     results.append(check("admin refresh rejects zero-video success", "if not dedup:" in refresh_block and "no valid youtube videos found" in refresh_block))
     results.append(check("admin refresh replaces cache only after successful dedup", refresh_block.find("if not dedup:") < refresh_block.find("replace_cache_videos")))
     results.append(check("admin refresh logs traceback on failure", "logger.exception(" in refresh_block and "youtube_n_pull admin refresh failed" in refresh_block))

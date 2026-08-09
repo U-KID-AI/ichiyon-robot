@@ -209,6 +209,32 @@ async def check_soundboard_vc_disconnected_safe() -> bool:
         interaction_panel.play_audio_asset_row = original_play
 
 
+async def check_vc_leave_buttons() -> bool:
+    original_leave = interaction_panel.leave_voice_channel
+    calls = []
+
+    async def fake_leave(message):
+        calls.append((getattr(getattr(message, "guild", None), "id", None), getattr(getattr(message, "author", None), "id", None)))
+
+    try:
+        interaction_panel.leave_voice_channel = fake_leave
+        main_view = interaction_panel.MainPanelView()
+        music_view = interaction_panel.MusicPanelView()
+        main_button = next(item for item in main_view.children if getattr(item, "custom_id", "").endswith("main:leave_vc"))
+        music_button = next(item for item in music_view.children if getattr(item, "custom_id", "").endswith("music:leave_vc"))
+        main_interaction = FakeInteraction()
+        music_interaction = FakeInteraction()
+        await main_button.callback(main_interaction)
+        await music_button.callback(music_interaction)
+        return (
+            calls == [("guild-a", "user-a"), ("guild-a", "user-a")]
+            and main_interaction.response.deferred == 1
+            and music_interaction.response.deferred == 1
+        )
+    finally:
+        interaction_panel.leave_voice_channel = original_leave
+
+
 async def check_dynamic_button_from_custom_id() -> bool:
     parsed = interaction_panel.parse_audio_asset_custom_id("ichiyon_panel:ichiyon:audio:asset:123")
     match = interaction_panel.AudioAssetDynamicButton.__discord_ui_compiled_template__.fullmatch(
@@ -329,6 +355,7 @@ def main() -> int:
     results.append(check("main panel has audio button", any("main:audio" in item for item in button_ids)))
     results.append(check("main panel has game button", any("main:game" in item for item in button_ids)))
     results.append(check("main panel has status button", any("main:status" in item for item in button_ids)))
+    results.append(check("main panel has VC leave button", any("main:leave_vc" in item for item in button_ids)))
     results.append(check("main panel has close button", any("main:close" in item for item in button_ids)))
     results.append(check("custom ids are persistent scoped", all(item.startswith("ichiyon_panel:") for item in button_ids)))
 
@@ -357,8 +384,9 @@ def main() -> int:
 
     music_view = interaction_panel.MusicPanelView()
     music_ids = custom_ids(music_view)
-    for required in ("join", "pause", "resume", "skip", "stop", "now", "queue", "loop", "shuffle", "volume", "search_add", "add", "n_pull", "back"):
+    for required in ("join", "leave_vc", "pause", "resume", "skip", "stop", "now", "queue", "loop", "shuffle", "volume", "search_add", "add", "n_pull", "back"):
         results.append(check("music button {0}".format(required), any("music:{0}".format(required) in item for item in music_ids)))
+    results.append(check("VC leave panel buttons call existing voice leave once each", asyncio.run(check_vc_leave_buttons())))
 
     game_ids = custom_ids(interaction_panel.GamePanelView())
     results.append(check("game panel has search button", any("game:search" in item for item in game_ids)))
