@@ -146,6 +146,20 @@ def build_audio_soundboard_content(assets) -> str:
     return "\u97f3\u58f0\u30fbSE\n\u767b\u9332\u3055\u308c\u3066\u3044\u308b\u97f3\u58f0\u304c\u3042\u308a\u307e\u305b\u3093\u3002"
 
 
+def log_panel_send(kind: str, message: discord.Message) -> None:
+    guild = getattr(message, "guild", None)
+    channel = getattr(message, "channel", None)
+    print(
+        "[INFO] panel_send: bot_instance_id={0} guild_id={1} channel_id={2} message_id={3} kind={4}".format(
+            config.BOT_INSTANCE_ID,
+            getattr(guild, "id", "") or "",
+            getattr(channel, "id", "") or "",
+            getattr(message, "id", "") or "",
+            kind,
+        )
+    )
+
+
 async def send_main_panel(message: discord.Message) -> bool:
     await message.channel.send(MENTION_ONLY_MESSAGE, view=build_main_view(), allowed_mentions=discord.AllowedMentions.none())
     return True
@@ -180,6 +194,7 @@ async def handle_context_panel_command(message: discord.Message, command_text: O
     kind = panel_command_kind(source_text)
     if kind is None:
         return False
+    log_panel_send(kind, message)
 
     if kind == "root":
         await send_main_panel(message)
