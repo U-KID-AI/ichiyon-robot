@@ -11,7 +11,7 @@ from admin.bot_context import current_selected_bot_id, selected_bot_id
 from admin.servers import can_access_guild, find_server, role_allows
 from bot.db import get_connection
 from bot.repositories.youtube_n_pull import YouTubeNPullRepository, normalize_command_name
-from bot.services.youtube_n_pull import fetch_source_videos, is_youtube_source_url
+from bot.services.youtube_n_pull import fetch_source_videos, is_youtube_n_pull_schema_missing, is_youtube_source_url
 
 
 router = APIRouter()
@@ -31,7 +31,19 @@ def register_youtube_n_pull_routes(templates: Jinja2Templates) -> None:
         server = find_server(guild_id, user["user_id"], bot_id)
         with get_connection() as connection:
             repository = YouTubeNPullRepository(connection, bot_id=current_selected_bot_id())
-            presets = repository.list_presets(guild_id)
+            try:
+                presets = repository.list_presets(guild_id)
+            except Exception as exc:
+                if not is_youtube_n_pull_schema_missing(exc):
+                    raise
+                logger.warning(
+                    "youtube_n_pull admin schema missing: bot_instance_id=%s guild_id=%s error_type=%s",
+                    bot_id,
+                    guild_id,
+                    type(exc).__name__,
+                )
+                presets = []
+                error = error or "YouTube N連テーブルが未作成です。migration 035の適用状況を確認してください。"
         return templates.TemplateResponse(
             request,
             "youtube_n_pull.html",

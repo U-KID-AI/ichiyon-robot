@@ -16,7 +16,7 @@ from bot.services.voice_audio import (
     play_audio_asset_row,
     stop_foreground_audio,
 )
-from bot.services.voice_control import join_author_voice_channel
+from bot.services.voice_control import join_author_voice_channel, leave_voice_channel
 from bot.services.voice_music import (
     enqueue_music_url,
     format_duration,
@@ -146,6 +146,20 @@ def build_audio_soundboard_content(assets) -> str:
     return "\u97f3\u58f0\u30fbSE\n\u767b\u9332\u3055\u308c\u3066\u3044\u308b\u97f3\u58f0\u304c\u3042\u308a\u307e\u305b\u3093\u3002"
 
 
+def log_panel_send(kind: str, message: discord.Message) -> None:
+    guild = getattr(message, "guild", None)
+    channel = getattr(message, "channel", None)
+    print(
+        "[INFO] panel_send: bot_instance_id={0} guild_id={1} channel_id={2} message_id={3} kind={4}".format(
+            config.BOT_INSTANCE_ID,
+            getattr(guild, "id", "") or "",
+            getattr(channel, "id", "") or "",
+            getattr(message, "id", "") or "",
+            kind,
+        )
+    )
+
+
 async def send_main_panel(message: discord.Message) -> bool:
     await message.channel.send(MENTION_ONLY_MESSAGE, view=build_main_view(), allowed_mentions=discord.AllowedMentions.none())
     return True
@@ -180,6 +194,7 @@ async def handle_context_panel_command(message: discord.Message, command_text: O
     kind = panel_command_kind(source_text)
     if kind is None:
         return False
+    log_panel_send(kind, message)
 
     if kind == "root":
         await send_main_panel(message)
@@ -253,6 +268,11 @@ class MainPanelView(discord.ui.View):
     async def status(self, interaction: discord.Interaction, _button: discord.ui.Button):
         adapter = InteractionMessageAdapter(interaction)
         await send_now_playing(adapter)
+
+    @discord.ui.button(label="VCから退出", style=discord.ButtonStyle.danger, custom_id=custom_id("main", "leave_vc"))
+    async def leave_vc(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        await leave_voice_channel(InteractionMessageAdapter(interaction))
 
     @discord.ui.button(label="閉じる", style=discord.ButtonStyle.danger, custom_id=custom_id("main", "close"))
     async def close(self, interaction: discord.Interaction, _button: discord.ui.Button):
@@ -340,6 +360,11 @@ class MusicPanelView(discord.ui.View):
     async def join(self, interaction: discord.Interaction, _button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         await join_author_voice_channel(InteractionMessageAdapter(interaction))
+
+    @discord.ui.button(label="VCから退出", style=discord.ButtonStyle.danger, custom_id=custom_id("music", "leave_vc"))
+    async def leave_vc(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        await leave_voice_channel(InteractionMessageAdapter(interaction))
 
     @discord.ui.button(label="一時停止", style=discord.ButtonStyle.secondary, custom_id=custom_id("music", "pause"))
     async def pause(self, interaction: discord.Interaction, _button: discord.ui.Button):
