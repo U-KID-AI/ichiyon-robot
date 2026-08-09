@@ -22,6 +22,7 @@ from bot.services.voice_audio import (
     resolve_audio_file,
 )
 from bot.services.voice.session import voice_state_key
+from bot.services.voice.mixer import clear_mixer, get_mixer
 
 
 def check(name: str, ok: bool, detail: str = "") -> bool:
@@ -78,11 +79,19 @@ def check_foreground_audio_accepts_repeated_requests() -> bool:
     key = voice_state_key(guild_id)
     voice_audio._FOREGROUND_QUEUES.pop(key, None)
     voice_audio._FOREGROUND_ACTIVE[key] = True
+    mixer = get_mixer(guild_id)
+    mixer.tts_source = SimpleNamespace(cleanup=lambda: None)
     try:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "repeat.wav"
             path.write_bytes(b"not real audio")
-            fake_voice = SimpleNamespace(channel=SimpleNamespace(id="voice-repeat"), is_connected=lambda: True)
+            fake_voice = SimpleNamespace(
+                channel=SimpleNamespace(id="voice-repeat"),
+                source=mixer,
+                is_connected=lambda: True,
+                is_playing=lambda: True,
+                is_paused=lambda: False,
+            )
             first = enqueue_foreground_audio(fake_voice, path, guild_id, "voice-repeat", 50, "panel_se", "1")
             second = enqueue_foreground_audio(fake_voice, path, guild_id, "voice-repeat", 50, "panel_se", "1")
             queue = voice_audio._FOREGROUND_QUEUES.get(key)
@@ -94,6 +103,7 @@ def check_foreground_audio_accepts_repeated_requests() -> bool:
     finally:
         voice_audio._FOREGROUND_QUEUES.pop(key, None)
         voice_audio._FOREGROUND_ACTIVE.pop(key, None)
+        clear_mixer(guild_id)
 
 
 def main() -> int:

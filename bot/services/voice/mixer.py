@@ -86,6 +86,9 @@ class VoiceMixerAudioSource(discord.AudioSource):
             music = self._read_source("music")
             tts = self._read_source("tts")
             if music is None and tts is None:
+                if self.music_source is not None or self.tts_source is not None:
+                    self.closed = False
+                    return _silence()
                 self.closed = True
                 return b""
             if music is None:
@@ -169,6 +172,11 @@ def clear_mixer(guild_id: str) -> None:
 def mixer_is_active(guild_id: str) -> bool:
     mixer = _MIXERS.get(voice_state_key(guild_id))
     return bool(mixer and not mixer.closed)
+
+
+def mixer_has_tts_source(guild_id: str) -> bool:
+    mixer = _MIXERS.get(voice_state_key(guild_id))
+    return bool(mixer and not mixer.closed and mixer.tts_source is not None)
 
 
 def ensure_mixer_playing(voice_client: discord.VoiceClient, guild_id: str) -> VoiceMixerAudioSource:
