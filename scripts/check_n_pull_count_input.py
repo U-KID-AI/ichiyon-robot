@@ -60,7 +60,11 @@ async def check_select_opens_count_modal() -> bool:
     interaction = FakeInteraction()
     await select.callback(interaction)
     modal = interaction.response.modals[0] if interaction.response.modals else None
-    return isinstance(modal, interaction_panel.YouTubeNPullCountModal) and str(modal.count) == "100"
+    return (
+        isinstance(modal, interaction_panel.YouTubeNPullCountModal)
+        and str(modal.count) == "1"
+        and modal.preset.get("max_pulls") == 100
+    )
 
 
 async def check_count_modal_uses_runtime_count(count_text: str, expected_command: str) -> bool:
@@ -77,6 +81,29 @@ async def check_count_modal_uses_runtime_count(count_text: str, expected_command
         modal.count._value = count_text
         await modal.on_submit(FakeInteraction())
         return seen == [expected_command]
+    finally:
+        interaction_panel.handle_youtube_n_pull_command = original_handler
+
+
+async def check_ascii_count_modal_uses_runtime_count(count_text: str, expected_count: int) -> bool:
+    original_handler = interaction_panel.handle_youtube_n_pull_command
+    seen = []
+
+    async def fake_handler(message, command_text):
+        seen.append(command_text)
+        return True
+
+    try:
+        interaction_panel.handle_youtube_n_pull_command = fake_handler
+        modal = interaction_panel.YouTubeNPullCountModal({"id": 1, "display_name": "preset", "command_name": "preset", "max_pulls": 100})
+        modal.count._value = count_text
+        await modal.on_submit(FakeInteraction())
+        return (
+            len(seen) == 1
+            and seen[0].startswith("preset ")
+            and str(expected_count) in seen[0]
+            and modal.preset.get("max_pulls") == 100
+        )
     finally:
         interaction_panel.handle_youtube_n_pull_command = original_handler
 
@@ -100,8 +127,10 @@ async def check_invalid_count_is_safe(count_text: str) -> bool:
 
 async def run_checks():
     results = []
+    results.append(check("1 input reaches existing runtime", await check_ascii_count_modal_uses_runtime_count("1", 1)))
+    results.append(check("100 input keeps max_pulls as limit only", await check_ascii_count_modal_uses_runtime_count("100", 100)))
     results.append(check("preset select opens N input modal", await check_select_opens_count_modal()))
-    results.append(check("preset default N is used only as modal default", await check_count_modal_uses_runtime_count("100", "しゃろう 100連")))
+    results.append(check("manual 100 input reaches existing runtime", await check_count_modal_uses_runtime_count("100", "しゃろう 100連")))
     results.append(check("10 input reaches existing runtime", await check_count_modal_uses_runtime_count("10", "しゃろう 10連")))
     results.append(check("30 input reaches existing runtime", await check_count_modal_uses_runtime_count("30", "しゃろう 30連")))
     results.append(check("invalid blank count is safe", await check_invalid_count_is_safe("")))
