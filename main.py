@@ -175,6 +175,9 @@ async def on_message(message: discord.Message):
     if await handle_empty_mention_message(message, command_text):
         return
 
+    if await handle_context_panel_command(message, command_text):
+        return
+
     if await handle_mention_music_links(message, command_text):
         return
 
@@ -188,9 +191,6 @@ async def on_message(message: discord.Message):
         return
 
     if await handle_mention_shortcut_command(message, command_text):
-        return
-
-    if await handle_context_panel_command(message, command_text):
         return
 
     await maybe_enqueue_tts(message, command_text)

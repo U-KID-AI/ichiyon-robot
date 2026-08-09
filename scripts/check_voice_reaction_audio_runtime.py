@@ -12,6 +12,7 @@ if str(ROOT_DIR) not in sys.path:
 from bot.services import voice_audio
 from bot.services import runtime_db
 from bot.services.voice_audio import (
+    enqueue_foreground_audio,
     extract_audio_file_from_config,
     extract_audio_asset_id_from_config,
     extract_reaction_audio_file,
@@ -20,6 +21,7 @@ from bot.services.voice_audio import (
     play_reaction_audio,
     resolve_audio_file,
 )
+from bot.services.voice.session import voice_state_key
 
 
 def check(name: str, ok: bool, detail: str = "") -> bool:
@@ -69,6 +71,29 @@ async def check_configured_reaction_audio_asset_route() -> bool:
         and calls[0]["reaction_key"] == "77",
         str(calls),
     )
+
+
+def check_foreground_audio_accepts_repeated_requests() -> bool:
+    guild_id = "guild-repeat-se"
+    key = voice_state_key(guild_id)
+    voice_audio._FOREGROUND_QUEUES.pop(key, None)
+    voice_audio._FOREGROUND_ACTIVE[key] = True
+    try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "repeat.wav"
+            path.write_bytes(b"not real audio")
+            fake_voice = SimpleNamespace(channel=SimpleNamespace(id="voice-repeat"), is_connected=lambda: True)
+            first = enqueue_foreground_audio(fake_voice, path, guild_id, "voice-repeat", 50, "panel_se", "1")
+            second = enqueue_foreground_audio(fake_voice, path, guild_id, "voice-repeat", 50, "panel_se", "1")
+            queue = voice_audio._FOREGROUND_QUEUES.get(key)
+            return check(
+                "foreground audio queues repeated SE requests while active",
+                first == (True, "queued") and second == (True, "queued") and queue is not None and len(queue) == 2,
+                "first={0} second={1} queue_len={2}".format(first, second, len(queue or [])),
+            )
+    finally:
+        voice_audio._FOREGROUND_QUEUES.pop(key, None)
+        voice_audio._FOREGROUND_ACTIVE.pop(key, None)
 
 
 def main() -> int:
@@ -142,6 +167,7 @@ def main() -> int:
 
     results.append(asyncio.run(check_not_connected_skip()))
     results.append(asyncio.run(check_configured_reaction_audio_asset_route()))
+    results.append(check_foreground_audio_accepts_repeated_requests())
 
     ok_count = sum(1 for item in results if item)
     print("summary: {0}/{1} OK".format(ok_count, len(results)))

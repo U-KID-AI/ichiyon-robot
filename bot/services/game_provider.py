@@ -12,7 +12,7 @@ import httpx
 from bot.services.external_http import ExternalHttpError, ExternalHttpPolicy, fetch_json
 
 
-STEAM_SEARCH_URL = "https://store.steampowered.com/api/storesearch/?term={query}&cc=JP&l=japanese"
+STEAM_SEARCH_URL = "https://store.steampowered.com/api/storesearch/?term={query}&cc={country}&l={language}"
 STEAM_APPDETAILS_URL = "https://store.steampowered.com/api/appdetails?appids={app_id}&cc=JP&l=japanese"
 STEAM_STORE_URL = "https://store.steampowered.com/app/{app_id}"
 ITAD_BASE_URL = "https://api.isthereanydeal.com"
@@ -26,6 +26,31 @@ NTPRICES_SEARCH_URL = NTPRICES_BASE_URL + "/games/search?q={query}&region={regio
 DEFAULT_GAME_PROVIDER_TIMEOUT_SECONDS = 8.0
 DEFAULT_GAME_SEARCH_LIMIT = 5
 DEFAULT_GAME_PRICE_CACHE_TTL_SECONDS = 900
+STEAM_SEARCH_PRIMARY_LOCALE = ("JP", "japanese")
+STEAM_SEARCH_FALLBACK_LOCALE = ("JP", "english")
+STEAM_SEARCH_DETAIL_LIMIT = 12
+GAME_VARIANT_TERMS = {
+    "dlc",
+    "deluxe",
+    "ultimate",
+    "complete",
+    "bundle",
+    "season pass",
+    "soundtrack",
+    "ost",
+    "demo",
+    "trial",
+    "upgrade",
+    "pack",
+    "edition",
+    "エディション",
+    "デラックス",
+    "アルティメット",
+    "コンプリート",
+    "バンドル",
+    "サウンドトラック",
+    "体験版",
+}
 
 
 @dataclass
@@ -75,6 +100,8 @@ class GamePriceQuote:
     historical_low: Optional[int] = None
     formatted_historical_low: str = ""
     store_url: str = ""
+    current_store_name: str = ""
+    historical_low_store_name: str = ""
     fetched_at: float = 0.0
     status: str = "ok"
     error_code: str = ""
@@ -172,6 +199,41 @@ def _title_score(query: str, title: str) -> Tuple[int, int]:
         return (400, -len(t))
     overlap = len(q_words & t_words)
     return (overlap * 50, -abs(len(t) - len(q)))
+
+
+def _variant_penalty(query: str, title: str) -> int:
+    q = normalize_game_title(query)
+    t = normalize_game_title(title)
+    if not q or not t:
+        return 0
+    penalty = 0
+    for term in GAME_VARIANT_TERMS:
+        normalized_term = normalize_game_title(term)
+        if normalized_term and normalized_term in t and normalized_term not in q:
+            penalty += 180
+    q_words = set(q.split())
+    t_words = set(t.split())
+    if q_words and q_words.issubset(t_words) and "2" in t_words and "2" not in q_words:
+        penalty += 120
+    return penalty
+
+
+def _candidate_search_score(query: str, candidate: GameSearchCandidate) -> Tuple[int, int, int]:
+    titles = [
+        str(candidate.title or ""),
+        str(candidate.metadata.get("steam_search_title") or ""),
+        str(candidate.metadata.get("steam_localized_title") or ""),
+    ]
+    best_score = (0, 0)
+    best_title = ""
+    for title in titles:
+        score = _title_score(query, title)
+        if score > best_score:
+            best_score = score
+            best_title = title
+    penalty = _variant_penalty(query, best_title)
+    locale_bonus = 20 if candidate.metadata.get("steam_search_language") == "japanese" else 0
+    return (best_score[0] - penalty + locale_bonus, best_score[1], -len(best_title or candidate.title or ""))
 
 
 def _as_int(value: Any) -> Optional[int]:
@@ -290,7 +352,7 @@ def _platforms(data: Dict[str, Any]) -> Dict[str, bool]:
     }
 
 
-def _candidate_from_detail(app_id: str, detail: Dict[str, Any], fallback_title: str = "") -> Optional[GameSearchCandidate]:
+def _candidate_from_detail(app_id: str, detail: Dict[str, Any], fallback_title: str = "", search_metadata: Optional[Dict[str, Any]] = None) -> Optional[GameSearchCandidate]:
     if not detail.get("success"):
         return None
     data = detail.get("data")
@@ -301,6 +363,18 @@ def _candidate_from_detail(app_id: str, detail: Dict[str, Any], fallback_title: 
         return None
     price = _parse_price_overview(data)
     release = data.get("release_date") if isinstance(data.get("release_date"), dict) else {}
+    metadata = {
+        "steam_type": data.get("type"),
+        "short_description": data.get("short_description") or "",
+        "header_image": data.get("header_image") or "",
+        "formatted_price": price["formatted_price"],
+        "formatted_regular_price": price["formatted_regular_price"],
+        "raw_final": price.get("raw_final"),
+        "raw_initial": price.get("raw_initial"),
+        "price_history_provider": "itad_optional",
+    }
+    metadata.update(search_metadata or {})
+    metadata.setdefault("steam_localized_title", title)
     return GameSearchCandidate(
         provider="steam",
         provider_game_id=str(app_id),
@@ -313,20 +387,11 @@ def _candidate_from_detail(app_id: str, detail: Dict[str, Any], fallback_title: 
         currency=str(price["currency"] or "JPY"),
         release_date=str(release.get("date") or ""),
         historical_low=None,
-        metadata={
-            "steam_type": data.get("type"),
-            "short_description": data.get("short_description") or "",
-            "header_image": data.get("header_image") or "",
-            "formatted_price": price["formatted_price"],
-            "formatted_regular_price": price["formatted_regular_price"],
-            "raw_final": price.get("raw_final"),
-            "raw_initial": price.get("raw_initial"),
-            "price_history_provider": "itad_optional",
-        },
+        metadata=metadata,
     )
 
 
-async def fetch_steam_app_detail(app_id: str, fallback_title: str = "") -> Optional[GameSearchCandidate]:
+async def fetch_steam_app_detail(app_id: str, fallback_title: str = "", search_metadata: Optional[Dict[str, Any]] = None) -> Optional[GameSearchCandidate]:
     safe_app_id = "".join(ch for ch in str(app_id or "") if ch.isdigit())
     if not safe_app_id:
         return None
@@ -334,30 +399,68 @@ async def fetch_steam_app_detail(app_id: str, fallback_title: str = "") -> Optio
     detail = payload.get(safe_app_id) if isinstance(payload, dict) else None
     if not isinstance(detail, dict):
         return None
-    return _candidate_from_detail(safe_app_id, detail, fallback_title)
+    return _candidate_from_detail(safe_app_id, detail, fallback_title, search_metadata)
+
+
+def steam_search_url(query: str, country: str, language: str) -> str:
+    return STEAM_SEARCH_URL.format(query=quote(query), country=quote(country), language=quote(language))
+
+
+async def _fetch_steam_search_items(query: str, country: str, language: str) -> List[Dict[str, Any]]:
+    payload = await fetch_json(steam_search_url(query, country, language), policy=game_http_policy())
+    items = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(items, list):
+        return []
+    rows = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        app_id = str(item.get("id") or "").strip()
+        if not app_id:
+            continue
+        row = dict(item)
+        row["_steam_search_country"] = country
+        row["_steam_search_language"] = language
+        rows.append(row)
+    return rows
 
 
 async def search_steam_games(query: str, limit: int = DEFAULT_GAME_SEARCH_LIMIT) -> List[GameSearchCandidate]:
     text = str(query or "").strip()
     if not text:
         return []
-    payload = await fetch_json(STEAM_SEARCH_URL.format(query=quote(text)), policy=game_http_policy())
-    items = payload.get("items") if isinstance(payload, dict) else None
-    if not isinstance(items, list):
-        return []
+    primary_country, primary_language = STEAM_SEARCH_PRIMARY_LOCALE
+    items = await _fetch_steam_search_items(text, primary_country, primary_language)
+    if not items:
+        fallback_country, fallback_language = STEAM_SEARCH_FALLBACK_LOCALE
+        items = await _fetch_steam_search_items(text, fallback_country, fallback_language)
+    deduped: Dict[str, Dict[str, Any]] = {}
+    for item in items:
+        app_id = str(item.get("id") or "").strip()
+        if app_id and app_id not in deduped:
+            deduped[app_id] = item
     scored = sorted(
-        [item for item in items if isinstance(item, dict)],
+        deduped.values(),
         key=lambda item: _title_score(text, str(item.get("name") or "")),
         reverse=True,
     )
     candidates: List[GameSearchCandidate] = []
-    for item in scored[: max(1, min(limit, 10))]:
+    for item in scored[:STEAM_SEARCH_DETAIL_LIMIT]:
         app_id = str(item.get("id") or "").strip()
         title = str(item.get("name") or "").strip()
-        detail = await fetch_steam_app_detail(app_id, title)
+        detail = await fetch_steam_app_detail(
+            app_id,
+            title,
+            {
+                "steam_search_title": title,
+                "steam_search_country": item.get("_steam_search_country"),
+                "steam_search_language": item.get("_steam_search_language"),
+            },
+        )
         if detail is not None:
             candidates.append(detail)
-    return candidates
+    candidates.sort(key=lambda candidate: _candidate_search_score(text, candidate), reverse=True)
+    return candidates[: max(1, limit)]
 
 
 async def fetch_steam_price_quote(app_id: str, display_name: str = "") -> GamePriceQuote:
@@ -435,8 +538,6 @@ async def fetch_itad_price_quote(steam_app_id: str, display_name: str = "") -> G
         if not itad_id:
             _set_provider_status("itad", "error", "not_found")
             return GamePriceQuote("itad", "PC過去最安(ITAD)", str(steam_app_id), display_name or str(steam_app_id), status="error", error_code="not_found")
-        overview = await _post_json(ITAD_OVERVIEW_URL, [itad_id], headers)
-        history = await _post_json(ITAD_HISTORY_LOW_URL, [itad_id], headers)
     except ExternalHttpError as exc:
         code = "http_{0}".format(exc.status_code) if exc.status_code else "request_failed"
         _set_provider_status("itad", "error", code)
@@ -445,8 +546,30 @@ async def fetch_itad_price_quote(steam_app_id: str, display_name: str = "") -> G
         _set_provider_status("itad", "error", "request_failed")
         return GamePriceQuote("itad", "PC過去最安(ITAD)", str(steam_app_id), display_name or str(steam_app_id), status="error", error_code="request_failed")
 
-    current = _parse_itad_overview(overview, itad_id)
-    low = _parse_itad_history_low(history, itad_id)
+    overview_error = ""
+    history_error = ""
+    try:
+        overview = await _post_json(ITAD_OVERVIEW_URL, [itad_id], headers)
+        current = _parse_itad_overview(overview, itad_id)
+    except ExternalHttpError as exc:
+        overview_error = "http_{0}".format(exc.status_code) if exc.status_code else "request_failed"
+        current = (None, "", "", "", "")
+    except Exception:
+        overview_error = "request_failed"
+        current = (None, "", "", "", "")
+    try:
+        history = await _post_json(ITAD_HISTORY_LOW_URL, [itad_id], headers)
+        low = _parse_itad_history_low(history, itad_id)
+    except ExternalHttpError as exc:
+        history_error = "http_{0}".format(exc.status_code) if exc.status_code else "request_failed"
+        low = (None, "", "", "", "")
+    except Exception:
+        history_error = "request_failed"
+        low = (None, "", "", "", "")
+    if current[0] is None and not current[1] and low[0] is None and not low[1]:
+        error_code = overview_error or history_error or "not_found"
+        _set_provider_status("itad", "error", error_code)
+        return GamePriceQuote("itad", "PC過去最安(ITAD)", str(steam_app_id), display_name or str(steam_app_id), status="error", error_code=error_code)
     title = str((game or {}).get("title") or display_name or steam_app_id)
     _set_provider_status("itad", "ok")
     quote_obj = GamePriceQuote(
@@ -460,13 +583,19 @@ async def fetch_itad_price_quote(steam_app_id: str, display_name: str = "") -> G
         formatted_historical_low=low[1],
         currency=current[2] or low[2] or "",
         store_url=str((game or {}).get("url") or ""),
+        current_store_name=current[3],
+        historical_low_store_name=low[3],
         fetched_at=time.time(),
         metadata={
             "steam_app_id": str(steam_app_id),
             "itad_game_id": itad_id,
             "itad_title": title,
+            "itad_current_shop": current[3],
+            "itad_current_url": current[4],
             "itad_low_shop": low[3],
             "itad_low_timestamp": low[4],
+            "itad_overview_error": overview_error,
+            "itad_historylow_error": history_error,
             "cache": "miss",
         },
     )
@@ -493,7 +622,7 @@ def _parse_price_object(price: Any) -> Tuple[Optional[int], str, str]:
     return value, _format_from_minor(value, currency), currency
 
 
-def _parse_itad_overview(payload: Any, itad_id: str) -> Tuple[Optional[int], str, str]:
+def _parse_itad_overview(payload: Any, itad_id: str) -> Tuple[Optional[int], str, str, str, str]:
     items = []
     if isinstance(payload, list):
         items = payload
@@ -503,21 +632,28 @@ def _parse_itad_overview(payload: Any, itad_id: str) -> Tuple[Optional[int], str
             raw_items = payload.get("data")
         items = raw_items
     if not isinstance(items, list):
-        return None, "", ""
+        return None, "", "", "", ""
     for item in items:
         if not isinstance(item, dict) or str(item.get("id") or "") != itad_id:
             continue
         current = item.get("current")
         if isinstance(current, dict):
             price = current.get("price")
+            shop = current.get("shop") if isinstance(current.get("shop"), dict) else {}
+            url = str(current.get("url") or current.get("shopUrl") or "")
             if isinstance(price, dict):
-                return _parse_price_object(price)
+                parsed = _parse_price_object(price)
+                return parsed[0], parsed[1], parsed[2], str(shop.get("name") or ""), url
         deals = item.get("deals")
         if isinstance(deals, list) and deals:
-            return _parse_price_object(deals[0].get("price") if isinstance(deals[0], dict) else None)
+            deal = deals[0] if isinstance(deals[0], dict) else {}
+            parsed = _parse_price_object(deal.get("price"))
+            shop = deal.get("shop") if isinstance(deal.get("shop"), dict) else {}
+            return parsed[0], parsed[1], parsed[2], str(shop.get("name") or ""), str(deal.get("url") or "")
         price = item.get("price") or item.get("current")
-        return _parse_price_object(price)
-    return None, "", ""
+        parsed = _parse_price_object(price)
+        return parsed[0], parsed[1], parsed[2], "", ""
+    return None, "", "", "", ""
 
 
 def _parse_itad_history_low(payload: Any, itad_id: str) -> Tuple[Optional[int], str, str, str, str]:
