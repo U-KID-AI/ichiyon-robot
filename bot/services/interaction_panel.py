@@ -1,6 +1,6 @@
 import re
 import unicodedata
-from typing import Optional
+from typing import Any, Match, Optional, Tuple
 
 import discord
 
@@ -43,10 +43,41 @@ SOUNDBOARD_ASSETS_PER_PAGE = 20
 DISCORD_BUTTON_LABEL_MAX_LENGTH = 80
 FEATURE_AUDIO_ASSETS = "audio_assets"
 FEATURE_GAMES = "games"
+PANEL_BOT_ID_PATTERN = r"[^:]{1,48}"
+AUDIO_ASSET_DYNAMIC_BUTTON_TEMPLATE = (
+    r"{0}:(?P<bot_id>{1}):audio:asset:(?P<asset_id>[0-9]+)".format(
+        re.escape(PANEL_CUSTOM_ID_PREFIX),
+        PANEL_BOT_ID_PATTERN,
+    )
+)
 
 
 def custom_id(*parts: str) -> str:
     return ":".join([PANEL_CUSTOM_ID_PREFIX, config.BOT_INSTANCE_ID] + [str(part) for part in parts])
+
+
+def audio_asset_custom_id(bot_id: str, asset_id: int) -> str:
+    return ":".join([PANEL_CUSTOM_ID_PREFIX, str(bot_id), "audio", "asset", str(int(asset_id))])
+
+
+def parse_audio_asset_custom_id(value: str) -> Optional[Tuple[str, int]]:
+    match = re.fullmatch(AUDIO_ASSET_DYNAMIC_BUTTON_TEMPLATE, str(value or ""))
+    if not match:
+        return None
+    return match.group("bot_id"), int(match.group("asset_id"))
+
+
+def log_soundboard_event(event: str, bot_id: str, guild_id: str, asset_id: int, user_id: str, detail: str = "") -> None:
+    print(
+        "[INFO] {0}: bot_id={1} guild_id={2} asset_id={3} user_id={4} detail={5}".format(
+            event,
+            bot_id,
+            guild_id,
+            asset_id,
+            user_id,
+            detail,
+        )
+    )
 
 
 def mention_text_is_empty(command_text: Optional[str]) -> bool:
@@ -178,6 +209,9 @@ def register_persistent_views(bot: discord.Client) -> None:
     bot.add_view(MusicPanelView())
     bot.add_view(AudioCategoryView())
     bot.add_view(GamePanelView())
+    add_dynamic_items = getattr(bot, "add_dynamic_items", None)
+    if callable(add_dynamic_items):
+        add_dynamic_items(AudioAssetDynamicButton)
 
 
 class MainPanelView(discord.ui.View):
@@ -463,46 +497,84 @@ class YouTubeNPullPresetView(discord.ui.View):
         self.add_item(YouTubeNPullPresetSelect(presets))
 
 
-class AudioAssetButton(discord.ui.Button):
-    def __init__(self, asset) -> None:
-        self.asset_id = int(asset.get("id"))
-        label = truncate_button_label(asset.get("display_name"), str(self.asset_id))
+class AudioAssetDynamicButton(discord.ui.DynamicItem[discord.ui.Button], template=AUDIO_ASSET_DYNAMIC_BUTTON_TEMPLATE):
+    def __init__(self, asset_or_id: Any, label: str = "SE", bot_id: Optional[str] = None) -> None:
+        if isinstance(asset_or_id, dict):
+            asset_id = int(asset_or_id.get("id"))
+            label = str(asset_or_id.get("display_name") or label or asset_id)
+        else:
+            asset_id = int(asset_or_id)
+        self.bot_id = str(bot_id or config.BOT_INSTANCE_ID)
+        self.asset_id = int(asset_id)
         super().__init__(
-            label=label,
-            style=discord.ButtonStyle.secondary,
-            custom_id=custom_id("audio", "asset", self.asset_id),
+            discord.ui.Button(
+                label=truncate_button_label(label, str(self.asset_id)),
+                style=discord.ButtonStyle.secondary,
+                custom_id=audio_asset_custom_id(self.bot_id, self.asset_id),
+            )
         )
 
+    @property
+    def label(self) -> Optional[str]:
+        return getattr(self.item, "label", None)
+
+    @property
+    def disabled(self) -> bool:
+        return bool(getattr(self.item, "disabled", False))
+
+    @classmethod
+    async def from_custom_id(
+        cls,
+        interaction: discord.Interaction,
+        item: discord.ui.Button,
+        match: Match[str],
+    ) -> "AudioAssetDynamicButton":
+        label = str(getattr(item, "label", "") or "SE")
+        return cls(int(match.group("asset_id")), label=label, bot_id=match.group("bot_id"))
+
     async def callback(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
+        guild_id = str(getattr(guild, "id", "") or "")
+        user_id = str(getattr(getattr(interaction, "user", None), "id", "") or "")
+        log_soundboard_event("soundboard_click", self.bot_id, guild_id, self.asset_id, user_id)
+        await interaction.response.defer(ephemeral=True)
         if guild is None:
+            log_soundboard_event("soundboard_asset_skipped", self.bot_id, guild_id, self.asset_id, user_id, "no_guild")
             await interaction.followup.send("サーバー内で使ってください。", ephemeral=True)
+            return
+        if self.bot_id != config.BOT_INSTANCE_ID:
+            log_soundboard_event("soundboard_asset_skipped", self.bot_id, guild_id, self.asset_id, user_id, "wrong_bot_id")
+            await interaction.followup.send("このBot用の音声ボタンではありません。", ephemeral=True)
             return
         try:
             with get_connection() as connection:
-                asset = AudioAssetRepository(connection).get_asset(str(guild.id), self.asset_id, enabled=True)
+                asset = AudioAssetRepository(connection, bot_id=self.bot_id).get_asset(guild_id, self.asset_id, enabled=True)
         except Exception:
+            log_soundboard_event("soundboard_asset_skipped", self.bot_id, guild_id, self.asset_id, user_id, "lookup_error")
             await interaction.followup.send("音声の取得に失敗しました。時間をおいて試してください。", ephemeral=True)
             return
         if asset is None:
+            log_soundboard_event("soundboard_asset_skipped", self.bot_id, guild_id, self.asset_id, user_id, "asset_not_found")
             await interaction.followup.send("音声が見つかりません。", ephemeral=True)
             return
-        voice_client = get_guild_voice_client(guild)
-        if voice_client is None:
-            voice_state = getattr(interaction.user, "voice", None)
-            target_channel = getattr(voice_state, "channel", None)
-            if target_channel is None:
+        log_soundboard_event("soundboard_asset_resolved", self.bot_id, guild_id, self.asset_id, user_id)
+        played, reason = await play_audio_asset_row(guild, asset, reaction_type="soundboard", reaction_key=str(self.asset_id))
+        log_soundboard_event(
+            "soundboard_enqueue" if played else "soundboard_asset_skipped",
+            self.bot_id,
+            guild_id,
+            self.asset_id,
+            user_id,
+            "" if played else reason,
+        )
+        if not played:
+            if reason == "not_connected":
                 await interaction.followup.send("再生先のVCがありません。先にVCへ入ってください。", ephemeral=True)
                 return
-            try:
-                await target_channel.connect()
-            except Exception:
-                await interaction.followup.send("VCへの接続に失敗しました。", ephemeral=True)
-                return
-        played, reason = await play_audio_asset_row(guild, asset)
-        if not played:
             await interaction.followup.send("再生できませんでした: {0}".format(reason), ephemeral=True)
+
+
+AudioAssetButton = AudioAssetDynamicButton
 
 
 class AudioSoundboardPageButton(discord.ui.Button):
@@ -535,7 +607,7 @@ class AudioSoundboardBackButton(discord.ui.Button):
 
 class AudioSoundboardView(discord.ui.View):
     def __init__(self, assets=None, page: int = 0) -> None:
-        super().__init__(timeout=300)
+        super().__init__(timeout=None)
         self.assets = list(assets or [])
         self.page_count = max(1, (len(self.assets) + SOUNDBOARD_ASSETS_PER_PAGE - 1) // SOUNDBOARD_ASSETS_PER_PAGE)
         self.page = max(0, min(int(page or 0), self.page_count - 1))
