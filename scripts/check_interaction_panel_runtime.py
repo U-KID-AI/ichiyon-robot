@@ -61,9 +61,10 @@ class FakeFollowup:
 
 
 class FakeInteraction:
-    def __init__(self, connected=True, user_in_voice=True):
+    def __init__(self, connected=True, user_in_voice=True, guild_id="guild-a"):
         voice_client = SimpleNamespace(is_connected=lambda: connected)
-        self.guild = SimpleNamespace(id="guild-a", voice_client=voice_client)
+        self.guild = SimpleNamespace(id=guild_id, voice_client=voice_client)
+        self.guild_id = guild_id
         channel = SimpleNamespace(connect=self._connect)
         self.user = SimpleNamespace(id="user-a", voice=SimpleNamespace(channel=channel) if user_in_voice else None)
         self.response = FakeResponse()
@@ -86,11 +87,14 @@ class FakeConnection:
 class FakeAudioAssetRepository:
     assets = []
 
-    def __init__(self, connection):
+    def __init__(self, connection, bot_id=None):
         self.connection = connection
+        self.bot_id = bot_id
 
     def get_asset(self, guild_id, asset_id, enabled=None):
         for asset in self.assets:
+            if str(asset.get("guild_id", guild_id)) != str(guild_id):
+                continue
             if int(asset["id"]) == int(asset_id) and (enabled is None or bool(asset.get("enabled", True)) == enabled):
                 return asset
         return None
@@ -106,6 +110,7 @@ def audio_assets(count=3):
             "id": index,
             "display_name": "SE{0}".format(index),
             "enabled": True,
+            "guild_id": "guild-a",
             "storage_path": "dummy{0}.wav".format(index),
         }
         for index in range(1, count + 1)
@@ -147,8 +152,8 @@ async def check_repeated_soundboard_clicks() -> bool:
     original_play = interaction_panel.play_audio_asset_row
     calls = []
 
-    async def fake_play(guild, asset):
-        calls.append((guild.id, asset["id"]))
+    async def fake_play(guild, asset, volume_percent=None, reaction_type=None, reaction_key=None):
+        calls.append((guild.id, asset["id"], reaction_type, reaction_key))
         return True, ""
 
     try:
@@ -163,6 +168,7 @@ async def check_repeated_soundboard_clicks() -> bool:
             await button.callback(interaction)
         return (
             len(calls) == 3
+            and all(call[2] == "soundboard" and call[3] == "1" for call in calls)
             and all(interaction.response.deferred == 1 for interaction in interactions)
             and all(not interaction.followup.sent for interaction in interactions)
             and button.disabled is False
@@ -182,16 +188,120 @@ async def check_soundboard_vc_disconnected_safe() -> bool:
         FakeAudioAssetRepository.assets = audio_assets(1)
         interaction_panel.get_connection = lambda: FakeConnection()
         interaction_panel.AudioAssetRepository = FakeAudioAssetRepository
-        interaction_panel.play_audio_asset_row = lambda guild, asset: (_ for _ in ()).throw(AssertionError("should not play"))
+        async def fake_play(guild, asset, volume_percent=None, reaction_type=None, reaction_key=None):
+            return False, "not_connected"
+
+        interaction_panel.play_audio_asset_row = fake_play
         view = interaction_panel.AudioSoundboardView(FakeAudioAssetRepository.assets)
         button = next(item for item in view.children if isinstance(item, interaction_panel.AudioAssetButton))
         interaction = FakeInteraction(connected=False, user_in_voice=False)
         await button.callback(interaction)
-        return interaction.response.deferred == 1 and bool(interaction.followup.sent) and button.disabled is False and not view.is_finished()
+        return (
+            interaction.response.deferred == 1
+            and bool(interaction.followup.sent)
+            and interaction.connected_calls == 0
+            and button.disabled is False
+            and not view.is_finished()
+        )
     finally:
         interaction_panel.get_connection = original_get_connection
         interaction_panel.AudioAssetRepository = original_repo
         interaction_panel.play_audio_asset_row = original_play
+
+
+async def check_dynamic_button_from_custom_id() -> bool:
+    parsed = interaction_panel.parse_audio_asset_custom_id("ichiyon_panel:ichiyon:audio:asset:123")
+    match = interaction_panel.AudioAssetDynamicButton.__discord_ui_compiled_template__.fullmatch(
+        "ichiyon_panel:ichiyon:audio:asset:123"
+    )
+    if parsed != ("ichiyon", 123) or match is None:
+        return False
+    base_item = discord.ui.Button(label="死んでしまう", custom_id="ichiyon_panel:ichiyon:audio:asset:123")
+    dynamic = await interaction_panel.AudioAssetDynamicButton.from_custom_id(FakeInteraction(), base_item, match)
+    return (
+        dynamic.bot_id == "ichiyon"
+        and dynamic.asset_id == 123
+        and dynamic.label == "死んでしまう"
+        and getattr(dynamic.item, "custom_id", "") == "ichiyon_panel:ichiyon:audio:asset:123"
+    )
+
+
+def check_dynamic_item_registration() -> bool:
+    class FakeBot:
+        def __init__(self):
+            self.views = []
+            self.dynamic_items = []
+
+        def add_view(self, view):
+            self.views.append(view)
+
+        def add_dynamic_items(self, *items):
+            self.dynamic_items.extend(items)
+
+    bot = FakeBot()
+    interaction_panel.register_persistent_views(bot)
+    return interaction_panel.AudioAssetDynamicButton in bot.dynamic_items and len(bot.views) >= 4
+
+
+async def check_soundboard_asset_safe(asset_rows, interaction=None, expected_detail="") -> bool:
+    original_get_connection = interaction_panel.get_connection
+    original_repo = interaction_panel.AudioAssetRepository
+    original_play = interaction_panel.play_audio_asset_row
+    calls = []
+
+    async def fake_play(guild, asset, volume_percent=None, reaction_type=None, reaction_key=None):
+        calls.append(asset["id"])
+        return True, ""
+
+    try:
+        FakeAudioAssetRepository.assets = asset_rows
+        interaction_panel.get_connection = lambda: FakeConnection()
+        interaction_panel.AudioAssetRepository = FakeAudioAssetRepository
+        interaction_panel.play_audio_asset_row = fake_play
+        button = interaction_panel.AudioAssetDynamicButton(1, label="SE1")
+        await button.callback(interaction or FakeInteraction())
+        if expected_detail:
+            return not calls and bool((interaction or FakeInteraction()).followup.sent)
+        return bool(calls)
+    finally:
+        interaction_panel.get_connection = original_get_connection
+        interaction_panel.AudioAssetRepository = original_repo
+        interaction_panel.play_audio_asset_row = original_play
+
+
+async def check_wrong_bot_safe() -> bool:
+    original_get_connection = interaction_panel.get_connection
+    original_repo = interaction_panel.AudioAssetRepository
+    original_play = interaction_panel.play_audio_asset_row
+    calls = []
+
+    async def fake_play(guild, asset, volume_percent=None, reaction_type=None, reaction_key=None):
+        calls.append(asset["id"])
+        return True, ""
+
+    try:
+        FakeAudioAssetRepository.assets = audio_assets(1)
+        interaction_panel.get_connection = lambda: FakeConnection()
+        interaction_panel.AudioAssetRepository = FakeAudioAssetRepository
+        interaction_panel.play_audio_asset_row = fake_play
+        interaction = FakeInteraction()
+        button = interaction_panel.AudioAssetDynamicButton(1, label="SE1", bot_id="irsia")
+        await button.callback(interaction)
+        return not calls and bool(interaction.followup.sent)
+    finally:
+        interaction_panel.get_connection = original_get_connection
+        interaction_panel.AudioAssetRepository = original_repo
+        interaction_panel.play_audio_asset_row = original_play
+
+
+async def check_missing_disabled_wrong_guild_safe() -> bool:
+    disabled_interaction = FakeInteraction()
+    missing_interaction = FakeInteraction()
+    wrong_guild_interaction = FakeInteraction(guild_id="guild-b")
+    disabled = await check_soundboard_asset_safe([{**audio_assets(1)[0], "enabled": False}], disabled_interaction, "disabled")
+    missing = await check_soundboard_asset_safe([], missing_interaction, "missing")
+    wrong_guild = await check_soundboard_asset_safe(audio_assets(1), wrong_guild_interaction, "wrong_guild")
+    return disabled and missing and wrong_guild
 
 
 def custom_ids(view):
@@ -230,8 +340,15 @@ def main() -> int:
     results.append(check("soundboard has back button", any("audio:soundboard_back" in item for item in soundboard_ids), str(soundboard_ids)))
     results.append(check("soundboard asset labels use display name", any(getattr(item, "label", "") == "SE1" for item in soundboard.children)))
     results.append(check("soundboard asset button stores id", any(getattr(item, "asset_id", None) == 1 for item in soundboard.children)))
+    results.append(check("soundboard custom_id parses bot and asset", interaction_panel.parse_audio_asset_custom_id("ichiyon_panel:ichiyon:audio:asset:1") == ("ichiyon", 1)))
+    results.append(check("soundboard custom_id rejects invalid values", interaction_panel.parse_audio_asset_custom_id("ichiyon_panel:ichiyon:audio:asset:x") is None))
+    results.append(check("soundboard dynamic item can restore from custom_id", asyncio.run(check_dynamic_button_from_custom_id())))
+    results.append(check("soundboard dynamic item registered on startup", check_dynamic_item_registration()))
+    results.append(check("soundboard view is persistent timeout", soundboard.timeout is None))
     results.append(check("soundboard buttons stay repeatable", asyncio.run(check_repeated_soundboard_clicks())))
     results.append(check("soundboard handles missing VC safely", asyncio.run(check_soundboard_vc_disconnected_safe())))
+    results.append(check("soundboard rejects wrong bot id", asyncio.run(check_wrong_bot_safe())))
+    results.append(check("soundboard rejects missing disabled and wrong guild assets", asyncio.run(check_missing_disabled_wrong_guild_safe())))
 
     paged = interaction_panel.AudioSoundboardView(audio_assets(21))
     paged_ids = custom_ids(paged)
