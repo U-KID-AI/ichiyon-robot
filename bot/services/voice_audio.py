@@ -14,7 +14,7 @@ from bot import config
 from bot.db import get_connection
 from bot.repositories.audio_assets import AudioAssetRepository
 from bot.repositories.music_settings import DEFAULT_FOREGROUND_VOLUME_PERCENT
-from bot.services.voice.mixer import ensure_mixer_playing, get_mixer
+from bot.services.voice.mixer import ensure_mixer_playing, get_mixer, mixer_has_tts_source
 from bot.services.voice.session import voice_state_key
 
 
@@ -400,7 +400,15 @@ def _foreground_queue(guild_id: str) -> Deque[Dict[str, Any]]:
 def _start_next_foreground_audio(voice_client: discord.VoiceClient, guild_id: str) -> None:
     key = voice_state_key(guild_id)
     if _FOREGROUND_ACTIVE.get(key):
-        return
+        if mixer_has_tts_source(guild_id):
+            return
+        print(
+            "[WARN] foreground audio active state recovered: bot_instance_id={0} guild_id={1}".format(
+                config.BOT_INSTANCE_ID,
+                guild_id,
+            )
+        )
+        _FOREGROUND_ACTIVE[key] = False
     queue = _foreground_queue(guild_id)
     if not queue:
         _FOREGROUND_ACTIVE[key] = False
