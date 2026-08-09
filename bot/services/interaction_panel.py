@@ -286,7 +286,7 @@ class YouTubeNPullCountModal(discord.ui.Modal, title="N連を実行"):
     def __init__(self, preset) -> None:
         super().__init__()
         self.preset = dict(preset or {})
-        default_count = max(1, min(100, int(self.preset.get("max_pulls") or 1)))
+        default_count = 1
         self.count = discord.ui.TextInput(
             label="何連しますか？",
             default=str(default_count),
