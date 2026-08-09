@@ -80,6 +80,16 @@ def log_soundboard_event(event: str, bot_id: str, guild_id: str, asset_id: int, 
     )
 
 
+async def defer_interaction_if_needed(interaction: discord.Interaction, *, ephemeral: bool = True) -> None:
+    response = getattr(interaction, "response", None)
+    if response is None:
+        return
+    is_done = getattr(response, "is_done", None)
+    if callable(is_done) and is_done():
+        return
+    await response.defer(ephemeral=ephemeral)
+
+
 def mention_text_is_empty(command_text: Optional[str]) -> bool:
     return command_text is not None and not str(command_text or "").strip()
 
@@ -533,11 +543,11 @@ class AudioAssetDynamicButton(discord.ui.DynamicItem[discord.ui.Button], templat
         return cls(int(match.group("asset_id")), label=label, bot_id=match.group("bot_id"))
 
     async def callback(self, interaction: discord.Interaction) -> None:
+        await defer_interaction_if_needed(interaction, ephemeral=True)
         guild = interaction.guild
         guild_id = str(getattr(guild, "id", "") or "")
         user_id = str(getattr(getattr(interaction, "user", None), "id", "") or "")
         log_soundboard_event("soundboard_click", self.bot_id, guild_id, self.asset_id, user_id)
-        await interaction.response.defer(ephemeral=True)
         if guild is None:
             log_soundboard_event("soundboard_asset_skipped", self.bot_id, guild_id, self.asset_id, user_id, "no_guild")
             await interaction.followup.send("サーバー内で使ってください。", ephemeral=True)
