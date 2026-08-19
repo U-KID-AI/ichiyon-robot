@@ -45,7 +45,9 @@ async def main_async():
     results.append(check("migration seeds steam app id 1414850", "'1414850'" in migration))
     results.append(check("price target seed has unique conflict target", "mention_shortcut_price_target_unique UNIQUE" in migration and "ON CONFLICT DO NOTHING" in migration))
     seed_block = migration.split("DO $$", 1)[1]
-    results.append(check("migration does not seed uncertain NTPrices target", "(v_shortcut_id, 'ntprices'" not in seed_block.lower()))
+    migration_042 = (ROOT_DIR / "migrations" / "042_add_nintendo_target_to_nickelodeon_shortcut.sql").read_text(encoding="utf-8")
+    results.append(check("migration 041 does not seed uncertain NTPrices target", "(v_shortcut_id, 'ntprices'" not in seed_block.lower()))
+    results.append(check("migration 042 adds Nintendo official NSUID target", "'70010000057297'" in migration_042 and "'nsuid'" in migration_042 and "'Nintendo Switch'" in migration_042))
 
     original_connection = mention_shortcuts.get_connection
     original_repo = mention_shortcuts.MentionShortcutRepository
@@ -208,6 +210,46 @@ async def main_async():
     finally:
         mention_shortcuts.game_provider.fetch_price_quote = original_provider_fetch
 
+    async def fake_nintendo_failure_fetch(provider, product_id, lookup_type="", display_name=""):
+        if provider == "ntprices":
+            return GamePriceQuote(
+                provider="nintendo",
+                store_name=display_name or "Nintendo Switch",
+                provider_product_id=product_id,
+                title=display_name or product_id,
+                status="error",
+                error_code="http_404",
+            )
+        return GamePriceQuote(
+            provider=provider,
+            store_name=display_name or provider,
+            provider_product_id=product_id,
+            title=display_name or product_id,
+            current_price=5500,
+            regular_price=5500,
+            discount_percent=0,
+            formatted_current_price="5,500円",
+            formatted_regular_price="5,500円",
+            fetched_at=1786208400.0,
+            status="ok",
+        )
+
+    mention_shortcuts.game_provider.fetch_price_quote = fake_nintendo_failure_fetch
+    try:
+        quotes = await mention_shortcuts.fetch_shortcut_price_quotes(
+            [
+                {"provider": "steam", "provider_product_id": "1414850", "lookup_type": "app_id", "display_name": "Steam"},
+                {"provider": "itad", "provider_product_id": "1414850", "lookup_type": "steam_app_id", "display_name": "PC過去最安(ITAD)"},
+                {"provider": "ntprices", "provider_product_id": "70010000057297", "lookup_type": "nsuid", "display_name": "Nintendo Switch"},
+            ]
+        )
+        embeds = mention_shortcuts.build_shortcut_embeds({"name": "ニコロデオン"}, quotes)
+        fields = {field.name: field.value for field in embeds[0].fields}
+        results.append(check("Nintendo failure does not suppress Steam and ITAD", "Steam" in fields and "PC現在最安(ITAD)" in fields and "Nintendo Switch" in fields, fields))
+        results.append(check("Nintendo failure is isolated in its own field", fields.get("Nintendo Switch") == "取得失敗: http_404", fields))
+    finally:
+        mention_shortcuts.game_provider.fetch_price_quote = original_provider_fetch
+
     itad_quote = GamePriceQuote(
         provider="itad",
         store_name="PC過去最安(ITAD)",
@@ -277,6 +319,33 @@ async def main_async():
     )
     history_failed_fields = {field.name: field.value for field in mention_shortcuts.build_shortcut_embeds({"name": "ニコロデオン"}, [history_failed])[0].fields}
     results.append(check("ITAD history failure does not hide current best", "現在最安: 3,785円" in history_failed_fields.get("PC現在最安(ITAD)", ""), history_failed_fields))
+
+    nintendo_quote = GamePriceQuote(
+        provider="nintendo",
+        store_name="Nintendo Switch",
+        provider_product_id="70010000057297",
+        title="ニコロデオン オールスター大乱闘 アルティメットエディション",
+        current_price=290,
+        regular_price=6578,
+        discount_percent=96,
+        currency="JPY",
+        formatted_current_price="290円",
+        formatted_regular_price="6,578円",
+        store_url="https://store-jp.nintendo.com/list/software/70010000057297.html",
+        fetched_at=1786208400.0,
+        status="ok",
+        metadata={
+            "sale_price": 290,
+            "formatted_sale_price": "290円",
+            "sale_end": "2026-08-27T14:59:59Z",
+        },
+    )
+    nintendo_fields = {field.name: field.value for field in mention_shortcuts.build_shortcut_embeds({"name": "ニコロデオン"}, [nintendo_quote])[0].fields}
+    nintendo_value = nintendo_fields.get("Nintendo Switch", "")
+    results.append(check("Nintendo Switch field displays current price", "現在価格: 290円" in nintendo_value, nintendo_value))
+    results.append(check("Nintendo Switch field displays regular price", "通常価格: 6,578円" in nintendo_value, nintendo_value))
+    results.append(check("Nintendo Switch field displays sale end", "セール終了: 2026/08/27 23:59" in nintendo_value, nintendo_value))
+    results.append(check("Nintendo Switch field links Store", "Nintendo Store: https://store-jp.nintendo.com/list/software/70010000057297.html" in nintendo_value, nintendo_value))
 
     original_fetch_json = mention_shortcuts.game_provider.fetch_json
     mention_shortcuts.game_provider._PRICE_CACHE.clear()
