@@ -26,9 +26,10 @@ def main():
     results.append(check("repository uses current selected bot", "current_selected_bot_id()" in admin_source))
     results.append(check("form has Steam provider", 'value="steam"' in form_template))
     results.append(check("form has ITAD provider", 'value="itad"' in form_template))
-    results.append(check("form has NTPrices provider", 'value="ntprices"' in form_template))
+    results.append(check("form has Nintendo Switch / NTPrices provider", 'value="ntprices"' in form_template and "Nintendo Switch / NTPrices" in form_template))
     results.append(check("form has audio asset dropdown", "audio_assets" in form_template and "audio_asset_id" in form_template))
     results.append(check("list has toggle and delete", "/toggle" in list_template and "/delete" in list_template))
+    results.append(check("admin status mentions Nintendo official price", "Nintendo公式価格" in admin_source or "Nintendo公式価格" in servers_source))
     results.append(check("provider status hides key values", "ITAD_API_KEY" not in list_template and "NTPRICES_API_KEY" not in list_template))
     return 0 if all(results) else 1
 

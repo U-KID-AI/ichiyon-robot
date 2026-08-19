@@ -3,6 +3,7 @@ import os
 import re
 import time
 import unicodedata
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
@@ -23,9 +24,13 @@ NTPRICES_BASE_URL = "https://ntprices.com/api/v2"
 NTPRICES_GAME_URL = NTPRICES_BASE_URL + "/games/{product_id}?region={region}&include_related=1"
 NTPRICES_BY_NSUID_URL = NTPRICES_BASE_URL + "/games/by-nsuid/{product_id}?region={region}&include_related=1"
 NTPRICES_SEARCH_URL = NTPRICES_BASE_URL + "/games/search?q={query}&region={region}&include_dlc=0"
+NINTENDO_PRICE_URL = "https://api.ec.nintendo.com/v1/price?country=JP&lang=jp&ids={title_id}"
+NINTENDO_JP_CATALOG_URL = "https://www.nintendo.co.jp/data/software/xml/switch.xml"
+NINTENDO_STORE_URL = "https://store-jp.nintendo.com/list/software/{title_id}.html"
 DEFAULT_GAME_PROVIDER_TIMEOUT_SECONDS = 8.0
 DEFAULT_GAME_SEARCH_LIMIT = 5
 DEFAULT_GAME_PRICE_CACHE_TTL_SECONDS = 900
+DEFAULT_NINTENDO_CATALOG_CACHE_TTL_SECONDS = 3600
 STEAM_SEARCH_PRIMARY_LOCALE = ("JP", "japanese")
 STEAM_SEARCH_FALLBACK_LOCALE = ("JP", "english")
 STEAM_SEARCH_DETAIL_LIMIT = 12
@@ -114,6 +119,7 @@ class GamePriceQuote:
 
 _PRICE_CACHE: Dict[Tuple[str, str, str], Tuple[float, GamePriceQuote]] = {}
 _PROVIDER_STATUS: Dict[str, Dict[str, Any]] = {}
+_NINTENDO_CATALOG_CACHE: Tuple[float, List[GameSearchCandidate]] = (0.0, [])
 
 
 def game_http_policy() -> ExternalHttpPolicy:
@@ -513,6 +519,13 @@ def ntprices_region() -> str:
     return str(os.getenv("NTPRICES_REGION") or "JP").strip().upper() or "JP"
 
 
+def nintendo_catalog_cache_ttl_seconds() -> int:
+    try:
+        return max(0, int(os.getenv("NINTENDO_CATALOG_CACHE_TTL_SECONDS") or DEFAULT_NINTENDO_CATALOG_CACHE_TTL_SECONDS))
+    except ValueError:
+        return DEFAULT_NINTENDO_CATALOG_CACHE_TTL_SECONDS
+
+
 async def _post_json(url: str, body: Any, headers: Dict[str, str]) -> Any:
     policy = game_http_policy()
     async with httpx.AsyncClient(timeout=policy.read_timeout, follow_redirects=True, trust_env=False) as client:
@@ -670,7 +683,194 @@ def _parse_itad_history_low(payload: Any, itad_id: str) -> Tuple[Optional[int], 
     return None, "", "", "", ""
 
 
+def _is_nintendo_official_lookup(lookup_type: str) -> bool:
+    return str(lookup_type or "").strip().lower() in {"nsuid", "title_id", "nintendo_nsuid", "nintendo_title_id"}
+
+
+def _safe_nintendo_title_id(value: str) -> str:
+    text = "".join(ch for ch in str(value or "") if ch.isdigit())
+    return text if len(text) >= 10 else ""
+
+
+def _parse_nintendo_price_value(value: Any) -> Tuple[Optional[int], str, str]:
+    if not isinstance(value, dict):
+        return None, "", ""
+    currency = str(value.get("currency") or "JPY").upper()
+    raw = _as_int(value.get("raw_value"))
+    amount = str(value.get("amount") or "").strip()
+    if raw is None and amount:
+        digits = re.sub(r"[^0-9]+", "", amount)
+        raw = int(digits) if digits else None
+    formatted = amount
+    if currency == "JPY":
+        formatted = _format_jpy_price(raw) if raw is not None else ""
+    elif not formatted:
+        formatted = _format_from_minor(raw, currency)
+    return raw, formatted, currency
+
+
+def _discount_percent(regular: Optional[int], current: Optional[int]) -> int:
+    if regular is None or current is None or regular <= 0 or current >= regular:
+        return 0
+    return max(0, min(100, int(round((regular - current) * 100 / regular))))
+
+
+def _parse_nintendo_price_payload(payload: Any, title_id: str, display_name: str = "") -> Optional[GamePriceQuote]:
+    prices = payload.get("prices") if isinstance(payload, dict) else None
+    if not isinstance(prices, list):
+        return None
+    for item in prices:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("title_id") or "") != str(title_id):
+            continue
+        regular, regular_formatted, regular_currency = _parse_nintendo_price_value(item.get("regular_price"))
+        discount, discount_formatted, discount_currency = _parse_nintendo_price_value(item.get("discount_price"))
+        current = discount if discount is not None else regular
+        current_formatted = discount_formatted if discount is not None else regular_formatted
+        currency = discount_currency or regular_currency or "JPY"
+        status = str(item.get("sales_status") or "")
+        sale_end = ""
+        sale_start = ""
+        discount_price = item.get("discount_price")
+        if isinstance(discount_price, dict):
+            sale_start = str(discount_price.get("start_datetime") or "")
+            sale_end = str(discount_price.get("end_datetime") or "")
+        return GamePriceQuote(
+            provider="nintendo",
+            store_name="Nintendo Switch",
+            provider_product_id=str(title_id),
+            title=display_name or str(title_id),
+            current_price=current,
+            regular_price=regular,
+            discount_percent=_discount_percent(regular, current),
+            currency=currency,
+            formatted_current_price=current_formatted,
+            formatted_regular_price=regular_formatted,
+            store_url=NINTENDO_STORE_URL.format(title_id=quote(str(title_id))),
+            fetched_at=time.time(),
+            metadata={
+                "lookup_type": "nsuid",
+                "source": "nintendo_official",
+                "sales_status": status,
+                "sale_price": discount,
+                "formatted_sale_price": discount_formatted,
+                "sale_start": sale_start,
+                "sale_end": sale_end,
+                "cache": "miss",
+            },
+        )
+    return None
+
+
+async def fetch_nintendo_price_quote(product_id: str, display_name: str = "") -> GamePriceQuote:
+    title_id = _safe_nintendo_title_id(product_id)
+    if not title_id:
+        _set_provider_status("nintendo", "error", "invalid_product_id")
+        return GamePriceQuote("nintendo", "Nintendo Switch", str(product_id), display_name or str(product_id), status="error", error_code="invalid_product_id")
+    cached = _cached("nintendo", "nsuid", title_id)
+    if cached:
+        return cached
+    try:
+        payload = await fetch_json(NINTENDO_PRICE_URL.format(title_id=quote(title_id)), policy=game_http_policy())
+    except ExternalHttpError as exc:
+        code = "http_{0}".format(exc.status_code) if exc.status_code else "request_failed"
+        _set_provider_status("nintendo", "error", code)
+        return GamePriceQuote("nintendo", "Nintendo Switch", title_id, display_name or title_id, status="error", error_code=code)
+    except Exception:
+        _set_provider_status("nintendo", "error", "request_failed")
+        return GamePriceQuote("nintendo", "Nintendo Switch", title_id, display_name or title_id, status="error", error_code="request_failed")
+    quote_obj = _parse_nintendo_price_payload(payload, title_id, display_name)
+    if quote_obj is None:
+        _set_provider_status("nintendo", "error", "not_found")
+        return GamePriceQuote("nintendo", "Nintendo Switch", title_id, display_name or title_id, status="error", error_code="not_found")
+    _set_provider_status("nintendo", "ok")
+    return _store_cache("nintendo", "nsuid", title_id, quote_obj)
+
+
+async def _fetch_text(url: str) -> str:
+    policy = game_http_policy()
+    async with httpx.AsyncClient(timeout=policy.read_timeout, follow_redirects=True, trust_env=False, headers={"User-Agent": policy.user_agent}) as client:
+        response = await client.get(url)
+        if response.status_code >= 400:
+            raise ExternalHttpError("external request failed with status {0}".format(response.status_code), status_code=response.status_code, retryable=response.status_code in (429, 500, 502, 503, 504))
+        response.encoding = response.encoding or "utf-8"
+        return response.text
+
+
+def _nintendo_candidate_from_title_info(item: ET.Element) -> Optional[GameSearchCandidate]:
+    title = str(item.findtext("TitleName") or "").strip()
+    link = str(item.findtext("LinkURL") or "").strip()
+    title_id_match = re.search(r"(\d{10,})", link)
+    if not title or not title_id_match:
+        return None
+    title_id = title_id_match.group(1)
+    price_text = str(item.findtext("Price") or "").strip()
+    price_digits = re.sub(r"[^0-9]+", "", price_text)
+    price = int(price_digits) if price_digits else None
+    return GameSearchCandidate(
+        provider="nintendo",
+        provider_game_id=title_id,
+        title=title,
+        store_url=NINTENDO_STORE_URL.format(title_id=quote(title_id)),
+        platforms={"switch": True},
+        last_known_price=price,
+        last_known_regular_price=price,
+        last_known_discount_percent=0,
+        currency="JPY",
+        release_date=str(item.findtext("SalesDate") or ""),
+        metadata={
+            "nintendo_initial_code": item.findtext("InitialCode") or "",
+            "nintendo_maker": item.findtext("MakerName") or "",
+            "nintendo_link_url": link,
+            "formatted_price": _format_jpy_price(price),
+            "formatted_regular_price": _format_jpy_price(price),
+            "source": "nintendo_jp_catalog",
+        },
+    )
+
+
+def _parse_nintendo_catalog_xml(text: str) -> List[GameSearchCandidate]:
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        return []
+    candidates: List[GameSearchCandidate] = []
+    for item in root.iter("TitleInfo"):
+        candidate = _nintendo_candidate_from_title_info(item)
+        if candidate is not None:
+            candidates.append(candidate)
+    return candidates
+
+
+async def _load_nintendo_catalog() -> List[GameSearchCandidate]:
+    global _NINTENDO_CATALOG_CACHE
+    ttl = nintendo_catalog_cache_ttl_seconds()
+    cached_at, cached = _NINTENDO_CATALOG_CACHE
+    if ttl > 0 and cached and time.time() - cached_at <= ttl:
+        return list(cached)
+    text = await _fetch_text(NINTENDO_JP_CATALOG_URL)
+    candidates = _parse_nintendo_catalog_xml(text)
+    _NINTENDO_CATALOG_CACHE = (time.time(), candidates)
+    return list(candidates)
+
+
+async def search_nintendo_games(query: str, limit: int = DEFAULT_GAME_SEARCH_LIMIT) -> List[GameSearchCandidate]:
+    text = str(query or "").strip()
+    if not text:
+        return []
+    try:
+        candidates = await _load_nintendo_catalog()
+    except Exception:
+        _set_provider_status("nintendo", "error", "search_failed")
+        return []
+    ranked = sorted(candidates, key=lambda candidate: _candidate_search_score(text, candidate), reverse=True)
+    return ranked[: max(1, min(limit, 10))]
+
+
 async def fetch_ntprices_price_quote(product_id: str, lookup_type: str = "ppid", display_name: str = "") -> GamePriceQuote:
+    if _is_nintendo_official_lookup(lookup_type):
+        return await fetch_nintendo_price_quote(product_id, display_name)
     key = ntprices_api_key()
     region = ntprices_region()
     if not key:
@@ -772,6 +972,8 @@ async def fetch_price_quote(provider: str, product_id: str, lookup_type: str = "
         return await fetch_steam_price_quote(product_id, display_name)
     if key == "itad":
         return await fetch_itad_price_quote(product_id, display_name)
+    if key == "nintendo":
+        return await fetch_nintendo_price_quote(product_id, display_name)
     if key == "ntprices":
         return await fetch_ntprices_price_quote(product_id, lookup_type or "ppid", display_name)
     return GamePriceQuote(key, key, str(product_id), display_name or str(product_id), status="error", error_code="unknown_provider")
@@ -790,6 +992,8 @@ def format_price(price: Optional[int], currency: str = "JPY", formatted: str = "
 
 
 def provider_status_label(provider: str) -> str:
+    if str(provider or "").strip().lower() == "nintendo":
+        return "利用可能"
     status = _PROVIDER_STATUS.get(provider) or {}
     state = status.get("status") or "unknown"
     error = status.get("error_code") or ""

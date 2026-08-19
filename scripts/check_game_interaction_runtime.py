@@ -60,8 +60,10 @@ def main() -> int:
     results = []
     view = GamePanelView()
     ids = [item.custom_id for item in view.children if hasattr(item, "custom_id")]
-    for required in ("search", "owned_list", "wishlist_list", "backlog_list", "recent", "back"):
+    for required in ("search", "recent", "back"):
         results.append(check("game button {0}".format(required), any("game:{0}".format(required) in item for item in ids)))
+    for removed in ("owned_list", "wishlist_list", "backlog_list"):
+        results.append(check("game button {0} removed".format(removed), not any("game:{0}".format(removed) in item for item in ids)))
     repo_source = Path("bot/repositories/games.py").read_text(encoding="utf-8")
     results.append(check("user game entries scoped by bot guild user", "bot_id = %s AND guild_id = %s AND discord_user_id = %s" in repo_source))
     migration = Path("migrations/040_add_games.sql").read_text(encoding="utf-8")

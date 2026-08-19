@@ -129,6 +129,9 @@ def build_shortcut_embeds(shortcut: Dict[str, Any], quotes: List[game_provider.G
             for name, value in _itad_quote_fields(quote):
                 embed.add_field(name=name, value=value, inline=False)
             continue
+        if quote.provider == "nintendo":
+            embed.add_field(name=quote.store_name or "Nintendo Switch", value=_nintendo_quote_value(quote), inline=False)
+            continue
         embed.add_field(name=quote.store_name or quote.provider, value=_quote_value(quote), inline=False)
     embed.set_footer(text=_build_fetched_at_footer(quotes))
     return [embed]
@@ -162,6 +165,38 @@ def _quote_value(quote: game_provider.GamePriceQuote) -> str:
     if quote.store_url:
         lines.append(quote.store_url)
     return "\n".join(lines)
+
+
+def _nintendo_quote_value(quote: game_provider.GamePriceQuote) -> str:
+    metadata = quote.metadata or {}
+    lines: List[str] = []
+    sale_price = metadata.get("sale_price")
+    formatted_sale = str(metadata.get("formatted_sale_price") or "").strip()
+    current = game_provider.format_price(quote.current_price, quote.currency, quote.formatted_current_price)
+    regular = game_provider.format_price(quote.regular_price, quote.currency, quote.formatted_regular_price)
+    if sale_price is not None or formatted_sale:
+        lines.append("現在価格: {0}".format(current))
+        lines.append("通常価格: {0}".format(regular))
+        lines.append("セール価格: {0}".format(game_provider.format_price(sale_price, quote.currency, formatted_sale)))
+        sale_end = str(metadata.get("sale_end") or "").strip()
+        if sale_end:
+            lines.append("セール終了: {0}".format(_format_nintendo_datetime(sale_end)))
+    else:
+        lines.append("現在価格: {0}".format(current))
+        if quote.regular_price is not None or quote.formatted_regular_price:
+            lines.append("通常価格: {0}".format(regular))
+    if quote.store_url:
+        lines.append("Nintendo Store: {0}".format(quote.store_url))
+    return "\n".join(lines)
+
+
+def _format_nintendo_datetime(value: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return value
+    jst = timezone(timedelta(hours=9))
+    return parsed.astimezone(jst).strftime("%Y/%m/%d %H:%M")
 
 
 def _itad_quote_fields(quote: game_provider.GamePriceQuote) -> List[tuple]:

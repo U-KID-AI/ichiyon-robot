@@ -24,6 +24,28 @@ async def main_async():
     try:
         skipped = await game_provider.fetch_ntprices_price_quote("123", "ppid")
         results.append(check("missing NTPrices key is skipped", skipped.status == "skipped" and skipped.error_code == "not_configured"))
+        original_fetch_json = game_provider.fetch_json
+
+        async def fake_nintendo_fetch_json(url, policy=None, headers=None):
+            return {
+                "personalized": False,
+                "country": "JP",
+                "prices": [
+                    {
+                        "title_id": 70010000057297,
+                        "sales_status": "onsale",
+                        "regular_price": {"amount": "6,578円", "currency": "JPY", "raw_value": "6578"},
+                    }
+                ],
+            }
+
+        game_provider.fetch_json = fake_nintendo_fetch_json
+        try:
+            official = await game_provider.fetch_ntprices_price_quote("70010000057297", "nsuid")
+            results.append(check("missing NTPrices key still allows Nintendo official nsuid", official.ok and official.provider == "nintendo", official))
+        finally:
+            game_provider.fetch_json = original_fetch_json
+            game_provider._PRICE_CACHE.clear()
     finally:
         if old_key is not None:
             os.environ["NTPRICES_API_KEY"] = old_key

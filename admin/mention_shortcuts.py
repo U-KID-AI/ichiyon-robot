@@ -312,6 +312,7 @@ def provider_status_rows() -> List[Dict[str, str]]:
     return [
         {"provider": "Steam", "status": "利用可能"},
         {"provider": "IsThereAnyDeal", "status": "API key設定済み" if game_provider.itad_api_key() else "API key未設定"},
+        {"provider": "Nintendo公式価格", "status": "利用可能"},
         {"provider": "NTPrices", "status": "API key設定済み / Region: {0}".format(game_provider.ntprices_region()) if game_provider.ntprices_api_key() else "API key未設定 / Region: {0}".format(game_provider.ntprices_region())},
     ]
 
