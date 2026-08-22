@@ -206,8 +206,10 @@ async def run_playback_retry_checks():
     clear_music_state(guild_id)
     fake_voice = FakeVoiceClient()
     refresh_calls = []
+    extract_calls = []
     play_calls = []
     original_refresh = voice_music.refresh_track_for_playback
+    original_extract = voice_music.extract_track_info
     original_play_next = voice_music.play_next_track
     try:
         async def _fake_refresh(track, guild_id_arg, voice_client=None):
@@ -223,6 +225,18 @@ async def run_playback_retry_checks():
                 ffmpeg_proxy_url="http://youtube-vpn-proxy:8888",
             )
 
+        def _fake_extract(url, requester_id, guild_id_arg, allow_cookie_fallback=True, cookies_file=None, youtube_route=None, proxy_url=None, socket_timeout=None):
+            extract_calls.append((url, requester_id, guild_id_arg, youtube_route))
+            return MusicTrack(
+                "retry",
+                "https://www.youtube.com/watch?v=expired",
+                "https://fresh-stream.example.com/retry",
+                requester_id,
+                120,
+                url,
+                youtube_route=youtube_route or voice_music.YOUTUBE_ROUTE_DIRECT_COOKIE,
+            )
+
         async def _fake_play_next(voice_client, guild_id_arg):
             state = get_music_state(guild_id_arg)
             play_calls.append([item.title for item in state.queue])
@@ -231,6 +245,7 @@ async def run_playback_retry_checks():
             return True
 
         voice_music.refresh_track_for_playback = _fake_refresh
+        voice_music.extract_track_info = _fake_extract
         voice_music.play_next_track = _fake_play_next
 
         state = get_music_state(guild_id)
@@ -247,12 +262,14 @@ async def run_playback_retry_checks():
         state.current.playback_http_403 = True
         state.queue.append(MusicTrack("next", "https://youtu.be/next", "https://stream.example.com/next", "user-2", 100, "https://youtu.be/next"))
         await voice_music._handle_track_finished(fake_voice, guild_id, None)
-        results.append(check("ffmpeg 403 refreshes same source once", refresh_calls == [("expired", 1, guild_id)], str(refresh_calls)))
-        results.append(check("ffmpeg 403 retry is queued before next track", play_calls and play_calls[0][0] == "retry", str(play_calls)))
+        results.append(check("ffmpeg 403 home vpn retries with direct cookie", extract_calls == [("https://www.youtube.com/watch?v=expired", "user-1", guild_id, voice_music.YOUTUBE_ROUTE_DIRECT_COOKIE)], str(extract_calls)))
+        results.append(check("ffmpeg 403 home vpn skips duplicate home vpn refresh", refresh_calls == [], str(refresh_calls)))
+        results.append(check("ffmpeg 403 retry is queued before next track", play_calls and play_calls[0][0] == "expired", str(play_calls)))
         results.append(check("ffmpeg 403 retry keeps next track queued", len(state.queue) == 1 and state.queue[0].title == "next", str(state.queue)))
 
         clear_music_state(guild_id)
         refresh_calls.clear()
+        extract_calls.clear()
         play_calls.clear()
         state = get_music_state(guild_id)
         state.current = MusicTrack(
@@ -269,8 +286,30 @@ async def run_playback_retry_checks():
         await voice_music._handle_track_finished(fake_voice, guild_id, None)
         results.append(check("ffmpeg 403 retry respects single retry limit", refresh_calls == [], str(refresh_calls)))
         results.append(check("ffmpeg 403 retry limit advances to next track", play_calls and play_calls[0][0] == "after-limit", str(play_calls)))
+
+        clear_music_state(guild_id)
+        refresh_calls.clear()
+        extract_calls.clear()
+        play_calls.clear()
+        state = get_music_state(guild_id)
+        state.current = MusicTrack(
+            "nonzero-home-vpn",
+            "https://www.youtube.com/watch?v=nonzero",
+            "https://rr1---sn.googlevideo.com/videoplayback?expire=old&sig=secret",
+            "user-1",
+            120,
+            "https://www.youtube.com/watch?v=nonzero",
+            youtube_route=voice_music.YOUTUBE_ROUTE_HOME_VPN,
+            ffmpeg_proxy_url="http://youtube-vpn-proxy:8888",
+        )
+        state.current.playback_ffmpeg_returncode = 8
+        state.queue.append(MusicTrack("next-after-nonzero", "https://youtu.be/next2", "https://stream.example.com/next2", "user-2", 100, "https://youtu.be/next2"))
+        await voice_music._handle_track_finished(fake_voice, guild_id, None)
+        results.append(check("ffmpeg nonzero home vpn retries with direct cookie", extract_calls == [("https://www.youtube.com/watch?v=nonzero", "user-1", guild_id, voice_music.YOUTUBE_ROUTE_DIRECT_COOKIE)], str(extract_calls)))
+        results.append(check("ffmpeg nonzero retry is queued before next track", play_calls and play_calls[0][0] == "nonzero-home-vpn", str(play_calls)))
     finally:
         voice_music.refresh_track_for_playback = original_refresh
+        voice_music.extract_track_info = original_extract
         voice_music.play_next_track = original_play_next
         clear_music_state(guild_id)
     return results

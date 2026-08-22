@@ -754,8 +754,23 @@ def is_playback_http_403(track: Optional[MusicTrack], error: Optional[Exception]
     return bool(getattr(track, "playback_http_403", False)) or is_playback_http_403_message(error)
 
 
+def is_retryable_ffmpeg_playback_failure(track: Optional[MusicTrack], error: Optional[Exception]) -> bool:
+    if track is None:
+        return False
+    if is_playback_http_403(track, error):
+        return True
+    returncode = getattr(track, "playback_ffmpeg_returncode", None)
+    return (
+        isinstance(returncode, int)
+        and returncode != 0
+        and str(getattr(track, "youtube_route", "") or "") == YOUTUBE_ROUTE_HOME_VPN
+        and bool(getattr(track, "source_url", "") or "")
+    )
+
+
 def _read_ffmpeg_stderr(
     stream,
+    process,
     track: MusicTrack,
     guild_id: str,
     channel_id: str,
@@ -790,6 +805,10 @@ def _read_ffmpeg_stderr(
                     track.title,
                     safe_youtube_route_for_log(track.youtube_route),
                 )
+        try:
+            track.playback_ffmpeg_returncode = process.wait(timeout=0.2)
+        except subprocess.TimeoutExpired:
+            track.playback_ffmpeg_returncode = process.poll()
     except Exception as exc:  # pragma: no cover - background log reader must never affect playback.
         print("[WARN] voice music ffmpeg stderr reader failed: guild_id={0} error={1}".format(guild_id, type(exc).__name__))
 
@@ -801,11 +820,21 @@ def start_ffmpeg_stderr_reader(raw_source, track: MusicTrack, guild_id: str, cha
         return
     thread = threading.Thread(
         target=_read_ffmpeg_stderr,
-        args=(stderr, track, guild_id, channel_id),
+        args=(stderr, process, track, guild_id, channel_id),
         name="voice-ffmpeg-stderr-{0}".format(guild_id),
         daemon=True,
     )
+    track.playback_ffmpeg_stderr_thread = thread
+    track.playback_ffmpeg_returncode = None
     thread.start()
+
+
+def wait_for_ffmpeg_diagnostics(track: Optional[MusicTrack], timeout: float = 0.5) -> None:
+    if track is None:
+        return
+    thread = getattr(track, "playback_ffmpeg_stderr_thread", None)
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=timeout)
 
 
 def format_duration(seconds: Optional[int]) -> str:
@@ -1990,7 +2019,31 @@ async def retry_track_after_http_403(
         playback_retry_count=track.playback_retry_count + 1,
         enqueued_at_monotonic=0.0,
     )
-    refreshed = await refresh_track_for_playback(retry_seed, guild_id, voice_client)
+    if track.youtube_route == YOUTUBE_ROUTE_HOME_VPN:
+        try:
+            refreshed = await asyncio.to_thread(
+                extract_track_info,
+                track.source_url,
+                track.requester_id,
+                guild_id,
+                True,
+                None,
+                YOUTUBE_ROUTE_DIRECT_COOKIE,
+                None,
+                None,
+            )
+            refreshed = preserve_track_metadata(retry_seed, refreshed)
+        except Exception as exc:
+            print(
+                "[WARN] voice music ffmpeg direct retry extraction failed: guild_id={0} title={1} error={2}".format(
+                    guild_id,
+                    track.title,
+                    type(exc).__name__,
+                )
+            )
+            refreshed = None
+    else:
+        refreshed = await refresh_track_for_playback(retry_seed, guild_id, voice_client)
     if refreshed is None:
         log_music_action("ffmpeg_403_retry_failed", guild_id, channel_id, track.requester_id, track.title, "refresh_failed")
         return False
@@ -2016,6 +2069,7 @@ async def _handle_track_finished(
     state = get_music_state(guild_id)
     channel_id = voice_channel_id(voice_client)
     finished_track = state.current
+    wait_for_ffmpeg_diagnostics(finished_track)
     skip_requested = state.skip_requested
     state.skip_requested = False
     if error is not None:
@@ -2029,7 +2083,7 @@ async def _handle_track_finished(
         state.stopping = False
         log_music_action("queue_empty", guild_id, channel_id, reason="stopped")
         return
-    if finished_track is not None and not skip_requested and is_playback_http_403(finished_track, error):
+    if finished_track is not None and not skip_requested and is_retryable_ffmpeg_playback_failure(finished_track, error):
         if await retry_track_after_http_403(voice_client, guild_id, finished_track):
             return
         await play_next_track(voice_client, guild_id)
