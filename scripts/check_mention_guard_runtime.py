@@ -3,7 +3,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -153,6 +153,23 @@ def guard_effect() -> Dict[str, Any]:
     }
 
 
+def honmono_effect(
+    effect_type: str = "message",
+    effect_config_json: Optional[Dict[str, Any]] = None,
+    name: str = "ホンモノ検知",
+) -> Dict[str, Any]:
+    return {
+        "id": 100,
+        "name": name,
+        "effect_type": effect_type,
+        "effect_config_json": effect_config_json or {
+            "message": "ホンモノ返信",
+        },
+        "additional_message": "",
+        "additional_message_timing": "effect_success",
+    }
+
+
 async def run_checks() -> int:
     check = Check()
     old = {
@@ -202,6 +219,59 @@ async def run_checks() -> int:
         message = FakeMessage("<@999> テスト 名言", 1290338867685363764)
         action = await runtime_db.process_db_mention(message, "111", FakeConnection())
         check.add("test text no longer suppresses mention", action.handled and message.channel.sent == ["通常反応"], str(message.channel.sent))
+
+        runtime_db.list_limited_effects = lambda connection, guild_id, message: [honmono_effect()]
+        message = FakeMessage("<@999>", 748965361486921831)
+        action = await runtime_db.process_db_mention(message, "111", FakeConnection())
+        check.add(
+            "honmono detection consumes empty mention after effect",
+            action.handled and message.channel.sent == ["ホンモノ返信"],
+            str(message.channel.sent),
+        )
+
+        message = FakeMessage("<@999> おみくじ", 748965361486921831)
+        action = await runtime_db.process_db_mention(message, "111", FakeConnection())
+        check.add(
+            "honmono detection blocks omikuji follow-up",
+            action.handled and message.channel.sent == ["ホンモノ返信"],
+            str(message.channel.sent),
+        )
+
+        runtime_db.list_limited_effects = lambda connection, guild_id, message: (
+            [honmono_effect()] if str(getattr(message.author, "id", "")) == "748965361486921831" else []
+        )
+        message = FakeMessage("<@999> おみくじ", 222)
+        action = await runtime_db.process_db_mention(message, "111", FakeConnection())
+        check.add(
+            "honmono detection does not affect other users",
+            action.handled and message.channel.sent == ["おみくじ結果"],
+            str(message.channel.sent),
+        )
+
+        runtime_db.list_limited_effects = lambda connection, guild_id, message: [
+            honmono_effect(
+                effect_type="probability_message",
+                effect_config_json={"numerator": 0, "denominator": 1, "message": "出ない"},
+            )
+        ]
+        message = FakeMessage("<@999>", 748965361486921831)
+        action = await runtime_db.process_db_mention(message, "111", FakeConnection())
+        check.add(
+            "honmono probability miss falls through to normal mention",
+            action.handled and message.channel.sent == ["通常反応"],
+            str(message.channel.sent),
+        )
+
+        runtime_db.list_limited_effects = lambda connection, guild_id, message: [
+            honmono_effect(name="別名", effect_config_json={"message": "consume返信", "consume_mention_message": True})
+        ]
+        message = FakeMessage("<@999>", 748965361486921831)
+        action = await runtime_db.process_db_mention(message, "111", FakeConnection())
+        check.add(
+            "consume_mention_message config also consumes normal mention",
+            action.handled and message.channel.sent == ["consume返信"],
+            str(message.channel.sent),
+        )
     finally:
         runtime_db.CounterRepository = old["counter"]
         runtime_db.MentionReactionRepository = old["mention_repo"]

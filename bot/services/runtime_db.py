@@ -77,6 +77,7 @@ DISCORD_SAFE_MESSAGE_LIMIT = 1900
 _PENDING_NEXT_EFFECTS: Dict[str, List[Dict[str, Any]]] = {}
 _RUNTIME_MESSAGE_LOCKS: Dict[str, asyncio.Lock] = {}
 _SPECIAL_EFFECT_COOLDOWNS: Dict[str, float] = {}
+CONSUMING_MENTION_EFFECT_NAMES = {"ホンモノ検知"}
 
 
 def runtime_message_lock_key(guild_id: str) -> str:
@@ -988,6 +989,16 @@ def mention_suffix_guard_applies(effect: Dict[str, Any], config: Dict[str, Any],
     return True
 
 
+def is_consuming_mention_effect(effect: Dict[str, Any]) -> bool:
+    config_json = normalize_json(effect.get("effect_config_json"))
+    for key in ("consume_mention_message", "consume_mention", "suppress_normal_mention"):
+        if config_json.get(key) is True:
+            return True
+
+    name = normalize_command_text(str(effect.get("name") or effect.get("effect_tag_name") or ""))
+    return name in CONSUMING_MENTION_EFFECT_NAMES
+
+
 def normalize_command_after_mention_suffix_guard(
     effects: List[Dict[str, Any]],
     message: discord.Message,
@@ -1000,6 +1011,33 @@ def normalize_command_after_mention_suffix_guard(
         if mention_has_required_suffix(message, command_text, config):
             return strip_required_suffix_from_command_text(command_text, config)
     return command_text
+
+
+async def apply_consuming_mention_effects(
+    connection,
+    guild_id: str,
+    effects: List[Dict[str, Any]],
+    message: discord.Message,
+    command_text: str,
+) -> Optional[RuntimeAction]:
+    consuming_effects = [effect for effect in effects if is_consuming_mention_effect(effect)]
+    if not consuming_effects:
+        return None
+
+    values = build_template_values(message, command_text, {})
+    effect_result = await execute_effects(connection, guild_id, consuming_effects, message, values)
+    if not (effect_result.handled or effect_result.count_changed or effect_result.pending_effects):
+        return None
+
+    store_pending_next_effects(guild_id, message, effect_result.pending_effects)
+    print(
+        "[INFO] consuming mention special effect handled message: guild_id={0} user_id={1} effects={2}".format(
+            guild_id,
+            get_message_author_id(message),
+            ",".join(str(effect.get("id") or effect.get("name") or "") for effect in consuming_effects),
+        )
+    )
+    return RuntimeAction(True, effect_result.count_changed, effect_result.pending_effects)
 
 
 async def handle_deck_fetch_since_command(
@@ -1809,6 +1847,15 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
     if suffix_guard_result is not None:
         return suffix_guard_result
     command_text = normalize_command_after_mention_suffix_guard(limited_effects, message, command_text)
+    consuming_effect_result = await apply_consuming_mention_effects(
+        connection,
+        guild_id,
+        limited_effects,
+        message,
+        command_text,
+    )
+    if consuming_effect_result is not None:
+        return consuming_effect_result
     if search_enabled:
         deck_settings_action = await handle_deck_fetch_since_command(connection, guild_id, message, command_text)
         if deck_settings_action is not None:
