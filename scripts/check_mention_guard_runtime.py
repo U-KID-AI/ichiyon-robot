@@ -111,7 +111,7 @@ class FakeMentionReactionRepository:
             1: "名言結果",
             2: "おみくじ結果",
             3: "くじ結果",
-            4: "通常反応",
+            4: "はいはい！\n私が殺人ガンスで～す！！",
         }
         return [
             {
@@ -218,13 +218,26 @@ async def run_checks() -> int:
         runtime_db.list_limited_effects = lambda connection, guild_id, message: []
         message = FakeMessage("<@999> テスト 名言", 1290338867685363764)
         action = await runtime_db.process_db_mention(message, "111", FakeConnection())
-        check.add("test text no longer suppresses mention", action.handled and message.channel.sent == ["通常反応"], str(message.channel.sent))
+        check.add(
+            "test text no longer suppresses mention",
+            action.handled and message.channel.sent == ["はいはい！\n私が殺人ガンスで～す！！"],
+            str(message.channel.sent),
+        )
 
         runtime_db.list_limited_effects = lambda connection, guild_id, message: [honmono_effect()]
         message = FakeMessage("<@999>", 748965361486921831)
         action = await runtime_db.process_db_mention(message, "111", FakeConnection())
         check.add(
             "honmono detection consumes empty mention after effect",
+            action.handled and message.channel.sent == ["ホンモノ返信"],
+            str(message.channel.sent),
+        )
+
+        runtime_db.list_limited_effects = lambda connection, guild_id, message: [honmono_effect(name="ホンモノ検知メッセージ")]
+        message = FakeMessage("<@999>", 748965361486921831)
+        action = await runtime_db.process_db_mention(message, "111", FakeConnection())
+        check.add(
+            "honmono production effect name consumes before normal quote",
             action.handled and message.channel.sent == ["ホンモノ返信"],
             str(message.channel.sent),
         )
@@ -257,8 +270,8 @@ async def run_checks() -> int:
         message = FakeMessage("<@999>", 748965361486921831)
         action = await runtime_db.process_db_mention(message, "111", FakeConnection())
         check.add(
-            "honmono probability miss falls through to normal mention",
-            action.handled and message.channel.sent == ["通常反応"],
+            "honmono probability miss still consumes normal mention",
+            action.handled and message.channel.sent == [],
             str(message.channel.sent),
         )
 
