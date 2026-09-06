@@ -996,7 +996,7 @@ def is_consuming_mention_effect(effect: Dict[str, Any]) -> bool:
             return True
 
     name = normalize_command_text(str(effect.get("name") or effect.get("effect_tag_name") or ""))
-    return name in CONSUMING_MENTION_EFFECT_NAMES
+    return any(name == effect_name or name.startswith(effect_name) for effect_name in CONSUMING_MENTION_EFFECT_NAMES)
 
 
 def normalize_command_after_mention_suffix_guard(
@@ -1026,8 +1026,6 @@ async def apply_consuming_mention_effects(
 
     values = build_template_values(message, command_text, {})
     effect_result = await execute_effects(connection, guild_id, consuming_effects, message, values)
-    if not (effect_result.handled or effect_result.count_changed or effect_result.pending_effects):
-        return None
 
     store_pending_next_effects(guild_id, message, effect_result.pending_effects)
     print(
