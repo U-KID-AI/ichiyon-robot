@@ -30,6 +30,7 @@ TARGET_TYPES = ("mention_reaction_choice", "auto_reaction", "ng_word")
 TRIGGER_TIMINGS = ("choice_selected", "auto_reaction_triggered", "ng_word_detected")
 EFFECT_TYPES = (
     "probability_message",
+    "probability_user_message",
     "message",
     "reaction",
     "audio_asset",
@@ -260,6 +261,10 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         reaction_probability_denominator: str = Form(""),
         audio_asset_id: str = Form(""),
         audio_volume_percent: str = Form(""),
+        target_user_id: str = Form(""),
+        target_user_message: str = Form(""),
+        target_user_probability_numerator: str = Form(""),
+        target_user_probability_denominator: str = Form(""),
     ):
         user = get_current_user(request)
         if user is None:
@@ -295,6 +300,10 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
             reaction_probability_denominator,
             audio_asset_id,
             audio_volume_percent,
+            target_user_id,
+            target_user_message,
+            target_user_probability_numerator,
+            target_user_probability_denominator,
         )
         if form["admin_only"] and not role_allows(server["role"], "guild_admin"):
             errors.append("管理者限定タグはサーバー管理者以上だけ作成可。")
@@ -378,6 +387,10 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         reaction_probability_denominator: str = Form(""),
         audio_asset_id: str = Form(""),
         audio_volume_percent: str = Form(""),
+        target_user_id: str = Form(""),
+        target_user_message: str = Form(""),
+        target_user_probability_numerator: str = Form(""),
+        target_user_probability_denominator: str = Form(""),
     ):
         user = get_current_user(request)
         if user is None:
@@ -418,6 +431,10 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
                 reaction_probability_denominator,
                 audio_asset_id,
                 audio_volume_percent,
+                target_user_id,
+                target_user_message,
+                target_user_probability_numerator,
+                target_user_probability_denominator,
             )
             if form["admin_only"] != bool(tag["admin_only"]) and not role_allows(server["role"], "guild_admin"):
                 errors.append("管理者限定の変更はサーバー管理者以上だけ。")
@@ -544,6 +561,11 @@ def default_form() -> Dict[str, Any]:
         "reaction_probability_label": "毎回",
         "audio_asset_id": "",
         "audio_volume_percent": "",
+        "target_user_id": "",
+        "target_user_message": "",
+        "target_user_probability_numerator": "",
+        "target_user_probability_denominator": "",
+        "target_user_probability_label": "毎回",
         "effect_summary": "",
     }
 
@@ -581,6 +603,7 @@ def build_form_from_tag(tag: Dict[str, Any]) -> Dict[str, Any]:
     )
     apply_reaction_fields_from_config(form)
     apply_audio_fields_from_config(form)
+    apply_target_user_message_fields_from_config(form)
     return form
 
 
@@ -643,6 +666,27 @@ def apply_audio_fields_from_config(form: Dict[str, Any]) -> None:
         form["effect_summary"] = "audio_asset_id={0} volume={1}".format(
             form["audio_asset_id"] or "未設定",
             form["audio_volume_percent"] or "default",
+        )
+
+
+def apply_target_user_message_fields_from_config(form: Dict[str, Any]) -> None:
+    config, _ = parse_effect_config_text(form.get("effect_config_json") or "{}")
+    probability = get_probability_source(config)
+    numerator = probability.get("numerator", "")
+    denominator = probability.get("denominator", probability.get("chance_denominator", ""))
+    form["target_user_id"] = str(config.get("target_user_id") or config.get("discord_user_id") or config.get("user_id") or "")
+    form["target_user_message"] = str(config.get("message") or config.get("text") or "")
+    form["target_user_probability_numerator"] = "" if numerator in (None, "") else str(numerator)
+    form["target_user_probability_denominator"] = "" if denominator in (None, "") else str(denominator)
+    form["target_user_probability_label"] = format_reaction_probability_label(
+        form["target_user_probability_numerator"],
+        form["target_user_probability_denominator"],
+    )
+    if form.get("effect_type") == "probability_user_message":
+        form["effect_summary"] = "target={0} text={1} probability={2}".format(
+            form["target_user_id"] or "未設定",
+            form["target_user_message"] or "未設定",
+            form["target_user_probability_label"],
         )
 
 
@@ -724,6 +768,50 @@ def build_audio_asset_effect_config(
     return config, errors
 
 
+def build_target_user_message_effect_config(
+    base_config: Dict[str, Any],
+    target_user_id: str,
+    message: str,
+    numerator: str,
+    denominator: str,
+) -> Tuple[Dict[str, Any], List[str]]:
+    errors: List[str] = []
+    config = dict(base_config)
+    user_id = (target_user_id or "").strip()
+    text = (message or "").strip()
+    if not user_id.isdigit():
+        errors.append("メンション対象のDiscord User IDを数字で入力。")
+    if not text:
+        errors.append("投稿文言を入力。")
+
+    numerator_text = (numerator or "").strip()
+    denominator_text = (denominator or "").strip()
+    if bool(numerator_text) != bool(denominator_text):
+        errors.append("確率は分子と分母を両方入力。")
+    elif numerator_text and denominator_text:
+        try:
+            numerator_value = int(numerator_text)
+            denominator_value = int(denominator_text)
+        except ValueError:
+            errors.append("確率は整数で入力。")
+        else:
+            if numerator_value < 0:
+                errors.append("確率の分子は0以上。")
+            if denominator_value <= 0:
+                errors.append("確率の分母は1以上。")
+            if numerator_value >= 0 and denominator_value > 0:
+                config["probability"] = {
+                    "numerator": numerator_value,
+                    "denominator": denominator_value,
+                }
+    else:
+        config.pop("probability", None)
+
+    config["target_user_id"] = user_id
+    config["message"] = text
+    return config, errors
+
+
 def build_form(
     name: str,
     description: str,
@@ -748,6 +836,10 @@ def build_form(
     reaction_probability_denominator: str = "",
     audio_asset_id: str = "",
     audio_volume_percent: str = "",
+    target_user_id: str = "",
+    target_user_message: str = "",
+    target_user_probability_numerator: str = "",
+    target_user_probability_denominator: str = "",
 ) -> Tuple[Dict[str, Any], List[str]]:
     errors = []
     form = default_form()
@@ -773,6 +865,10 @@ def build_form(
             "reaction_probability_denominator": reaction_probability_denominator.strip(),
             "audio_asset_id": audio_asset_id.strip(),
             "audio_volume_percent": audio_volume_percent.strip(),
+            "target_user_id": target_user_id.strip(),
+            "target_user_message": target_user_message.strip(),
+            "target_user_probability_numerator": target_user_probability_numerator.strip(),
+            "target_user_probability_denominator": target_user_probability_denominator.strip(),
         }
     )
     form["priority"] = parse_int(priority, 0)
@@ -849,12 +945,27 @@ def build_form(
         form["effect_config_summary"] = compact_json(form["effect_config_json"])
         form["additional_text"] = ""
         form["additional_post_timing"] = "none"
+    elif form["effect_type"] == "probability_user_message":
+        target_user_config, target_user_errors = build_target_user_message_effect_config(
+            parsed_json,
+            form["target_user_id"],
+            form["target_user_message"],
+            form["target_user_probability_numerator"],
+            form["target_user_probability_denominator"],
+        )
+        errors.extend(target_user_errors)
+        form["effect_config"] = target_user_config
+        form["effect_config_json"] = json.dumps(target_user_config, ensure_ascii=False, indent=2, sort_keys=True)
+        form["effect_config_summary"] = compact_json(form["effect_config_json"])
+        form["additional_text"] = ""
+        form["additional_post_timing"] = "none"
     else:
         form["effect_config"] = parsed_json
         form["effect_config_summary"] = compact_json(form["effect_config_json"])
 
     apply_reaction_fields_from_config(form)
     apply_audio_fields_from_config(form)
+    apply_target_user_message_fields_from_config(form)
 
     return form, errors
 

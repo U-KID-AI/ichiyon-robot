@@ -61,6 +61,7 @@ KEYWORD_DUPLICATE_ERROR = "この呼び出しワードは使用済み。"
 ASSIGNMENT_TARGET_TYPE = "mention_reaction_choice"
 ASSIGNMENT_EFFECT_TYPES = (
     "probability_message",
+    "probability_user_message",
     "message",
     "reaction",
     "counter_delta",
@@ -417,7 +418,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 "deck_errors": [],
                 "can_edit_reaction": can_edit_reaction(server["role"], reaction),
                 "can_set_admin_only": role_allows(server["role"], "guild_admin"),
-                "can_edit_choices": can_edit_reaction(server["role"], reaction) and reaction["reaction_kind"] == "random",
+                "can_edit_choices": can_edit_reaction(server["role"], reaction) and reaction["reaction_kind"] in ("random", "random_draw"),
                 "search_readonly": reaction["reaction_kind"] == "search",
                 "deck_settings": deck_settings,
                 "can_edit_deck_settings": can_edit_deck_settings(server["role"], reaction),
@@ -1589,12 +1590,13 @@ def validate_choice_form(form: Dict[str, Any]) -> List[str]:
 
 
 def prepare_choice_mutation(guild_id: str, reaction_id: int, discord_user_id: str):
-    if not can_access_guild(guild_id, discord_user_id):
+    bot_id = current_selected_bot_id()
+    if not can_access_guild(guild_id, discord_user_id, bot_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")
 
-    server = find_server(guild_id, discord_user_id)
+    server = find_server(guild_id, discord_user_id, bot_id)
     connection = connect()
-    repository = MentionReactionRepository(connection, bot_id=current_selected_bot_id())
+    repository = MentionReactionRepository(connection, bot_id=bot_id)
     reaction = repository.get_by_id(guild_id, reaction_id)
     if reaction is None:
         connection.close()
@@ -1602,7 +1604,7 @@ def prepare_choice_mutation(guild_id: str, reaction_id: int, discord_user_id: st
     if not can_edit_reaction(server["role"], reaction):
         connection.close()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="mention reaction choice editing denied")
-    if reaction["reaction_kind"] != "random":
+    if reaction["reaction_kind"] not in ("random", "random_draw"):
         connection.close()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="search reaction choice editing denied")
 

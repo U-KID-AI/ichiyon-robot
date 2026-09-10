@@ -16,6 +16,14 @@ from bot.repositories.bot_instances import BotInstanceRepository
 router = APIRouter()
 VALID_ADMIN_ROLES = {"global_admin", "viewer"}
 VALID_PERMISSION_ROLES = {"global_admin", "guild_admin", "editor", "viewer"}
+USER_MANAGEMENT_ROLE_LABELS = {
+    "viewer": "閲覧のみ",
+    "global_admin": "編集可能",
+}
+USER_MANAGEMENT_ROLE_DESCRIPTIONS = {
+    "viewer": "ユーザー管理画面を閲覧できます。ユーザーの追加・編集はできません。",
+    "global_admin": "ユーザー管理画面でユーザーを追加・編集できます。",
+}
 
 
 def register_bot_routes(templates: Jinja2Templates) -> None:
@@ -180,7 +188,7 @@ def register_bot_routes(templates: Jinja2Templates) -> None:
             if not target_user:
                 return RedirectResponse(url="/admin/users?error={0}".format(quote("対象ユーザーが見つかりません。")), status_code=303)
             if target_user.get("role") == "global_admin" and permissions.count_enabled_global_admins(exclude_discord_user_id=target_id) <= 0:
-                return RedirectResponse(url="/admin/users?error={0}".format(quote("最後の全体管理者は削除できません。")), status_code=303)
+                return RedirectResponse(url="/admin/users?error={0}".format(quote("最後のユーザー管理編集者は削除できません。")), status_code=303)
             permissions.delete_admin_user_with_permissions(target_id)
             connection.commit()
         return RedirectResponse(url="/admin/users?message={0}".format(quote("ユーザーを削除しました。")), status_code=303)
@@ -238,6 +246,8 @@ async def render_user_form(
             "valid_roles": sorted(VALID_PERMISSION_ROLES),
             "role_labels": ROLE_LABELS,
             "role_descriptions": ROLE_DESCRIPTIONS,
+            "user_management_role_labels": USER_MANAGEMENT_ROLE_LABELS,
+            "user_management_role_descriptions": USER_MANAGEMENT_ROLE_DESCRIPTIONS,
         },
         status_code=400 if errors else 200,
     )
@@ -263,13 +273,13 @@ async def save_user(
         "display_name": display_name.strip(),
         "role": role,
         "enabled": enabled == "on",
-        "can_manage_users": can_manage_users == "on",
+        "can_manage_users": role == "global_admin",
     }
     errors: List[str] = []
     if not discord_user_id:
         errors.append("Discord user ID is required.")
     if role not in VALID_ADMIN_ROLES:
-        errors.append("管理画面ロールが不正です。")
+        errors.append("ユーザー管理権限が不正です。")
 
     parsed_permissions: List[Dict[str, Any]] = []
     for value in bot_roles + guild_roles:
@@ -322,13 +332,13 @@ async def save_user_with_id_edit(
         "display_name": display_name.strip(),
         "role": role,
         "enabled": enabled == "on",
-        "can_manage_users": can_manage_users == "on",
+        "can_manage_users": role == "global_admin",
     }
     errors: List[str] = []
     if not discord_user_id:
         errors.append("Discord user ID is required.")
     if role not in VALID_ADMIN_ROLES:
-        errors.append("管理画面ロールが不正です。")
+        errors.append("ユーザー管理権限が不正です。")
     if id_changed and original_discord_user_id == str(user["user_id"]):
         errors.append("自分自身のDiscord User IDは変更できません。")
 
@@ -361,7 +371,7 @@ async def save_user_with_id_edit(
             will_remain_global_admin = role == "global_admin" and form["enabled"]
             if not will_remain_global_admin and permissions.count_enabled_global_admins(exclude_discord_user_id=original_discord_user_id) <= 0:
                 templates = request.app.state.templates
-                return await render_user_form(templates, request, original_discord_user_id, ["最後の全体管理者を無効化・降格できません。"], form)
+                return await render_user_form(templates, request, original_discord_user_id, ["最後のユーザー管理編集者を無効化・降格できません。"], form)
         if id_changed:
             permissions.update_admin_user_id(original_discord_user_id, discord_user_id)
         permissions.upsert_admin_user(

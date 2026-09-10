@@ -36,6 +36,7 @@ BEHAVIOR_LABELS = {
 
 EFFECT_TYPE_LABELS = {
     "probability_message": "確率で追加投稿",
+    "probability_user_message": "確率で指定ユーザーへ投稿",
     "message": "メッセージ投稿",
     "reaction": "リアクション",
     "counter_delta": "カウント加算",
