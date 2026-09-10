@@ -90,6 +90,7 @@ async def run_handler_checks(results):
         results.append(check("mention ranking command is handled", await horoscope.handle_horoscope_command(ranking_message, "占い") is True))
         ranking_text = ranking_message.channel.messages[0]
         results.append(check("ranking sends 12 detailed signs", "12位" in ranking_text and "ラッキーカラー:" in ranking_text and "ラッキーポイント:" in ranking_text, ranking_text))
+        results.append(check("ranking starts from first rank without title", ranking_text.startswith("🥇 1位") and "今日のめざまし占い" not in ranking_text and "直近のめざまし占い" not in ranking_text, ranking_text))
         results.append(check("ranking omits source url and update date", "公式ページ:" not in ranking_text and "更新:" not in ranking_text and "出典:" not in ranking_text, ranking_text))
 
         standalone_message = FakeMessage("占い")
@@ -143,7 +144,8 @@ async def run_handler_checks(results):
         stale_message = FakeMessage("<@1> 占い", command_text="占い")
         results.append(check("fetch failure with latest cache renders cached ranking", await horoscope.handle_horoscope_command(stale_message, "占い") is True))
         stale_text = stale_message.channel.messages[0]
-        results.append(check("stale cache ranking uses recent title", stale_text.startswith("直近のめざまし占い") and "12位" in stale_text, stale_text))
+        results.append(check("stale cache ranking starts from first rank", stale_text.startswith("🥇 1位") and "12位" in stale_text, stale_text))
+        results.append(check("stale cache ranking omits title", "今日のめざまし占い" not in stale_text and "直近のめざまし占い" not in stale_text and "直近のめざましうらない" not in stale_text, stale_text))
         results.append(check("stale cache omits long stale explanation", "本日のデータを取得できないため" not in stale_text and "公式ページ:" not in stale_text and "更新:" not in stale_text and "出典:" not in stale_text, stale_text))
 
         stale_zodiac_message = FakeMessage("<@1> さそり座 占い", command_text="さそり座 占い")

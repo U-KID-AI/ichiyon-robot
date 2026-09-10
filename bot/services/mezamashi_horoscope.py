@@ -336,8 +336,7 @@ def date_label(value: str) -> str:
 
 
 def format_ranking(bundle: HoroscopeBundle) -> str:
-    title = "直近のめざまし占い" if bundle.stale else "今日のめざまし占い"
-    lines = [title, ""]
+    lines = []
     for entry in bundle.entries:
         prefix = MEDAL.get(entry.rank, "  ")
         lines.append("{0} {1}位　{2}".format(prefix, entry.rank, entry.name).strip())
