@@ -54,6 +54,7 @@ MATCH_TYPE_LABELS.update(UX_MATCH_TYPE_LABELS)
 
 REACTION_MATCH_TYPES = ("exact", "prefix", "regex")
 SEARCH_MATCH_TYPES = ("exact", "prefix", "regex")
+MAX_RANDOM_DRAW_REROLLS = 10
 MISSING_FORMAT_BEHAVIORS = ("ask_format", "latest", "reject")
 DECK_SEARCH_KEY = "deck_search"
 QUOTE_REACTION_KEYS = ("quote", "quotes", "meigen")
@@ -315,6 +316,13 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         match_type: str = Form("exact"),
         enabled: Optional[str] = Form(None),
         admin_only: Optional[str] = Form(None),
+        allow_standalone_trigger: Optional[str] = Form(None),
+        allow_mention_trigger: Optional[str] = Form(None),
+        consume_mention: Optional[str] = Form(None),
+        reroll_enabled: Optional[str] = Form(None),
+        reroll_probability_percent: str = Form("0"),
+        max_rerolls: str = Form("0"),
+        reroll_lines_text: str = Form(""),
     ):
         user = get_current_user(request)
         if user is None:
@@ -327,7 +335,21 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         if not role_allows(server["role"], "editor"):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="mention reaction creation denied")
 
-        form = build_reaction_form(name, description, keyword, match_type, enabled, admin_only)
+        form = build_reaction_form(
+            name,
+            description,
+            keyword,
+            match_type,
+            enabled,
+            admin_only,
+            allow_standalone_trigger,
+            allow_mention_trigger,
+            consume_mention,
+            reroll_enabled,
+            reroll_probability_percent,
+            max_rerolls,
+            reroll_lines_text,
+        )
         errors = validate_reaction_form(form)
         if form["admin_only"] and not role_allows(server["role"], "guild_admin"):
             errors.append("管理者限定の反応はサーバー管理者以上だけ作成可。")
@@ -349,6 +371,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                     False,
                     True,
                     form["enabled"],
+                    form["config_json"],
                 )
                 connection.commit()
                 return RedirectResponse(
@@ -591,6 +614,13 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
         match_type: str = Form("exact"),
         enabled: Optional[str] = Form(None),
         admin_only: Optional[str] = Form(None),
+        allow_standalone_trigger: Optional[str] = Form(None),
+        allow_mention_trigger: Optional[str] = Form(None),
+        consume_mention: Optional[str] = Form(None),
+        reroll_enabled: Optional[str] = Form(None),
+        reroll_probability_percent: str = Form("0"),
+        max_rerolls: str = Form("0"),
+        reroll_lines_text: str = Form(""),
     ):
         user = get_current_user(request)
         if user is None:
@@ -610,7 +640,21 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
             if not can_edit_reaction(server["role"], reaction):
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="mention reaction editing denied")
 
-            form = build_reaction_form(name, description, keyword, match_type, enabled, admin_only)
+            form = build_reaction_form(
+                name,
+                description,
+                keyword,
+                match_type,
+                enabled,
+                admin_only,
+                allow_standalone_trigger,
+                allow_mention_trigger,
+                consume_mention,
+                reroll_enabled,
+                reroll_probability_percent,
+                max_rerolls,
+                reroll_lines_text,
+            )
             errors = validate_reaction_form(form, allow_empty_keyword=is_quote_reaction(reaction))
             if form["admin_only"] != bool(reaction["admin_only"]) and not role_allows(server["role"], "guild_admin"):
                 errors.append("管理者限定の変更はサーバー管理者以上だけ。")
@@ -618,6 +662,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                 errors.append(KEYWORD_DUPLICATE_ERROR)
 
             if not errors:
+                config_json = merge_random_draw_config(reaction.get("config_json"), form["config_json"])
                 repository.update_reaction(
                     guild_id,
                     reaction_id,
@@ -627,6 +672,7 @@ def register_mention_reaction_routes(templates: Jinja2Templates) -> None:
                     form["description"],
                     form["admin_only"],
                     form["enabled"],
+                    config_json,
                 )
                 connection.commit()
                 return RedirectResponse(
@@ -1511,15 +1557,91 @@ def default_reaction_form() -> Dict[str, Any]:
         "admin_only": False,
         "is_system": False,
         "is_deletable": True,
+        "allow_standalone_trigger": False,
+        "allow_mention_trigger": True,
+        "consume_mention": False,
+        "reroll_enabled": False,
+        "reroll_probability_percent": 0,
+        "max_rerolls": 0,
+        "reroll_lines_text": "",
+        "config_json": {
+            "allow_standalone_trigger": False,
+            "allow_mention_trigger": True,
+            "consume_mention": False,
+            "reroll_enabled": False,
+            "reroll_probability_percent": 0,
+            "max_rerolls": 0,
+            "reroll_lines": [],
+        },
     }
 
 
 def build_reaction_view(reaction: Dict[str, Any]) -> Dict[str, Any]:
     row = dict(reaction)
+    advanced = build_random_draw_advanced_settings(row.get("config_json"))
+    row.update(advanced)
     row["display_reaction_kind"] = display_reaction_kind(row["reaction_kind"])
     row["reaction_kind_label"] = KIND_LABELS.get(row["display_reaction_kind"], row["display_reaction_kind"])
     row["match_type_label"] = MATCH_TYPE_LABELS.get(row["match_type"], row["match_type"])
     return row
+
+
+def parse_form_int(value: str, default: int = 0) -> int:
+    try:
+        return int(str(value or "").strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def parse_config_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+def split_lines(value: str) -> List[str]:
+    return [line.strip() for line in str(value or "").replace(",", "\n").splitlines() if line.strip()]
+
+
+def build_random_draw_advanced_settings(config_value: Any) -> Dict[str, Any]:
+    config_json = normalize_config_json(config_value)
+    reroll_lines = config_json.get("reroll_lines") or []
+    if not isinstance(reroll_lines, list):
+        reroll_lines = []
+    probability = parse_form_int(str(config_json.get("reroll_probability_percent", 0)), 0)
+    max_rerolls = parse_form_int(str(config_json.get("max_rerolls", 0)), 0)
+    advanced_config = {
+        "allow_standalone_trigger": parse_config_bool(config_json.get("allow_standalone_trigger"), False),
+        "allow_mention_trigger": parse_config_bool(config_json.get("allow_mention_trigger"), True),
+        "consume_mention": parse_config_bool(config_json.get("consume_mention"), False),
+        "reroll_enabled": parse_config_bool(config_json.get("reroll_enabled"), False),
+        "reroll_probability_percent": max(0, min(100, probability)),
+        "max_rerolls": max(0, min(MAX_RANDOM_DRAW_REROLLS, max_rerolls)),
+        "reroll_lines": [str(line).strip() for line in reroll_lines if str(line or "").strip()],
+    }
+    return {
+        **advanced_config,
+        "reroll_lines_text": "\n".join(advanced_config["reroll_lines"]),
+        "config_json": {**config_json, **advanced_config},
+    }
+
+
+def merge_random_draw_config(existing_value: Any, advanced_config: Dict[str, Any]) -> Dict[str, Any]:
+    existing = normalize_config_json(existing_value)
+    merged = dict(existing)
+    for key in (
+        "allow_standalone_trigger",
+        "allow_mention_trigger",
+        "consume_mention",
+        "reroll_enabled",
+        "reroll_probability_percent",
+        "max_rerolls",
+        "reroll_lines",
+    ):
+        merged[key] = advanced_config.get(key)
+    return merged
 
 
 def build_reaction_form(
@@ -1529,8 +1651,27 @@ def build_reaction_form(
     match_type: str,
     enabled: Optional[str],
     admin_only: Optional[str],
+    allow_standalone_trigger: Optional[str] = None,
+    allow_mention_trigger: Optional[str] = "on",
+    consume_mention: Optional[str] = None,
+    reroll_enabled: Optional[str] = None,
+    reroll_probability_percent: str = "0",
+    max_rerolls: str = "0",
+    reroll_lines_text: str = "",
 ) -> Dict[str, Any]:
     form = default_reaction_form()
+    probability = parse_form_int(reroll_probability_percent, 0)
+    reroll_count = parse_form_int(max_rerolls, 0)
+    reroll_lines = split_lines(reroll_lines_text)
+    advanced_config = {
+        "allow_standalone_trigger": allow_standalone_trigger == "on",
+        "allow_mention_trigger": allow_mention_trigger == "on",
+        "consume_mention": consume_mention == "on",
+        "reroll_enabled": reroll_enabled == "on",
+        "reroll_probability_percent": max(0, min(100, probability)),
+        "max_rerolls": max(0, min(MAX_RANDOM_DRAW_REROLLS, reroll_count)),
+        "reroll_lines": reroll_lines,
+    }
     form.update(
         {
             "name": name.strip(),
@@ -1539,6 +1680,9 @@ def build_reaction_form(
             "match_type": match_type if match_type in REACTION_MATCH_TYPES else "exact",
             "enabled": enabled == "on",
             "admin_only": admin_only == "on",
+            **advanced_config,
+            "reroll_lines_text": "\n".join(reroll_lines),
+            "config_json": advanced_config,
         }
     )
     return form
@@ -1552,6 +1696,10 @@ def validate_reaction_form(form: Dict[str, Any], allow_empty_keyword: bool = Fal
         errors.append("呼び出しワードを入力。")
     if form["match_type"] not in REACTION_MATCH_TYPES:
         errors.append("一致方式を選択。")
+    if form.get("reroll_probability_percent", 0) < 0 or form.get("reroll_probability_percent", 0) > 100:
+        errors.append("引き直し確率は0から100まで。")
+    if form.get("max_rerolls", 0) < 0 or form.get("max_rerolls", 0) > MAX_RANDOM_DRAW_REROLLS:
+        errors.append("最大引き直し回数は0から{0}まで。".format(MAX_RANDOM_DRAW_REROLLS))
     return errors
 
 

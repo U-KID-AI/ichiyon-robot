@@ -11,7 +11,6 @@ from bot.services.auto_posts import run_db_auto_posts_once
 from bot.services.reaction_thresholds import handle_db_reaction_threshold
 from bot.services.interaction_panel import handle_context_panel_command, mention_text_is_empty, register_persistent_views
 from bot.services.mention_shortcuts import handle_mention_shortcut_command
-from bot.services.persona_draw import handle_persona_draw_message
 from bot.services.runtime_db import (
     RANDOM_DRAW_PULL_BLOCKED,
     RANDOM_DRAW_PULL_INVALID_MESSAGE,
@@ -174,9 +173,6 @@ async def on_message(message: discord.Message):
 
     command_text = messages.get_mention_command_text(message)
     if await handle_empty_mention_message(message, command_text):
-        return
-
-    if await handle_persona_draw_message(message, command_text):
         return
 
     if await handle_context_panel_command(message, command_text):

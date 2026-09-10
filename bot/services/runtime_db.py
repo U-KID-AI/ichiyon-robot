@@ -124,12 +124,13 @@ class RandomDrawPullParse:
 
 @dataclass
 class RandomDrawExecution:
-    choice: Dict[str, Any]
+    choice: Optional[Dict[str, Any]]
     text: str
     image_path: str
     emoji: str
     values: Dict[str, str]
     replaced: bool = False
+    effect_target: bool = True
 
 
 def get_message_guild_id(message: discord.Message) -> Optional[str]:
@@ -355,6 +356,64 @@ def normalize_command_text(value: str) -> str:
 def normalize_random_draw_pull_text(value: str) -> str:
     normalized = unicodedata.normalize("NFKC", str(value or ""))
     return " ".join(re.sub(r"[\s\u3000]+", " ", normalized.strip()).split())
+
+
+def random_draw_config(reaction: Dict[str, Any]) -> Dict[str, Any]:
+    return normalize_json(reaction.get("config_json"))
+
+
+def config_bool(config_json: Dict[str, Any], key: str, default: bool = False) -> bool:
+    value = config_json.get(key)
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+def config_int_range(config_json: Dict[str, Any], key: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(config_json.get(key, default))
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+def random_draw_allows_mention_trigger(reaction: Dict[str, Any]) -> bool:
+    return config_bool(random_draw_config(reaction), "allow_mention_trigger", True)
+
+
+def random_draw_allows_standalone_trigger(reaction: Dict[str, Any]) -> bool:
+    return config_bool(random_draw_config(reaction), "allow_standalone_trigger", False)
+
+
+def random_draw_consumes_mention(reaction: Dict[str, Any]) -> bool:
+    return config_bool(random_draw_config(reaction), "consume_mention", False)
+
+
+def random_draw_reroll_enabled(reaction: Dict[str, Any]) -> bool:
+    return config_bool(random_draw_config(reaction), "reroll_enabled", False)
+
+
+def random_draw_reroll_probability_percent(reaction: Dict[str, Any]) -> int:
+    return config_int_range(random_draw_config(reaction), "reroll_probability_percent", 0, 0, 100)
+
+
+def random_draw_max_rerolls(reaction: Dict[str, Any]) -> int:
+    return config_int_range(random_draw_config(reaction), "max_rerolls", 0, 0, 10)
+
+
+def random_draw_reroll_lines(reaction: Dict[str, Any]) -> List[str]:
+    lines = random_draw_config(reaction).get("reroll_lines") or []
+    if not isinstance(lines, list):
+        return []
+    return [str(line).strip() for line in lines if str(line or "").strip()]
+
+
+def should_reroll_random_draw(reaction: Dict[str, Any]) -> bool:
+    if not random_draw_reroll_enabled(reaction):
+        return False
+    return random.randrange(100) < random_draw_reroll_probability_percent(reaction)
 
 
 def parse_random_draw_pull_suffix(suffix: str) -> Tuple[Optional[int], Optional[str], bool]:
@@ -1467,6 +1526,17 @@ async def send_random_draw_results(
     return handled
 
 
+async def send_single_random_draw_sequence(
+    message: discord.Message,
+    results: List[RandomDrawExecution],
+) -> bool:
+    handled = False
+    for result in results:
+        if await send_text_or_image(message.channel, result.text, result.image_path):
+            handled = True
+    return handled
+
+
 def build_random_draw_execution(message: discord.Message, command_text: str, match: MatchResult, choice: Dict[str, Any]) -> RandomDrawExecution:
     values = build_template_values(message, command_text, match.groups)
     return RandomDrawExecution(
@@ -1476,6 +1546,67 @@ def build_random_draw_execution(message: discord.Message, command_text: str, mat
         emoji=choice.get("emoji_internal") or "",
         values=values,
     )
+
+
+def build_random_draw_text_execution(
+    message: discord.Message,
+    command_text: str,
+    match: MatchResult,
+    text: str,
+) -> RandomDrawExecution:
+    values = build_template_values(message, command_text, match.groups)
+    return RandomDrawExecution(
+        choice=None,
+        text=text,
+        image_path="",
+        emoji="",
+        values=values,
+        effect_target=False,
+    )
+
+
+def choose_reroll_choice(
+    connection,
+    guild_id: str,
+    choices: List[Dict[str, Any]],
+    pending_effects: List[Dict[str, Any]],
+    previous_choice: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    if len(choices) <= 1:
+        return choose_weighted_choice_with_effects(connection, guild_id, choices, pending_effects)
+    previous_id = previous_choice.get("id")
+    filtered = [choice for choice in choices if choice.get("id") != previous_id]
+    if filtered:
+        return choose_weighted_choice_with_effects(connection, guild_id, filtered, pending_effects)
+    return choose_weighted_choice_with_effects(connection, guild_id, choices, pending_effects)
+
+
+def build_random_draw_executions_for_pull(
+    connection,
+    guild_id: str,
+    message: discord.Message,
+    match: MatchResult,
+    pull: RandomDrawPullParse,
+    choices: List[Dict[str, Any]],
+    pending_effects: List[Dict[str, Any]],
+) -> List[RandomDrawExecution]:
+    first_choice = choose_weighted_choice_with_effects(connection, guild_id, choices, pending_effects)
+    if first_choice is None:
+        return []
+    executions = [build_random_draw_execution(message, pull.command_text, match, first_choice)]
+    previous_choice = first_choice
+    reroll_lines = random_draw_reroll_lines(match.row)
+    for _ in range(random_draw_max_rerolls(match.row)):
+        if not should_reroll_random_draw(match.row):
+            break
+        if reroll_lines:
+            executions.append(build_random_draw_text_execution(message, pull.command_text, match, random.choice(reroll_lines)))
+        next_choice = choose_reroll_choice(connection, guild_id, choices, pending_effects, previous_choice)
+        if next_choice is None:
+            break
+        executions.append(build_random_draw_execution(message, pull.command_text, match, next_choice))
+        previous_choice = next_choice
+    return executions
 
 
 async def apply_random_draw_effects(
@@ -1494,6 +1625,8 @@ async def apply_random_draw_effects(
     if pending_repeats:
         repeated = await repeat_text_image_action(message, result.text, result.image_path, result.emoji, pending_repeats)
         handled = handled or repeated
+    if result.choice is None:
+        return handled, False, pending_effects
     choice_effects = list_effects(connection, guild_id, "mention_reaction_choice", int(result.choice["id"]))
     effects = merge_effects(choice_effects, limited_effects)
     effect_result = await execute_effects(connection, guild_id, effects, message, result.values, pending_effects)
@@ -1511,6 +1644,8 @@ async def apply_random_draw_replacement_effects(
     limited_effects: List[Dict[str, Any]],
     pending_effects: List[Dict[str, Any]],
 ) -> bool:
+    if result.choice is None:
+        return False
     choice_effects = list_effects(connection, guild_id, "mention_reaction_choice", int(result.choice["id"]))
     effects = merge_effects(choice_effects, limited_effects)
     for effect in effects:
@@ -1553,31 +1688,42 @@ async def execute_random_draw_reaction(
     results: List[RandomDrawExecution] = []
     current_pending = list(pending_effects or [])
     for _ in range(pull.count):
-        choice = choose_weighted_choice_with_effects(connection, guild_id, choices, current_pending)
-        if choice is None:
-            store_pending_next_effects(guild_id, message, current_pending)
-            return RuntimeAction(False, pending_effects=current_pending)
-        result = build_random_draw_execution(message, pull.command_text, match, choice)
-        if await apply_random_draw_replacement_effects(
+        pull_results = build_random_draw_executions_for_pull(
             connection,
             guild_id,
             message,
-            result,
-            limited_effects,
+            match,
+            pull,
+            choices,
             current_pending,
-        ):
-            result.replaced = True
-        results.append(result)
+        )
+        if not pull_results:
+            store_pending_next_effects(guild_id, message, current_pending)
+            return RuntimeAction(False, pending_effects=current_pending)
+        for result in pull_results:
+            if result.effect_target and await apply_random_draw_replacement_effects(
+                connection,
+                guild_id,
+                message,
+                result,
+                limited_effects,
+                current_pending,
+            ):
+                result.replaced = True
+            results.append(result)
 
     normal_results = [result for result in results if not result.replaced]
-    handled = await send_random_draw_results(message, match.row, normal_results)
+    if pull.count == 1 and any(not result.effect_target for result in normal_results):
+        handled = await send_single_random_draw_sequence(message, normal_results)
+    else:
+        handled = await send_random_draw_results(message, match.row, normal_results)
     if normal_results and await play_configured_reaction_audio(message, match.row, "mention_reaction", match.row.get("reaction_key") or ""):
         handled = True
 
     count_changed = False
     next_pending: List[Dict[str, Any]] = current_pending
     for result in results:
-        if result.replaced:
+        if result.replaced or not result.effect_target:
             handled = True
             continue
         effect_handled, effect_count_changed, next_pending = await apply_random_draw_effects(
@@ -2018,6 +2164,8 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
     blocked_by_pull_suffix = False
     invalid_pull_error: Optional[str] = None
     for reaction in reactions:
+        if not random_draw_allows_mention_trigger(reaction):
+            continue
         pull, pull_error = parse_random_draw_pull_for_reaction(reaction, command_text)
         if pull_error == RANDOM_DRAW_PULL_BLOCKED:
             blocked_by_pull_suffix = True
@@ -2046,6 +2194,9 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
     choices = repository.list_choices(guild_id, int(selected.row["id"]), enabled=True)
     pull = getattr(selected, "pull", RandomDrawPullParse(1, command_text, selected.groups))
     if not choices:
+        if random_draw_consumes_mention(selected.row):
+            store_pending_next_effects(guild_id, message, pending_effects)
+            return RuntimeAction(True, pending_effects=pending_effects)
         store_pending_next_effects(guild_id, message, pending_effects)
         return RuntimeAction(False)
     return await execute_random_draw_reaction(
@@ -2056,6 +2207,44 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
         pull,
         choices,
         limited_effects,
+        pending_effects,
+    )
+
+
+async def process_standalone_random_draw(message: discord.Message, guild_id: str, connection) -> RuntimeAction:
+    if not mention_feature_enabled(connection, guild_id, FEATURE_MENTION_RANDOM_DRAW):
+        return RuntimeAction(False)
+
+    command_text = str(getattr(message, "content", "") or "")
+    repository = MentionReactionRepository(connection)
+    pending_effects = pop_pending_next_effects(guild_id, message)
+    matches = []
+    for reaction in repository.list_reactions(guild_id, enabled=True, reaction_kind="random_draw"):
+        if not random_draw_allows_standalone_trigger(reaction):
+            continue
+        pull, pull_error = parse_random_draw_pull_for_reaction(reaction, command_text)
+        if pull_error:
+            continue
+        if pull is not None:
+            matches.append(MatchResult(reaction, pull.groups, pull))
+    if not matches:
+        store_pending_next_effects(guild_id, message, pending_effects)
+        return RuntimeAction(False)
+
+    selected = sort_mention_matches(matches)[0]
+    choices = repository.list_choices(guild_id, int(selected.row["id"]), enabled=True)
+    if not choices:
+        store_pending_next_effects(guild_id, message, pending_effects)
+        return RuntimeAction(True, pending_effects=pending_effects)
+    pull = getattr(selected, "pull", RandomDrawPullParse(1, command_text, selected.groups))
+    return await execute_random_draw_reaction(
+        connection,
+        guild_id,
+        message,
+        selected,
+        pull,
+        choices,
+        [],
         pending_effects,
     )
 
@@ -3029,7 +3218,9 @@ async def handle_db_runtime_message_locked(message: discord.Message, guild_id: s
             if get_mention_command_text(message) is not None:
                 action = await process_db_mention(message, guild_id, connection)
             else:
-                action = await process_db_auto_reaction(message, guild_id, connection)
+                action = await process_standalone_random_draw(message, guild_id, connection)
+                if not action.handled:
+                    action = await process_db_auto_reaction(message, guild_id, connection)
 
             entered = await enter_mode_if_needed(message, guild_id, connection, action.pending_effects)
             connection.commit()
