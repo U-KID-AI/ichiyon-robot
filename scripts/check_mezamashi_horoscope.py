@@ -131,7 +131,7 @@ async def run_handler_checks(results):
         horoscope.get_horoscope_bundle = failing_bundle
         failed_message = FakeMessage("<@1> 占い", command_text="占い")
         results.append(check("HTTP timeout or 4xx fails safe", await horoscope.handle_horoscope_command(failed_message, "占い") is True))
-        results.append(check("failure sends safe message", failed_message.channel.messages == ["本日の占いはまだ取得できませんでした。"], failed_message.channel.messages))
+        results.append(check("cacheless failure sends short safe message", failed_message.channel.messages == ["占いデータを取得できませんでした。"], failed_message.channel.messages))
 
         stale_bundle = horoscope.parse_payload(fixture_payload())
         stale_bundle.stale = True
@@ -141,8 +141,14 @@ async def run_handler_checks(results):
 
         horoscope.get_horoscope_bundle = stale_bundle_func
         stale_message = FakeMessage("<@1> 占い", command_text="占い")
-        results.append(check("stale cache does not render old ranking", await horoscope.handle_horoscope_command(stale_message, "占い") is True))
-        results.append(check("stale cache sends short unavailable message", stale_message.channel.messages == ["本日の占いはまだ取得できませんでした。"], stale_message.channel.messages))
+        results.append(check("fetch failure with latest cache renders cached ranking", await horoscope.handle_horoscope_command(stale_message, "占い") is True))
+        stale_text = stale_message.channel.messages[0]
+        results.append(check("stale cache ranking uses recent title", stale_text.startswith("直近のめざまし占い") and "12位" in stale_text, stale_text))
+        results.append(check("stale cache omits long stale explanation", "本日のデータを取得できないため" not in stale_text and "公式ページ:" not in stale_text and "更新:" not in stale_text and "出典:" not in stale_text, stale_text))
+
+        stale_zodiac_message = FakeMessage("<@1> さそり座 占い", command_text="さそり座 占い")
+        results.append(check("zodiac command uses latest cache when stale", await horoscope.handle_horoscope_command(stale_zodiac_message, "さそり座 占い") is True))
+        results.append(check("stale zodiac keeps full details", "さそり座" in stale_zodiac_message.channel.messages[0] and "ラッキーメニュー:" in stale_zodiac_message.channel.messages[0], stale_zodiac_message.channel.messages))
     finally:
         horoscope.config.DATA_BACKEND = original_backend
         horoscope.get_horoscope_bundle = original_get_bundle
@@ -201,7 +207,8 @@ async def run_cache_checks(results):
         horoscope.fetch_official_horoscope = fake_fetch
         first = await horoscope.get_horoscope_bundle(force_refresh=True)
         second = await horoscope.get_horoscope_bundle()
-        results.append(check("cache miss fetches and saves memory cache", first.target_date == "2026-09-11" and calls == ["fetch"], calls))
+        results.append(check("today cache uses today's data", first.target_date == "2026-09-11" and first.stale is False, first))
+        results.append(check("cache miss fetches and saves memory cache", calls == ["fetch"], calls))
         results.append(check("cache hit avoids HTTP fetch", second.target_date == first.target_date and calls == ["fetch"], calls))
 
         stale = horoscope.parse_payload(fixture_payload())
@@ -210,7 +217,15 @@ async def run_cache_checks(results):
         horoscope._memory_cache.clear()
         horoscope._latest_memory_cache = stale
         horoscope._latest_memory_cached_at = datetime.now(horoscope.JST) - timedelta(minutes=1)
-        results.append(check("recent stale cache is not shown as today", (await horoscope.get_horoscope_bundle()).stale is True))
+
+        async def failing_fetch():
+            calls.append("failed-fetch")
+            raise horoscope.MezamashiHoroscopeError("fixture timeout")
+
+        horoscope.fetch_official_horoscope = failing_fetch
+        fallback = await horoscope.get_horoscope_bundle()
+        results.append(check("fetch failure falls back to latest memory cache", fallback.stale is True and fallback.target_date == "2026-09-10", fallback))
+        results.append(check("stale memory cache does not block today's fetch attempt", calls[-1:] == ["failed-fetch"], calls))
     finally:
         horoscope.fetch_official_horoscope = original_fetch
         horoscope.config.DATA_BACKEND = original_backend
