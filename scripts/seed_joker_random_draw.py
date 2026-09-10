@@ -30,17 +30,44 @@ DEFAULT_REROLL_PROBABILITY_PERCENT = 10
 DEFAULT_MAX_REROLLS = 1
 
 
+def table_has_column(connection, table_name: str, column_name: str) -> bool:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = %s
+                  AND column_name = %s
+            )
+            """,
+            (table_name, column_name),
+        )
+        row = cursor.fetchone()
+        return bool(row and row[0])
+
+
 def list_active_guild_ids(connection, bot_id: str) -> List[str]:
+    has_bot_id = table_has_column(connection, "guilds", "bot_id")
+    has_enabled = table_has_column(connection, "guilds", "enabled")
+    where = []
+    params = []
+    if has_bot_id:
+        where.append("bot_id = %s")
+        params.append(bot_id)
+    if has_enabled:
+        where.append("enabled = TRUE")
+    where_sql = "WHERE " + " AND ".join(where) if where else ""
     with connection.cursor() as cursor:
         cursor.execute(
             """
             SELECT DISTINCT guild_id
             FROM guilds
-            WHERE bot_id = %s
-              AND enabled = TRUE
+            {where_sql}
             ORDER BY guild_id
-            """,
-            (bot_id,),
+            """.format(where_sql=where_sql),
+            tuple(params),
         )
         return [str(row[0]) for row in cursor.fetchall()]
 
