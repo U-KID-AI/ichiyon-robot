@@ -230,6 +230,7 @@ async def get_horoscope_bundle(force_refresh: bool = False) -> HoroscopeBundle:
     if (
         not force_refresh
         and _latest_memory_cache is not None
+        and _latest_memory_cache.target_date == today
         and _latest_memory_cached_at is not None
         and datetime.now(JST) - _latest_memory_cached_at < timedelta(minutes=30)
     ):
@@ -261,6 +262,10 @@ async def get_horoscope_bundle(force_refresh: bool = False) -> HoroscopeBundle:
                             return bundle_from_cache_row(latest, stale=True)
                 except Exception as exc:
                     print("[WARN] mezamashi_horoscope fallback cache read failed: {0}".format(exc))
+            if _latest_memory_cache is not None:
+                bundle = _latest_memory_cache
+                bundle.stale = True
+                return bundle
             raise
 
         bundle.stale = bundle.target_date != today
@@ -331,9 +336,8 @@ def date_label(value: str) -> str:
 
 
 def format_ranking(bundle: HoroscopeBundle) -> str:
-    if bundle.stale:
-        raise MezamashiHoroscopeError("current horoscope is not available")
-    lines = ["今日のめざまし占い", ""]
+    title = "直近のめざまし占い" if bundle.stale else "今日のめざまし占い"
+    lines = [title, ""]
     for entry in bundle.entries:
         prefix = MEDAL.get(entry.rank, "  ")
         lines.append("{0} {1}位　{2}".format(prefix, entry.rank, entry.name).strip())
@@ -353,8 +357,6 @@ def format_ranking(bundle: HoroscopeBundle) -> str:
 
 
 def format_zodiac(bundle: HoroscopeBundle, zodiac_key: str) -> str:
-    if bundle.stale:
-        raise MezamashiHoroscopeError("current horoscope is not available")
     entry = next((item for item in bundle.entries if item.key == zodiac_key), None)
     if entry is None:
         raise MezamashiHoroscopeError("zodiac was not found")
@@ -426,7 +428,7 @@ async def handle_horoscope_command(message, command_text: Optional[str]) -> bool
                 exc,
             )
         )
-        await message.channel.send("本日の占いはまだ取得できませんでした。")
+        await message.channel.send("占いデータを取得できませんでした。")
         return True
     await message.channel.send(text)
     return True
