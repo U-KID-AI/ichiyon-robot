@@ -364,6 +364,12 @@ def main() -> int:
     )
     record(
         results,
+        "migration uses legacy persona candidate body only",
+        "c.name" not in migration and "c.weight" not in migration,
+        "migration 045",
+    )
+    record(
+        results,
         "migration is idempotent for choices",
         "NOT EXISTS" in migration and "reaction_key = 'persona_draw_'" in migration,
         "migration 045",
