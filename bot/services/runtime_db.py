@@ -129,6 +129,7 @@ class RandomDrawExecution:
     image_path: str
     emoji: str
     values: Dict[str, str]
+    replaced: bool = False
 
 
 def get_message_guild_id(message: discord.Message) -> Optional[str]:
@@ -980,6 +981,14 @@ async def send_probability_user_message(
     return True
 
 
+def probability_user_message_result_behavior(config: Dict[str, Any]) -> str:
+    behavior = get_config_text(config, ["result_behavior", "behavior", "mode"])
+    normalized = str(behavior or "").strip().lower()
+    if normalized in ("replace", "replacement", "置換"):
+        return "replace"
+    return "append"
+
+
 def mention_has_required_suffix(message: discord.Message, command_text: str, config: Dict[str, Any]) -> bool:
     suffix = get_config_text(config, ["required_suffix", "suffix"]) or "さん"
     normalized_command = normalize_command_text(command_text)
@@ -1494,6 +1503,43 @@ async def apply_random_draw_effects(
     return handled or bool(effects), effect_result.count_changed, effect_result.pending_effects
 
 
+async def apply_random_draw_replacement_effects(
+    connection,
+    guild_id: str,
+    message: discord.Message,
+    result: RandomDrawExecution,
+    limited_effects: List[Dict[str, Any]],
+    pending_effects: List[Dict[str, Any]],
+) -> bool:
+    choice_effects = list_effects(connection, guild_id, "mention_reaction_choice", int(result.choice["id"]))
+    effects = merge_effects(choice_effects, limited_effects)
+    for effect in effects:
+        config = normalize_json(effect.get("effect_config_json"))
+        if effect.get("effect_type") != "probability_user_message":
+            continue
+        if probability_user_message_result_behavior(config) != "replace":
+            continue
+        multiplier = get_probability_multiplier_for_target(
+            pending_effects,
+            "special_effect_tag",
+            int(effect.get("id") or 0),
+        )
+        if not probability_hit_with_multiplier(config, multiplier):
+            continue
+        if await send_probability_user_message(
+            connection,
+            guild_id,
+            effect,
+            config,
+            message,
+            result.values,
+            multiplier,
+            multiplier,
+        ):
+            return True
+    return False
+
+
 async def execute_random_draw_reaction(
     connection,
     guild_id: str,
@@ -1511,15 +1557,29 @@ async def execute_random_draw_reaction(
         if choice is None:
             store_pending_next_effects(guild_id, message, current_pending)
             return RuntimeAction(False, pending_effects=current_pending)
-        results.append(build_random_draw_execution(message, pull.command_text, match, choice))
+        result = build_random_draw_execution(message, pull.command_text, match, choice)
+        if await apply_random_draw_replacement_effects(
+            connection,
+            guild_id,
+            message,
+            result,
+            limited_effects,
+            current_pending,
+        ):
+            result.replaced = True
+        results.append(result)
 
-    handled = await send_random_draw_results(message, match.row, results)
-    if await play_configured_reaction_audio(message, match.row, "mention_reaction", match.row.get("reaction_key") or ""):
+    normal_results = [result for result in results if not result.replaced]
+    handled = await send_random_draw_results(message, match.row, normal_results)
+    if normal_results and await play_configured_reaction_audio(message, match.row, "mention_reaction", match.row.get("reaction_key") or ""):
         handled = True
 
     count_changed = False
     next_pending: List[Dict[str, Any]] = current_pending
     for result in results:
+        if result.replaced:
+            handled = True
+            continue
         effect_handled, effect_count_changed, next_pending = await apply_random_draw_effects(
             connection,
             guild_id,

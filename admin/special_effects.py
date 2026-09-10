@@ -56,6 +56,12 @@ REACTION_TARGET_LABELS = {
     "source_message": "発言元メッセージ",
 }
 DEFAULT_REACTION_TARGET = "source_message"
+USER_MESSAGE_RESULT_BEHAVIORS = ("append", "replace")
+USER_MESSAGE_RESULT_BEHAVIOR_LABELS = {
+    "append": "追加",
+    "replace": "置換",
+}
+DEFAULT_USER_MESSAGE_RESULT_BEHAVIOR = "append"
 
 
 def register_special_effect_routes(templates: Jinja2Templates) -> None:
@@ -265,6 +271,7 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         target_user_message: str = Form(""),
         target_user_probability_numerator: str = Form(""),
         target_user_probability_denominator: str = Form(""),
+        target_user_result_behavior: str = Form(DEFAULT_USER_MESSAGE_RESULT_BEHAVIOR),
     ):
         user = get_current_user(request)
         if user is None:
@@ -304,6 +311,7 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
             target_user_message,
             target_user_probability_numerator,
             target_user_probability_denominator,
+            target_user_result_behavior,
         )
         if form["admin_only"] and not role_allows(server["role"], "guild_admin"):
             errors.append("管理者限定タグはサーバー管理者以上だけ作成可。")
@@ -391,6 +399,7 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
         target_user_message: str = Form(""),
         target_user_probability_numerator: str = Form(""),
         target_user_probability_denominator: str = Form(""),
+        target_user_result_behavior: str = Form(DEFAULT_USER_MESSAGE_RESULT_BEHAVIOR),
     ):
         user = get_current_user(request)
         if user is None:
@@ -435,6 +444,7 @@ def register_special_effect_routes(templates: Jinja2Templates) -> None:
                 target_user_message,
                 target_user_probability_numerator,
                 target_user_probability_denominator,
+                target_user_result_behavior,
             )
             if form["admin_only"] != bool(tag["admin_only"]) and not role_allows(server["role"], "guild_admin"):
                 errors.append("管理者限定の変更はサーバー管理者以上だけ。")
@@ -566,6 +576,8 @@ def default_form() -> Dict[str, Any]:
         "target_user_probability_numerator": "",
         "target_user_probability_denominator": "",
         "target_user_probability_label": "毎回",
+        "target_user_result_behavior": DEFAULT_USER_MESSAGE_RESULT_BEHAVIOR,
+        "target_user_result_behavior_label": USER_MESSAGE_RESULT_BEHAVIOR_LABELS[DEFAULT_USER_MESSAGE_RESULT_BEHAVIOR],
         "effect_summary": "",
     }
 
@@ -624,6 +636,13 @@ def get_probability_source(config: Dict[str, Any]) -> Dict[str, Any]:
     return config
 
 
+def normalize_user_message_result_behavior(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text in ("replace", "replacement", "置換"):
+        return "replace"
+    return "append"
+
+
 def format_reaction_probability_label(numerator: Any, denominator: Any) -> str:
     if numerator in (None, "") or denominator in (None, ""):
         return "毎回"
@@ -676,6 +695,13 @@ def apply_target_user_message_fields_from_config(form: Dict[str, Any]) -> None:
     denominator = probability.get("denominator", probability.get("chance_denominator", ""))
     form["target_user_id"] = str(config.get("target_user_id") or config.get("discord_user_id") or config.get("user_id") or "")
     form["target_user_message"] = str(config.get("message") or config.get("text") or "")
+    behavior = normalize_user_message_result_behavior(
+        config.get("result_behavior")
+        or config.get("behavior")
+        or config.get("mode")
+    )
+    form["target_user_result_behavior"] = behavior
+    form["target_user_result_behavior_label"] = USER_MESSAGE_RESULT_BEHAVIOR_LABELS.get(behavior, behavior)
     form["target_user_probability_numerator"] = "" if numerator in (None, "") else str(numerator)
     form["target_user_probability_denominator"] = "" if denominator in (None, "") else str(denominator)
     form["target_user_probability_label"] = format_reaction_probability_label(
@@ -683,10 +709,11 @@ def apply_target_user_message_fields_from_config(form: Dict[str, Any]) -> None:
         form["target_user_probability_denominator"],
     )
     if form.get("effect_type") == "probability_user_message":
-        form["effect_summary"] = "target={0} text={1} probability={2}".format(
+        form["effect_summary"] = "target={0} text={1} probability={2} behavior={3}".format(
             form["target_user_id"] or "未設定",
             form["target_user_message"] or "未設定",
             form["target_user_probability_label"],
+            form["target_user_result_behavior_label"],
         )
 
 
@@ -774,6 +801,7 @@ def build_target_user_message_effect_config(
     message: str,
     numerator: str,
     denominator: str,
+    result_behavior: str = DEFAULT_USER_MESSAGE_RESULT_BEHAVIOR,
 ) -> Tuple[Dict[str, Any], List[str]]:
     errors: List[str] = []
     config = dict(base_config)
@@ -809,6 +837,8 @@ def build_target_user_message_effect_config(
 
     config["target_user_id"] = user_id
     config["message"] = text
+    behavior = normalize_user_message_result_behavior(result_behavior)
+    config["result_behavior"] = behavior
     return config, errors
 
 
@@ -840,6 +870,7 @@ def build_form(
     target_user_message: str = "",
     target_user_probability_numerator: str = "",
     target_user_probability_denominator: str = "",
+    target_user_result_behavior: str = DEFAULT_USER_MESSAGE_RESULT_BEHAVIOR,
 ) -> Tuple[Dict[str, Any], List[str]]:
     errors = []
     form = default_form()
@@ -869,6 +900,7 @@ def build_form(
             "target_user_message": target_user_message.strip(),
             "target_user_probability_numerator": target_user_probability_numerator.strip(),
             "target_user_probability_denominator": target_user_probability_denominator.strip(),
+            "target_user_result_behavior": normalize_user_message_result_behavior(target_user_result_behavior),
         }
     )
     form["priority"] = parse_int(priority, 0)
@@ -952,6 +984,7 @@ def build_form(
             form["target_user_message"],
             form["target_user_probability_numerator"],
             form["target_user_probability_denominator"],
+            form["target_user_result_behavior"],
         )
         errors.extend(target_user_errors)
         form["effect_config"] = target_user_config
@@ -1106,6 +1139,8 @@ def render_form(
             "reaction_targets": REACTION_TARGETS,
             "reaction_target_labels": REACTION_TARGET_LABELS,
             "audio_assets": audio_assets,
+            "user_message_result_behaviors": USER_MESSAGE_RESULT_BEHAVIORS,
+            "user_message_result_behavior_labels": USER_MESSAGE_RESULT_BEHAVIOR_LABELS,
         },
         status_code=status_code,
     )

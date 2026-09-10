@@ -108,11 +108,18 @@
           <label>確率 分母
             <input type="number" min="1" step="1" name="target_user_probability_denominator" value="{{ tag.target_user_probability_denominator }}" placeholder="例: 10" {% if not can_edit %}disabled{% endif %}>
           </label>
+          <label>通常結果への動作
+            <select name="target_user_result_behavior" {% if not can_edit %}disabled{% endif %}>
+              {% for item in user_message_result_behaviors %}
+                <option value="{{ item }}" {% if tag.target_user_result_behavior == item %}selected{% endif %}>{{ user_message_result_behavior_labels.get(item, item) }}</option>
+              {% endfor %}
+            </select>
+          </label>
           <label class="choice-wide">投稿文言
             <textarea name="target_user_message" {% if not can_edit %}disabled{% endif %}>{{ tag.target_user_message }}</textarea>
           </label>
         </div>
-        <p class="hint">発火時に指定ユーザーへメンションして投稿します。例: 1/10で「テメェがやれ」。</p>
+        <p class="hint">追加は通常結果の後に投稿します。置換は発火時に通常結果を出さず、この投稿だけを送ります。</p>
       </section>
 
       <section class="subpanel">

@@ -47,6 +47,7 @@ def upsert_effect_tag(connection, bot_id: str, guild_id: str, target_user_id: st
     config = {
         "target_user_id": target_user_id,
         "message": message,
+        "result_behavior": "replace",
         "probability": {
             "numerator": DEFAULT_PROBABILITY_NUMERATOR,
             "denominator": DEFAULT_PROBABILITY_DENOMINATOR,
