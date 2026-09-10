@@ -2212,41 +2212,7 @@ async def process_db_mention(message: discord.Message, guild_id: str, connection
 
 
 async def process_standalone_random_draw(message: discord.Message, guild_id: str, connection) -> RuntimeAction:
-    if not mention_feature_enabled(connection, guild_id, FEATURE_MENTION_RANDOM_DRAW):
-        return RuntimeAction(False)
-
-    command_text = str(getattr(message, "content", "") or "")
-    repository = MentionReactionRepository(connection)
-    pending_effects = pop_pending_next_effects(guild_id, message)
-    matches = []
-    for reaction in repository.list_reactions(guild_id, enabled=True, reaction_kind="random_draw"):
-        if not random_draw_allows_standalone_trigger(reaction):
-            continue
-        pull, pull_error = parse_random_draw_pull_for_reaction(reaction, command_text)
-        if pull_error:
-            continue
-        if pull is not None:
-            matches.append(MatchResult(reaction, pull.groups, pull))
-    if not matches:
-        store_pending_next_effects(guild_id, message, pending_effects)
-        return RuntimeAction(False)
-
-    selected = sort_mention_matches(matches)[0]
-    choices = repository.list_choices(guild_id, int(selected.row["id"]), enabled=True)
-    if not choices:
-        store_pending_next_effects(guild_id, message, pending_effects)
-        return RuntimeAction(True, pending_effects=pending_effects)
-    pull = getattr(selected, "pull", RandomDrawPullParse(1, command_text, selected.groups))
-    return await execute_random_draw_reaction(
-        connection,
-        guild_id,
-        message,
-        selected,
-        pull,
-        choices,
-        [],
-        pending_effects,
-    )
+    return RuntimeAction(False)
 
 
 async def add_schedule_reactions_safe(sent_message: discord.Message) -> None:

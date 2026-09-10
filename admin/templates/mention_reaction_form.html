@@ -84,12 +84,8 @@
       </label>
 
       {% if reaction.reaction_kind != "search" %}
-        <details {% if reaction.reroll_enabled or reaction.allow_standalone_trigger or reaction.consume_mention %}open{% endif %}>
+        <details {% if reaction.reroll_enabled or reaction.consume_mention %}open{% endif %}>
           <summary>高度な抽選設定</summary>
-          <label class="check-row">
-            <input type="checkbox" name="allow_standalone_trigger" {% if reaction.allow_standalone_trigger %}checked{% endif %} {% if not can_edit_reaction %}disabled{% endif %}>
-            通常メッセージでも使用
-          </label>
           <label class="check-row">
             <input type="checkbox" name="allow_mention_trigger" {% if reaction.allow_mention_trigger %}checked{% endif %} {% if not can_edit_reaction %}disabled{% endif %}>
             メンションでも使用

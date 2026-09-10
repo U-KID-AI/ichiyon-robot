@@ -31,7 +31,7 @@ BEGIN
         LIMIT 1;
 
         SELECT jsonb_build_object(
-            'allow_standalone_trigger', TRUE,
+            'allow_standalone_trigger', FALSE,
             'allow_mention_trigger', TRUE,
             'consume_mention', TRUE,
             'reroll_enabled', COALESCE(draw.reroll_enabled, FALSE),

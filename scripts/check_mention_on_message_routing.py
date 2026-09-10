@@ -117,9 +117,10 @@ async def main_async():
         events.append(("tts", command_text))
 
     async def fake_db_runtime(message):
-        command_text = command_from_message(message)
+        raw_command_text = messages.get_mention_command_text(message)
+        command_text = raw_command_text or ""
         events.append(("db_runtime", command_text))
-        if command_text == "":
+        if raw_command_text == "":
             await message.channel.send("森羅万象って終わってなかったっけ")
             return True
         if command_text == "正体を見せろ！":
@@ -180,6 +181,9 @@ async def main_async():
     message, trace = await run("正体を見せろ！")
     results.append(check("generic random draw handles Joker mention in DB runtime", ("db_runtime", "正体を見せろ！") in trace and len(message.channel.sent) == 1, trace))
 
+    message, trace = await run_standalone("正体を見せろ！")
+    results.append(check("standalone Joker trigger is ignored by random draw", message.channel.sent == [], trace))
+
     _, trace = await run("音楽")
     results.append(check("music text reaches explicit panel first", trace == [("panel", "音楽")], trace))
 
@@ -209,6 +213,9 @@ async def main_async():
 
     _, trace = await run_standalone("音楽っぽい")
     results.append(check("standalone partial panel command falls through", ("panel", "音楽っぽい") in trace and any(event[0] == "db_runtime" for event in trace), trace))
+
+    message, trace = await run_standalone("占い")
+    results.append(check("standalone horoscope command is ignored", message.channel.sent == [], trace))
 
     _, trace = await run("ニコロデオン")
     results.append(check("shortcut text reaches mention shortcut after panel miss", ("panel", "ニコロデオン") in trace and ("shortcut", "ニコロデオン") in trace and all(event[0] != "horoscope" for event in trace), trace))

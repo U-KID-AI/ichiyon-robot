@@ -15,7 +15,8 @@ from bot.services import mezamashi_horoscope as horoscope
 
 
 def check(name, ok, detail=""):
-    print("[{0}] {1}{2}".format("OK" if ok else "NG", name, " - {0}".format(detail) if detail else ""))
+    message = "[{0}] {1}{2}".format("OK" if ok else "NG", name, " - {0}".format(detail) if detail else "")
+    print(message.encode(sys.stdout.encoding or "utf-8", errors="replace").decode(sys.stdout.encoding or "utf-8"))
     return ok
 
 
@@ -47,7 +48,7 @@ def fixture_payload():
                 "color": "ラッキーカラー",
                 "advice": "アドバイス",
                 "person": "人",
-                "menu": "",
+                "menu": "メニュー",
             }
             for index, name in enumerate(ZODIAC_NAMES)
         ],
@@ -85,17 +86,42 @@ async def run_handler_checks(results):
         horoscope.get_horoscope_bundle = fake_bundle
         horoscope.settings_enabled = lambda guild_id, kind: True
 
-        ranking_message = FakeMessage("占い")
-        results.append(check("standalone ranking command is handled", await horoscope.handle_horoscope_command(ranking_message, None) is True))
-        results.append(check("ranking sends 12 signs", "12位" in ranking_message.channel.messages[0] and "出典:" in ranking_message.channel.messages[0]))
+        ranking_message = FakeMessage("<@1> 占い", command_text="占い")
+        results.append(check("mention ranking command is handled", await horoscope.handle_horoscope_command(ranking_message, "占い") is True))
+        ranking_text = ranking_message.channel.messages[0]
+        results.append(check("ranking sends 12 detailed signs", "12位" in ranking_text and "ラッキーカラー:" in ranking_text and "ラッキーポイント:" in ranking_text, ranking_text))
+        results.append(check("ranking omits source url and update date", "公式ページ:" not in ranking_text and "更新:" not in ranking_text and "出典:" not in ranking_text, ranking_text))
+
+        standalone_message = FakeMessage("占い")
+        results.append(check("standalone ranking command is ignored", await horoscope.handle_horoscope_command(standalone_message, None) is False))
+        results.append(check("standalone ranking sends nothing", standalone_message.channel.messages == [], standalone_message.channel.messages))
 
         zodiac_message = FakeMessage("<@1> さそり座 占い", command_text="さそり座 占い")
         results.append(check("mention zodiac command is handled", await horoscope.handle_horoscope_command(zodiac_message, "さそり座 占い") is True))
-        results.append(check("zodiac response is scoped", "さそり座" in zodiac_message.channel.messages[0] and "今日の順位: 8位" in zodiac_message.channel.messages[0], zodiac_message.channel.messages))
+        zodiac_text = zodiac_message.channel.messages[0]
+        results.append(check("zodiac response is scoped", "さそり座" in zodiac_text and "8位" in zodiac_text, zodiac_message.channel.messages))
+        results.append(check("zodiac response shows full extras", "アドバイス:" in zodiac_text and "ラッキーパーソン:" in zodiac_text and "ラッキーメニュー:" in zodiac_text, zodiac_text))
+        results.append(check("zodiac response omits source url and update date", "公式ページ:" not in zodiac_text and "更新:" not in zodiac_text, zodiac_text))
 
-        disabled_message = FakeMessage("占い")
+        empty_payload = fixture_payload()
+        empty_payload["ranking"][7]["advice"] = ""
+        empty_payload["ranking"][7]["person"] = ""
+        empty_payload["ranking"][7]["menu"] = ""
+        empty_bundle = horoscope.parse_payload(empty_payload)
+
+        async def empty_extras_bundle(force_refresh=False):
+            return empty_bundle
+
+        horoscope.get_horoscope_bundle = empty_extras_bundle
+        empty_extras_message = FakeMessage("<@1> さそり座 占い", command_text="さそり座 占い")
+        results.append(check("empty extras omit blank labels", await horoscope.handle_horoscope_command(empty_extras_message, "さそり座 占い") is True))
+        empty_extras_text = empty_extras_message.channel.messages[0]
+        results.append(check("empty advice person menu labels are omitted", "アドバイス:" not in empty_extras_text and "ラッキーパーソン:" not in empty_extras_text and "ラッキーメニュー:" not in empty_extras_text, empty_extras_text))
+        horoscope.get_horoscope_bundle = fake_bundle
+
+        disabled_message = FakeMessage("<@1> 占い", command_text="占い")
         horoscope.settings_enabled = lambda guild_id, kind: False
-        results.append(check("disabled feature consumes horoscope command without normal fallback", await horoscope.handle_horoscope_command(disabled_message, None) is True))
+        results.append(check("disabled feature consumes horoscope command without normal fallback", await horoscope.handle_horoscope_command(disabled_message, "占い") is True))
         results.append(check("disabled feature sends no normal mention response", disabled_message.channel.messages == [], disabled_message.channel.messages))
 
         async def failing_bundle(force_refresh=False):
@@ -103,9 +129,20 @@ async def run_handler_checks(results):
 
         horoscope.settings_enabled = lambda guild_id, kind: True
         horoscope.get_horoscope_bundle = failing_bundle
-        failed_message = FakeMessage("占い")
-        results.append(check("HTTP timeout or 4xx fails safe", await horoscope.handle_horoscope_command(failed_message, None) is True))
-        results.append(check("failure sends safe message", failed_message.channel.messages == ["占い情報を取得できませんでした。少し時間をおいて試してください。"], failed_message.channel.messages))
+        failed_message = FakeMessage("<@1> 占い", command_text="占い")
+        results.append(check("HTTP timeout or 4xx fails safe", await horoscope.handle_horoscope_command(failed_message, "占い") is True))
+        results.append(check("failure sends safe message", failed_message.channel.messages == ["本日の占いはまだ取得できませんでした。"], failed_message.channel.messages))
+
+        stale_bundle = horoscope.parse_payload(fixture_payload())
+        stale_bundle.stale = True
+
+        async def stale_bundle_func(force_refresh=False):
+            return stale_bundle
+
+        horoscope.get_horoscope_bundle = stale_bundle_func
+        stale_message = FakeMessage("<@1> 占い", command_text="占い")
+        results.append(check("stale cache does not render old ranking", await horoscope.handle_horoscope_command(stale_message, "占い") is True))
+        results.append(check("stale cache sends short unavailable message", stale_message.channel.messages == ["本日の占いはまだ取得できませんでした。"], stale_message.channel.messages))
     finally:
         horoscope.config.DATA_BACKEND = original_backend
         horoscope.get_horoscope_bundle = original_get_bundle

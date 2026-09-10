@@ -148,7 +148,7 @@ def replace_choices(connection, bot_id: str, guild_id: str, reaction_id: int, ch
 def seed_guild(connection, bot_id: str, guild_id: str) -> int:
     repo = MentionReactionRepository(connection, bot_id=bot_id)
     config_json = {
-        "allow_standalone_trigger": True,
+        "allow_standalone_trigger": False,
         "allow_mention_trigger": True,
         "consume_mention": True,
         "reroll_enabled": True,
