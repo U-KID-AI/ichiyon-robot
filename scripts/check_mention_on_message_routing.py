@@ -88,6 +88,10 @@ async def main_async():
         events.append(("music_links", command_text))
         return False
 
+    async def fake_persona_draw(message, command_text):
+        events.append(("persona", command_text))
+        return command_text == "正体を見せろ！"
+
     async def fake_youtube_n_pull(message, command_text):
         events.append(("youtube_n_pull", command_text))
         return False
@@ -135,6 +139,7 @@ async def main_async():
     namespace.update(
         {
             "handle_mention_music_links": fake_music_links,
+            "handle_persona_draw_message": fake_persona_draw,
             "handle_youtube_n_pull_command": fake_youtube_n_pull,
             "handle_voice_command": fake_voice,
             "handle_developer_command": fake_developer,
@@ -167,34 +172,37 @@ async def main_async():
     results.append(check("empty mention sends existing DB response only", len(message.channel.sent) == 1 and "森羅万象" in message.channel.sent[0][0][0]))
 
     _, trace = await run("入って")
-    results.append(check("non-empty voice text reaches voice handler", ("voice", "入って") in trace and ("db_runtime", "入って") not in trace, trace))
+    results.append(check("non-empty voice text reaches voice handler", ("persona", "入って") in trace and ("voice", "入って") in trace and ("db_runtime", "入って") not in trace, trace))
+
+    _, trace = await run("正体を見せろ！")
+    results.append(check("persona draw consumes mention before normal DB runtime", trace == [("persona", "正体を見せろ！")], trace))
 
     _, trace = await run("音楽")
-    results.append(check("music text reaches explicit panel first", trace == [("panel", "音楽")], trace))
+    results.append(check("music text reaches explicit panel first", trace == [("persona", "音楽"), ("panel", "音楽")], trace))
 
     _, trace = await run("ゲーム")
-    results.append(check("game text reaches explicit panel first", trace == [("panel", "ゲーム")], trace))
+    results.append(check("game text reaches explicit panel first", trace == [("persona", "ゲーム"), ("panel", "ゲーム")], trace))
 
     _, trace = await run("音声")
-    results.append(check("audio text reaches explicit panel first", trace == [("panel", "音声")], trace))
+    results.append(check("audio text reaches explicit panel first", trace == [("persona", "音声"), ("panel", "音声")], trace))
 
     _, trace = await run("SE")
-    results.append(check("SE text reaches explicit audio panel first", trace == [("panel", "SE")], trace))
+    results.append(check("SE text reaches explicit audio panel first", trace == [("persona", "SE"), ("panel", "SE")], trace))
 
     _, trace = await run("パネル")
-    results.append(check("root panel mention reaches explicit panel first", trace == [("panel", "パネル")], trace))
+    results.append(check("root panel mention reaches explicit panel first", trace == [("persona", "パネル"), ("panel", "パネル")], trace))
 
     _, trace = await run_standalone("音楽")
-    results.append(check("standalone music opens panel", trace == [("panel", "音楽")], trace))
+    results.append(check("standalone music opens panel", trace == [("persona", None), ("panel", "音楽")], trace))
 
     _, trace = await run_standalone("ゲーム")
-    results.append(check("standalone game opens panel", trace == [("panel", "ゲーム")], trace))
+    results.append(check("standalone game opens panel", trace == [("persona", None), ("panel", "ゲーム")], trace))
 
     _, trace = await run_standalone("SE")
-    results.append(check("standalone SE opens panel", trace == [("panel", "SE")], trace))
+    results.append(check("standalone SE opens panel", trace == [("persona", None), ("panel", "SE")], trace))
 
     _, trace = await run_standalone("パネル")
-    results.append(check("standalone root opens panel", trace == [("panel", "パネル")], trace))
+    results.append(check("standalone root opens panel", trace == [("persona", None), ("panel", "パネル")], trace))
 
     _, trace = await run_standalone("音楽っぽい")
     results.append(check("standalone partial panel command falls through", ("panel", "音楽っぽい") in trace and any(event[0] == "db_runtime" for event in trace), trace))

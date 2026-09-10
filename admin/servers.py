@@ -194,6 +194,16 @@ DISPLAY_FEATURES.extend(
             "off_behavior": "OFFにすると、登録済みショートカットを実行しません。",
             "notes": "空メンションや名言・おみくじなど既存メンション応答とは完全一致で分離します。",
         },
+        {
+            "key": "persona_draws",
+            "label": "ペルソナ抽選",
+            "edit_path": "persona-draws",
+            "required_role": "editor",
+            "overview": "固定フレーズから候補をランダムに返し、必要なら再抽選演出を挟みます。",
+            "settings": "呼び出しフレーズ、抽選候補、再抽選確率、再抽選セリフ、有効/無効",
+            "off_behavior": "OFFにすると、ペルソナ抽選コマンドを実行しません。",
+            "notes": "通常メンション応答とは完全一致で分離し、Bot/サーバー別に管理します。",
+        },
     ]
 )
 

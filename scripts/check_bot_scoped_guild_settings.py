@@ -133,6 +133,14 @@ def main() -> int:
                 "ON CONFLICT (bot_id, guild_id, trigger_key)",
             ],
         ),
+        (
+            "bot/repositories/persona_draws.py",
+            [
+                "self.bot_id = bot_id or config.BOT_INSTANCE_ID",
+                "WHERE bot_id = %s AND guild_id = %s",
+                "ON CONFLICT (bot_id, guild_id, trigger_key)",
+            ],
+        ),
     ]
 
     for path, snippets in repository_requirements:
@@ -150,6 +158,7 @@ def main() -> int:
         "admin/special_effects.py",
         "admin/schedule_templates.py",
         "admin/mention_shortcuts.py",
+        "admin/persona_draws.py",
     ]
     for path in admin_requirements:
         source = read(path)
