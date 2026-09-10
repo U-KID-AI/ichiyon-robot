@@ -140,7 +140,9 @@ class MentionReactionRepository:
         is_system: bool,
         is_deletable: bool,
         enabled: bool,
+        config_json: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        config = config_json if isinstance(config_json, dict) else {}
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -159,7 +161,7 @@ class MentionReactionRepository:
                     config_json,
                     enabled
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, '{}'::JSONB, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::JSONB, %s)
                 RETURNING *
                 """,
                 (
@@ -174,6 +176,7 @@ class MentionReactionRepository:
                     admin_only,
                     is_system,
                     is_deletable,
+                    json_dumps(config),
                     enabled,
                 ),
             )
@@ -189,8 +192,37 @@ class MentionReactionRepository:
         description: str,
         admin_only: bool,
         enabled: bool,
+        config_json: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
+        config = config_json if isinstance(config_json, dict) else None
         with self.connection.cursor() as cursor:
+            if config is None:
+                cursor.execute(
+                    """
+                    UPDATE mention_reactions
+                    SET keyword = %s,
+                        match_type = %s,
+                        name = %s,
+                        description = %s,
+                        admin_only = %s,
+                        enabled = %s,
+                        updated_at = NOW()
+                    WHERE bot_id = %s AND guild_id = %s AND id = %s
+                    RETURNING *
+                    """,
+                    (
+                        keyword,
+                        match_type,
+                        name,
+                        description,
+                        admin_only,
+                        enabled,
+                        self.bot_id,
+                        guild_id,
+                        reaction_id,
+                    ),
+                )
+                return fetch_one(cursor)
             cursor.execute(
                 """
                 UPDATE mention_reactions
@@ -200,6 +232,7 @@ class MentionReactionRepository:
                     description = %s,
                     admin_only = %s,
                     enabled = %s,
+                    config_json = %s::JSONB,
                     updated_at = NOW()
                 WHERE bot_id = %s AND guild_id = %s AND id = %s
                 RETURNING *
@@ -211,6 +244,7 @@ class MentionReactionRepository:
                     description,
                     admin_only,
                     enabled,
+                    json_dumps(config),
                     self.bot_id,
                     guild_id,
                     reaction_id,

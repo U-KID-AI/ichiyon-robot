@@ -158,7 +158,6 @@ def main() -> int:
         "admin/special_effects.py",
         "admin/schedule_templates.py",
         "admin/mention_shortcuts.py",
-        "admin/persona_draws.py",
     ]
     for path in admin_requirements:
         source = read(path)
@@ -168,6 +167,16 @@ def main() -> int:
             "selected_bot_id(request)" in source and "current_selected_bot_id()" in source,
             path,
         )
+
+    persona_admin_source = read("admin/persona_draws.py")
+    record(
+        results,
+        "legacy persona admin redirects to random draw management",
+        "RedirectResponse" in persona_admin_source
+        and "mention-reactions?kind=random_draw" in persona_admin_source
+        and "PersonaDrawRepository" not in persona_admin_source,
+        "admin/persona_draws.py",
+    )
 
     record(
         results,

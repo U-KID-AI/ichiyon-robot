@@ -83,6 +83,40 @@
         管理者限定
       </label>
 
+      {% if reaction.reaction_kind != "search" %}
+        <details {% if reaction.reroll_enabled or reaction.allow_standalone_trigger or reaction.consume_mention %}open{% endif %}>
+          <summary>高度な抽選設定</summary>
+          <label class="check-row">
+            <input type="checkbox" name="allow_standalone_trigger" {% if reaction.allow_standalone_trigger %}checked{% endif %} {% if not can_edit_reaction %}disabled{% endif %}>
+            通常メッセージでも使用
+          </label>
+          <label class="check-row">
+            <input type="checkbox" name="allow_mention_trigger" {% if reaction.allow_mention_trigger %}checked{% endif %} {% if not can_edit_reaction %}disabled{% endif %}>
+            メンションでも使用
+          </label>
+          <label class="check-row">
+            <input type="checkbox" name="consume_mention" {% if reaction.consume_mention %}checked{% endif %} {% if not can_edit_reaction %}disabled{% endif %}>
+            メンション成立時は通常返信へ流さない
+          </label>
+          <label class="check-row">
+            <input type="checkbox" name="reroll_enabled" {% if reaction.reroll_enabled %}checked{% endif %} {% if not can_edit_reaction %}disabled{% endif %}>
+            自動引き直し
+          </label>
+          <label>
+            引き直し確率（%）
+            <input type="number" min="0" max="100" name="reroll_probability_percent" value="{{ reaction.reroll_probability_percent or 0 }}" {% if not can_edit_reaction %}disabled{% endif %}>
+          </label>
+          <label>
+            最大引き直し回数
+            <input type="number" min="0" max="10" name="max_rerolls" value="{{ reaction.max_rerolls or 0 }}" {% if not can_edit_reaction %}disabled{% endif %}>
+          </label>
+          <label>
+            引き直し文言
+            <textarea name="reroll_lines_text" rows="4" placeholder="違うな…&#10;これじゃない…" {% if not can_edit_reaction %}disabled{% endif %}>{{ reaction.reroll_lines_text or "" }}</textarea>
+          </label>
+        </details>
+      {% endif %}
+
       <details>
         <summary>詳細設定</summary>
         <dl class="info-list">
