@@ -1,4 +1,5 @@
 import asyncio
+import argparse
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -208,7 +209,27 @@ async def main_async():
     return all(results)
 
 
+async def live_async():
+    bundle = await horoscope.fetch_official_horoscope()
+    print(
+        "live target_date={0} count={1} first={2}:{3} last={4}:{5}".format(
+            bundle.target_date,
+            len(bundle.entries),
+            bundle.entries[0].rank,
+            bundle.entries[0].name,
+            bundle.entries[-1].rank,
+            bundle.entries[-1].name,
+        )
+    )
+    return True
+
+
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--live", action="store_true", help="Fetch the current Fujitv horoscope JSON once.")
+    args = parser.parse_args()
+    if args.live:
+        return 0 if asyncio.run(live_async()) else 1
     return 0 if asyncio.run(main_async()) else 1
 
 
