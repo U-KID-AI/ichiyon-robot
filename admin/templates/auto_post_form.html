@@ -39,6 +39,7 @@
         <select name="content_type" id="content-type" {% if not can_edit %}disabled{% endif %}>
           <option value="static" {% if post.content_type == "static" %}selected{% endif %}>固定投稿</option>
           <option value="jma_weather" {% if post.content_type == "jma_weather" %}selected{% endif %}>天気自動投稿</option>
+          <option value="mezamashi_horoscope" {% if post.content_type == "mezamashi_horoscope" %}selected{% endif %}>めざまし占い</option>
         </select>
       </label>
 
@@ -52,6 +53,10 @@
           {% endif %}
           <label>画像を選ぶ<input type="file" name="image_upload" accept="image/*" {% if not can_edit %}disabled{% endif %}></label>
         </div>
+      </div>
+
+      <div id="horoscope-fields">
+        <p class="hint">フジテレビ公式「今日の占いCountDown」の12星座ランキングを投稿します。取得結果は日次キャッシュされます。</p>
       </div>
 
       <div id="weather-fields">
@@ -145,12 +150,15 @@
     var contentType = document.getElementById("content-type");
     var staticFields = document.getElementById("static-fields");
     var weatherFields = document.getElementById("weather-fields");
+    var horoscopeFields = document.getElementById("horoscope-fields");
     var weatherOffice = document.getElementById("weather-office");
     var weatherAreas = document.getElementById("weather-areas");
     function refreshContentFields() {
       var isWeather = contentType && contentType.value === "jma_weather";
-      if (staticFields) { staticFields.hidden = isWeather; }
+      var isHoroscope = contentType && contentType.value === "mezamashi_horoscope";
+      if (staticFields) { staticFields.hidden = isWeather || isHoroscope; }
       if (weatherFields) { weatherFields.hidden = !isWeather; }
+      if (horoscopeFields) { horoscopeFields.hidden = !isHoroscope; }
     }
     function refreshWeatherAreas() {
       if (!weatherOffice || !weatherAreas) { return; }

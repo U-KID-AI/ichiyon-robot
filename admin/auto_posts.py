@@ -27,7 +27,7 @@ from bot.services.jma_weather import (
 router = APIRouter()
 
 SCHEDULE_TYPES = ("once", "yearly", "monthly", "weekly", "daily", "interval")
-CONTENT_TYPES = ("static", "jma_weather")
+CONTENT_TYPES = ("static", "jma_weather", "mezamashi_horoscope")
 WEEKDAYS = ("", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 DEFAULT_TIMEZONE = "Asia/Tokyo"
 TIME_PATTERN = re.compile(r"^[0-2][0-9]:[0-5][0-9]$")
@@ -528,7 +528,7 @@ async def save_auto_post(
         errors.append(upload_error)
     body = form["body"] or None
     image_path = form["image_path"] or None
-    if form["content_type"] == "jma_weather":
+    if form["content_type"] in ("jma_weather", "mezamashi_horoscope"):
         body = None
         image_path = None
     with get_connection() as connection:
@@ -599,6 +599,8 @@ def summarize(value: str) -> str:
 def content_type_label(content_type: str) -> str:
     if content_type == "jma_weather":
         return "天気自動投稿"
+    if content_type == "mezamashi_horoscope":
+        return "めざまし占い"
     return "固定投稿"
 
 
@@ -607,6 +609,8 @@ def summarize_content(row: Dict[str, Any]) -> str:
         office_code = row.get("office_code") or "-"
         area_count = len(row.get("area_codes") or [])
         return "天気 / 予報区 {0} / 区域 {1}件".format(office_code, area_count)
+    if row.get("content_type") == "mezamashi_horoscope":
+        return "めざまし占い / 12星座ランキング"
     return summarize(row.get("body") or "")
 
 

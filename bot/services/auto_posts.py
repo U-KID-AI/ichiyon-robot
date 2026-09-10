@@ -9,6 +9,7 @@ from bot.db import get_connection
 from bot.messages import send_text_or_image
 from bot.repositories import AutoPostRepository, FeatureFlagRepository
 from bot.services.jma_weather import JmaWeatherError, build_weather_messages
+from bot.services.mezamashi_horoscope import MezamashiHoroscopeError, build_horoscope_messages
 
 
 FEATURE_AUTO_POSTS = "auto_posts"
@@ -191,6 +192,13 @@ async def send_auto_post_content(
         for message in messages:
             await channel.send(message)
         return True
+    if content_type == "mezamashi_horoscope":
+        messages = await build_horoscope_messages(post.get("content_config_json"))
+        if not messages:
+            return False
+        for message in messages:
+            await channel.send(message)
+        return True
 
     return await send_text_or_image(channel, post.get("body"), post.get("image_path"))
 
@@ -223,6 +231,9 @@ async def run_db_auto_posts_once(bot, now: Optional[datetime] = None) -> int:
                     sent = await send_auto_post_content(channel, post, forecast_cache, now=now)
                 except JmaWeatherError as exc:
                     print("[WARN] auto_posts weather generation failed: id={0} error={1}".format(post_id, exc))
+                    continue
+                except MezamashiHoroscopeError as exc:
+                    print("[WARN] auto_posts horoscope generation failed: id={0} error={1}".format(post_id, exc))
                     continue
                 except discord.DiscordException as exc:
                     print("[WARN] auto_posts send failed: id={0} error={1}".format(post_id, exc))
