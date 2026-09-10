@@ -1613,7 +1613,7 @@ def build_random_draw_advanced_settings(config_value: Any) -> Dict[str, Any]:
     probability = parse_form_int(str(config_json.get("reroll_probability_percent", 0)), 0)
     max_rerolls = parse_form_int(str(config_json.get("max_rerolls", 0)), 0)
     advanced_config = {
-        "allow_standalone_trigger": parse_config_bool(config_json.get("allow_standalone_trigger"), False),
+        "allow_standalone_trigger": False,
         "allow_mention_trigger": parse_config_bool(config_json.get("allow_mention_trigger"), True),
         "consume_mention": parse_config_bool(config_json.get("consume_mention"), False),
         "reroll_enabled": parse_config_bool(config_json.get("reroll_enabled"), False),
@@ -1632,7 +1632,6 @@ def merge_random_draw_config(existing_value: Any, advanced_config: Dict[str, Any
     existing = normalize_config_json(existing_value)
     merged = dict(existing)
     for key in (
-        "allow_standalone_trigger",
         "allow_mention_trigger",
         "consume_mention",
         "reroll_enabled",
@@ -1664,7 +1663,7 @@ def build_reaction_form(
     reroll_count = parse_form_int(max_rerolls, 0)
     reroll_lines = split_lines(reroll_lines_text)
     advanced_config = {
-        "allow_standalone_trigger": allow_standalone_trigger == "on",
+        "allow_standalone_trigger": False,
         "allow_mention_trigger": allow_mention_trigger == "on",
         "consume_mention": consume_mention == "on",
         "reroll_enabled": reroll_enabled == "on",

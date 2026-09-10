@@ -105,7 +105,7 @@ class FakeMentionReactionRepository:
 
 def joker_reaction(**overrides) -> Dict[str, Any]:
     config_json = {
-        "allow_standalone_trigger": True,
+        "allow_standalone_trigger": False,
         "allow_mention_trigger": True,
         "consume_mention": True,
         "reroll_enabled": True,
@@ -215,7 +215,7 @@ async def runtime_checks(results: List[Tuple[str, bool, Any]]) -> None:
 
         runtime_db.random = random.Random(3)
         handled, sent = await run_runtime("正体を見せろ！", mention=False)
-        record(results, "plain Joker trigger is handled by generic random draw", handled and len(sent) == 1 and sent[0] in {item["body"] for item in choices(2)}, sent)
+        record(results, "plain Joker trigger is ignored by generic random draw", not handled and sent == [], sent)
 
         runtime_db.random = random.Random(4)
         handled, sent = await run_runtime("正体を見せろ！", mention=True)
@@ -223,17 +223,17 @@ async def runtime_checks(results: List[Tuple[str, bool, Any]]) -> None:
 
         runtime_db.random = random.Random(5)
         FakeMentionReactionRepository.reactions_by_guild = {"guild-a": [joker_reaction(config_json={"reroll_probability_percent": 0})]}
-        handled, sent = await run_runtime("正体を見せろ！", mention=False)
+        handled, sent = await run_runtime("正体を見せろ！", mention=True)
         record(results, "reroll zero percent sends one result", handled and len(sent) == 1, sent)
 
         runtime_db.random = random.Random(1)
         FakeMentionReactionRepository.reactions_by_guild = {"guild-a": [joker_reaction(config_json={"reroll_probability_percent": 100})]}
-        handled, sent = await run_runtime("正体を見せろ！", mention=False)
+        handled, sent = await run_runtime("正体を見せろ！", mention=True)
         record(results, "reroll one hundred percent sends result line result", handled and len(sent) == 3 and sent[0] != sent[2] and sent[1] in {"違うな…", "これじゃない…"}, sent)
 
         FakeMentionReactionRepository.choices_by_reaction = {1: choices(1)}
         runtime_db.random = random.Random(2)
-        handled, sent = await run_runtime("正体を見せろ！", mention=False)
+        handled, sent = await run_runtime("正体を見せろ！", mention=True)
         record(results, "single candidate reroll is safe", handled and len(sent) == 3 and sent[0] == sent[2], sent)
 
         FakeMentionReactionRepository.choices_by_reaction = {1: []}
@@ -245,8 +245,8 @@ async def runtime_checks(results: List[Tuple[str, bool, Any]]) -> None:
             "guild-a": [joker_reaction(id=1)],
             "guild-b": [joker_reaction(id=2, keyword="別トリガー")],
         }
-        handled_a, sent_a = await run_runtime("正体を見せろ！", guild_id="guild-a")
-        handled_b, sent_b = await run_runtime("正体を見せろ！", guild_id="guild-b")
+        handled_a, sent_a = await run_runtime("正体を見せろ！", guild_id="guild-a", mention=True)
+        handled_b, sent_b = await run_runtime("正体を見せろ！", guild_id="guild-b", mention=True)
         record(results, "bot and guild scope stay separated", handled_a and sent_a and not handled_b and sent_b == [], {"a": sent_a, "b": sent_b})
 
         legacy = joker_reaction(config_json={})
@@ -281,7 +281,7 @@ def main() -> int:
         "exact",
         "on",
         None,
-        "on",
+        None,
         "on",
         "on",
         "on",
@@ -292,7 +292,7 @@ def main() -> int:
     record(
         results,
         "random draw form builds Joker advanced config",
-        form["config_json"]["allow_standalone_trigger"] is True
+        form["config_json"]["allow_standalone_trigger"] is False
         and form["config_json"]["allow_mention_trigger"] is True
         and form["config_json"]["consume_mention"] is True
         and form["config_json"]["reroll_enabled"] is True
@@ -312,7 +312,7 @@ def main() -> int:
         results,
         "admin template exposes generic advanced fields",
         "高度な抽選設定" in template
-        and "通常メッセージでも使用" in template
+        and "通常メッセージでも使用" not in template
         and "メンションでも使用" in template
         and "メンション成立時は通常返信へ流さない" in template
         and "自動引き直し" in template,

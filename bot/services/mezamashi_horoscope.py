@@ -105,6 +105,13 @@ def clean_html_text(value: Any) -> str:
     return text.strip()
 
 
+def compact_text(value: str, *, limit: int = 54) -> str:
+    text = re.sub(r"\s+", " ", str(value or "").replace("\n", " ")).strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "…"
+
+
 def parse_target_date(value: Any) -> str:
     text = str(value or "").strip()
     for fmt in ("%Y/%m/%d", "%Y-%m-%d"):
@@ -324,38 +331,49 @@ def date_label(value: str) -> str:
 
 
 def format_ranking(bundle: HoroscopeBundle) -> str:
-    title = "今日のめざまし占い" if not bundle.stale else "直近のめざまし占い"
-    lines = [title, ""]
+    if bundle.stale:
+        raise MezamashiHoroscopeError("current horoscope is not available")
+    lines = ["今日のめざまし占い", ""]
     for entry in bundle.entries:
         prefix = MEDAL.get(entry.rank, "  ")
         lines.append("{0} {1}位　{2}".format(prefix, entry.rank, entry.name).strip())
-    lines.extend(["", "出典: めざましテレビ 今日の占いCountDown", "公式ページ: {0}".format(SOURCE_URL), "更新: {0}".format(date_label(bundle.target_date))])
-    if bundle.stale:
-        lines.append("本日のデータを取得できないため、最後に取得できた情報です。")
+        if entry.text:
+            lines.append("　{0}".format(compact_text(entry.text)))
+        lucky = []
+        if entry.color:
+            lucky.append("ラッキーカラー: {0}".format(entry.color))
+        if entry.point:
+            lucky.append("ラッキーポイント: {0}".format(entry.point))
+        if lucky:
+            lines.append("　" + " / ".join(lucky))
+        lines.append("")
+    while lines and lines[-1] == "":
+        lines.pop()
     return "\n".join(lines)
 
 
 def format_zodiac(bundle: HoroscopeBundle, zodiac_key: str) -> str:
+    if bundle.stale:
+        raise MezamashiHoroscopeError("current horoscope is not available")
     entry = next((item for item in bundle.entries if item.key == zodiac_key), None)
     if entry is None:
         raise MezamashiHoroscopeError("zodiac was not found")
-    lines = [entry.name, "今日の順位: {0}位".format(entry.rank)]
-    if bundle.stale:
-        lines[1] = "直近の順位: {0}位".format(entry.rank)
+    lines = ["🔮 {0}　{1}位".format(entry.name, entry.rank)]
     if entry.text:
         lines.extend(["", entry.text])
     extras = []
-    if entry.point:
-        extras.append("ラッキーポイント: {0}".format(entry.point))
     if entry.color:
         extras.append("ラッキーカラー: {0}".format(entry.color))
+    if entry.point:
+        extras.append("ラッキーポイント: {0}".format(entry.point))
     if entry.advice:
         extras.append("アドバイス: {0}".format(entry.advice))
+    if entry.person:
+        extras.append("ラッキーパーソン: {0}".format(entry.person))
+    if entry.menu:
+        extras.append("ラッキーメニュー: {0}".format(entry.menu))
     if extras:
-        lines.extend([""] + extras[:3])
-    lines.extend(["", "公式ページ: {0}".format(SOURCE_URL), "更新: {0}".format(date_label(bundle.target_date))])
-    if bundle.stale:
-        lines.append("本日のデータを取得できないため、最後に取得できた情報です。")
+        lines.extend([""] + extras)
     return "\n".join(lines)
 
 
@@ -380,13 +398,12 @@ async def build_horoscope_messages(content_config: Any = None, *, force_refresh:
 async def handle_horoscope_command(message, command_text: Optional[str]) -> bool:
     if getattr(getattr(message, "author", None), "bot", False):
         return False
+    if command_text is None:
+        return False
     guild_id = get_message_guild_id(message)
     if guild_id is None:
         return False
-    source_text = command_text
-    if source_text is None:
-        source_text = getattr(message, "content", "")
-    kind, zodiac_key = parse_command(source_text)
+    kind, zodiac_key = parse_command(command_text)
     if kind is None:
         return False
     if not settings_enabled(guild_id, kind):
@@ -409,7 +426,7 @@ async def handle_horoscope_command(message, command_text: Optional[str]) -> bool
                 exc,
             )
         )
-        await message.channel.send("占い情報を取得できませんでした。少し時間をおいて試してください。")
+        await message.channel.send("本日の占いはまだ取得できませんでした。")
         return True
     await message.channel.send(text)
     return True
