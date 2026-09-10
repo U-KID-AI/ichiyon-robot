@@ -15,7 +15,7 @@ from bot.services.mezamashi_horoscope import build_horoscope_messages
 
 
 router = APIRouter()
-TIME_PATTERN = re.compile(r"^[0-2][0-9]:[0-5][0-9]$")
+TIME_PATTERN = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
 
 
 def register_horoscope_routes(templates: Jinja2Templates) -> None:
@@ -26,7 +26,10 @@ def register_horoscope_routes(templates: Jinja2Templates) -> None:
         message: str = "",
         error: str = "",
     ):
-        user, server = require_editor(request, guild_id, check_editor=False)
+        access = require_editor(request, guild_id, check_editor=False)
+        if isinstance(access, RedirectResponse):
+            return access
+        user, server = access
         settings = load_settings(guild_id)
         latest_status = load_latest_status()
         return templates.TemplateResponse(
@@ -55,9 +58,12 @@ def register_horoscope_routes(templates: Jinja2Templates) -> None:
         auto_post_channel_id: str = Form(""),
         auto_post_time: str = Form("07:10"),
     ):
-        user, _server = require_editor(request, guild_id, check_editor=True)
+        access = require_editor(request, guild_id, check_editor=True)
+        if isinstance(access, RedirectResponse):
+            return access
+        user, _server = access
         auto_post_time = (auto_post_time or "07:10").strip()
-        if not TIME_PATTERN.match(auto_post_time) or auto_post_time > "23:59":
+        if not TIME_PATTERN.match(auto_post_time):
             return RedirectResponse(
                 url="/guilds/{0}/horoscope-settings?error={1}".format(guild_id, quote("投稿時刻は HH:MM 形式で入力してください。")),
                 status_code=303,
@@ -83,7 +89,7 @@ def register_horoscope_routes(templates: Jinja2Templates) -> None:
 def require_editor(request: Request, guild_id: str, *, check_editor: bool):
     user = get_current_user(request)
     if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="login required")
+        return RedirectResponse(url="/login", status_code=303)
     bot_id = selected_bot_id(request)
     if not can_access_guild(guild_id, user["user_id"], bot_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="guild access denied")

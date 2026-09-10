@@ -24,8 +24,21 @@ CREATE TABLE IF NOT EXISTS mezamashi_horoscope_settings (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (bot_id, guild_id),
-    CHECK (auto_post_time ~ '^[0-2][0-9]:[0-5][0-9]$')
+    CHECK (auto_post_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$')
 );
 
 CREATE INDEX IF NOT EXISTS idx_mezamashi_horoscope_settings_guild
     ON mezamashi_horoscope_settings(bot_id, guild_id);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'chk_mezamashi_horoscope_settings_auto_post_time'
+    ) THEN
+        ALTER TABLE mezamashi_horoscope_settings
+            ADD CONSTRAINT chk_mezamashi_horoscope_settings_auto_post_time
+            CHECK (auto_post_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$');
+    END IF;
+END $$;
