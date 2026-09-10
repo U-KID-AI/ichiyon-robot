@@ -358,6 +358,12 @@ def main() -> int:
     )
     record(
         results,
+        "migration does not require legacy persona description column",
+        "draw.description" not in migration,
+        "migration 045",
+    )
+    record(
+        results,
         "migration is idempotent for choices",
         "NOT EXISTS" in migration and "reaction_key = 'persona_draw_'" in migration,
         "migration 045",
