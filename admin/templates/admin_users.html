@@ -31,7 +31,7 @@
             <th>状態</th>
             <th>表示名</th>
             <th>Discord user ID</th>
-            <th>ロール</th>
+            <th>ユーザー管理権限</th>
             <th>最終ログイン</th>
             <th>操作</th>
           </tr>
@@ -42,7 +42,7 @@
               <td><strong class="status {{ 'enabled' if item.enabled else 'disabled' }}">{{ "ON" if item.enabled else "OFF" }}</strong></td>
               <td><strong>{{ item.display_name or item.discord_user_id }}</strong></td>
               <td>{{ item.discord_user_id }}</td>
-              <td><span title="{{ item.role|role_description }}">{{ item.role|role_label }}</span></td>
+              <td>{% if item.role == "global_admin" %}編集可能{% else %}閲覧のみ{% endif %}</td>
               <td>{{ item.last_login_at or "-" }}</td>
               <td class="actions-cell">
                 <a class="button-link secondary" href="/admin/users/{{ item.discord_user_id }}">編集</a>

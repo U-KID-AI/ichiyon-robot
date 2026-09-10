@@ -943,6 +943,43 @@ async def send_effect_additional_message(
     return True
 
 
+async def send_probability_user_message(
+    connection,
+    guild_id: str,
+    effect: Dict[str, Any],
+    config: Dict[str, Any],
+    message: discord.Message,
+    template_values: Dict[str, str],
+    effect_multiplier: float = 1.0,
+    effective_multiplier: float = 1.0,
+) -> bool:
+    target_user_id = get_config_text(config, ["target_user_id", "discord_user_id", "user_id"])
+    text = get_config_text(config, ["message", "text"]) or get_additional_message(effect)
+    if not target_user_id or not str(target_user_id).strip().isdigit() or not text:
+        print("[WARN] probability_user_message skipped invalid config: id={0}".format(effect.get("id")))
+        return False
+    values = build_effect_template_values(
+        connection,
+        guild_id,
+        effect,
+        config,
+        template_values,
+        effect_multiplier,
+        effective_multiplier,
+    )
+    values["target_user_id"] = str(target_user_id).strip()
+    values["target_user_mention"] = "<@{0}>".format(values["target_user_id"])
+    rendered = render_effect_template(text, values, connection, guild_id).strip()
+    if not rendered:
+        return False
+    content = "{0} {1}".format(values["target_user_mention"], rendered)
+    await message.channel.send(
+        content,
+        allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False, replied_user=False),
+    )
+    return True
+
+
 def mention_has_required_suffix(message: discord.Message, command_text: str, config: Dict[str, Any]) -> bool:
     suffix = get_config_text(config, ["required_suffix", "suffix"]) or "さん"
     normalized_command = normalize_command_text(command_text)
@@ -1604,6 +1641,25 @@ async def execute_effects(
                         multiplier,
                         multiplier,
                     )
+                    result.handled = True
+            elif effect_type == "probability_user_message":
+                multiplier = get_probability_multiplier_for_target(
+                    pending,
+                    "special_effect_tag",
+                    int(effect.get("id") or 0),
+                )
+                if not probability_hit_with_multiplier(config, multiplier):
+                    continue
+                if await send_probability_user_message(
+                    connection,
+                    guild_id,
+                    effect,
+                    config,
+                    message,
+                    template_values,
+                    multiplier,
+                    multiplier,
+                ):
                     result.handled = True
             elif effect_type == "message":
                 additional = get_additional_message(effect) or get_config_text(

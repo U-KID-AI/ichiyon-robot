@@ -28,21 +28,20 @@
         <label>Discord user ID<input name="discord_user_id" value="{{ form.discord_user_id }}" required></label>
         <label>表示名<input name="display_name" value="{{ form.display_name or '' }}"></label>
         <label>
-          管理画面ロール
+          ユーザー管理権限
           <select name="role">
-            <option value="viewer" {% if form.role == "viewer" %}selected{% endif %}>{{ "viewer"|role_label }}</option>
-            <option value="global_admin" {% if form.role == "global_admin" %}selected{% endif %}>{{ "global_admin"|role_label }}</option>
+            <option value="viewer" {% if form.role == "viewer" %}selected{% endif %}>{{ user_management_role_labels.get("viewer", "閲覧のみ") }}</option>
+            <option value="global_admin" {% if form.role == "global_admin" %}selected{% endif %}>{{ user_management_role_labels.get("global_admin", "編集可能") }}</option>
           </select>
         </label>
       </div>
       <p class="hint">Discord User IDを変更すると、このユーザーのBot権限・サーバー権限も新しいIDへ引き継がれます。</p>
       <ul class="compact-help-list">
-        <li><strong>{{ "viewer"|role_label }}</strong>: {{ "viewer"|role_description }}</li>
-        <li><strong>{{ "global_admin"|role_label }}</strong>: {{ "global_admin"|role_description }}</li>
+        <li><strong>{{ user_management_role_labels.get("viewer", "閲覧のみ") }}</strong>: {{ user_management_role_descriptions.get("viewer", "") }}</li>
+        <li><strong>{{ user_management_role_labels.get("global_admin", "編集可能") }}</strong>: {{ user_management_role_descriptions.get("global_admin", "") }}</li>
       </ul>
       <div class="check-row user-checks">
         <label class="check-row"><input type="checkbox" name="enabled" {% if form.enabled %}checked{% endif %}>有効</label>
-        <label class="check-row"><input type="checkbox" name="can_manage_users" {% if form.can_manage_users %}checked{% endif %}>ユーザー管理</label>
       </div>
     </section>
 

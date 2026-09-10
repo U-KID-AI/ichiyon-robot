@@ -14,7 +14,7 @@ ROLE_DESCRIPTIONS: Dict[str, str] = {
     "editor": "許可されたBot・サーバーの通常設定を変更できる。",
     "guild_admin": "許可されたBot・サーバーの管理者向け設定まで変更できる。",
     "admin": "管理者。現在の権限設計では既存互換用の表示名。",
-    "global_admin": "全Bot・全サーバーを管理できる。ユーザー管理も可能。",
+    "global_admin": "許可されたBot配下の全サーバーを管理できる。",
 }
 
 

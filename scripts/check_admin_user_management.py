@@ -81,7 +81,7 @@ def main() -> int:
     record(
         results,
         "role descriptions are available",
-        "変更" in role_description("editor") and "ユーザー管理" in role_description("global_admin"),
+        "変更" in role_description("editor") and "全サーバー" in role_description("global_admin"),
         role_description("global_admin"),
     )
 
@@ -161,8 +161,8 @@ def main() -> int:
         results,
         "last global admin is protected",
         "count_enabled_global_admins" in admin_bots_source
-        and "最後の全体管理者" in admin_bots_source,
-        "global admin guard",
+        and "最後のユーザー管理編集者" in admin_bots_source,
+        "user management editor guard",
     )
     record(
         results,
@@ -178,6 +178,27 @@ def main() -> int:
         "{% if target_user %}readonly{% endif %}" not in admin_user_form_template
         and "Bot権限・サーバー権限も新しいIDへ引き継がれます" in admin_user_form_template,
         "editable id warning",
+    )
+    record(
+        results,
+        "admin user role label is user management permission",
+        "ユーザー管理権限" in admin_user_form_template
+        and "管理画面ロール" not in admin_user_form_template
+        and "user_management_role_labels" in admin_user_form_template
+        and 'name="can_manage_users"' not in admin_user_form_template,
+        "user management label and two role choices",
+    )
+    record(
+        results,
+        "bot guild access is decoupled from admin user role",
+        "def list_manageable_bots" in permission_source
+        and "def can_access_bot" in permission_source
+        and "def list_manageable_guilds_for_bot" in permission_source
+        and permission_source.split("def list_manageable_bots", 1)[1].split("def can_access_bot", 1)[0].count("has_global_admin") == 0
+        and permission_source.split("def can_access_bot", 1)[1].split("def list_configured_guilds_for_bot", 1)[0].count("has_global_admin") == 0
+        and permission_source.split("def list_manageable_guilds_for_bot", 1)[1].split("def can_access_bot_guild", 1)[0].count("has_global_admin") == 0
+        and permission_source.split("def can_access_bot_guild", 1)[1].split("def list_admin_users", 1)[0].count("has_global_admin") == 0,
+        "bot/guild settings use bot_permissions",
     )
 
     ok_count = sum(1 for _, ok, _ in results if ok)

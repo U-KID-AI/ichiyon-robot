@@ -19,9 +19,11 @@ from bot.services.runtime_db import probability_hit_with_multiplier
 class FakeChannel:
     def __init__(self) -> None:
         self.sent = []
+        self.kwargs = []
 
     async def send(self, content=None, **kwargs):
         self.sent.append(content)
+        self.kwargs.append(kwargs)
 
 
 class FakeMessage:
@@ -146,6 +148,58 @@ async def check_execute_effects(check: Check) -> None:
     check.add(
         "queued next_action_count repeats next action once",
         get_next_action_extra_repeats(result.pending_effects, "mention_reaction_choice") == 1,
+    )
+
+    user_message = FakeMessage()
+    user_message_result = await execute_effects(
+        None,
+        "guild",
+        [
+            effect(
+                "probability_user_message",
+                {
+                    "target_user_id": "748965361486921831",
+                    "message": "テメェがやれ",
+                    "probability": {"numerator": 1, "denominator": 1},
+                },
+            )
+        ],
+        user_message,
+        values,
+    )
+    check.add(
+        "probability_user_message mentions fixed user",
+        user_message.channel.sent == ["<@748965361486921831> テメェがやれ"] and user_message_result.handled,
+        str(user_message.channel.sent),
+    )
+    check.add(
+        "probability_user_message enables only user mentions",
+        bool(user_message.channel.kwargs)
+        and "allowed_mentions" in user_message.channel.kwargs[0]
+        and "everyone" not in str(user_message.channel.sent[0]).lower(),
+        str(user_message.channel.kwargs),
+    )
+    missed_user_message = FakeMessage()
+    missed_result = await execute_effects(
+        None,
+        "guild",
+        [
+            effect(
+                "probability_user_message",
+                {
+                    "target_user_id": "748965361486921831",
+                    "message": "テメェがやれ",
+                    "probability": {"numerator": 0, "denominator": 1},
+                },
+            )
+        ],
+        missed_user_message,
+        values,
+    )
+    check.add(
+        "probability_user_message can miss without sending",
+        missed_user_message.channel.sent == [] and not missed_result.handled,
+        str(missed_user_message.channel.sent),
     )
 
     capped = await execute_effects(

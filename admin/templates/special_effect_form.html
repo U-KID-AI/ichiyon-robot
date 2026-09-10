@@ -96,6 +96,25 @@
         <p class="hint">特殊効果が発火した時、BotがVCにいる場合だけ前景音として再生します。音楽キューは停止しません。</p>
       </section>
 
+      <section class="subpanel" data-effect-section="target_user_message">
+        <h3>指定ユーザーへの投稿</h3>
+        <div class="form-grid">
+          <label>メンション対象 Discord User ID
+            <input type="text" name="target_user_id" value="{{ tag.target_user_id }}" inputmode="numeric" {% if not can_edit %}disabled{% endif %}>
+          </label>
+          <label>確率 分子
+            <input type="number" min="0" step="1" name="target_user_probability_numerator" value="{{ tag.target_user_probability_numerator }}" placeholder="空なら毎回" {% if not can_edit %}disabled{% endif %}>
+          </label>
+          <label>確率 分母
+            <input type="number" min="1" step="1" name="target_user_probability_denominator" value="{{ tag.target_user_probability_denominator }}" placeholder="例: 10" {% if not can_edit %}disabled{% endif %}>
+          </label>
+          <label class="choice-wide">投稿文言
+            <textarea name="target_user_message" {% if not can_edit %}disabled{% endif %}>{{ tag.target_user_message }}</textarea>
+          </label>
+        </div>
+        <p class="hint">発火時に指定ユーザーへメンションして投稿します。例: 1/10で「テメェがやれ」。</p>
+      </section>
+
       <section class="subpanel">
         <h3>使えるテンプレート</h3>
         <ul class="config-list">
@@ -188,8 +207,10 @@
           visible = effectType === "reaction";
         } else if (section === "audio_asset") {
           visible = effectType === "audio_asset";
+        } else if (section === "target_user_message") {
+          visible = effectType === "probability_user_message";
         } else if (section === "text") {
-          visible = effectType !== "reaction" && effectType !== "audio_asset";
+          visible = effectType !== "reaction" && effectType !== "audio_asset" && effectType !== "probability_user_message";
         } else if (section === "multiplier") {
           visible = effectType === "probability_multiplier";
         }
