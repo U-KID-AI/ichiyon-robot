@@ -91,6 +91,16 @@ DISPLAY_FEATURES = [
         "notes": "投稿済み履歴で二重投稿を防止。",
     },
     {
+        "key": "mezamashi_horoscope",
+        "label": "めざまし占い",
+        "edit_path": "horoscope-settings",
+        "required_role": "editor",
+        "overview": "フジテレビ公式の今日の占いCountDownを取得して表示します。",
+        "settings": "手動コマンド、星座別検索、自動投稿の有効/無効",
+        "off_behavior": "OFFにすると、占いコマンドと占い自動投稿を実行しません。",
+        "notes": "日次キャッシュを使い、公式サイトへのアクセスを抑えます。",
+    },
+    {
         "key": "x_updates",
         "label": "X更新通知",
         "edit_path": "x-updates",

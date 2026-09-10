@@ -1,0 +1,56 @@
+{% extends "layout.html" %}
+
+{% block title %}めざまし占い - Bot管理画面{% endblock %}
+{% block heading %}めざまし占い{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="server-summary page-summary">
+      {% if server.icon_url %}<img class="server-icon" src="{{ server.icon_url }}" alt="">{% else %}<div class="server-icon placeholder"></div>{% endif %}
+      <div>
+        <h2>{{ server.name }}</h2>
+        <p class="empty">フジテレビ公式「今日の占いCountDown」をBot/Guild単位で設定します。</p>
+        {% if server.role %}<strong class="status enabled" title="{{ server.role|role_description }}">{{ server.role|role_label }}</strong>{% endif %}
+      </div>
+    </div>
+    <div class="page-actions">
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}/auto-posts">自動投稿へ</a>
+    </div>
+  </section>
+
+  {% if message %}<section class="panel"><p class="success">{{ message }}</p></section>{% endif %}
+  {% if error %}<section class="panel"><p class="error">{{ error }}</p></section>{% endif %}
+
+  <section class="panel">
+    <h2>機能設定</h2>
+    <form class="quote-form" method="post">
+      <label class="check-row"><input type="checkbox" name="enabled" {% if settings.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>占い機能 有効</label>
+      <label class="check-row"><input type="checkbox" name="ranking_command_enabled" {% if settings.ranking_command_enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>12星座一覧コマンド 有効</label>
+      <label class="check-row"><input type="checkbox" name="zodiac_command_enabled" {% if settings.zodiac_command_enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>個別星座検索 有効</label>
+
+      <h3>自動投稿</h3>
+      <p class="hint">既存の自動投稿にも「めざまし占い」を追加しています。ここでは将来の簡易自動投稿設定用に、初期値OFFで保持します。</p>
+      <label class="check-row"><input type="checkbox" name="auto_post_enabled" {% if settings.auto_post_enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>自動投稿 有効</label>
+      <div class="form-grid">
+        <label>投稿チャンネルID<input type="text" name="auto_post_channel_id" value="{{ settings.auto_post_channel_id or '' }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>投稿時刻<input type="time" name="auto_post_time" value="{{ settings.auto_post_time or '07:10' }}" {% if not can_edit %}disabled{% endif %}></label>
+      </div>
+
+      {% if can_edit %}<button type="submit">保存</button>{% else %}<button type="button" disabled>閲覧のみ</button>{% endif %}
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>取得状態</h2>
+    {% if latest_status.ok %}
+      <dl class="info-list">
+        <dt>最終取得</dt><dd>{{ latest_status.fetched_at }}</dd>
+        <dt>対象日</dt><dd>{{ latest_status.target_date }}</dd>
+        <dt>12星座</dt><dd>正常</dd>
+      </dl>
+    {% else %}
+      <p class="empty">{{ latest_status.message or "未取得" }}</p>
+    {% endif %}
+  </section>
+{% endblock %}

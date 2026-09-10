@@ -104,6 +104,10 @@ async def main_async():
         events.append(("shortcut", command_text))
         return command_text == "ニコロデオン"
 
+    async def fake_horoscope(message, command_text):
+        events.append(("horoscope", command_text))
+        return command_text in {"占い", "さそり座 占い"}
+
     async def fake_panel(message, command_text):
         source_text = command_text if command_text is not None else getattr(message, "content", "")
         events.append(("panel", source_text))
@@ -142,6 +146,7 @@ async def main_async():
             "handle_voice_command": fake_voice,
             "handle_developer_command": fake_developer,
             "handle_mention_shortcut_command": fake_shortcut,
+            "handle_horoscope_command": fake_horoscope,
             "handle_context_panel_command": fake_panel,
             "maybe_enqueue_tts": fake_tts,
             "handle_db_runtime_message": fake_db_runtime,
@@ -206,7 +211,13 @@ async def main_async():
     results.append(check("standalone partial panel command falls through", ("panel", "音楽っぽい") in trace and any(event[0] == "db_runtime" for event in trace), trace))
 
     _, trace = await run("ニコロデオン")
-    results.append(check("shortcut text reaches mention shortcut after panel miss", ("panel", "ニコロデオン") in trace and ("shortcut", "ニコロデオン") in trace, trace))
+    results.append(check("shortcut text reaches mention shortcut after panel miss", ("panel", "ニコロデオン") in trace and ("shortcut", "ニコロデオン") in trace and all(event[0] != "horoscope" for event in trace), trace))
+
+    _, trace = await run("占い")
+    results.append(check("horoscope mention consumes before DB runtime", ("horoscope", "占い") in trace and ("db_runtime", "占い") not in trace, trace))
+
+    _, trace = await run("さそり座 占い")
+    results.append(check("horoscope zodiac mention consumes before DB runtime", ("horoscope", "さそり座 占い") in trace and ("db_runtime", "さそり座 占い") not in trace, trace))
 
     _, trace = await run("デッキ エルフ")
     results.append(check("deck command falls through to DB runtime", ("db_runtime", "デッキ エルフ") in trace, trace))
