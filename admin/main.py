@@ -34,6 +34,7 @@ from admin.mention_limited_effects import (
 from admin.mention_shortcuts import register_mention_shortcut_routes, router as mention_shortcut_router
 from admin.modes import register_mode_routes, router as mode_router
 from admin.ng_words_db import register_ng_word_routes, router as ng_word_router
+from admin.persona_draws import register_persona_draw_routes, router as persona_draw_router
 from admin.public import register_public_routes, router as public_router
 from admin.reaction_thresholds import (
     register_reaction_threshold_routes,
@@ -92,6 +93,7 @@ register_server_routes(templates)
 register_mention_limited_effect_routes(templates)
 register_mention_shortcut_routes(templates)
 register_mention_reaction_routes(templates)
+register_persona_draw_routes(templates)
 register_special_effect_routes(templates)
 register_auto_reaction_routes(templates)
 register_ng_word_routes(templates)
@@ -112,6 +114,7 @@ app.include_router(server_router)
 app.include_router(mention_limited_effect_router)
 app.include_router(mention_shortcut_router)
 app.include_router(mention_reaction_router)
+app.include_router(persona_draw_router)
 app.include_router(special_effect_router)
 app.include_router(auto_reaction_router)
 app.include_router(ng_word_router)

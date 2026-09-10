@@ -1,0 +1,57 @@
+{% extends "layout.html" %}
+
+{% block title %}{% if mode == 'new' %}ペルソナ抽選 作成{% else %}ペルソナ抽選 編集{% endif %} - Bot管理画面{% endblock %}
+{% block heading %}{% if mode == 'new' %}ペルソナ抽選 作成{% else %}ペルソナ抽選 編集{% endif %}{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="actions-row">
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}/persona-draws">一覧へ戻る</a>
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+    </div>
+  </section>
+
+  {% if errors %}
+    <section class="panel error-panel">
+      <ul>
+        {% for error in errors %}
+          <li>{{ error }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  <form method="post">
+    <section class="panel">
+      <h2>基本</h2>
+      <div class="form-grid">
+        <label>表示名<input name="name" value="{{ draw.name }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>呼び出しフレーズ<input name="trigger_text" value="{{ draw.trigger_text }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label>再抽選確率（%）<input name="reroll_probability_percent" value="{{ draw.reroll_probability_percent }}" inputmode="numeric" {% if not can_edit %}disabled{% endif %}></label>
+        <label>最大再抽選回数<input name="max_rerolls" value="{{ draw.max_rerolls }}" inputmode="numeric" {% if not can_edit %}disabled{% endif %}></label>
+      </div>
+      <p class="empty">正規化キー: {{ draw.trigger_key }}</p>
+      <label class="check-row"><input type="checkbox" name="reroll_enabled" {% if draw.reroll_enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>再抽選を使う</label>
+      <label class="check-row"><input type="checkbox" name="enabled" {% if draw.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>ON</label>
+    </section>
+
+    <section class="panel">
+      <h2>抽選候補</h2>
+      <label>候補一覧<textarea name="candidates_text" rows="8" {% if not can_edit %}disabled{% endif %}>{{ draw.candidates_text }}</textarea></label>
+    </section>
+
+    <section class="panel">
+      <h2>再抽選セリフ</h2>
+      <label>セリフ一覧<textarea name="reroll_lines_text" rows="5" {% if not can_edit %}disabled{% endif %}>{{ draw.reroll_lines_text }}</textarea></label>
+    </section>
+
+    <section class="panel actions-row">
+      {% if can_edit %}
+        <button type="submit">保存</button>
+      {% else %}
+        <p class="empty">閲覧のみ</p>
+      {% endif %}
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}/persona-draws">戻る</a>
+    </section>
+  </form>
+{% endblock %}

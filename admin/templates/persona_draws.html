@@ -1,0 +1,59 @@
+{% extends "layout.html" %}
+
+{% block title %}ペルソナ抽選 - Bot管理画面{% endblock %}
+{% block heading %}ペルソナ抽選{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <div class="actions-row">
+      <a class="button-link secondary" href="/guilds/{{ guild_id }}">機能一覧へ戻る</a>
+      {% if can_edit %}
+        <a class="button-link" href="/guilds/{{ guild_id }}/persona-draws/new">新規作成</a>
+      {% endif %}
+    </div>
+  </section>
+
+  {% if message %}
+    <section class="panel success-panel">{{ message }}</section>
+  {% endif %}
+  {% if error %}
+    <section class="panel error-panel">{{ error }}</section>
+  {% endif %}
+
+  <section class="panel">
+    {% if draws %}
+      <div class="feature-list">
+        {% for draw in draws %}
+          <article class="feature-item">
+            <div class="feature-main">
+              <div class="feature-title-row">
+                <h3>{{ draw.name }}</h3>
+                {% if draw.enabled %}
+                  <span class="status on">ON</span>
+                {% else %}
+                  <span class="status off">OFF</span>
+                {% endif %}
+              </div>
+              <p class="empty feature-overview">
+                {{ draw.trigger_text }} / 候補{{ draw.candidate_count }}件 / 再抽選{% if draw.reroll_enabled %}{{ draw.reroll_probability_percent }}%{% else %}OFF{% endif %}
+              </p>
+            </div>
+            <div class="feature-actions">
+              <a class="button-link secondary" href="/guilds/{{ guild_id }}/persona-draws/{{ draw.id }}">編集</a>
+              {% if can_edit %}
+                <form method="post" action="/guilds/{{ guild_id }}/persona-draws/{{ draw.id }}/toggle">
+                  <button type="submit">{% if draw.enabled %}OFF{% else %}ON{% endif %}</button>
+                </form>
+                <form method="post" action="/guilds/{{ guild_id }}/persona-draws/{{ draw.id }}/delete" onsubmit="return confirm('削除しますか？');">
+                  <button type="submit" class="danger">削除</button>
+                </form>
+              {% endif %}
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="empty">ペルソナ抽選はまだありません。</p>
+    {% endif %}
+  </section>
+{% endblock %}
