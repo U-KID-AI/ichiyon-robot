@@ -12,6 +12,7 @@ from bot.services.reaction_thresholds import handle_db_reaction_threshold
 from bot.services.interaction_panel import handle_context_panel_command, mention_text_is_empty, register_persistent_views
 from bot.services.mention_shortcuts import handle_mention_shortcut_command
 from bot.services.mezamashi_horoscope import handle_horoscope_command
+from bot.services.minecraft_bridge import handle_minecraft_command
 from bot.services.runtime_db import (
     RANDOM_DRAW_PULL_BLOCKED,
     RANDOM_DRAW_PULL_INVALID_MESSAGE,
@@ -189,6 +190,9 @@ async def on_message(message: discord.Message):
         return
 
     if await handle_developer_command(message, command_text):
+        return
+
+    if await handle_minecraft_command(message, command_text):
         return
 
     if await handle_mention_shortcut_command(message, command_text):

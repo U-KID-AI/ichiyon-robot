@@ -100,6 +100,10 @@ async def main_async():
         events.append(("developer", command_text))
         return False
 
+    async def fake_minecraft(message, command_text):
+        events.append(("minecraft", command_text))
+        return command_text == "マイクラ 成田カーペット <@1234>"
+
     async def fake_shortcut(message, command_text):
         events.append(("shortcut", command_text))
         return command_text == "ニコロデオン"
@@ -146,6 +150,7 @@ async def main_async():
             "handle_youtube_n_pull_command": fake_youtube_n_pull,
             "handle_voice_command": fake_voice,
             "handle_developer_command": fake_developer,
+            "handle_minecraft_command": fake_minecraft,
             "handle_mention_shortcut_command": fake_shortcut,
             "handle_horoscope_command": fake_horoscope,
             "handle_context_panel_command": fake_panel,
@@ -218,7 +223,10 @@ async def main_async():
     results.append(check("standalone horoscope command is ignored", message.channel.sent == [], trace))
 
     _, trace = await run("ニコロデオン")
-    results.append(check("shortcut text reaches mention shortcut after panel miss", ("panel", "ニコロデオン") in trace and ("shortcut", "ニコロデオン") in trace and all(event[0] != "horoscope" for event in trace), trace))
+    results.append(check("shortcut text reaches mention shortcut after panel miss", ("panel", "ニコロデオン") in trace and ("minecraft", "ニコロデオン") in trace and ("shortcut", "ニコロデオン") in trace and all(event[0] != "horoscope" for event in trace), trace))
+
+    _, trace = await run("マイクラ 成田カーペット <@1234>")
+    results.append(check("minecraft command consumes before shortcut and DB runtime", ("minecraft", "マイクラ 成田カーペット <@1234>") in trace and all(event[0] not in {"shortcut", "db_runtime"} for event in trace), trace))
 
     _, trace = await run("占い")
     results.append(check("horoscope mention consumes before DB runtime", ("horoscope", "占い") in trace and ("db_runtime", "占い") not in trace, trace))

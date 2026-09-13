@@ -1,0 +1,5 @@
+{
+  "MINECRAFT_BRIDGE_API_BASE": "http://10.0.0.94:8000/internal/minecraft",
+  "MINECRAFT_BRIDGE_BOT_ID": "ichiyon",
+  "MINECRAFT_BRIDGE_GUILD_ID": ""
+}

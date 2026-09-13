@@ -12,6 +12,7 @@ from bot.repositories.guilds import GuildRepository
 from bot.repositories.mention_reactions import MentionReactionRepository
 from bot.repositories.modes import ModeRepository
 from bot.repositories.music_settings import MusicSettingsRepository
+from bot.repositories.minecraft_bridge import MinecraftBridgeRepository
 from bot.repositories.persona_draws import PersonaDrawRepository
 from bot.repositories.tts_settings import TTSSettingsRepository
 from bot.repositories.mention_limited_effects import MentionLimitedEffectRepository
@@ -40,6 +41,7 @@ __all__ = [
     "MentionReactionRepository",
     "ModeRepository",
     "MusicSettingsRepository",
+    "MinecraftBridgeRepository",
     "MentionLimitedEffectRepository",
     "PersonaDrawRepository",
     "NgWordRepository",

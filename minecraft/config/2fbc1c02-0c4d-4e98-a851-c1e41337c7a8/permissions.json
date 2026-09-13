@@ -1,0 +1,17 @@
+{
+  "allowed_modules": [
+    "@minecraft/server",
+    "@minecraft/server-net",
+    "@minecraft/server-admin"
+  ],
+  "module_permissions": {
+    "@minecraft/server-net": {
+      "allowed_uris": [
+        "http://10.0.0.94:8000/internal/minecraft/"
+      ],
+      "force_https": false,
+      "max_body_bytes": 1048576,
+      "max_concurrent_requests": 1
+    }
+  }
+}
