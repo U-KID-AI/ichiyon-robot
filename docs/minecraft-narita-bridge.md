@@ -1,14 +1,22 @@
 # Minecraft Narita Carpet Bridge
 
-Discord command:
+Discord commands:
 
 ```text
 @いちよんロボ マイクラ 成田カーペット Player45165996
+@いちよんロボ マイクラ ストラクチャーブロック Player45165996
+@いちよんロボ マイクラ コマンドブロック Player45165996
 ```
 
-The last argument is the Minecraft player name. The bot validates it, enqueues a structured `narita_carpet`
-command, and waits for the Minecraft behavior pack to report success or failure. The bot never accepts a raw
-Minecraft command from Discord.
+The last argument is the Minecraft player name. The bot validates it, enqueues one of the structured command
+types below, and waits for the Minecraft behavior pack to report success or failure. The bot never accepts a raw
+Minecraft command or arbitrary item ID from Discord.
+
+Structured command types:
+
+- `narita_carpet`
+- `structure_block`
+- `command_block`
 
 ## Player name validation
 
@@ -33,6 +41,9 @@ VALUES (
 );
 ```
 
+Existing databases that already applied migration 047 need migration 048 before `structure_block` or
+`command_block` can be enqueued.
+
 ## Behavior pack files
 
 Prepared files:
@@ -48,6 +59,8 @@ OCI bot/admin API because the Minecraft server reaches the bot over the private 
 
 The behavior pack command always loads `mystructure:narita_map_item`. On the Minecraft host, prepare that ID as
 `data/behavior_packs/import_structures/structures/mystructure/narita_map_item.mcstructure` before activation.
+The block commands use the player inventory container and add exactly one `minecraft:structure_block` or
+`minecraft:command_block`; if the inventory cannot accept the item, the bridge reports `inventory_full`.
 
 ## Script API versions
 

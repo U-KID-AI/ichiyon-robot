@@ -1,4 +1,4 @@
-import { system, world } from "@minecraft/server";
+import { EntityComponentTypes, ItemStack, system, world } from "@minecraft/server";
 import { HttpHeader, HttpRequest, HttpRequestMethod, http } from "@minecraft/server-net";
 import { secrets, variables } from "@minecraft/server-admin";
 
@@ -6,6 +6,10 @@ const DEFAULT_API_BASE = "http://10.0.0.94:8000/internal/minecraft";
 const STRUCTURE_ID = "mystructure:narita_map_item";
 const PLAYER_NAME_PATTERN = /^[A-Za-z0-9_]{1,16}$/;
 const POLL_INTERVAL_TICKS = 40;
+const ITEM_TYPES_BY_COMMAND = {
+  structure_block: "minecraft:structure_block",
+  command_block: "minecraft:command_block",
+};
 
 function configValue(name, fallback) {
   try {
@@ -91,6 +95,38 @@ async function handleNaritaCarpet(command) {
   }
 }
 
+async function handleGiveItem(command, itemTypeId) {
+  const requestId = String(command.request_id || "");
+  const playerName = String(command.minecraft_player || "");
+  if (!requestId) {
+    return;
+  }
+  if (!isValidPlayerName(playerName)) {
+    await postResult(requestId, "failed", "invalid_player_name", "");
+    return;
+  }
+  const player = findOnlinePlayer(playerName);
+  if (!player) {
+    await postResult(requestId, "failed", "player_offline", "");
+    return;
+  }
+  try {
+    const inventory = player.getComponent(EntityComponentTypes.Inventory);
+    if (!inventory || !inventory.container) {
+      await postResult(requestId, "failed", "inventory_unavailable", "");
+      return;
+    }
+    const remaining = inventory.container.addItem(new ItemStack(itemTypeId, 1));
+    if (remaining !== undefined) {
+      await postResult(requestId, "failed", "inventory_full", "");
+      return;
+    }
+    await postResult(requestId, "succeeded", "ok", "");
+  } catch (error) {
+    await postResult(requestId, "failed", "item_add_failed", "");
+  }
+}
+
 async function pollOnce() {
   const configuredGuildId = guildId();
   if (!configuredGuildId) {
@@ -119,11 +155,17 @@ async function pollOnce() {
   if (!command) {
     return;
   }
-  if (command.type !== "narita_carpet") {
-    await postResult(String(command.request_id || ""), "failed", "unknown_command_type", "");
+  if (command.type === "narita_carpet") {
+    await handleNaritaCarpet(command);
     return;
   }
-  await handleNaritaCarpet(command);
+  if (Object.prototype.hasOwnProperty.call(ITEM_TYPES_BY_COMMAND, command.type)) {
+    await handleGiveItem(command, ITEM_TYPES_BY_COMMAND[command.type]);
+    return;
+  }
+  if (command.request_id) {
+    await postResult(String(command.request_id || ""), "failed", "unknown_command_type", "");
+  }
 }
 
 system.runInterval(() => {

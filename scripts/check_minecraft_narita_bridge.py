@@ -71,10 +71,9 @@ class FakeBridgeRepo:
     def __init__(self, connection, bot_id="ichiyon"):
         self.bot_id = bot_id
 
-    def enqueue_narita_carpet(self, **kwargs):
+    def enqueue_command(self, **kwargs):
         row = dict(kwargs)
         row["request_id"] = "request-1"
-        row["command_type"] = "narita_carpet"
         FakeBridgeRepo.enqueued.append(row)
         return row
 
@@ -126,21 +125,58 @@ async def exercise_service():
         message = FakeMessage("マイクラ 成田カーペット Player45165996", [bot_user])
         handled = await minecraft_bridge.handle_minecraft_command(message, "マイクラ 成田カーペット Player45165996")
         results.append(check("valid narita command is handled", handled is True))
+        results.append(check("narita command queues narita type", FakeBridgeRepo.enqueued[-1]["command_type"] == "narita_carpet"))
         results.append(check("minecraft player name is parsed directly", FakeBridgeRepo.enqueued[-1]["minecraft_player_name"] == "Player45165996"))
         results.append(check("queue does not require Discord target mapping", FakeBridgeRepo.enqueued[-1]["target_discord_user_id"] == ""))
         results.append(check("success waits for Minecraft result", message.channel.sent[-1][0][0] == "Player45165996 に成田カーペットを送り付けました。"))
 
+        structure = FakeMessage("マイクラ ストラクチャーブロック Player45165996", [bot_user])
+        handled = await minecraft_bridge.handle_minecraft_command(structure, "マイクラ ストラクチャーブロック Player45165996")
+        results.append(check("structure block command is handled", handled is True))
+        results.append(check("structure block queues structure_block type", FakeBridgeRepo.enqueued[-1]["command_type"] == "structure_block"))
+        results.append(check("structure block success message", structure.channel.sent[-1][0][0] == "Player45165996 にストラクチャーブロックを送り付けました。"))
+
+        command = FakeMessage("マイクラ コマンドブロック Player45165996", [bot_user])
+        handled = await minecraft_bridge.handle_minecraft_command(command, "マイクラ コマンドブロック Player45165996")
+        results.append(check("command block command is handled", handled is True))
+        results.append(check("command block queues command_block type", FakeBridgeRepo.enqueued[-1]["command_type"] == "command_block"))
+        results.append(check("command block success message", command.channel.sent[-1][0][0] == "Player45165996 にコマンドブロックを送り付けました。"))
+
         invalid = FakeMessage("マイクラ 成田カーペット @a", [bot_user])
         handled = await minecraft_bridge.handle_minecraft_command(invalid, "マイクラ 成田カーペット @a")
-        results.append(check("invalid Minecraft player name returns usage", handled is True and invalid.channel.sent[-1][0][0] == minecraft_bridge.NARITA_CARPET_USAGE))
+        results.append(check("invalid Minecraft player name returns usage", handled is True and invalid.channel.sent[-1][0][0] == minecraft_bridge.MINECRAFT_COMMAND_USAGE))
 
         invalid_space = FakeMessage("マイクラ 成田カーペット Player 45165996", [bot_user])
         handled = await minecraft_bridge.handle_minecraft_command(invalid_space, "マイクラ 成田カーペット Player 45165996")
-        results.append(check("spaced Minecraft player name returns usage", handled is True and invalid_space.channel.sent[-1][0][0] == minecraft_bridge.NARITA_CARPET_USAGE))
+        results.append(check("spaced Minecraft player name returns usage", handled is True and invalid_space.channel.sent[-1][0][0] == minecraft_bridge.MINECRAFT_COMMAND_USAGE))
 
         missing_arg = FakeMessage("マイクラ 成田カーペット", [bot_user])
         handled = await minecraft_bridge.handle_minecraft_command(missing_arg, "マイクラ 成田カーペット")
-        results.append(check("missing Minecraft player name returns usage", handled is True and missing_arg.channel.sent[-1][0][0] == minecraft_bridge.NARITA_CARPET_USAGE))
+        results.append(check("missing Minecraft player name returns usage", handled is True and missing_arg.channel.sent[-1][0][0] == minecraft_bridge.MINECRAFT_COMMAND_USAGE))
+
+        arbitrary_item = FakeMessage("マイクラ ダイヤモンド Player45165996", [bot_user])
+        handled = await minecraft_bridge.handle_minecraft_command(arbitrary_item, "マイクラ ダイヤモンド Player45165996")
+        results.append(check("arbitrary item id is not accepted", handled is False and arbitrary_item.channel.sent == []))
+
+        injected = FakeMessage("マイクラ コマンドブロック Player45165996;kill", [bot_user])
+        handled = await minecraft_bridge.handle_minecraft_command(injected, "マイクラ コマンドブロック Player45165996;kill")
+        results.append(check("raw command injection is rejected", handled is True and injected.channel.sent[-1][0][0] == minecraft_bridge.MINECRAFT_COMMAND_USAGE))
+
+        original_wait_fn = minecraft_bridge.wait_for_minecraft_result
+        async def fake_offline_wait(request_id, timeout_seconds):
+            return {"status": "failed", "result_reason": "player_offline"}
+        minecraft_bridge.wait_for_minecraft_result = fake_offline_wait
+        offline = FakeMessage("マイクラ ストラクチャーブロック Player45165996", [bot_user])
+        handled = await minecraft_bridge.handle_minecraft_command(offline, "マイクラ ストラクチャーブロック Player45165996")
+        results.append(check("offline result is reported", handled is True and offline.channel.sent[-1][0][0] == "Player45165996 は現在Minecraftにいません。"))
+
+        async def fake_inventory_full_wait(request_id, timeout_seconds):
+            return {"status": "failed", "result_reason": "inventory_full"}
+        minecraft_bridge.wait_for_minecraft_result = fake_inventory_full_wait
+        full = FakeMessage("マイクラ コマンドブロック Player45165996", [bot_user])
+        handled = await minecraft_bridge.handle_minecraft_command(full, "マイクラ コマンドブロック Player45165996")
+        results.append(check("inventory full result is reported", handled is True and full.channel.sent[-1][0][0] == "Player45165996 のインベントリに空きがありません。"))
+        minecraft_bridge.wait_for_minecraft_result = original_wait_fn
 
         no_bot = FakeMessage("マイクラ 成田カーペット Player45165996", [target_user])
         handled = await minecraft_bridge.handle_minecraft_command(no_bot, None)
@@ -216,6 +252,7 @@ async def exercise_internal_api():
 def static_checks():
     results = []
     migration = (ROOT_DIR / "migrations" / "047_add_minecraft_bridge.sql").read_text(encoding="utf-8")
+    migration_048 = (ROOT_DIR / "migrations" / "048_extend_minecraft_command_types.sql").read_text(encoding="utf-8")
     script = (ROOT_DIR / "minecraft" / "behavior_packs" / "import_structures" / "scripts" / "main.js").read_text(encoding="utf-8")
     manifest = (ROOT_DIR / "minecraft" / "behavior_packs" / "import_structures" / "manifest.json").read_text(encoding="utf-8")
     permissions = (ROOT_DIR / "minecraft" / "config" / "2fbc1c02-0c4d-4e98-a851-c1e41337c7a8" / "permissions.json").read_text(encoding="utf-8")
@@ -226,10 +263,12 @@ def static_checks():
 
     results.append(check("migration keeps optional player link table without requiring it", "CREATE TABLE IF NOT EXISTS minecraft_player_links" in migration))
     results.append(check("queue claim uses skip locked", "FOR UPDATE SKIP LOCKED" in migration or "FOR UPDATE SKIP LOCKED" in (ROOT_DIR / "bot" / "repositories" / "minecraft_bridge.py").read_text(encoding="utf-8")))
-    results.append(check("queue stores structured narita type", "CHECK (command_type IN ('narita_carpet'))" in migration))
-    results.append(check("script rejects unknown command type", "unknown_command_type" in script and "command.type !== \"narita_carpet\"" in script))
+    results.append(check("queue allows all structured minecraft types", "narita_carpet" in migration_048 and "structure_block" in migration_048 and "command_block" in migration_048))
+    results.append(check("script rejects unknown command type", "unknown_command_type" in script))
     results.append(check("script uses fixed structure id", "mystructure:narita_map_item" in script and "command.structure" not in script))
     results.append(check("script runs fixed execute structure command", "dimension.runCommand" in script and "execute at ${playerName} run structure load ${STRUCTURE_ID} ~ ~ ~" in script))
+    results.append(check("script grants only fixed structure and command block items", "minecraft:structure_block" in script and "minecraft:command_block" in script and "command.item" not in script))
+    results.append(check("script reports inventory full", "inventory_full" in script and "addItem" in script and "ItemStack" in script))
     results.append(check("script polls every 2 seconds not every tick", "POLL_INTERVAL_TICKS = 40" in script))
     results.append(check("script uses server-net", "@minecraft/server-net" in manifest and "@minecraft/server-net" in permissions))
     results.append(check("module specific permissions limit private bot API", "http://10.0.0.94:8000/internal/minecraft/" in permissions))

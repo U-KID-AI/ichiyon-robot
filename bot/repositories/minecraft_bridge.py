@@ -8,6 +8,7 @@ from bot.repositories.base import fetch_one
 
 
 MINECRAFT_PLAYER_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_]{1,16}$")
+MINECRAFT_COMMAND_TYPES = ("narita_carpet", "structure_block", "command_block")
 
 
 def is_valid_minecraft_player_name(value: str) -> bool:
@@ -61,6 +62,31 @@ class MinecraftBridgeRepository:
         minecraft_player_name: str,
         timeout_seconds: int,
     ) -> Dict[str, Any]:
+        return self.enqueue_command(
+            guild_id=guild_id,
+            discord_channel_id=discord_channel_id,
+            discord_message_id=discord_message_id,
+            requester_discord_user_id=requester_discord_user_id,
+            target_discord_user_id=target_discord_user_id,
+            command_type="narita_carpet",
+            minecraft_player_name=minecraft_player_name,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def enqueue_command(
+        self,
+        *,
+        guild_id: str,
+        discord_channel_id: str,
+        discord_message_id: str,
+        requester_discord_user_id: str,
+        target_discord_user_id: str,
+        command_type: str,
+        minecraft_player_name: str,
+        timeout_seconds: int,
+    ) -> Dict[str, Any]:
+        if command_type not in MINECRAFT_COMMAND_TYPES:
+            raise ValueError("invalid minecraft command type")
         if not is_valid_minecraft_player_name(minecraft_player_name):
             raise ValueError("invalid minecraft player name")
         request_id = uuid.uuid4()
@@ -75,7 +101,7 @@ class MinecraftBridgeRepository:
                 VALUES (
                     %s, %s, %s, %s, %s,
                     %s, %s,
-                    'narita_carpet', %s, NOW() + (%s || ' seconds')::INTERVAL
+                    %s, %s, NOW() + (%s || ' seconds')::INTERVAL
                 )
                 RETURNING *
                 """,
@@ -87,6 +113,7 @@ class MinecraftBridgeRepository:
                     discord_message_id,
                     requester_discord_user_id,
                     target_discord_user_id,
+                    command_type,
                     minecraft_player_name,
                     int(timeout_seconds),
                 ),
