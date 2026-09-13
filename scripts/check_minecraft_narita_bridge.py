@@ -62,7 +62,6 @@ class DummyConnection:
 
 
 class FakeBridgeRepo:
-    link = {"minecraft_player_name": "Player45165996"}
     enqueued = []
     expired = 0
     result = {"status": "succeeded", "result_reason": "ok"}
@@ -71,11 +70,6 @@ class FakeBridgeRepo:
 
     def __init__(self, connection, bot_id="ichiyon"):
         self.bot_id = bot_id
-
-    def get_player_link(self, guild_id, discord_user_id):
-        if discord_user_id == "222222222222222222":
-            return self.link
-        return None
 
     def enqueue_narita_carpet(self, **kwargs):
         row = dict(kwargs)
@@ -128,31 +122,36 @@ async def exercise_service():
 
     minecraft_bridge.wait_for_minecraft_result = fake_wait
     try:
-        message = FakeMessage("マイクラ 成田カーペット <@222222222222222222>", [bot_user, target_user])
-        handled = await minecraft_bridge.handle_minecraft_command(message, "マイクラ 成田カーペット <@222222222222222222>")
+        FakeBridgeRepo.enqueued = []
+        message = FakeMessage("マイクラ 成田カーペット Player45165996", [bot_user])
+        handled = await minecraft_bridge.handle_minecraft_command(message, "マイクラ 成田カーペット Player45165996")
         results.append(check("valid narita command is handled", handled is True))
-        results.append(check("target mention uses Discord user id", FakeBridgeRepo.enqueued[-1]["target_discord_user_id"] == "222222222222222222"))
-        results.append(check("minecraft player name is resolved from mapping", FakeBridgeRepo.enqueued[-1]["minecraft_player_name"] == "Player45165996"))
-        results.append(check("success waits for Minecraft result", "送り付けました" in message.channel.sent[-1][0][0]))
+        results.append(check("minecraft player name is parsed directly", FakeBridgeRepo.enqueued[-1]["minecraft_player_name"] == "Player45165996"))
+        results.append(check("queue does not require Discord target mapping", FakeBridgeRepo.enqueued[-1]["target_discord_user_id"] == ""))
+        results.append(check("success waits for Minecraft result", message.channel.sent[-1][0][0] == "Player45165996 に成田カーペットを送り付けました。"))
 
-        missing = FakeMessage("マイクラ 成田カーペット <@333333333333333333>", [bot_user, FakeUser(333333333333333333)])
-        handled = await minecraft_bridge.handle_minecraft_command(missing, "マイクラ 成田カーペット <@333333333333333333>")
-        results.append(check("unregistered Discord user is handled with guidance", handled is True and "登録されていません" in missing.channel.sent[-1][0][0]))
+        invalid = FakeMessage("マイクラ 成田カーペット @a", [bot_user])
+        handled = await minecraft_bridge.handle_minecraft_command(invalid, "マイクラ 成田カーペット @a")
+        results.append(check("invalid Minecraft player name returns usage", handled is True and invalid.channel.sent[-1][0][0] == minecraft_bridge.NARITA_CARPET_USAGE))
 
-        no_bot = FakeMessage("マイクラ 成田カーペット <@222222222222222222>", [target_user])
+        invalid_space = FakeMessage("マイクラ 成田カーペット Player 45165996", [bot_user])
+        handled = await minecraft_bridge.handle_minecraft_command(invalid_space, "マイクラ 成田カーペット Player 45165996")
+        results.append(check("spaced Minecraft player name returns usage", handled is True and invalid_space.channel.sent[-1][0][0] == minecraft_bridge.NARITA_CARPET_USAGE))
+
+        missing_arg = FakeMessage("マイクラ 成田カーペット", [bot_user])
+        handled = await minecraft_bridge.handle_minecraft_command(missing_arg, "マイクラ 成田カーペット")
+        results.append(check("missing Minecraft player name returns usage", handled is True and missing_arg.channel.sent[-1][0][0] == minecraft_bridge.NARITA_CARPET_USAGE))
+
+        no_bot = FakeMessage("マイクラ 成田カーペット Player45165996", [target_user])
         handled = await minecraft_bridge.handle_minecraft_command(no_bot, None)
         results.append(check("bot mention is required", handled is False and no_bot.channel.sent == []))
 
-        invalid = FakeMessage("マイクラ 成田カーペット Player45165996", [bot_user])
-        handled = await minecraft_bridge.handle_minecraft_command(invalid, "マイクラ 成田カーペット Player45165996")
-        results.append(check("plain player name is not accepted", handled is False and invalid.channel.sent == []))
-
-        typo = FakeMessage("マイクラ 成田 <@222222222222222222>", [bot_user, target_user])
-        handled = await minecraft_bridge.handle_minecraft_command(typo, "マイクラ 成田 <@222222222222222222>")
+        typo = FakeMessage("マイクラ 成田 Player45165996", [bot_user, target_user])
+        handled = await minecraft_bridge.handle_minecraft_command(typo, "マイクラ 成田 Player45165996")
         results.append(check("syntax mismatch is ignored", handled is False and typo.channel.sent == []))
 
-        bot_message = FakeMessage("マイクラ 成田カーペット <@222222222222222222>", [bot_user, target_user], author_bot=True)
-        handled = await minecraft_bridge.handle_minecraft_command(bot_message, "マイクラ 成田カーペット <@222222222222222222>")
+        bot_message = FakeMessage("マイクラ 成田カーペット Player45165996", [bot_user, target_user], author_bot=True)
+        handled = await minecraft_bridge.handle_minecraft_command(bot_message, "マイクラ 成田カーペット Player45165996")
         results.append(check("bot author is ignored", handled is False))
     finally:
         minecraft_bridge.get_connection = original_get_connection
@@ -225,7 +224,7 @@ def static_checks():
     for value in ("Player 45165996", "../bad", "@a", "too_long_player_name_123"):
         results.append(check("minecraft player validation rejects {0}".format(value), not is_valid_minecraft_player_name(value)))
 
-    results.append(check("migration stores player link by bot guild discord user", "PRIMARY KEY (bot_id, guild_id, discord_user_id)" in migration))
+    results.append(check("migration keeps optional player link table without requiring it", "CREATE TABLE IF NOT EXISTS minecraft_player_links" in migration))
     results.append(check("queue claim uses skip locked", "FOR UPDATE SKIP LOCKED" in migration or "FOR UPDATE SKIP LOCKED" in (ROOT_DIR / "bot" / "repositories" / "minecraft_bridge.py").read_text(encoding="utf-8")))
     results.append(check("queue stores structured narita type", "CHECK (command_type IN ('narita_carpet'))" in migration))
     results.append(check("script rejects unknown command type", "unknown_command_type" in script and "command.type !== \"narita_carpet\"" in script))

@@ -102,7 +102,7 @@ async def main_async():
 
     async def fake_minecraft(message, command_text):
         events.append(("minecraft", command_text))
-        return command_text == "マイクラ 成田カーペット <@1234>"
+        return command_text == "マイクラ 成田カーペット Player45165996"
 
     async def fake_shortcut(message, command_text):
         events.append(("shortcut", command_text))
@@ -225,8 +225,8 @@ async def main_async():
     _, trace = await run("ニコロデオン")
     results.append(check("shortcut text reaches mention shortcut after panel miss", ("panel", "ニコロデオン") in trace and ("minecraft", "ニコロデオン") in trace and ("shortcut", "ニコロデオン") in trace and all(event[0] != "horoscope" for event in trace), trace))
 
-    _, trace = await run("マイクラ 成田カーペット <@1234>")
-    results.append(check("minecraft command consumes before shortcut and DB runtime", ("minecraft", "マイクラ 成田カーペット <@1234>") in trace and all(event[0] not in {"shortcut", "db_runtime"} for event in trace), trace))
+    _, trace = await run("マイクラ 成田カーペット Player45165996")
+    results.append(check("minecraft command consumes before shortcut and DB runtime", ("minecraft", "マイクラ 成田カーペット Player45165996") in trace and all(event[0] not in {"shortcut", "db_runtime"} for event in trace), trace))
 
     _, trace = await run("占い")
     results.append(check("horoscope mention consumes before DB runtime", ("horoscope", "占い") in trace and ("db_runtime", "占い") not in trace, trace))

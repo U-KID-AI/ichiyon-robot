@@ -3,30 +3,35 @@
 Discord command:
 
 ```text
-@いちよんロボ マイクラ 成田カーペット @対象ユーザー
+@いちよんロボ マイクラ 成田カーペット Player45165996
 ```
 
-The bot resolves the mentioned Discord user ID to a registered Minecraft player name, enqueues a structured
-`narita_carpet` command, and waits for the Minecraft behavior pack to report success or failure. The bot never
-accepts a raw Minecraft command from Discord.
+The last argument is the Minecraft player name. The bot validates it, enqueues a structured `narita_carpet`
+command, and waits for the Minecraft behavior pack to report success or failure. The bot never accepts a raw
+Minecraft command from Discord.
 
-## Required database row
+## Player name validation
 
-Register Discord user IDs explicitly. Do not infer Minecraft names from Discord display names.
+Minecraft player names must match `^[A-Za-z0-9_]{1,16}$`. Discord user to Minecraft user mapping is not used by
+this command.
+
+The migration includes `minecraft_player_links` for a possible future mapping flow, but this command path does
+not read it.
+
+## Command queue
 
 ```sql
-INSERT INTO minecraft_player_links (
-    bot_id, guild_id, discord_user_id, minecraft_player_name
+INSERT INTO minecraft_command_queue (
+    request_id, bot_id, guild_id, discord_channel_id, discord_message_id,
+    requester_discord_user_id, target_discord_user_id,
+    command_type, minecraft_player_name
 )
 VALUES (
-    'ichiyon', '<discord guild id>', '<discord user id>', 'Player45165996'
-)
-ON CONFLICT (bot_id, guild_id, discord_user_id) DO UPDATE
-SET minecraft_player_name = EXCLUDED.minecraft_player_name,
-    updated_at = NOW();
+    gen_random_uuid(), 'ichiyon', '<discord guild id>', '<channel id>', '<message id>',
+    '<requester discord user id>', '',
+    'narita_carpet', 'Player45165996'
+);
 ```
-
-Minecraft player names must match `^[A-Za-z0-9_]{1,16}$`.
 
 ## Behavior pack files
 
