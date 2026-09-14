@@ -130,9 +130,12 @@ def main() -> None:
         "STOP_RETURN_HOME_EVENT",
         "RETURNING_HOME_TAG",
         "RETURN_HOME_COMPLETE_DISTANCE",
+        "HOME_TAG_SCALE",
         "hasNearbySpider",
         "entityHurt",
-        "getMirroredHome",
+        "getDynamicHome",
+        "getTaggedHome",
+        "getStoredHome",
         "horizontalDistanceToHome",
         "startReturnHome",
         "stopReturnHome",
@@ -143,6 +146,24 @@ def main() -> None:
 
     assert_true("taketumi_combat_until_" not in leash_script,
                 "combat memory must not use persistent entity tags")
+    assert_true("Math.floor(entity.location.x)" not in leash_script,
+                "home x must keep exact entity location precision")
+    assert_true("Math.floor(entity.location.y)" not in leash_script,
+                "home y must keep exact entity location precision")
+    assert_true("Math.floor(entity.location.z)" not in leash_script,
+                "home z must keep exact entity location precision")
+    assert_true("x: entity.location.x" in leash_script,
+                "home x must store exact entity.location.x")
+    assert_true("y: entity.location.y" in leash_script,
+                "home y must store exact entity.location.y")
+    assert_true("z: entity.location.z" in leash_script,
+                "home z must store exact entity.location.z")
+    assert_true("const RETURN_HOME_COMPLETE_DISTANCE = 1.0;" in leash_script,
+                "return home completion distance must remain 1.0")
+    assert_true("return getDynamicHome(entity) ?? getTaggedHome(entity);" in leash_script,
+                "dynamic property home must be read before tag fallback")
+    assert_true("Math.round(home.x * HOME_TAG_SCALE)" in leash_script,
+                "home tag fallback must preserve sub-block precision")
 
     assert_true(re.search(r"if \(!isInCombat\(.*?\)\)\s*{\s*resetHomeToCurrentLocation", leash_script, re.S) is not None,
                 "leash release must not update home during combat")

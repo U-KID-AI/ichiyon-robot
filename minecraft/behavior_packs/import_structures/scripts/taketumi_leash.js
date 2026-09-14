@@ -11,6 +11,7 @@ const SPIDER_TYPES = ["minecraft:spider", "minecraft:cave_spider"];
 const COMBAT_MEMORY_TICKS = 200;
 const SCAN_INTERVAL_TICKS = 20;
 const RETURN_HOME_COMPLETE_DISTANCE = 1.0;
+const HOME_TAG_SCALE = 1000;
 const combatUntilByEntityId = new Map();
 let currentTick = 0;
 
@@ -29,6 +30,10 @@ function isTaketumi(entity) {
 
 function getDimensionKey(entity) {
   return String(entity.dimension?.id ?? "minecraft:overworld").replace(/^minecraft:/, "");
+}
+
+function finiteNumber(value) {
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 function getLeashable(entity) {
@@ -68,22 +73,55 @@ function hasHomeTag(entity) {
   return entity.getTags().some((value) => value.startsWith(HOME_TAG_PREFIX));
 }
 
-function getMirroredHome(entity) {
+function getDynamicHome(entity) {
+  try {
+    const x = entity.getDynamicProperty("taketumi.home_x");
+    const y = entity.getDynamicProperty("taketumi.home_y");
+    const z = entity.getDynamicProperty("taketumi.home_z");
+    const dimension = entity.getDynamicProperty("taketumi.home_dimension");
+    if (
+      finiteNumber(x) &&
+      finiteNumber(y) &&
+      finiteNumber(z) &&
+      typeof dimension === "string" &&
+      dimension
+    ) {
+      return { x, y, z, dimension };
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function getTaggedHome(entity) {
   const tag = entity.getTags().find((value) => value.startsWith(HOME_TAG_PREFIX));
   if (!tag) return undefined;
 
   const parts = tag.slice(HOME_TAG_PREFIX.length).split("_");
   if (parts.length < 4) return undefined;
 
-  const z = Number.parseInt(parts.pop(), 10);
-  const y = Number.parseInt(parts.pop(), 10);
-  const x = Number.parseInt(parts.pop(), 10);
+  const zRaw = Number.parseInt(parts.pop(), 10);
+  const yRaw = Number.parseInt(parts.pop(), 10);
+  const xRaw = Number.parseInt(parts.pop(), 10);
   const dimension = parts.join("_");
-  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z) || !dimension) {
+  if (!Number.isFinite(xRaw) || !Number.isFinite(yRaw) || !Number.isFinite(zRaw) || !dimension) {
     return undefined;
   }
 
-  return { x, y, z, dimension };
+  const preciseTag = tag.startsWith(`${HOME_TAG_PREFIX}v2_`);
+  const scale = preciseTag ? HOME_TAG_SCALE : 1;
+  const normalizedDimension = preciseTag ? dimension.replace(/^v2_/, "") : dimension;
+  return {
+    x: xRaw / scale,
+    y: yRaw / scale,
+    z: zRaw / scale,
+    dimension: normalizedDimension
+  };
+}
+
+function getStoredHome(entity) {
+  return getDynamicHome(entity) ?? getTaggedHome(entity);
 }
 
 function clearHomeTags(entity) {
@@ -107,9 +145,9 @@ function setDynamicHome(entity, home) {
 
 function getCurrentBlockHome(entity) {
   return {
-    x: Math.floor(entity.location.x),
-    y: Math.floor(entity.location.y),
-    z: Math.floor(entity.location.z),
+    x: entity.location.x,
+    y: entity.location.y,
+    z: entity.location.z,
     dimension: getDimensionKey(entity)
   };
 }
@@ -120,7 +158,9 @@ function mirrorHome(entity) {
   const home = getCurrentBlockHome(entity);
 
   clearHomeTags(entity);
-  entity.addTag(`${HOME_TAG_PREFIX}${home.dimension}_${home.x}_${home.y}_${home.z}`);
+  entity.addTag(
+    `${HOME_TAG_PREFIX}v2_${home.dimension}_${Math.round(home.x * HOME_TAG_SCALE)}_${Math.round(home.y * HOME_TAG_SCALE)}_${Math.round(home.z * HOME_TAG_SCALE)}`
+  );
   setDynamicHome(entity, home);
 }
 
@@ -203,7 +243,7 @@ function updateReturnHomeState(entity, isLeashed, combat) {
     return;
   }
 
-  const home = getMirroredHome(entity);
+  const home = getStoredHome(entity);
   if (!home) {
     stopReturnHome(entity);
     return;
