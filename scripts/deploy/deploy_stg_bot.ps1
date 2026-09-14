@@ -22,15 +22,15 @@ set -eu
 cd "$ProjectDir"
 echo "deploy_mode=$mode"
 echo "services=$serviceText"
-echo "head=\$(git rev-parse HEAD)"
-echo "branch=\$(git branch --show-current)"
+echo "head=`$(git rev-parse HEAD)"
+echo "branch=`$(git branch --show-current)"
 echo "status_begin"
 git status --short
 echo "status_end"
 echo "compose_diff_stat_begin"
 git diff --stat -- docker-compose.yml || true
 echo "compose_diff_stat_end"
-echo "stash_count=\$(git stash list | wc -l | tr -d ' ')"
+echo "stash_count=`$(git stash list | wc -l | tr -d ' ')"
 echo "ps_before_begin"
 docker compose ps
 echo "ps_before_end"
@@ -45,6 +45,8 @@ else
   echo "dry-run: no git merge or docker recreate executed"
 fi
 "@
+
+$remote = $remote.Replace("`r`n", "`n").Replace("`r", "")
 
 $bytes = [System.Text.Encoding]::UTF8.GetBytes($remote)
 $b64 = [Convert]::ToBase64String($bytes)
