@@ -24,6 +24,8 @@ MINECRAFT_COMMAND_TYPES = (
     "server_status",
     "taketumi_spawn_near_player",
     "taketumi_remove_near_player",
+    "poster_irsia",
+    "poster_raio",
 )
 
 

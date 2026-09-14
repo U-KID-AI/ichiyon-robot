@@ -4,14 +4,14 @@
     "name": "Ichiyon Avatar BP",
     "description": "Behavior pack for custom avatar mobs",
     "uuid": "7df80357-b457-4a11-94e4-bc17bf394b83",
-    "version": [1, 0, 3],
+    "version": [1, 0, 4],
     "min_engine_version": [1, 26, 45]
   },
   "modules": [
     {
       "type": "data",
       "uuid": "e07a0a08-3af6-40a4-93d7-1cdbd7e999be",
-      "version": [1, 0, 3]
+      "version": [1, 0, 4]
     }
   ]
 }

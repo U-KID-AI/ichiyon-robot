@@ -32,6 +32,8 @@ TAKETUMI_EGG_COMMAND = "タケツミエッグ"
 TAKETUMI_SPAWN_COMMAND = "タケツミ召喚"
 TAKETUMI_REMOVE_COMMAND = "タケツミ削除"
 E_SEIMONJI_COMMAND = "Eの聖文字"
+IRSIA_POSTER_COMMAND = "イルシアポスター"
+RAIO_POSTER_COMMAND = "ライオポスター"
 HELD_ITEM_INSPECT_COMMAND = "手持ち確認"
 SERVER_STATUS_COMMAND = "状態"
 SERVER_RESTART_COMMAND = "再起動"
@@ -77,6 +79,14 @@ _MINECRAFT_ITEM_COMMANDS = {
         "type": "e_schrift_item",
         "label": "Eの聖文字",
     },
+    IRSIA_POSTER_COMMAND: {
+        "type": "poster_irsia",
+        "label": "イルシアポスター",
+    },
+    RAIO_POSTER_COMMAND: {
+        "type": "poster_raio",
+        "label": "ライオポスター",
+    },
 }
 _UNAVAILABLE_COMMAND_MESSAGES = {}
 _COMMAND_TYPES_BY_TEXT = {
@@ -110,6 +120,7 @@ MINECRAFT_COMMAND_USAGE = (
     "ジグソーブロック <Minecraft名> / ストラクチャーヴォイド <Minecraft名> / "
     "リピートコマンドブロック <Minecraft名> / チェーンコマンドブロック <Minecraft名> / "
     "タケツミエッグ <Minecraft名> / Eの聖文字 <Minecraft名> / "
+    "イルシアポスター <Minecraft名> / ライオポスター <Minecraft名> / "
     "タケツミ召喚 <Minecraft名> / タケツミ削除 <Minecraft名> / "
     "手持ち確認 <Minecraft名> / 状態 / 再起動"
 )

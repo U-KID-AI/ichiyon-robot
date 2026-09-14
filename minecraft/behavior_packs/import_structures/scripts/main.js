@@ -22,6 +22,8 @@ const ITEM_TYPES_BY_COMMAND = {
   repeating_command_block: "minecraft:repeating_command_block",
   chain_command_block: "minecraft:chain_command_block",
   taketumi_spawn_egg: "ichiyon:taketumi_spawn_egg",
+  poster_irsia: "ichiyon:poster_irsia",
+  poster_raio: "ichiyon:poster_raio",
 };
 
 function configValue(name, fallback) {

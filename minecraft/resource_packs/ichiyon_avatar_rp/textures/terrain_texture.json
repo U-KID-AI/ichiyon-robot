@@ -1,0 +1,14 @@
+{
+  "resource_pack_name": "ichiyon_avatar_rp",
+  "texture_name": "atlas.terrain",
+  "padding": 8,
+  "num_mip_levels": 4,
+  "texture_data": {
+    "poster_irsia": {
+      "textures": "textures/blocks/poster_irsia"
+    },
+    "poster_raio": {
+      "textures": "textures/blocks/poster_raio"
+    }
+  }
+}

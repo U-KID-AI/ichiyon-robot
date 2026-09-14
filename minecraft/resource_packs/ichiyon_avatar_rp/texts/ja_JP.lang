@@ -2,3 +2,5 @@ pack.name=Ichiyon Avatar RP
 pack.description=Custom avatar resource pack
 entity.ichiyon:taketumi.name=タケツミ
 item.ichiyon:taketumi_spawn_egg.name=タケツミエッグ
+tile.ichiyon:poster_irsia.name=イルシアポスター
+tile.ichiyon:poster_raio.name=ライオポスター
