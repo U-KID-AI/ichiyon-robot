@@ -29,6 +29,8 @@ NARITA_CARPET_STRUCTURE_ID = "mystructure:narita_map_item"
 STRUCTURE_BLOCK_COMMAND = "ストラクチャーブロック"
 COMMAND_BLOCK_COMMAND = "コマンドブロック"
 TAKETUMI_EGG_COMMAND = "タケツミエッグ"
+TAKETUMI_SPAWN_COMMAND = "タケツミ召喚"
+TAKETUMI_REMOVE_COMMAND = "タケツミ削除"
 E_SEIMONJI_COMMAND = "Eの聖文字"
 HELD_ITEM_INSPECT_COMMAND = "手持ち確認"
 SERVER_STATUS_COMMAND = "状態"
@@ -79,6 +81,8 @@ _MINECRAFT_ITEM_COMMANDS = {
 _UNAVAILABLE_COMMAND_MESSAGES = {}
 _COMMAND_TYPES_BY_TEXT = {
     NARITA_CARPET_COMMAND: "narita_carpet",
+    TAKETUMI_SPAWN_COMMAND: "taketumi_spawn_near_player",
+    TAKETUMI_REMOVE_COMMAND: "taketumi_remove_near_player",
     HELD_ITEM_INSPECT_COMMAND: "held_item_inspect",
     **{text: spec["type"] for text, spec in _MINECRAFT_ITEM_COMMANDS.items()},
 }
@@ -88,6 +92,8 @@ _PLAYERLESS_COMMAND_TYPES_BY_TEXT = {
 }
 _SUCCESS_MESSAGES = {
     "narita_carpet": "{player} に成田カーペットを送り付けました。",
+    "taketumi_spawn_near_player": "{player} の近くにタケツミを召喚しました。",
+    "taketumi_remove_near_player": "{player} の近くのタケツミ削除を完了しました。",
     **{
         spec["type"]: "{player} に" + spec["label"] + "を送り付けました。"
         for spec in _MINECRAFT_ITEM_COMMANDS.values()
@@ -103,8 +109,9 @@ MINECRAFT_COMMAND_USAGE = (
     "バリアブロック <Minecraft名> / ライトブロック <Minecraft名> / "
     "ジグソーブロック <Minecraft名> / ストラクチャーヴォイド <Minecraft名> / "
     "リピートコマンドブロック <Minecraft名> / チェーンコマンドブロック <Minecraft名> / "
-    "タケツミエッグ <Minecraft名> / 手持ち確認 <Minecraft名> / 状態 / 再起動"
-    "Eの聖文字 <Minecraft名> / "
+    "タケツミエッグ <Minecraft名> / Eの聖文字 <Minecraft名> / "
+    "タケツミ召喚 <Minecraft名> / タケツミ削除 <Minecraft名> / "
+    "手持ち確認 <Minecraft名> / 状態 / 再起動"
 )
 _COMMAND_RE = re.compile(
     r"^\s*マイクラ[\s\u3000]+(?P<subcommand>"
@@ -229,7 +236,7 @@ async def _handle_bridge_queue_command(
         return True
     if result.get("status") == "succeeded":
         result_message = str(result.get("result_message") or "").strip()
-        if command_type in ("held_item_inspect", "server_status") and result_message:
+        if command_type in ("held_item_inspect", "server_status", "taketumi_remove_near_player") and result_message:
             await message.channel.send(result_message[:1900])
             return True
         await message.channel.send(_SUCCESS_MESSAGES[command_type].format(player=minecraft_player_name))
@@ -358,6 +365,12 @@ def _result_error_message(minecraft_player_name: str, reason: str) -> str:
         return "Minecraftコマンドの内容が不正です。"
     if reason in ("inventory_unavailable", "item_add_failed"):
         return "{0} へアイテムを渡せませんでした。".format(minecraft_player_name)
+    if reason == "taketumi_spawn_failed":
+        return "{0} の近くにタケツミを召喚できませんでした。".format(minecraft_player_name)
+    if reason == "taketumi_name_failed":
+        return "タケツミの名前設定に失敗しました。"
+    if reason == "taketumi_remove_failed":
+        return "タケツミの削除に失敗しました。"
     if reason == "empty_hand":
         return "{0} は現在なにも手に持っていません。".format(minecraft_player_name)
     if reason in (

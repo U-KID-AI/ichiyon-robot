@@ -113,6 +113,10 @@ EXPECTED_ITEM_COMMANDS = [
     ("チェーンコマンドブロック", "chain_command_block", "チェーンコマンドブロック", "inventory"),
     ("タケツミエッグ", "taketumi_spawn_egg", "タケツミエッグ", "inventory"),
 ]
+EXPECTED_TAKETUMI_ENTITY_COMMANDS = [
+    ("タケツミ召喚", "taketumi_spawn_near_player"),
+    ("タケツミ削除", "taketumi_remove_near_player"),
+]
 
 
 async def exercise_service():
@@ -194,6 +198,44 @@ async def exercise_service():
                     message.channel.sent[-1][0][0] == "Player45165996 に{0}を送り付けました。".format(label),
                 )
             )
+
+        for command_text, command_type in EXPECTED_TAKETUMI_ENTITY_COMMANDS:
+            message = FakeMessage("マイクラ {0} Player45165996".format(command_text), [bot_user])
+            handled = await minecraft_bridge.handle_minecraft_command(
+                message,
+                "マイクラ {0} Player45165996".format(command_text),
+            )
+            results.append(check("{0} command is handled".format(command_text), handled is True))
+            results.append(
+                check(
+                    "{0} queues structured type".format(command_text),
+                    FakeBridgeRepo.enqueued[-1]["command_type"] == command_type,
+                    FakeBridgeRepo.enqueued[-1]["command_type"],
+                )
+            )
+
+        spawn_message = FakeMessage("マイクラ タケツミ召喚 Player45165996", [bot_user])
+        handled = await minecraft_bridge.handle_minecraft_command(
+            spawn_message,
+            "マイクラ タケツミ召喚 Player45165996",
+        )
+        results.append(check("taketumi spawn success message", handled is True and spawn_message.channel.sent[-1][0][0] == "Player45165996 の近くにタケツミを召喚しました。"))
+
+        async def fake_remove_wait(request_id, timeout_seconds):
+            return {
+                "status": "succeeded",
+                "result_reason": "ok",
+                "result_message": "Player45165996 の16ブロック以内のタケツミを2体削除しました。",
+            }
+
+        minecraft_bridge.wait_for_minecraft_result = fake_remove_wait
+        remove_message = FakeMessage("マイクラ タケツミ削除 Player45165996", [bot_user])
+        handled = await minecraft_bridge.handle_minecraft_command(
+            remove_message,
+            "マイクラ タケツミ削除 Player45165996",
+        )
+        results.append(check("taketumi remove returns Minecraft result message", handled is True and remove_message.channel.sent[-1][0][0] == "Player45165996 の16ブロック以内のタケツミを2体削除しました。"))
+        minecraft_bridge.wait_for_minecraft_result = fake_wait
 
         async def fake_message_wait(request_id, timeout_seconds):
             return {"status": "succeeded", "result_message": "diagnostic payload"}
@@ -432,6 +474,8 @@ def static_checks():
     migration = (ROOT_DIR / "migrations" / "047_add_minecraft_bridge.sql").read_text(encoding="utf-8")
     migration_048 = (ROOT_DIR / "migrations" / "048_extend_minecraft_command_types.sql").read_text(encoding="utf-8")
     migration_049 = (ROOT_DIR / "migrations" / "049_extend_minecraft_utility_command_types.sql").read_text(encoding="utf-8")
+    migration_050 = (ROOT_DIR / "migrations" / "050_add_e_schrift_item_command.sql").read_text(encoding="utf-8")
+    migration_051 = (ROOT_DIR / "migrations" / "051_add_taketumi_entity_commands.sql").read_text(encoding="utf-8")
     script = (ROOT_DIR / "minecraft" / "behavior_packs" / "import_structures" / "scripts" / "main.js").read_text(encoding="utf-8")
     control_api = (ROOT_DIR / "scripts" / "minecraft" / "minecraft_control_api.py").read_text(encoding="utf-8")
     control_env = (ROOT_DIR / "scripts" / "minecraft" / "minecraft-control-api.env.example").read_text(encoding="utf-8")
@@ -455,14 +499,25 @@ def static_checks():
         results.append(
             check(
                 "queue allows {0}".format(command_type),
-                command_type in migration_049
+                command_type in migration_051
+                and command_type in MINECRAFT_COMMAND_TYPES
+                and command_type in minecraft_bridge._COMMAND_TYPES_BY_TEXT.values(),
+            )
+        )
+    for _command_text, command_type in EXPECTED_TAKETUMI_ENTITY_COMMANDS:
+        results.append(
+            check(
+                "queue allows {0}".format(command_type),
+                command_type in migration_051
                 and command_type in MINECRAFT_COMMAND_TYPES
                 and command_type in minecraft_bridge._COMMAND_TYPES_BY_TEXT.values(),
             )
         )
     results.append(check("existing queue migration still has original block commands", "structure_block" in migration_048 and "command_block" in migration_048))
-    results.append(check("queue allows held item inspect", "held_item_inspect" in migration_049 and "held_item_inspect" in MINECRAFT_COMMAND_TYPES))
-    results.append(check("queue allows minecraft status", "server_status" in migration_049 and "server_status" in MINECRAFT_COMMAND_TYPES))
+    results.append(check("queue migration 051 preserves E sacred letter", "e_schrift_item" in migration_050 and "e_schrift_item" in migration_051))
+    results.append(check("queue allows held item inspect", "held_item_inspect" in migration_051 and "held_item_inspect" in MINECRAFT_COMMAND_TYPES))
+    results.append(check("queue allows minecraft status", "server_status" in migration_051 and "server_status" in MINECRAFT_COMMAND_TYPES))
+    results.append(check("migration 051 uses existing safe constraint", "minecraft_command_queue_type_safe" in migration_051))
     results.append(check("script rejects unknown command type", "unknown_command_type" in script))
     results.append(check("script uses fixed structure id", "mystructure:narita_map_item" in script and "command.structure" not in script))
     results.append(check("script transfers fixed Narita map item", "structure load ${STRUCTURE_ID} ${x} ${y} ${z}" in script and "minecraft:filled_map" in script))
@@ -480,6 +535,13 @@ def static_checks():
     results.append(check("taketumi egg item has icon", '"minecraft:icon": "ichiyon:taketumi_spawn_egg"' in avatar_bp_item and "textures/items/taketumi_spawn_egg" in item_texture))
     results.append(check("taketumi egg has display name", "item.ichiyon:taketumi_spawn_egg.name=タケツミエッグ" in lang))
     results.append(check("script can inspect held item", "handleHeldItemInspect" in script and "getDynamicPropertyIds" in script and "internal_nbt: Script APIでは取得不可" in script))
+    results.append(check("script recognizes taketumi spawn type", "taketumi_spawn_near_player" in script and "handleTaketumiSpawnNearPlayer" in script))
+    results.append(check("script recognizes taketumi remove type", "taketumi_remove_near_player" in script and "handleTaketumiRemoveNearPlayer" in script))
+    results.append(check("script uses fixed taketumi entity id", 'const TAKETUMI_ENTITY_ID = "ichiyon:taketumi"' in script and "command.entity" not in script))
+    results.append(check("script sets taketumi nameTag", 'const TAKETUMI_NAME_TAG = "タケツミ"' in script and "spawned.nameTag = TAKETUMI_NAME_TAG" in script))
+    results.append(check("script cleans up spawn when nameTag fails", "taketumi_name_failed" in script and "spawned.remove()" in script))
+    results.append(check("script removes only nearby taketumi", "type: TAKETUMI_ENTITY_ID" in script and "maxDistance: 16" in script))
+    results.append(check("script does not expose arbitrary entity identifier", "spawnEntity(command" not in script and "getEntities(command" not in script))
     results.append(check("script can report minecraft status", "handleServerStatus" in script and "world.getAllPlayers()" in script and "Minecraft Server: ONLINE" in script))
     results.append(check("script does not expose host shell status", "child_process" not in script and "docker ps" not in script))
     results.append(check("bot compose passes minecraft control settings", "MINECRAFT_CONTROL_API_BASE" in compose and "MINECRAFT_CONTROL_API_SECRET" in compose))

@@ -22,6 +22,8 @@ MINECRAFT_COMMAND_TYPES = (
     "e_schrift_item",
     "held_item_inspect",
     "server_status",
+    "taketumi_spawn_near_player",
+    "taketumi_remove_near_player",
 )
 
 

@@ -7,6 +7,8 @@ console.warn("[NaritaBridge] main.js loaded");
 const DEFAULT_API_BASE = "http://10.0.0.94:8000/internal/minecraft";
 const STRUCTURE_ID = "mystructure:narita_map_item";
 const E_SCHRIFT_STRUCTURE_ID = "mystructure:e_schrift_item";
+const TAKETUMI_ENTITY_ID = "ichiyon:taketumi";
+const TAKETUMI_NAME_TAG = "タケツミ";
 const PLAYER_NAME_PATTERN = /^[A-Za-z0-9_]{1,16}$/;
 const POLL_INTERVAL_TICKS = 40;
 const SCRIPT_STARTED_AT_MS = Date.now();
@@ -81,6 +83,19 @@ function findOnlinePlayer(name) {
     }
   }
   return undefined;
+}
+
+function playerForwardSpawnLocation(player) {
+  const direction = safeValue(() => player.getViewDirection(), { x: 0, y: 0, z: 1 });
+  const horizontalLength = Math.hypot(direction.x || 0, direction.z || 0);
+  const forward = horizontalLength > 0.001
+    ? { x: direction.x / horizontalLength, z: direction.z / horizontalLength }
+    : { x: 0, z: 1 };
+  return {
+    x: player.location.x + forward.x * 2,
+    y: player.location.y,
+    z: player.location.z + forward.z * 2,
+  };
 }
 
 function safeValue(readValue, fallback) {
@@ -517,6 +532,88 @@ async function handleGiveItem(command, itemTypeId) {
   }
 }
 
+async function handleTaketumiSpawnNearPlayer(command) {
+  const requestId = String(command.request_id || "");
+  const playerName = String(command.minecraft_player || "");
+  if (!requestId) {
+    return;
+  }
+  if (!isValidPlayerName(playerName)) {
+    await postResult(requestId, "failed", "invalid_player_name", "");
+    return;
+  }
+  const player = findOnlinePlayer(playerName);
+  if (!player) {
+    await postResult(requestId, "failed", "player_offline", "");
+    return;
+  }
+
+  let spawned;
+  try {
+    spawned = player.dimension.spawnEntity(TAKETUMI_ENTITY_ID, playerForwardSpawnLocation(player));
+  } catch (error) {
+    console.warn(`[NaritaBridge] Taketumi spawn failed: ${String(error)}`);
+    await postResult(requestId, "failed", "taketumi_spawn_failed", "");
+    return;
+  }
+
+  try {
+    spawned.nameTag = TAKETUMI_NAME_TAG;
+  } catch (error) {
+    console.warn(`[NaritaBridge] Taketumi nameTag failed: ${String(error)}`);
+    try {
+      spawned.remove();
+    } catch (cleanupError) {
+      console.warn(`[NaritaBridge] Taketumi cleanup after name failure failed: ${String(cleanupError)}`);
+    }
+    await postResult(requestId, "failed", "taketumi_name_failed", "");
+    return;
+  }
+
+  await postResult(requestId, "succeeded", "ok", "");
+}
+
+async function handleTaketumiRemoveNearPlayer(command) {
+  const requestId = String(command.request_id || "");
+  const playerName = String(command.minecraft_player || "");
+  if (!requestId) {
+    return;
+  }
+  if (!isValidPlayerName(playerName)) {
+    await postResult(requestId, "failed", "invalid_player_name", "");
+    return;
+  }
+  const player = findOnlinePlayer(playerName);
+  if (!player) {
+    await postResult(requestId, "failed", "player_offline", "");
+    return;
+  }
+
+  try {
+    const targets = player.dimension.getEntities({
+      type: TAKETUMI_ENTITY_ID,
+      location: player.location,
+      maxDistance: 16,
+    });
+    let removed = 0;
+    for (const entity of targets) {
+      try {
+        entity.remove();
+        removed += 1;
+      } catch (error) {
+        console.warn(`[NaritaBridge] Taketumi remove one failed: ${String(error)}`);
+      }
+    }
+    const message = removed === 0
+      ? `${playerName} の16ブロック以内にタケツミはいません。`
+      : `${playerName} の16ブロック以内のタケツミを${removed}体削除しました。`;
+    await postResult(requestId, "succeeded", "ok", message);
+  } catch (error) {
+    console.warn(`[NaritaBridge] Taketumi remove failed: ${String(error)}`);
+    await postResult(requestId, "failed", "taketumi_remove_failed", "");
+  }
+}
+
 async function pollOnce() {
   const configuredGuildId = guildId();
   if (!configuredGuildId) {
@@ -552,6 +649,14 @@ async function pollOnce() {
   }
   if (command.type === "e_schrift_item") {
     await handleESchrift(command);
+    return;
+  }
+  if (command.type === "taketumi_spawn_near_player") {
+    await handleTaketumiSpawnNearPlayer(command);
+    return;
+  }
+  if (command.type === "taketumi_remove_near_player") {
+    await handleTaketumiRemoveNearPlayer(command);
     return;
   }
   if (command.type === "held_item_inspect") {
