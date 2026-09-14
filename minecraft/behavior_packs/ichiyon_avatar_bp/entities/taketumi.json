@@ -13,7 +13,7 @@
       "ichiyon:taketumi_home": {
         "minecraft:home": {
           "restriction_radius": 0,
-          "restriction_type": "all_movement"
+          "restriction_type": "none"
         }
       }
     },

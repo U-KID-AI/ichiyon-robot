@@ -3,11 +3,11 @@ import { system, world } from "@minecraft/server";
 const TAKETUMI_TYPE = "ichiyon:taketumi";
 const HOME_TAG_PREFIX = "taketumi_home_";
 const LEASHED_TAG = "taketumi_leashed";
-const COMBAT_TAG_PREFIX = "taketumi_combat_until_";
 const HOME_RESET_EVENT = "ichiyon:taketumi_reset_home";
 const SPIDER_TYPES = ["minecraft:spider", "minecraft:cave_spider"];
 const COMBAT_MEMORY_TICKS = 200;
 const SCAN_INTERVAL_TICKS = 20;
+const combatUntilByEntityId = new Map();
 let currentTick = 0;
 
 function isTaketumi(entity) {
@@ -35,30 +35,17 @@ function getLeashable(entity) {
   }
 }
 
-function getCombatUntil(entity) {
-  const tag = entity.getTags().find((value) => value.startsWith(COMBAT_TAG_PREFIX));
-  if (!tag) return 0;
-
-  const value = Number.parseInt(tag.slice(COMBAT_TAG_PREFIX.length), 10);
-  return Number.isFinite(value) ? value : 0;
-}
-
-function setCombatUntil(entity, tick) {
-  for (const tag of entity.getTags()) {
-    if (tag.startsWith(COMBAT_TAG_PREFIX)) {
-      entity.removeTag(tag);
-    }
-  }
-  entity.addTag(`${COMBAT_TAG_PREFIX}${tick}`);
-}
-
 function markCombat(entity) {
   if (!isTaketumi(entity)) return;
-  setCombatUntil(entity, currentTick + COMBAT_MEMORY_TICKS);
+  combatUntilByEntityId.set(entity.id, currentTick + COMBAT_MEMORY_TICKS);
 }
 
 function isInCombat(entity) {
-  return getCombatUntil(entity) > currentTick || hasNearbySpider(entity);
+  const combatUntil = combatUntilByEntityId.get(entity.id) ?? 0;
+  if (combatUntil <= currentTick) {
+    combatUntilByEntityId.delete(entity.id);
+  }
+  return combatUntil > currentTick || hasNearbySpider(entity);
 }
 
 function hasNearbySpider(entity) {

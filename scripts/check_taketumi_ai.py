@@ -64,7 +64,7 @@ def main() -> None:
     home_group = groups.get("ichiyon:taketumi_home", {})
     home = home_group.get("minecraft:home", {})
     assert_true(home.get("restriction_radius") == 0, "taketumi home radius must force exact home return")
-    assert_true(home.get("restriction_type") == "all_movement", "taketumi home restriction must constrain movement")
+    assert_true(home.get("restriction_type") == "none", "taketumi home restriction must not block combat pursuit")
 
     reset_event = events.get("ichiyon:taketumi_reset_home", {})
     reset_text = json.dumps(reset_event, ensure_ascii=False)
@@ -96,7 +96,10 @@ def main() -> None:
         "taketumi.home_z",
         "taketumi.home_dimension",
         "taketumi_home_",
-        "taketumi_combat_until_",
+        "const combatUntilByEntityId = new Map();",
+        "combatUntilByEntityId.set(entity.id",
+        "combatUntilByEntityId.get(entity.id)",
+        "combatUntilByEntityId.delete(entity.id)",
         "mirrorHome",
         "resetHomeToCurrentLocation",
         "manual_unleash",
@@ -107,6 +110,9 @@ def main() -> None:
     ]
     for snippet in required_snippets:
         assert_true(snippet in leash_script, f"leash/home script missing {snippet}")
+
+    assert_true("taketumi_combat_until_" not in leash_script,
+                "combat memory must not use persistent entity tags")
 
     assert_true(re.search(r"if \(!isInCombat\(.*?\)\)\s*{\s*resetHomeToCurrentLocation", leash_script, re.S) is not None,
                 "leash release must not update home during combat")
