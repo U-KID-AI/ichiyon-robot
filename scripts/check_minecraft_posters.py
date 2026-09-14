@@ -271,7 +271,7 @@ def main():
         results.append(
             check(
                 "{0} visual geometry is paper thin".format(command_type),
-                cube["origin"][2] == -8 and cube["size"][2] <= 0.03125,
+                cube["origin"][2] == 7.96875 and cube["size"][2] == 0.03125,
                 "origin_z={0}, size_z={1}".format(cube["origin"][2], cube["size"][2]),
             )
         )
