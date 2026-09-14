@@ -64,22 +64,32 @@ def main() -> None:
     assert_true("player" not in target_values, "taketumi must not proactively target players")
 
     assert_true("minecraft:behavior.melee_box_attack" in components, "taketumi needs melee attack behavior")
-    assert_true("minecraft:behavior.move_towards_home_restriction" in components, "taketumi needs home return behavior")
+    assert_true("minecraft:behavior.move_towards_home_restriction" not in components,
+                "home return behavior must not run during normal idle")
     assert_true(components.get("minecraft:behavior.nearest_attackable_target", {}).get("priority") == 2,
                 "nearest_attackable_target priority must be 2")
     assert_true(components.get("minecraft:behavior.melee_box_attack", {}).get("priority") == 3,
                 "melee attack priority must be 3")
-    assert_true(components.get("minecraft:behavior.move_towards_home_restriction", {}).get("priority") == 4,
-                "home return priority must be 4")
 
     home_group = groups.get("ichiyon:taketumi_home", {})
     home = home_group.get("minecraft:home", {})
     assert_true(home.get("restriction_radius") == 0, "taketumi home radius must force exact home return")
     assert_true(home.get("restriction_type") == "none", "taketumi home restriction must not block combat pursuit")
 
+    returning_group = groups.get("ichiyon:taketumi_returning_home", {})
+    returning_home = returning_group.get("minecraft:behavior.move_towards_home_restriction", {})
+    assert_true(returning_home.get("priority") == 4, "home return priority must be 4")
+    assert_true(returning_home.get("speed_multiplier") == 0.8, "home return speed multiplier changed")
+
     reset_event = events.get("ichiyon:taketumi_reset_home", {})
     reset_text = json.dumps(reset_event, ensure_ascii=False)
     assert_true("ichiyon:taketumi_home" in reset_text, "home reset event must reinitialize home group")
+    assert_true("ichiyon:taketumi_start_return_home" in events, "start return home event is missing")
+    assert_true("ichiyon:taketumi_stop_return_home" in events, "stop return home event is missing")
+    assert_true("ichiyon:taketumi_returning_home" in json.dumps(events["ichiyon:taketumi_start_return_home"], ensure_ascii=False),
+                "start return event must add returning_home group")
+    assert_true("ichiyon:taketumi_returning_home" in json.dumps(events["ichiyon:taketumi_stop_return_home"], ensure_ascii=False),
+                "stop return event must remove returning_home group")
 
     if SPAWN_RULES.exists():
         spawn_rule_text = "\n".join(path.read_text(encoding="utf-8") for path in SPAWN_RULES.glob("*.json"))
@@ -116,8 +126,17 @@ def main() -> None:
         "manual_unleash",
         "leash_release",
         "HOME_RESET_EVENT",
+        "START_RETURN_HOME_EVENT",
+        "STOP_RETURN_HOME_EVENT",
+        "RETURNING_HOME_TAG",
+        "RETURN_HOME_COMPLETE_DISTANCE",
         "hasNearbySpider",
         "entityHurt",
+        "getMirroredHome",
+        "horizontalDistanceToHome",
+        "startReturnHome",
+        "stopReturnHome",
+        "updateReturnHomeState",
     ]
     for snippet in required_snippets:
         assert_true(snippet in leash_script, f"leash/home script missing {snippet}")
@@ -127,6 +146,12 @@ def main() -> None:
 
     assert_true(re.search(r"if \(!isInCombat\(.*?\)\)\s*{\s*resetHomeToCurrentLocation", leash_script, re.S) is not None,
                 "leash release must not update home during combat")
+    assert_true("if (isLeashed || combat)" in leash_script and "stopReturnHome(entity);" in leash_script,
+                "leash/combat state must disable home return")
+    assert_true("startReturnHome(entity);" in leash_script,
+                "combat end / away from home must start return home")
+    assert_true("distance <= RETURN_HOME_COMPLETE_DISTANCE" in leash_script,
+                "home arrival must stop return home")
     assert_true("function ensureHome" in leash_script and "mirrorHome(entity);" in leash_script,
                 "initial/load handling must mirror home without resetting minecraft:home")
     ensure_home_match = re.search(r"function ensureHome\(entity\).*?}\n}", leash_script, re.S)

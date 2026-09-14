@@ -14,6 +14,12 @@
           "restriction_radius": 0,
           "restriction_type": "none"
         }
+      },
+      "ichiyon:taketumi_returning_home": {
+        "minecraft:behavior.move_towards_home_restriction": {
+          "priority": 4,
+          "speed_multiplier": 0.8
+        }
       }
     },
     "components": {
@@ -83,10 +89,6 @@
         "priority": 3,
         "track_target": true,
         "speed_multiplier": 1.05
-      },
-      "minecraft:behavior.move_towards_home_restriction": {
-        "priority": 4,
-        "speed_multiplier": 0.8
       }
     },
     "events": {
@@ -114,6 +116,20 @@
             }
           }
         ]
+      },
+      "ichiyon:taketumi_start_return_home": {
+        "add": {
+          "component_groups": [
+            "ichiyon:taketumi_returning_home"
+          ]
+        }
+      },
+      "ichiyon:taketumi_stop_return_home": {
+        "remove": {
+          "component_groups": [
+            "ichiyon:taketumi_returning_home"
+          ]
+        }
       }
     }
   }

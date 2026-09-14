@@ -3,10 +3,14 @@ import { system, world } from "@minecraft/server";
 const TAKETUMI_TYPE = "ichiyon:taketumi";
 const HOME_TAG_PREFIX = "taketumi_home_";
 const LEASHED_TAG = "taketumi_leashed";
+const RETURNING_HOME_TAG = "taketumi_returning_home";
 const HOME_RESET_EVENT = "ichiyon:taketumi_reset_home";
+const START_RETURN_HOME_EVENT = "ichiyon:taketumi_start_return_home";
+const STOP_RETURN_HOME_EVENT = "ichiyon:taketumi_stop_return_home";
 const SPIDER_TYPES = ["minecraft:spider", "minecraft:cave_spider"];
 const COMBAT_MEMORY_TICKS = 200;
 const SCAN_INTERVAL_TICKS = 20;
+const RETURN_HOME_COMPLETE_DISTANCE = 1.0;
 const combatUntilByEntityId = new Map();
 let currentTick = 0;
 
@@ -64,6 +68,24 @@ function hasHomeTag(entity) {
   return entity.getTags().some((value) => value.startsWith(HOME_TAG_PREFIX));
 }
 
+function getMirroredHome(entity) {
+  const tag = entity.getTags().find((value) => value.startsWith(HOME_TAG_PREFIX));
+  if (!tag) return undefined;
+
+  const parts = tag.slice(HOME_TAG_PREFIX.length).split("_");
+  if (parts.length < 4) return undefined;
+
+  const z = Number.parseInt(parts.pop(), 10);
+  const y = Number.parseInt(parts.pop(), 10);
+  const x = Number.parseInt(parts.pop(), 10);
+  const dimension = parts.join("_");
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z) || !dimension) {
+    return undefined;
+  }
+
+  return { x, y, z, dimension };
+}
+
 function clearHomeTags(entity) {
   for (const tag of entity.getTags()) {
     if (tag.startsWith(HOME_TAG_PREFIX)) {
@@ -105,6 +127,8 @@ function mirrorHome(entity) {
 function resetHomeToCurrentLocation(entity, reason) {
   if (!isTaketumi(entity)) return;
 
+  stopReturnHome(entity);
+
   try {
     entity.triggerEvent(HOME_RESET_EVENT);
   } catch (error) {
@@ -127,7 +151,7 @@ function updateLeashState(entity) {
 
   if (isLeashed && !wasLeashed) {
     entity.addTag(LEASHED_TAG);
-    return;
+    return isLeashed;
   }
 
   if (!isLeashed && wasLeashed) {
@@ -136,6 +160,62 @@ function updateLeashState(entity) {
       resetHomeToCurrentLocation(entity, "leash_release");
     }
   }
+
+  return isLeashed;
+}
+
+function horizontalDistanceToHome(entity, home) {
+  if (home.dimension !== getDimensionKey(entity)) {
+    return undefined;
+  }
+  const dx = entity.location.x - home.x;
+  const dz = entity.location.z - home.z;
+  return Math.hypot(dx, dz);
+}
+
+function startReturnHome(entity) {
+  if (entity.hasTag(RETURNING_HOME_TAG)) return;
+
+  try {
+    entity.triggerEvent(START_RETURN_HOME_EVENT);
+    entity.addTag(RETURNING_HOME_TAG);
+  } catch (error) {
+    console.warn(`[TaketumiAI] start return home failed: ${String(error)}`);
+  }
+}
+
+function stopReturnHome(entity) {
+  if (!entity.hasTag(RETURNING_HOME_TAG)) {
+    return;
+  }
+
+  try {
+    entity.triggerEvent(STOP_RETURN_HOME_EVENT);
+  } catch (error) {
+    console.warn(`[TaketumiAI] stop return home failed: ${String(error)}`);
+  }
+  entity.removeTag(RETURNING_HOME_TAG);
+}
+
+function updateReturnHomeState(entity, isLeashed, combat) {
+  if (isLeashed || combat) {
+    stopReturnHome(entity);
+    return;
+  }
+
+  const home = getMirroredHome(entity);
+  if (!home) {
+    stopReturnHome(entity);
+    return;
+  }
+
+  const distance = horizontalDistanceToHome(entity, home);
+  if (distance === undefined || distance <= RETURN_HOME_COMPLETE_DISTANCE) {
+    stopReturnHome(entity);
+    return;
+  }
+
+  startReturnHome(entity);
 }
 
 function tickTaketumi(entity) {
@@ -145,7 +225,9 @@ function tickTaketumi(entity) {
   if (hasNearbySpider(entity)) {
     markCombat(entity);
   }
-  updateLeashState(entity);
+  const combat = isInCombat(entity);
+  const isLeashed = updateLeashState(entity);
+  updateReturnHomeState(entity, isLeashed, combat);
 }
 
 world.afterEvents.entityHurt.subscribe((ev) => {
