@@ -35,7 +35,7 @@ def main() -> None:
     assert_true(description["identifier"] == "ichiyon:taketumi", "taketumi identifier changed")
     assert_true(description.get("is_spawnable") is True, "taketumi spawn egg compatibility changed")
     assert_true(description.get("is_summonable") is True, "taketumi summon compatibility changed")
-    assert_true(description.get("runtime_identifier") == "minecraft:cow", "leash runtime workaround changed")
+    assert_true("runtime_identifier" not in description, "taketumi must not inherit vanilla runtime behavior")
 
     health = components.get("minecraft:health", {})
     assert_true(health.get("value") == 500 and health.get("max") == 500, "taketumi HP must be 500/500")
@@ -44,8 +44,13 @@ def main() -> None:
     assert_true(attack.get("damage") == 30, "taketumi melee damage must be 30")
 
     assert_true("minecraft:behavior.random_stroll" not in components, "taketumi must not randomly stroll")
+    assert_true("minecraft:behavior.random_swim" not in components, "taketumi must not randomly swim")
+    assert_true("minecraft:behavior.panic" not in components, "taketumi must not panic-walk by default")
     assert_true("minecraft:behavior.follow_owner" not in components, "taketumi must not follow players by default")
     assert_true("minecraft:behavior.hurt_by_target" in components, "taketumi must retaliate when attacked")
+    assert_true(components.get("minecraft:behavior.hurt_by_target", {}).get("priority") == 1,
+                "hurt_by_target priority must be 1")
+    assert_true("minecraft:leashable" in components, "taketumi must remain leashable without cow runtime")
 
     target = components.get("minecraft:behavior.nearest_attackable_target", {})
     assert_true(target.get("within_radius") == 16, "taketumi proactive target radius must be 16")
@@ -60,6 +65,12 @@ def main() -> None:
 
     assert_true("minecraft:behavior.melee_box_attack" in components, "taketumi needs melee attack behavior")
     assert_true("minecraft:behavior.move_towards_home_restriction" in components, "taketumi needs home return behavior")
+    assert_true(components.get("minecraft:behavior.nearest_attackable_target", {}).get("priority") == 2,
+                "nearest_attackable_target priority must be 2")
+    assert_true(components.get("minecraft:behavior.melee_box_attack", {}).get("priority") == 3,
+                "melee attack priority must be 3")
+    assert_true(components.get("minecraft:behavior.move_towards_home_restriction", {}).get("priority") == 4,
+                "home return priority must be 4")
 
     home_group = groups.get("ichiyon:taketumi_home", {})
     home = home_group.get("minecraft:home", {})

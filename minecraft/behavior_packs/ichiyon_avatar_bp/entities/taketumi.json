@@ -6,8 +6,7 @@
       "spawn_category": "creature",
       "is_spawnable": true,
       "is_summonable": true,
-      "is_experimental": false,
-      "runtime_identifier": "minecraft:cow"
+      "is_experimental": false
     },
     "component_groups": {
       "ichiyon:taketumi_home": {
