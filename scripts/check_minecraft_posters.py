@@ -218,6 +218,7 @@ def main():
         geometry = read_json(spec["geometry"])["minecraft:geometry"][0]
         loot = read_json(spec["loot"])
         components = block["components"]
+        cube = geometry["bones"][0]["cubes"][0]
         conditions = components["minecraft:placement_filter"]["conditions"]
         permutations = block["permutations"]
 
@@ -265,6 +266,13 @@ def main():
             check(
                 "{0} has thin selection box".format(command_type),
                 components["minecraft:selection_box"]["size"][2] <= 0.5,
+            )
+        )
+        results.append(
+            check(
+                "{0} visual geometry is paper thin".format(command_type),
+                cube["origin"][2] == -8 and cube["size"][2] <= 0.03125,
+                "origin_z={0}, size_z={1}".format(cube["origin"][2], cube["size"][2]),
             )
         )
         results.append(
