@@ -1,0 +1,43 @@
+{
+  "format_version": "1.26.10",
+  "minecraft:entity": {
+    "description": {
+      "identifier": "ichiyon:taketumi",
+      "spawn_category": "creature",
+      "is_spawnable": true,
+      "is_summonable": true,
+      "is_experimental": false,
+      "runtime_identifier": "minecraft:cow"
+    },
+    "components": {
+      "minecraft:type_family": {
+        "family": [
+          "ichiyon_avatar",
+          "mob"
+        ]
+      },
+      "minecraft:physics": {},
+      "minecraft:collision_box": {
+        "width": 0.6,
+        "height": 1.8
+      },
+      "minecraft:health": {
+        "value": 20,
+        "max": 20
+      },
+      "minecraft:movement": {
+        "value": 0.1
+      },
+      "minecraft:movement.basic": {},
+      "minecraft:navigation.walk": {
+        "can_path_over_water": true,
+        "avoid_damage_blocks": true
+      },
+      "minecraft:jump.static": {},
+      "minecraft:nameable": {},
+      "minecraft:leashable": {},
+      "minecraft:pushable_by_entity": {},
+      "minecraft:pushable_by_block": {}
+    }
+  }
+}

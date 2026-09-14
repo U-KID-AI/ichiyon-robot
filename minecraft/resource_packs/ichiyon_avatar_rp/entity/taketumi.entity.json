@@ -1,0 +1,20 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "ichiyon:taketumi",
+      "materials": {
+        "default": "entity_alphatest"
+      },
+      "textures": {
+        "default": "textures/entity/taketumi"
+      },
+      "geometry": {
+        "default": "geometry.taketumi"
+      },
+      "render_controllers": [
+        "controller.render.default"
+      ]
+    }
+  }
+}

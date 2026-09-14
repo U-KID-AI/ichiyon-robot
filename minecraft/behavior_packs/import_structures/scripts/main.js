@@ -2,13 +2,23 @@ import { EntityComponentTypes, ItemStack, system, world } from "@minecraft/serve
 import { HttpHeader, HttpRequest, HttpRequestMethod, http } from "@minecraft/server-net";
 import { secrets, variables } from "@minecraft/server-admin";
 
+console.warn("[NaritaBridge] main.js loaded");
+
 const DEFAULT_API_BASE = "http://10.0.0.94:8000/internal/minecraft";
 const STRUCTURE_ID = "mystructure:narita_map_item";
 const PLAYER_NAME_PATTERN = /^[A-Za-z0-9_]{1,16}$/;
 const POLL_INTERVAL_TICKS = 40;
+const SCRIPT_STARTED_AT_MS = Date.now();
 const ITEM_TYPES_BY_COMMAND = {
   structure_block: "minecraft:structure_block",
   command_block: "minecraft:command_block",
+  barrier_block: "minecraft:barrier",
+  light_block: "minecraft:light_block_15",
+  jigsaw_block: "minecraft:jigsaw",
+  structure_void: "minecraft:structure_void",
+  repeating_command_block: "minecraft:repeating_command_block",
+  chain_command_block: "minecraft:chain_command_block",
+  taketumi_spawn_egg: "ichiyon:taketumi_spawn_egg",
 };
 
 function configValue(name, fallback) {
@@ -72,6 +82,173 @@ function findOnlinePlayer(name) {
   return undefined;
 }
 
+function safeValue(readValue, fallback) {
+  try {
+    const value = readValue();
+    if (value === undefined) {
+      return fallback;
+    }
+    return value;
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function formatDuration(ms) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}h ${minutes}m ${seconds}s`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+  return `${seconds}s`;
+}
+
+function stringifyDiagnosticValue(value) {
+  if (value === undefined) return "undefined";
+  if (value === null) return "null";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch (error) {
+    return String(value);
+  }
+}
+
+function selectedHotbarIndex(player) {
+  const fromProperty = safeValue(() => player.selectedSlotIndex, undefined);
+  if (typeof fromProperty === "number") {
+    return fromProperty;
+  }
+  const selectedSlot = safeValue(() => player.selectedSlot, undefined);
+  if (typeof selectedSlot === "number") {
+    return selectedSlot;
+  }
+  return 0;
+}
+
+function componentTypeIds(item) {
+  const components = safeValue(() => item.getComponents(), []);
+  if (!Array.isArray(components)) {
+    return ["Script APIでは取得不可"];
+  }
+  return components.map((component) => String(component.typeId || component.id || component)).sort();
+}
+
+function dynamicProperties(item) {
+  const ids = safeValue(() => item.getDynamicPropertyIds(), undefined);
+  if (!Array.isArray(ids)) {
+    return ["Script APIでは取得不可"];
+  }
+  if (ids.length === 0) {
+    return ["なし"];
+  }
+  return ids.map((id) => `${id}=${stringifyDiagnosticValue(safeValue(() => item.getDynamicProperty(id), "取得不可"))}`);
+}
+
+function itemLore(item) {
+  const lore = safeValue(() => item.getLore(), undefined);
+  if (!Array.isArray(lore)) {
+    return ["Script APIでは取得不可"];
+  }
+  if (lore.length === 0) {
+    return ["なし"];
+  }
+  return lore;
+}
+
+function stringListFromItem(item, getterName) {
+  const values = safeValue(() => item[getterName](), undefined);
+  if (!Array.isArray(values)) {
+    return ["Script APIでは取得不可"];
+  }
+  if (values.length === 0) {
+    return ["なし"];
+  }
+  return values.map((value) => String(value));
+}
+
+function truncateMessage(message) {
+  if (message.length <= 1700) {
+    return message;
+  }
+  return `${message.slice(0, 1690)}\n...省略`;
+}
+
+async function handleHeldItemInspect(command) {
+  const requestId = String(command.request_id || "");
+  const playerName = String(command.minecraft_player || "");
+  if (!requestId) {
+    return;
+  }
+  if (!isValidPlayerName(playerName)) {
+    await postResult(requestId, "failed", "invalid_player_name", "");
+    return;
+  }
+  const player = findOnlinePlayer(playerName);
+  if (!player) {
+    await postResult(requestId, "failed", "player_offline", "");
+    return;
+  }
+  const inventory = player.getComponent(EntityComponentTypes.Inventory);
+  if (!inventory || !inventory.container) {
+    await postResult(requestId, "failed", "inventory_unavailable", "");
+    return;
+  }
+  const slotIndex = selectedHotbarIndex(player);
+  const item = safeValue(() => inventory.container.getItem(slotIndex), undefined);
+  if (!item) {
+    await postResult(requestId, "failed", "empty_hand", "");
+    return;
+  }
+  const lines = [
+    `${playerName} の手持ち診断`,
+    `slot: ${slotIndex}`,
+    `typeId: ${item.typeId}`,
+    `amount: ${item.amount}`,
+    `nameTag: ${safeValue(() => item.nameTag, "") || "なし"}`,
+    `isStackable: ${stringifyDiagnosticValue(safeValue(() => item.isStackable, "Script APIでは取得不可"))}`,
+    `maxAmount: ${stringifyDiagnosticValue(safeValue(() => item.maxAmount, "Script APIでは取得不可"))}`,
+    `weight: ${stringifyDiagnosticValue(safeValue(() => item.weight, "Script APIでは取得不可"))}`,
+    `lockMode: ${stringifyDiagnosticValue(safeValue(() => item.lockMode, "Script APIでは取得不可"))}`,
+    `keepOnDeath: ${stringifyDiagnosticValue(safeValue(() => item.keepOnDeath, "Script APIでは取得不可"))}`,
+    `lore: ${itemLore(item).join(" / ")}`,
+    `can_destroy: ${stringListFromItem(item, "getCanDestroy").join(", ")}`,
+    `can_place_on: ${stringListFromItem(item, "getCanPlaceOn").join(", ")}`,
+    `tags: ${stringListFromItem(item, "getTags").join(", ")}`,
+    `components: ${componentTypeIds(item).join(", ") || "なし"}`,
+    `dynamic_properties: ${dynamicProperties(item).join(", ")}`,
+    `dynamic_property_bytes: ${stringifyDiagnosticValue(safeValue(() => item.getDynamicPropertyTotalByteCount(), "Script APIでは取得不可"))}`,
+    "internal_nbt: Script APIでは取得不可",
+  ];
+  await postResult(requestId, "succeeded", "ok", truncateMessage(lines.join("\n")));
+}
+
+async function handleServerStatus(command) {
+  const requestId = String(command.request_id || "");
+  if (!requestId) {
+    return;
+  }
+  const players = world.getAllPlayers();
+  const names = players.map((player) => player.name).sort();
+  const bdsVersion = configValue("MINECRAFT_BDS_VERSION", "Script APIでは取得不可");
+  const lines = [
+    "Minecraft Server: ONLINE",
+    `Players: ${players.length}`,
+    names.length ? names.map((name) => `- ${name}`).join("\n") : "- なし",
+    `Uptime: ${formatDuration(Date.now() - SCRIPT_STARTED_AT_MS)}`,
+    `BDS: ${bdsVersion}`,
+    "Host CPU: Script APIでは取得不可",
+    "Host Memory: Script APIでは取得不可",
+    "Docker: Script APIでは取得不可",
+  ];
+  await postResult(requestId, "succeeded", "ok", truncateMessage(lines.join("\n")));
+}
+
 async function handleNaritaCarpet(command) {
   const requestId = String(command.request_id || "");
   const playerName = String(command.minecraft_player || "");
@@ -87,11 +264,76 @@ async function handleNaritaCarpet(command) {
     await postResult(requestId, "failed", "player_offline", "");
     return;
   }
+
+  const x = Math.floor(player.location.x);
+  const y = Math.floor(player.location.y) + 2;
+  const z = Math.floor(player.location.z);
+
+  let chestPlaced = false;
+
   try {
-    player.dimension.runCommand(`execute at ${playerName} run structure load ${STRUCTURE_ID} ~ ~ ~`);
+    player.dimension.runCommand(
+      `structure load ${STRUCTURE_ID} ${x} ${y} ${z}`
+    );
+    chestPlaced = true;
+
+    const block = player.dimension.getBlock({ x, y, z });
+    if (!block) {
+      await postResult(requestId, "failed", "narita_source_block_missing", "");
+      return;
+    }
+
+    const sourceInventory = block.getComponent("minecraft:inventory");
+    if (!sourceInventory || !sourceInventory.container) {
+      await postResult(requestId, "failed", "narita_source_inventory_missing", "");
+      return;
+    }
+
+    const source = sourceInventory.container;
+
+    let mapSlot = -1;
+    let mapItem;
+
+    for (let i = 0; i < source.size; i++) {
+      const item = source.getSlot(i).getItem();
+      if (item && item.typeId === "minecraft:filled_map") {
+        mapSlot = i;
+        mapItem = item;
+        break;
+      }
+    }
+
+    if (mapSlot < 0 || !mapItem) {
+      await postResult(requestId, "failed", "narita_map_missing", "");
+      return;
+    }
+
+    const playerInventory = player.getComponent(EntityComponentTypes.Inventory);
+    if (!playerInventory || !playerInventory.container) {
+      await postResult(requestId, "failed", "inventory_unavailable", "");
+      return;
+    }
+
+    const remaining = playerInventory.container.addItem(mapItem);
+    if (remaining !== undefined) {
+      await postResult(requestId, "failed", "inventory_full", "");
+      return;
+    }
+
+    source.setItem(mapSlot, undefined);
+
     await postResult(requestId, "succeeded", "ok", "");
   } catch (error) {
-    await postResult(requestId, "failed", "structure_load_failed", "");
+    console.warn(`[NaritaBridge] Narita transfer failed: ${String(error)}`);
+    await postResult(requestId, "failed", "narita_transfer_failed", "");
+  } finally {
+    if (chestPlaced) {
+      try {
+        player.dimension.runCommand(`setblock ${x} ${y} ${z} air`);
+      } catch (error) {
+        console.warn(`[NaritaBridge] Narita cleanup failed: ${String(error)}`);
+      }
+    }
   }
 }
 
@@ -140,6 +382,7 @@ async function pollOnce() {
   try {
     response = await http.request(request);
   } catch (error) {
+    console.warn(`[NaritaBridge] HTTP poll failed: ${String(error)}`);
     return;
   }
   if (response.status !== 200 || !response.body) {
@@ -159,6 +402,14 @@ async function pollOnce() {
     await handleNaritaCarpet(command);
     return;
   }
+  if (command.type === "held_item_inspect") {
+    await handleHeldItemInspect(command);
+    return;
+  }
+  if (command.type === "server_status") {
+    await handleServerStatus(command);
+    return;
+  }
   if (Object.prototype.hasOwnProperty.call(ITEM_TYPES_BY_COMMAND, command.type)) {
     await handleGiveItem(command, ITEM_TYPES_BY_COMMAND[command.type]);
     return;
@@ -169,5 +420,9 @@ async function pollOnce() {
 }
 
 system.runInterval(() => {
-  pollOnce().catch(() => {});
+  pollOnce().catch((error) => {
+    console.warn(`[NaritaBridge] pollOnce failed: ${String(error)}`);
+  });
 }, POLL_INTERVAL_TICKS);
+
+import "./taketumi_leash.js";

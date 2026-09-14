@@ -8,7 +8,20 @@ from bot.repositories.base import fetch_one
 
 
 MINECRAFT_PLAYER_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_]{1,16}$")
-MINECRAFT_COMMAND_TYPES = ("narita_carpet", "structure_block", "command_block")
+MINECRAFT_COMMAND_TYPES = (
+    "narita_carpet",
+    "structure_block",
+    "command_block",
+    "barrier_block",
+    "light_block",
+    "jigsaw_block",
+    "structure_void",
+    "repeating_command_block",
+    "chain_command_block",
+    "taketumi_spawn_egg",
+    "held_item_inspect",
+    "server_status",
+)
 
 
 def is_valid_minecraft_player_name(value: str) -> bool:
@@ -173,7 +186,7 @@ class MinecraftBridgeRepository:
                   AND status IN ('pending', 'claimed')
                 RETURNING *
                 """,
-                (status, reason[:120], message[:300], request_id),
+                (status, reason[:120], message[:1800], request_id),
             )
             return fetch_one(cursor)
 

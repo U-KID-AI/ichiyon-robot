@@ -1,0 +1,21 @@
+[Unit]
+Description=Ichiyon Minecraft Control API
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=docker
+WorkingDirectory=/opt/ichiyon-minecraft-control
+EnvironmentFile=/etc/ichiyon-minecraft-control.env
+ExecStart=/opt/ichiyon-minecraft-control/.venv/bin/uvicorn minecraft_control_api:app --host 10.0.0.62 --port 8099
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/home/ubuntu/minecraft-bedrock-creative
+
+[Install]
+WantedBy=multi-user.target
