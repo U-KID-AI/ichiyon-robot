@@ -135,11 +135,24 @@ async def exercise_service():
     minecraft_bridge.MinecraftBridgeRepository = FakeBridgeRepo
 
     class FakePermissionRepository:
+        global_admin = False
+        guild_role = None
+
         def __init__(self, connection):
             self.connection = connection
 
         def has_global_admin(self, discord_user_id):
-            return False
+            return self.global_admin
+
+        def list_manageable_guilds_for_bot(self, bot_id, discord_user_id):
+            if self.guild_role is None:
+                return []
+            return [
+                {
+                    "guild_id": "guild-a",
+                    "role": self.guild_role,
+                }
+            ]
 
     minecraft_bridge.PermissionRepository = FakePermissionRepository
     minecraft_bridge.config.MINECRAFT_COMMAND_TIMEOUT_SECONDS = 3
@@ -246,6 +259,40 @@ async def exercise_service():
                 "backup_file": "/home/ubuntu/minecraft-bedrock-creative/backups/test.tar.gz",
                 "pack_sync": {"status": "unchanged", "changed_packs": []},
             }
+
+        FakePermissionRepository.guild_role = "editor"
+        restart_editor = FakeMessage("マイクラ 再起動", [bot_user])
+        handled = await minecraft_bridge.handle_minecraft_command(
+            restart_editor,
+            "マイクラ 再起動",
+        )
+        results.append(
+            check(
+                "minecraft restart rejects editor",
+                handled is True
+                and restart_editor.channel.sent[-1][0][0]
+                == "Minecraftサーバー再起動の権限がありません。",
+            )
+        )
+
+        FakePermissionRepository.guild_role = "guild_admin"
+        minecraft_bridge.request_control_restart = fake_control_restart
+        restart_guild_admin = FakeMessage("マイクラ 再起動", [bot_user])
+        handled = await minecraft_bridge.handle_minecraft_command(
+            restart_guild_admin,
+            "マイクラ 再起動",
+        )
+        results.append(
+            check(
+                "minecraft restart allows guild_admin",
+                handled is True
+                and len(restart_guild_admin.channel.sent) == 2
+                and "再起動しました"
+                in restart_guild_admin.channel.sent[-1][0][0],
+            )
+        )
+
+        FakePermissionRepository.guild_role = None
 
         minecraft_bridge.config.MINECRAFT_RESTART_ALLOWED_USER_IDS = ("111",)
         minecraft_bridge.request_control_restart = fake_control_restart

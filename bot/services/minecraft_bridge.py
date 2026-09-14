@@ -11,7 +11,7 @@ from bot.repositories.minecraft_bridge import (
     command_completed,
     is_valid_minecraft_player_name,
 )
-from bot.repositories.permissions import PermissionRepository
+from bot.repositories.permissions import PermissionRepository, role_allows
 from bot.services.minecraft_control import (
     MinecraftControlError,
     control_api_configured,
@@ -285,17 +285,46 @@ def _can_restart_minecraft(message: discord.Message) -> bool:
     user_id = str(getattr(getattr(message, "author", None), "id", "") or "")
     if not user_id:
         return False
+
     if user_id in config.MINECRAFT_RESTART_ALLOWED_USER_IDS:
         return True
+
     if config.DEVELOPER_USER_ID and user_id == str(config.DEVELOPER_USER_ID):
         return True
+
+    guild_id = get_message_guild_id(message)
+
     try:
         with get_connection() as connection:
-            return PermissionRepository(connection).has_global_admin(user_id)
-    except Exception as exc:
-        print("[WARN] minecraft restart permission check failed: user_id={0} error={1}".format(user_id, type(exc).__name__))
-        return False
+            permissions = PermissionRepository(connection)
 
+            if permissions.has_global_admin(user_id):
+                return True
+
+            if guild_id is None:
+                return False
+
+            for guild in permissions.list_manageable_guilds_for_bot(
+                config.BOT_INSTANCE_ID,
+                user_id,
+            ):
+                if (
+                    str(guild.get("guild_id") or "") == str(guild_id)
+                    and role_allows(guild.get("role"), "guild_admin")
+                ):
+                    return True
+
+            return False
+    except Exception as exc:
+        print(
+            "[WARN] minecraft restart permission check failed: "
+            "user_id={0} guild_id={1} error={2}".format(
+                user_id,
+                guild_id,
+                type(exc).__name__,
+            )
+        )
+        return False
 
 async def wait_for_minecraft_result(request_id: str, timeout_seconds: int):
     deadline = asyncio.get_running_loop().time() + max(1, int(timeout_seconds))
