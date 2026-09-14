@@ -71,10 +71,12 @@ _MINECRAFT_ITEM_COMMANDS = {
         "type": "taketumi_spawn_egg",
         "label": "タケツミエッグ",
     },
+    E_SEIMONJI_COMMAND: {
+        "type": "e_schrift_item",
+        "label": "Eの聖文字",
+    },
 }
-_UNAVAILABLE_COMMAND_MESSAGES = {
-    E_SEIMONJI_COMMAND: "Eの聖文字のMinecraft item identifierを特定できないため実行できません。",
-}
+_UNAVAILABLE_COMMAND_MESSAGES = {}
 _COMMAND_TYPES_BY_TEXT = {
     NARITA_CARPET_COMMAND: "narita_carpet",
     HELD_ITEM_INSPECT_COMMAND: "held_item_inspect",
@@ -102,6 +104,7 @@ MINECRAFT_COMMAND_USAGE = (
     "ジグソーブロック <Minecraft名> / ストラクチャーヴォイド <Minecraft名> / "
     "リピートコマンドブロック <Minecraft名> / チェーンコマンドブロック <Minecraft名> / "
     "タケツミエッグ <Minecraft名> / 手持ち確認 <Minecraft名> / 状態 / 再起動"
+    "Eの聖文字 <Minecraft名> / "
 )
 _COMMAND_RE = re.compile(
     r"^\s*マイクラ[\s\u3000]+(?P<subcommand>"
@@ -328,6 +331,13 @@ def _result_error_message(minecraft_player_name: str, reason: str) -> str:
         return "{0} へアイテムを渡せませんでした。".format(minecraft_player_name)
     if reason == "empty_hand":
         return "{0} は現在なにも手に持っていません。".format(minecraft_player_name)
+    if reason in (
+        "e_schrift_source_block_missing",
+        "e_schrift_source_inventory_missing",
+        "e_schrift_item_missing",
+        "e_schrift_transfer_failed",
+    ):
+        return "Eの聖文字の生成に失敗しました。"
     if reason in ("command_failed", "structure_load_failed"):
         return "成田カーペットの生成に失敗しました。"
     return "Minecraftサーバーとの通信に失敗しました。"

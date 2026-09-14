@@ -6,6 +6,7 @@ console.warn("[NaritaBridge] main.js loaded");
 
 const DEFAULT_API_BASE = "http://10.0.0.94:8000/internal/minecraft";
 const STRUCTURE_ID = "mystructure:narita_map_item";
+const E_SCHRIFT_STRUCTURE_ID = "mystructure:e_schrift_item";
 const PLAYER_NAME_PATTERN = /^[A-Za-z0-9_]{1,16}$/;
 const POLL_INTERVAL_TICKS = 40;
 const SCRIPT_STARTED_AT_MS = Date.now();
@@ -337,6 +338,153 @@ async function handleNaritaCarpet(command) {
   }
 }
 
+async function handleESchrift(command) {
+  const requestId = String(command.request_id || "");
+  const playerName = String(command.minecraft_player || "");
+
+  if (!requestId) {
+    return;
+  }
+
+  if (!isValidPlayerName(playerName)) {
+    await postResult(requestId, "failed", "invalid_player_name", "");
+    return;
+  }
+
+  const player = findOnlinePlayer(playerName);
+
+  if (!player) {
+    await postResult(requestId, "failed", "player_offline", "");
+    return;
+  }
+
+  const x = Math.floor(player.location.x);
+  const y = Math.floor(player.location.y) + 2;
+  const z = Math.floor(player.location.z);
+
+  let chestPlaced = false;
+
+  try {
+    player.dimension.runCommand(
+      `structure load ${E_SCHRIFT_STRUCTURE_ID} ${x} ${y} ${z}`
+    );
+
+    chestPlaced = true;
+
+    const block = player.dimension.getBlock({ x, y, z });
+
+    if (!block) {
+      await postResult(
+        requestId,
+        "failed",
+        "e_schrift_source_block_missing",
+        ""
+      );
+      return;
+    }
+
+    const sourceInventory =
+      block.getComponent("minecraft:inventory");
+
+    if (!sourceInventory || !sourceInventory.container) {
+      await postResult(
+        requestId,
+        "failed",
+        "e_schrift_source_inventory_missing",
+        ""
+      );
+      return;
+    }
+
+    const source = sourceInventory.container;
+
+    let itemSlot = -1;
+    let sourceItem;
+
+    for (let slot = 0; slot < source.size; slot++) {
+      const item = source.getSlot(slot).getItem();
+
+      if (
+        item &&
+        item.typeId === "minecraft:banner" &&
+        safeValue(() => item.nameTag, "") === "E\u306e\u8056\u6587\u5b57"
+      ) {
+        itemSlot = slot;
+        sourceItem = item;
+        break;
+      }
+    }
+
+    if (itemSlot < 0 || !sourceItem) {
+      await postResult(
+        requestId,
+        "failed",
+        "e_schrift_item_missing",
+        ""
+      );
+      return;
+    }
+
+    const inventory =
+      player.getComponent(EntityComponentTypes.Inventory);
+
+    if (!inventory || !inventory.container) {
+      await postResult(
+        requestId,
+        "failed",
+        "inventory_unavailable",
+        ""
+      );
+      return;
+    }
+
+    const remaining =
+      inventory.container.addItem(sourceItem);
+
+    if (remaining !== undefined) {
+      await postResult(
+        requestId,
+        "failed",
+        "inventory_full",
+        ""
+      );
+      return;
+    }
+
+    source.setItem(itemSlot, undefined);
+
+    await postResult(
+      requestId,
+      "succeeded",
+      "ok",
+      ""
+    );
+  } catch (error) {
+    console.warn(
+      `[NaritaBridge] E Schrift transfer failed: ${String(error)}`
+    );
+
+    await postResult(
+      requestId,
+      "failed",
+      "e_schrift_transfer_failed",
+      ""
+    );
+  } finally {
+    if (chestPlaced) {
+      try {
+        player.dimension.runCommand(
+          `setblock ${x} ${y} ${z} air`
+        );
+      } catch (error) {
+        console.warn(
+          `[NaritaBridge] E Schrift cleanup failed: ${String(error)}`
+        );
+      }
+    }
+  }
+}
+
 async function handleGiveItem(command, itemTypeId) {
   const requestId = String(command.request_id || "");
   const playerName = String(command.minecraft_player || "");
@@ -400,6 +548,10 @@ async function pollOnce() {
   }
   if (command.type === "narita_carpet") {
     await handleNaritaCarpet(command);
+    return;
+  }
+  if (command.type === "e_schrift_item") {
+    await handleESchrift(command);
     return;
   }
   if (command.type === "held_item_inspect") {

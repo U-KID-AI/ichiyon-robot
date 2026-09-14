@@ -295,9 +295,13 @@ async def exercise_service():
         minecraft_bridge.wait_for_minecraft_result = original_wait_fn
 
         e_seimonji = FakeMessage("マイクラ Eの聖文字 Player45165996", [bot_user])
-        handled = await minecraft_bridge.handle_minecraft_command(e_seimonji, "マイクラ Eの聖文字 Player45165996")
-        results.append(check("E sacred letter is explicitly unavailable without identifier", handled is True and e_seimonji.channel.sent[-1][0][0] == minecraft_bridge._UNAVAILABLE_COMMAND_MESSAGES[minecraft_bridge.E_SEIMONJI_COMMAND]))
-        results.append(check("E sacred letter does not enqueue guessed item", FakeBridgeRepo.enqueued[-1]["command_type"] != "e_seimonji"))
+        handled = await minecraft_bridge.handle_minecraft_command(
+            e_seimonji,
+            "マイクラ Eの聖文字 Player45165996",
+        )
+        results.append(check("E sacred letter command is handled", handled is True))
+        results.append(check("E sacred letter queues structured type", FakeBridgeRepo.enqueued[-1]["command_type"] == "e_schrift_item"))
+        results.append(check("E sacred letter success message", e_seimonji.channel.sent[-1][0][0] == "Player45165996 にEの聖文字を送り付けました。"))
 
         no_bot = FakeMessage("マイクラ 成田カーペット Player45165996", [target_user])
         handled = await minecraft_bridge.handle_minecraft_command(no_bot, None)

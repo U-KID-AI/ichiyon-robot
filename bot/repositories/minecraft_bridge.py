@@ -19,6 +19,7 @@ MINECRAFT_COMMAND_TYPES = (
     "repeating_command_block",
     "chain_command_block",
     "taketumi_spawn_egg",
+    "e_schrift_item",
     "held_item_inspect",
     "server_status",
 )
