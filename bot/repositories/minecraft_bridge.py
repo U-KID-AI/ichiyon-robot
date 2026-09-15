@@ -26,6 +26,11 @@ MINECRAFT_COMMAND_TYPES = (
     "taketumi_remove_near_player",
     "poster_irsia",
     "poster_raio",
+    "poster_trent",
+    "poster_aurelia",
+    "poster_killzael",
+    "poster_caravan_mammoth",
+    "poster_itsutake",
 )
 
 

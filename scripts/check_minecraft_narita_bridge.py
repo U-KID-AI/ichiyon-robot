@@ -114,6 +114,11 @@ EXPECTED_ITEM_COMMANDS = [
     ("タケツミエッグ", "taketumi_spawn_egg", "タケツミエッグ", "inventory"),
     ("イルシアポスター", "poster_irsia", "イルシアポスター", "inventory"),
     ("ライオポスター", "poster_raio", "ライオポスター", "inventory"),
+    ("トレントポスター", "poster_trent", "トレントポスター", "inventory"),
+    ("オーレリアポスター", "poster_aurelia", "オーレリアポスター", "inventory"),
+    ("キルザエルポスター", "poster_killzael", "キルザエルポスター", "inventory"),
+    ("キャラバンマンモスポスター", "poster_caravan_mammoth", "キャラバンマンモスポスター", "inventory"),
+    ("イツタケポスター", "poster_itsutake", "イツタケポスター", "inventory"),
 ]
 EXPECTED_TAKETUMI_ENTITY_COMMANDS = [
     ("タケツミ召喚", "taketumi_spawn_near_player"),
@@ -479,6 +484,7 @@ def static_checks():
     migration_050 = (ROOT_DIR / "migrations" / "050_add_e_schrift_item_command.sql").read_text(encoding="utf-8")
     migration_051 = (ROOT_DIR / "migrations" / "051_add_taketumi_entity_commands.sql").read_text(encoding="utf-8")
     migration_052 = (ROOT_DIR / "migrations" / "052_add_minecraft_poster_commands.sql").read_text(encoding="utf-8")
+    migration_053 = (ROOT_DIR / "migrations" / "053_add_more_minecraft_poster_commands.sql").read_text(encoding="utf-8")
     script = (ROOT_DIR / "minecraft" / "behavior_packs" / "import_structures" / "scripts" / "main.js").read_text(encoding="utf-8")
     control_api = (ROOT_DIR / "scripts" / "minecraft" / "minecraft_control_api.py").read_text(encoding="utf-8")
     control_env = (ROOT_DIR / "scripts" / "minecraft" / "minecraft-control-api.env.example").read_text(encoding="utf-8")
@@ -502,7 +508,7 @@ def static_checks():
         results.append(
             check(
                 "queue allows {0}".format(command_type),
-                command_type in migration_052
+                command_type in migration_053
                 and command_type in MINECRAFT_COMMAND_TYPES
                 and command_type in minecraft_bridge._COMMAND_TYPES_BY_TEXT.values(),
             )
@@ -511,7 +517,7 @@ def static_checks():
         results.append(
             check(
                 "queue allows {0}".format(command_type),
-                command_type in migration_052
+                command_type in migration_053
                 and command_type in MINECRAFT_COMMAND_TYPES
                 and command_type in minecraft_bridge._COMMAND_TYPES_BY_TEXT.values(),
             )
@@ -519,9 +525,10 @@ def static_checks():
     results.append(check("existing queue migration still has original block commands", "structure_block" in migration_048 and "command_block" in migration_048))
     results.append(check("queue migration 051 preserves E sacred letter", "e_schrift_item" in migration_050 and "e_schrift_item" in migration_051))
     results.append(check("queue migration 052 preserves E sacred letter", "e_schrift_item" in migration_052))
-    results.append(check("queue allows held item inspect", "held_item_inspect" in migration_052 and "held_item_inspect" in MINECRAFT_COMMAND_TYPES))
-    results.append(check("queue allows minecraft status", "server_status" in migration_052 and "server_status" in MINECRAFT_COMMAND_TYPES))
-    results.append(check("migration 052 uses existing safe constraint", "minecraft_command_queue_type_safe" in migration_052))
+    results.append(check("queue migration 053 preserves E sacred letter", "e_schrift_item" in migration_053))
+    results.append(check("queue allows held item inspect", "held_item_inspect" in migration_053 and "held_item_inspect" in MINECRAFT_COMMAND_TYPES))
+    results.append(check("queue allows minecraft status", "server_status" in migration_053 and "server_status" in MINECRAFT_COMMAND_TYPES))
+    results.append(check("migration 053 uses existing safe constraint", "minecraft_command_queue_type_safe" in migration_053))
     results.append(check("script rejects unknown command type", "unknown_command_type" in script))
     results.append(check("script uses fixed structure id", "mystructure:narita_map_item" in script and "command.structure" not in script))
     results.append(check("script transfers fixed Narita map item", "structure load ${STRUCTURE_ID} ${x} ${y} ${z}" in script and "minecraft:filled_map" in script))
@@ -536,6 +543,8 @@ def static_checks():
     results.append(check("taketumi egg uses allow-listed item", "taketumi_spawn_egg" in script and "ichiyon:taketumi_spawn_egg" in script))
     results.append(check("Irsia poster uses allow-listed item", "poster_irsia" in script and "ichiyon:poster_irsia" in script))
     results.append(check("Raio poster uses allow-listed item", "poster_raio" in script and "ichiyon:poster_raio" in script))
+    for command_type in ("poster_trent", "poster_aurelia", "poster_killzael", "poster_caravan_mammoth", "poster_itsutake"):
+        results.append(check("{0} uses allow-listed item".format(command_type), command_type in script and "ichiyon:{0}".format(command_type) in script))
     results.append(check("taketumi entity remains spawnable and summonable", '"is_spawnable": true' in avatar_bp_entity and '"is_summonable": true' in avatar_bp_entity))
     results.append(check("taketumi egg item uses entity placer", '"minecraft:entity_placer"' in avatar_bp_item and '"entity": "ichiyon:taketumi"' in avatar_bp_item))
     results.append(check("taketumi egg item has icon", '"minecraft:icon": "ichiyon:taketumi_spawn_egg"' in avatar_bp_item and "textures/items/taketumi_spawn_egg" in item_texture))

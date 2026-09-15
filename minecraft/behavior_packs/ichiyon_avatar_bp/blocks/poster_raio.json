@@ -4,14 +4,13 @@
     "description": {
       "identifier": "ichiyon:poster_raio",
       "menu_category": {
-        "category": "construction"
+        "category": "items"
       },
       "traits": {
         "minecraft:placement_direction": {
           "enabled_states": [
             "minecraft:cardinal_direction"
-          ],
-          "y_rotation_offset": 180
+          ]
         }
       }
     },
@@ -20,28 +19,22 @@
       "minecraft:material_instances": {
         "*": {
           "texture": "poster_raio",
-          "render_method": "alpha_test",
-          "face_dimming": false
+          "render_method": "alpha_test"
         }
       },
       "minecraft:collision_box": false,
       "minecraft:selection_box": {
         "origin": [
-          -5.73438,
-          0.0,
-          -8
+          -8,
+          0,
+          7.46875
         ],
         "size": [
-          11.46875,
-          16.0,
-          0.5
+          16,
+          16,
+          0.03125
         ]
       },
-      "minecraft:light_dampening": 0,
-      "minecraft:destructible_by_mining": {
-        "seconds_to_destroy": 0.2
-      },
-      "minecraft:loot": "loot_tables/blocks/poster_raio.json",
       "minecraft:placement_filter": {
         "conditions": [
           {
@@ -50,10 +43,22 @@
               "south",
               "east",
               "west"
+            ],
+            "block_filter": [
+              "minecraft:stone",
+              "minecraft:dirt",
+              "minecraft:grass_block",
+              "minecraft:planks",
+              "minecraft:wood",
+              "minecraft:log",
+              "minecraft:brick_block",
+              "minecraft:concrete",
+              "minecraft:wool"
             ]
           }
         ]
-      }
+      },
+      "minecraft:loot": "loot_tables/blocks/poster_raio.json"
     },
     "permutations": [
       {
@@ -98,7 +103,7 @@
           "minecraft:transformation": {
             "rotation": [
               0,
-              270,
+              -90,
               0
             ]
           }

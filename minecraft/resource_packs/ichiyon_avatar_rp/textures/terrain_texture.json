@@ -9,6 +9,21 @@
     },
     "poster_raio": {
       "textures": "textures/blocks/poster_raio"
+    },
+    "poster_trent": {
+      "textures": "textures/blocks/poster_trent"
+    },
+    "poster_aurelia": {
+      "textures": "textures/blocks/poster_aurelia"
+    },
+    "poster_killzael": {
+      "textures": "textures/blocks/poster_killzael"
+    },
+    "poster_caravan_mammoth": {
+      "textures": "textures/blocks/poster_caravan_mammoth"
+    },
+    "poster_itsutake": {
+      "textures": "textures/blocks/poster_itsutake"
     }
   }
 }

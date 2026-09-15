@@ -19,7 +19,7 @@
           "name": "poster",
           "pivot": [
             0,
-            8,
+            0,
             0
           ],
           "cubes": [
@@ -27,7 +27,7 @@
               "origin": [
                 -5.73438,
                 0.0,
-                7.96875
+                7.46875
               ],
               "size": [
                 11.46875,
@@ -37,62 +37,1012 @@
               "uv": {
                 "north": {
                   "uv": [
-                    0,
-                    0
+                    0.0,
+                    0.0
                   ],
                   "uv_size": [
-                    367,
-                    512
+                    367.0,
+                    512.0
                   ]
-                },
-                "south": {
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r0c0",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.2,
+        "visible_bounds_height": 1.2,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -4.67188,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                14.33594,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
                   "uv": [
-                    367,
-                    0
+                    0.0,
+                    0.0
                   ],
                   "uv_size": [
-                    -367,
-                    512
+                    91.75,
+                    102.4
                   ]
-                },
-                "east": {
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r0c1",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.2,
+        "visible_bounds_height": 1.2,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -6.33594,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                14.33594,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
                   "uv": [
-                    0,
-                    0
+                    91.75,
+                    0.0
                   ],
                   "uv_size": [
-                    1,
-                    512
+                    91.75,
+                    102.4
                   ]
-                },
-                "west": {
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r0c2",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.2,
+        "visible_bounds_height": 1.2,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                14.33594,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
                   "uv": [
-                    0,
-                    0
+                    183.5,
+                    0.0
                   ],
                   "uv_size": [
-                    1,
-                    512
+                    91.75,
+                    102.4
                   ]
-                },
-                "up": {
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r0c3",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.2,
+        "visible_bounds_height": 1.2,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -9.66406,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                14.33594,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
                   "uv": [
-                    0,
-                    0
+                    275.25,
+                    0.0
                   ],
                   "uv_size": [
-                    367,
-                    1
+                    91.75,
+                    102.4
                   ]
-                },
-                "down": {
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r1c0",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.2,
+        "visible_bounds_height": 1.2,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -4.67188,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                14.33594,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
                   "uv": [
-                    0,
-                    0
+                    0.0,
+                    102.4
                   ],
                   "uv_size": [
-                    367,
-                    1
+                    91.75,
+                    102.4
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r1c1",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.2,
+        "visible_bounds_height": 1.2,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -6.33594,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                14.33594,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    91.75,
+                    102.4
+                  ],
+                  "uv_size": [
+                    91.75,
+                    102.4
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r1c2",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.2,
+        "visible_bounds_height": 1.2,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                14.33594,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    183.5,
+                    102.4
+                  ],
+                  "uv_size": [
+                    91.75,
+                    102.4
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r1c3",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.2,
+        "visible_bounds_height": 1.2,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -9.66406,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                14.33594,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    275.25,
+                    102.4
+                  ],
+                  "uv_size": [
+                    91.75,
+                    102.4
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r2c0",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.2,
+        "visible_bounds_height": 1.2,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -4.67188,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                14.33594,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    0.0,
+                    204.8
+                  ],
+                  "uv_size": [
+                    91.75,
+                    102.4
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r2c1",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.2,
+        "visible_bounds_height": 1.2,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -6.33594,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                14.33594,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    91.75,
+                    204.8
+                  ],
+                  "uv_size": [
+                    91.75,
+                    102.4
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r2c2",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.2,
+        "visible_bounds_height": 1.2,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                14.33594,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    183.5,
+                    204.8
+                  ],
+                  "uv_size": [
+                    91.75,
+                    102.4
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r2c3",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.2,
+        "visible_bounds_height": 1.2,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -9.66406,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                14.33594,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    275.25,
+                    204.8
+                  ],
+                  "uv_size": [
+                    91.75,
+                    102.4
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r3c0",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.2,
+        "visible_bounds_height": 1.2,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -4.67188,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                14.33594,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    0.0,
+                    307.2
+                  ],
+                  "uv_size": [
+                    91.75,
+                    102.4
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r3c1",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.2,
+        "visible_bounds_height": 1.2,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -6.33594,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                14.33594,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    91.75,
+                    307.2
+                  ],
+                  "uv_size": [
+                    91.75,
+                    102.4
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r3c2",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.2,
+        "visible_bounds_height": 1.2,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                14.33594,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    183.5,
+                    307.2
+                  ],
+                  "uv_size": [
+                    91.75,
+                    102.4
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r3c3",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.2,
+        "visible_bounds_height": 1.2,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -9.66406,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                14.33594,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    275.25,
+                    307.2
+                  ],
+                  "uv_size": [
+                    91.75,
+                    102.4
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r4c0",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.2,
+        "visible_bounds_height": 1.2,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -4.67188,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                14.33594,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    0.0,
+                    409.6
+                  ],
+                  "uv_size": [
+                    91.75,
+                    102.4
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r4c1",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.2,
+        "visible_bounds_height": 1.2,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -6.33594,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                14.33594,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    91.75,
+                    409.6
+                  ],
+                  "uv_size": [
+                    91.75,
+                    102.4
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r4c2",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.2,
+        "visible_bounds_height": 1.2,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                14.33594,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    183.5,
+                    409.6
+                  ],
+                  "uv_size": [
+                    91.75,
+                    102.4
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r4c3",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.2,
+        "visible_bounds_height": 1.2,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -9.66406,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                14.33594,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    275.25,
+                    409.6
+                  ],
+                  "uv_size": [
+                    91.75,
+                    102.4
                   ]
                 }
               }

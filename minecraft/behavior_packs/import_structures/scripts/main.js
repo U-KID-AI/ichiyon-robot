@@ -1,4 +1,4 @@
-import { EntityComponentTypes, ItemStack, system, world } from "@minecraft/server";
+import { BlockPermutation, EntityComponentTypes, ItemStack, system, world } from "@minecraft/server";
 import { HttpHeader, HttpRequest, HttpRequestMethod, http } from "@minecraft/server-net";
 import { secrets, variables } from "@minecraft/server-admin";
 
@@ -12,6 +12,37 @@ const TAKETUMI_NAME_TAG = "タケツミ";
 const PLAYER_NAME_PATTERN = /^[A-Za-z0-9_]{1,16}$/;
 const POLL_INTERVAL_TICKS = 40;
 const SCRIPT_STARTED_AT_MS = Date.now();
+const AIR_BLOCK_TYPE = "minecraft:air";
+const CARDINAL_DIRECTION_STATE = "minecraft:cardinal_direction";
+const LARGE_POSTER_COLUMNS = 4;
+const LARGE_POSTER_ROWS = 5;
+const LARGE_POSTERS = [
+  { baseId: "ichiyon:poster_raio", segmentPrefix: "ichiyon:poster_raio", label: "ライオポスター" },
+  { baseId: "ichiyon:poster_trent", segmentPrefix: "ichiyon:poster_trent", label: "トレントポスター" },
+  { baseId: "ichiyon:poster_aurelia", segmentPrefix: "ichiyon:poster_aurelia", label: "オーレリアポスター" },
+  { baseId: "ichiyon:poster_killzael", segmentPrefix: "ichiyon:poster_killzael", label: "キルザエルポスター" },
+  { baseId: "ichiyon:poster_caravan_mammoth", segmentPrefix: "ichiyon:poster_caravan_mammoth", label: "キャラバンマンモスポスター" },
+  { baseId: "ichiyon:poster_itsutake", segmentPrefix: "ichiyon:poster_itsutake", label: "イツタケポスター" },
+];
+const LARGE_POSTER_BY_BASE_ID = Object.fromEntries(
+  LARGE_POSTERS.map((poster) => [poster.baseId, poster])
+);
+const LARGE_POSTER_SEGMENTS = [];
+for (const poster of LARGE_POSTERS) {
+  for (let row = 0; row < LARGE_POSTER_ROWS; row += 1) {
+    for (let column = 0; column < LARGE_POSTER_COLUMNS; column += 1) {
+      LARGE_POSTER_SEGMENTS.push({
+        id: `${poster.segmentPrefix}_r${row}c${column}`,
+        poster,
+        row,
+        column,
+      });
+    }
+  }
+}
+const LARGE_POSTER_SEGMENT_BY_ID = Object.fromEntries(
+  LARGE_POSTER_SEGMENTS.map((segment) => [segment.id, segment])
+);
 const ITEM_TYPES_BY_COMMAND = {
   structure_block: "minecraft:structure_block",
   command_block: "minecraft:command_block",
@@ -24,6 +55,11 @@ const ITEM_TYPES_BY_COMMAND = {
   taketumi_spawn_egg: "ichiyon:taketumi_spawn_egg",
   poster_irsia: "ichiyon:poster_irsia",
   poster_raio: "ichiyon:poster_raio",
+  poster_trent: "ichiyon:poster_trent",
+  poster_aurelia: "ichiyon:poster_aurelia",
+  poster_killzael: "ichiyon:poster_killzael",
+  poster_caravan_mammoth: "ichiyon:poster_caravan_mammoth",
+  poster_itsutake: "ichiyon:poster_itsutake",
 };
 
 function configValue(name, fallback) {
@@ -534,6 +570,183 @@ async function handleGiveItem(command, itemTypeId) {
   }
 }
 
+function blockTypeId(block) {
+  return safeValue(() => block.typeId, "");
+}
+
+function permutationTypeId(permutation) {
+  return safeValue(() => permutation.type.id, "");
+}
+
+function cardinalDirectionFromPermutation(permutation) {
+  const direction = safeValue(() => permutation.getState(CARDINAL_DIRECTION_STATE), "north");
+  if (["north", "south", "east", "west"].includes(direction)) {
+    return direction;
+  }
+  return "north";
+}
+
+function posterVectors(direction) {
+  if (direction === "south") {
+    return { right: { x: 1, z: 0 }, wall: { x: 0, z: -1 } };
+  }
+  if (direction === "east") {
+    return { right: { x: 0, z: -1 }, wall: { x: -1, z: 0 } };
+  }
+  if (direction === "west") {
+    return { right: { x: 0, z: 1 }, wall: { x: 1, z: 0 } };
+  }
+  return { right: { x: -1, z: 0 }, wall: { x: 0, z: 1 } };
+}
+
+function offsetLocation(location, vector, amount, yOffset = 0) {
+  return {
+    x: location.x + vector.x * amount,
+    y: location.y + yOffset,
+    z: location.z + vector.z * amount,
+  };
+}
+
+function largePosterSegmentLocation(baseLocation, direction, segment) {
+  const { right } = posterVectors(direction);
+  return offsetLocation(
+    baseLocation,
+    right,
+    segment.column,
+    LARGE_POSTER_ROWS - 1 - segment.row
+  );
+}
+
+function largePosterBaseLocation(segmentLocation, direction, segment) {
+  const { right } = posterVectors(direction);
+  return {
+    x: segmentLocation.x - right.x * segment.column,
+    y: segmentLocation.y - (LARGE_POSTER_ROWS - 1 - segment.row),
+    z: segmentLocation.z - right.z * segment.column,
+  };
+}
+
+function blockAt(dimension, location) {
+  return safeValue(() => dimension.getBlock(location), undefined);
+}
+
+function isReplaceablePosterTarget(block, baseLocation, poster) {
+  if (!block) {
+    return false;
+  }
+  if (
+    block.location.x === baseLocation.x
+    && block.location.y === baseLocation.y
+    && block.location.z === baseLocation.z
+  ) {
+    return blockTypeId(block) === poster.baseId;
+  }
+  return blockTypeId(block) === AIR_BLOCK_TYPE;
+}
+
+function hasSolidPosterSupport(dimension, location, direction) {
+  const { wall } = posterVectors(direction);
+  const support = blockAt(dimension, offsetLocation(location, wall, 1));
+  return Boolean(support && blockTypeId(support) !== AIR_BLOCK_TYPE);
+}
+
+function allLargePosterCellsReady(dimension, baseLocation, direction, poster) {
+  for (const segment of LARGE_POSTER_SEGMENTS.filter((candidate) => candidate.poster === poster)) {
+    const location = largePosterSegmentLocation(baseLocation, direction, segment);
+    const block = blockAt(dimension, location);
+    if (!isReplaceablePosterTarget(block, baseLocation, poster)) {
+      return false;
+    }
+    if (!hasSolidPosterSupport(dimension, location, direction)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function setBlockType(dimension, location, identifier, direction) {
+  const block = blockAt(dimension, location);
+  if (!block) {
+    return false;
+  }
+  const states = direction ? { [CARDINAL_DIRECTION_STATE]: direction } : undefined;
+  block.setPermutation(BlockPermutation.resolve(identifier, states));
+  return true;
+}
+
+function removeLargePosterCells(dimension, baseLocation, direction, poster) {
+  for (const segment of LARGE_POSTER_SEGMENTS.filter((candidate) => candidate.poster === poster)) {
+    const location = largePosterSegmentLocation(baseLocation, direction, segment);
+    const block = blockAt(dimension, location);
+    const blockSegment = LARGE_POSTER_SEGMENT_BY_ID[blockTypeId(block)];
+    if (blockSegment && blockSegment.poster === poster) {
+      block.setPermutation(BlockPermutation.resolve(AIR_BLOCK_TYPE));
+    }
+  }
+}
+
+function playerShouldReceivePosterDrop(player) {
+  const gameMode = String(
+    safeValue(() => player.getGameMode(), "")
+  ).toLowerCase();
+  return gameMode === "survival" || gameMode === "adventure";
+}
+
+function returnLargePosterItem(player, location, poster) {
+  if (!playerShouldReceivePosterDrop(player)) {
+    return;
+  }
+
+  const item = new ItemStack(poster.baseId, 1);
+  const inventory = safeValue(
+    () => player.getComponent(EntityComponentTypes.Inventory),
+    undefined
+  );
+  const container = inventory ? inventory.container : undefined;
+
+  if (container && safeValue(() => container.addItem(item), item) === undefined) {
+    return;
+  }
+
+  safeValue(() => player.dimension.spawnItem(item, location), undefined);
+}
+
+function expandLargePoster(block, player) {
+  const poster = LARGE_POSTER_BY_BASE_ID[blockTypeId(block)];
+  if (!poster) {
+    return;
+  }
+  const direction = cardinalDirectionFromPermutation(block.permutation);
+  const baseLocation = block.location;
+  const dimension = block.dimension;
+  if (!allLargePosterCellsReady(dimension, baseLocation, direction, poster)) {
+    setBlockType(dimension, baseLocation, AIR_BLOCK_TYPE);
+    returnLargePosterItem(player, baseLocation, poster);
+    safeValue(() => player.sendMessage(`${poster.label}には4 x 5の空いた壁面が必要です。`), undefined);
+    return;
+  }
+  for (const segment of LARGE_POSTER_SEGMENTS.filter((candidate) => candidate.poster === poster)) {
+    setBlockType(
+      dimension,
+      largePosterSegmentLocation(baseLocation, direction, segment),
+      segment.id,
+      direction
+    );
+  }
+}
+
+function cleanupLargePosterSegment(block, brokenPermutation, player) {
+  const brokenTypeId = permutationTypeId(brokenPermutation);
+  const segment = LARGE_POSTER_SEGMENT_BY_ID[brokenTypeId];
+  if (!segment) {
+    return;
+  }
+  const direction = cardinalDirectionFromPermutation(brokenPermutation);
+  const baseLocation = largePosterBaseLocation(block.location, direction, segment);
+  removeLargePosterCells(block.dimension, baseLocation, direction, segment.poster);
+  returnLargePosterItem(player, block.location, segment.poster);
+}
+
 async function handleTaketumiSpawnNearPlayer(command) {
   const requestId = String(command.request_id || "");
   const playerName = String(command.minecraft_player || "");
@@ -683,5 +896,20 @@ system.runInterval(() => {
     console.warn(`[NaritaBridge] pollOnce failed: ${String(error)}`);
   });
 }, POLL_INTERVAL_TICKS);
+
+world.afterEvents.playerPlaceBlock.subscribe((event) => {
+  if (!LARGE_POSTER_BY_BASE_ID[blockTypeId(event.block)]) {
+    return;
+  }
+  system.run(() => {
+    expandLargePoster(event.block, event.player);
+  });
+});
+
+world.afterEvents.playerBreakBlock.subscribe((event) => {
+  system.run(() => {
+    cleanupLargePosterSegment(event.block, event.brokenBlockPermutation, event.player);
+  });
+});
 
 import "./taketumi_leash.js";
