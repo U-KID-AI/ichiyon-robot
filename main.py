@@ -8,6 +8,7 @@ from bot.ng_words import contains_ng_word
 from bot.quotes import draw_quote_message
 from bot.reactions import handle_word_response
 from bot.services.auto_posts import run_db_auto_posts_once
+from bot.services.ai_tasks import handle_ai_task_command, parse_ai_command
 from bot.services.reaction_thresholds import handle_db_reaction_threshold
 from bot.services.interaction_panel import handle_context_panel_command, mention_text_is_empty, register_persistent_views
 from bot.services.mention_shortcuts import handle_mention_shortcut_command
@@ -167,13 +168,19 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
 
 @bot.event
 async def on_message(message: discord.Message):
-    print(f"[DEBUG] on_message: author={message.author} content={message.content!r}")
-
     if message.author.bot:
+        print(f"[DEBUG] on_message: author={message.author} content={message.content!r}")
         print("[DEBUG] ignored bot message")
         return
 
     command_text = messages.get_mention_command_text(message)
+    _ai_action, _ai_argument, is_ai_command = parse_ai_command(command_text)
+    debug_content = "<AI command redacted>" if is_ai_command else message.content
+    print(f"[DEBUG] on_message: author={message.author} content={debug_content!r}")
+
+    if await handle_ai_task_command(message, command_text):
+        return
+
     if await handle_empty_mention_message(message, command_text):
         return
 

@@ -144,7 +144,11 @@ def get_mention_command_text(message: discord.Message) -> Optional[str]:
     content = content.replace(f"<@{bot_id}>", "")
     content = content.replace(f"<@!{bot_id}>", "")
     command_text = content.strip()
-    print(f"[DEBUG] command_text={command_text!r}")
+    from bot.services.ai_tasks import parse_ai_command
+
+    _action, _argument, is_ai_command = parse_ai_command(command_text)
+    debug_command_text = "<AI command redacted>" if is_ai_command else command_text
+    print(f"[DEBUG] command_text={debug_command_text!r}")
     return command_text
 
 

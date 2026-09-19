@@ -66,6 +66,7 @@ def load_main_routing_functions():
         "bot": FakeBot(),
         "discord": SimpleNamespace(Message=object),
         "messages": messages,
+        "parse_ai_command": lambda value: (None, None, str(value or "").startswith("AI")),
         "mention_text_is_empty": mention_text_is_empty,
         "get_message_guild_id": get_message_guild_id,
         "config": SimpleNamespace(DATA_BACKEND="db"),
@@ -86,6 +87,12 @@ async def main_async():
 
     async def fake_music_links(message, command_text):
         events.append(("music_links", command_text))
+        return False
+
+    async def fake_ai_task(message, command_text):
+        if str(command_text or "").startswith("AI"):
+            events.append(("ai_task", command_text))
+            return True
         return False
 
     async def fake_youtube_n_pull(message, command_text):
@@ -147,6 +154,7 @@ async def main_async():
     namespace.update(
         {
             "handle_mention_music_links": fake_music_links,
+            "handle_ai_task_command": fake_ai_task,
             "handle_youtube_n_pull_command": fake_youtube_n_pull,
             "handle_voice_command": fake_voice,
             "handle_developer_command": fake_developer,
@@ -179,6 +187,9 @@ async def main_async():
     message, trace = await run(None)
     results.append(check("empty mention uses DB runtime", trace == [("db_runtime", "")], trace))
     results.append(check("empty mention sends existing DB response only", len(message.channel.sent) == 1 and "森羅万象" in message.channel.sent[0][0][0]))
+
+    message, trace = await run("AI 一覧")
+    results.append(check("AI command is consumed before general mention routing", trace == [("ai_task", "AI 一覧")] and message.channel.sent == [], trace))
 
     _, trace = await run("入って")
     results.append(check("non-empty voice text reaches voice handler", ("voice", "入って") in trace and ("db_runtime", "入って") not in trace, trace))

@@ -32,6 +32,8 @@ Discordへ結果通知
 
 受付時にtask IDを発行し、要求、依頼者、受け付け時刻、対象worktree、branch、状態を記録する。実際のqueue・state保存先と保持期間はTBD。
 
+Phase 1では、taskをPostgreSQLの`ai_tasks`へ保存する。`task_id`はUUID、初期状態は`queued`、branch名は`ai/task/<UUID>`、worktree名は`ai-task-<UUID>`とする。Discordからは`AI 開発 <依頼内容>`、`AI 状態 <task_id>`、`AI 一覧`を利用できる。AI taskの受付・照会は`AI_TASK_ALLOWED_USER_IDS`に明示されたDiscord userだけを許可し、実際のbranch/worktree作成、Codex実行、commit、push、PR、staging・production操作は行わない。
+
 ## 実行時の原則
 
 1. 関連コードと文書を調査する。
