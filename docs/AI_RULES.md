@@ -45,3 +45,6 @@ productionに関するLevel 3操作は、人間の承認を得てもAI Runner自
 - 推測でAPI、環境状態、ファイル構成、権限を決めない。
 - 本番worldや本番DBを検証用データとして扱わない。
 - 承認されていない外部送信、削除、再起動、デプロイを行わない。
+## Phase 2A
+
+AI Task Control Planeは専用Bearer tokenと固定endpointで保護し、任意SQL、任意status、任意column、任意shellを公開しない。claim tokenとleaseを全Runner更新で検証し、期限切れtaskをqueuedへ戻さない。Phase 2AではCodex、Git、GitHub、worktree、production/staging操作を実行しない。IP制限はX-Forwarded-Forをアプリケーションで信頼せず、将来reverse proxyまたはfirewallで行う。

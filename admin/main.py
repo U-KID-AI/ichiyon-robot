@@ -34,6 +34,7 @@ from admin.mention_limited_effects import (
 )
 from admin.mention_shortcuts import register_mention_shortcut_routes, router as mention_shortcut_router
 from admin.minecraft_internal import router as minecraft_internal_router
+from admin.ai_tasks_internal import router as ai_task_internal_router
 from admin.modes import register_mode_routes, router as mode_router
 from admin.ng_words_db import register_ng_word_routes, router as ng_word_router
 from admin.persona_draws import register_persona_draw_routes, router as persona_draw_router
@@ -117,6 +118,7 @@ app.include_router(server_router)
 app.include_router(mention_limited_effect_router)
 app.include_router(mention_shortcut_router)
 app.include_router(minecraft_internal_router)
+app.include_router(ai_task_internal_router)
 app.include_router(mention_reaction_router)
 app.include_router(persona_draw_router)
 app.include_router(special_effect_router)

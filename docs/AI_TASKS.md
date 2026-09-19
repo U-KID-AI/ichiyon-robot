@@ -55,3 +55,8 @@ merge権限と承認の記録方式は要設計。AIが承認者を代行しな�
 - productionの操作は人間承認必須とする。
 
 production deploy、production restart、production DB migration、production secrets変更、production firewall/network変更、Minecraft production world変更、production data deletion、production rollbackのAI Runnerによる実行は現在の計画対象外である。必要な場合は対象、影響、必要な操作、検証結果、復旧方法を整理して人間へ引き渡し、人間が外部で実行する。stagingの自動化とproductionの人間実行を混同しない。
+## Phase 2A Control Plane
+
+`migrations/060_add_ai_task_runner_fields.sql`でRunner識別、claim token、lease、試験結果、commit/PR情報を追加する。`queued` taskは固定APIのclaimで`running`になり、heartbeatとprogressを経て、`testing`、`needs_human`、`failed`、`ready_for_review`へ固定遷移する。lease期限切れは自動再queueせず`needs_human`へ遷移する。
+
+Phase 2AはControl Planeだけを提供し、Codex、Git、worktree、branch、PR作成、Discord通知は実行しない。
