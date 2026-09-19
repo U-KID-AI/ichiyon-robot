@@ -73,3 +73,8 @@ Draft PRには目的、変更範囲、テスト結果、既知の制約、Level 
 ## 状態
 
 想定状態は `queued`、`running`、`testing`、`needs_human`、`ready_for_review`、`failed`、`cancelled`、`completed`。`needs_human` は、Level 3操作が必要、権限不足、要求が曖昧で安全に決定できない、外部副作用を伴う判断が必要、人間による操作・判断を待っている場合に使う。`needs_human` 中はAI Runnerがproduction操作を続行してはいけない。状態遷移、再実行、タイムアウト、並列実行数は要設計。
+## Phase 2A runner control plane
+
+Runner APIは`/internal/ai-tasks/claim`、`/{task_id}/heartbeat`、`/{task_id}/progress`、`/{task_id}/testing`、`/{task_id}/fail`、`/{task_id}/needs-human`、`/{task_id}/ready-for-review`の固定operationで構成する。`Authorization: Bearer`には専用の`AI_TASK_RUNNER_API_TOKEN`を使い、未設定・不一致は拒否する。claimはqueuedを古い順にatomic取得し、180秒leaseとUUID claim tokenを発行する。lease期限切れは再queueせずneeds_humanへ移す。
+
+Phase 2AではAPIのDB状態更新だけを行う。Windows RunnerのCodex/Git/GitHub処理、worktree管理、Draft PR、Discord報告はPhase 2B/2Cの対象であり、APIはtask descriptionと固定された状態情報だけを返す。

@@ -197,6 +197,7 @@ AI_TASK_ALLOWED_USER_IDS = tuple(
     for user_id in get_env_str("AI_TASK_ALLOWED_USER_IDS", "").split(",")
     if user_id.strip()
 )
+AI_TASK_RUNNER_API_TOKEN = get_env_str("AI_TASK_RUNNER_API_TOKEN", "")
 
 STATE_FILE = "data/state.json"
 HAYUSU_ENTER_GIF = "assets/transitions/hayusu_enter.gif"

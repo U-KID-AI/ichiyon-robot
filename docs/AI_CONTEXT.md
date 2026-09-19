@@ -65,3 +65,6 @@ Phase 0の想定フローは、AI専用branch/worktreeで調査・編集・検�
 ## AI専用worktree方式
 
 AIごとに専用branchと専用worktreeを割り当て、他の作業者の変更と混ぜない。worktreeの作成場所、命名規則、同時実行数、完了後の削除方針はTBD。worktree削除やbranch削除は、未保存変更がないことを確認し、人間の運用ルールに従う。
+## Phase 2A Control Plane
+
+Phase 2Aでは、Bot/AdminサーバーがPostgreSQLと固定AI task APIを担当し、Windows側の将来RunnerがCodex/Git/GitHubを担当する責務分離を採用する。固定Bearer token、claim token、lease、atomic claimによりRunner操作を制限する。Codex実行、worktree/branch作成、GitHub操作、Discord通知はPhase 2B/2Cで実装する。
