@@ -20,7 +20,7 @@
 
 Botは `python main.py` で起動し、Discord Tokenを環境変数から読み取る。ローカルでは `DISCORD_TOKEN` または `DISCORD_BOT_TOKEN` が必要で、Composeでは `bot` profileで起動する。AIからDiscordへ報告する将来機能の認証・送信先・権限設計はTBD。
 
-Minecraft連携を含むDiscord入力は、固定された構造化コマンドと入力検証を経由する。任意のMinecraftコマンド、任意のitem ID、任意shellコマンドを受け付ける設計ではない。
+Minecraft連携を含むDiscord入力は、固定された構造化コマンドと入力検証を経由する。AI task受付も許可ユーザーのallowlistと固定コマンド解析を経由し、任意のMinecraftコマンド、任意のitem ID、任意shellコマンドを受け付ける設計ではない。AI taskの保存先は`ai_tasks`、状態は`queued`などの固定値で管理する。AI taskの実行、git操作、staging・production操作はPhase 1の対象外である。
 
 ## admin
 

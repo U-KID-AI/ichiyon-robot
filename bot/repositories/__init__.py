@@ -1,4 +1,5 @@
 from bot.repositories.auto_reactions import AutoReactionRepository
+from bot.repositories.ai_tasks import AITaskRepository
 from bot.repositories.auto_posts import AutoPostRepository
 from bot.repositories.audio_assets import AudioAssetRepository
 from bot.repositories.bot_instances import BotInstanceRepository, BotPermissionRepository
@@ -28,6 +29,7 @@ from bot.repositories.youtube_n_pull import YouTubeNPullRepository
 
 __all__ = [
     "AutoReactionRepository",
+    "AITaskRepository",
     "AutoPostRepository",
     "AudioAssetRepository",
     "BotInstanceRepository",

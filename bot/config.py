@@ -192,6 +192,11 @@ MINECRAFT_RESTART_ALLOWED_USER_IDS = tuple(
     for user_id in get_env_str("MINECRAFT_RESTART_ALLOWED_USER_IDS", "").split(",")
     if user_id.strip()
 )
+AI_TASK_ALLOWED_USER_IDS = tuple(
+    user_id.strip()
+    for user_id in get_env_str("AI_TASK_ALLOWED_USER_IDS", "").split(",")
+    if user_id.strip()
+)
 
 STATE_FILE = "data/state.json"
 HAYUSU_ENTER_GIF = "assets/transitions/hayusu_enter.gif"

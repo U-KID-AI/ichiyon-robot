@@ -17,15 +17,15 @@
 
 このPhase 0では、Discordからの受付、task queue、Codexの非対話実行、commit、push、PR作成、Discord報告の自動化は実装しない。
 
-## Phase 1: タスク受付基盤（将来）
+## Phase 1: タスク受付基盤（実装済み）
 
 - DiscordからAI開発taskを受け付ける。
 - task IDを発行する。
-- task queueを設ける。
-- task stateを保存する。
-- taskごとに専用worktreeとbranchを自動生成する。
+- `ai_tasks`へtaskとtask stateを保存する。
+- Discordからtaskの状態と一覧を確認する。
+- taskごとのbranch名とworktree名を記録する。実際のbranch/worktreeは作成しない。
 
-受付可能なタスク形式、認可ユーザー、保存先、再実行・重複排除方針は要設計。
+受付形式は`AI 開発 <依頼内容>`、`AI 状態 <task_id>`、`AI 一覧`とする。AI task権限は`AI_TASK_ALLOWED_USER_IDS`のallowlistだけで判定し、allowlist未設定時は拒否する。依頼本文はDiscord受付時1800文字、DBでは4000文字を上限とし、同じBotとDiscord messageの二重登録をDB制約で防止する。Codex実行、git操作、staging・production操作はPhase 2以降または人間の運用対象である。
 
 ## Phase 2: 実行とDraft PR（将来）
 
