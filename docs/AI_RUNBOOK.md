@@ -78,3 +78,9 @@ Draft PRには目的、変更範囲、テスト結果、既知の制約、Level 
 Runner APIは`/internal/ai-tasks/claim`、`/{task_id}/heartbeat`、`/{task_id}/progress`、`/{task_id}/testing`、`/{task_id}/fail`、`/{task_id}/needs-human`、`/{task_id}/ready-for-review`の固定operationで構成する。`Authorization: Bearer`には専用の`AI_TASK_RUNNER_API_TOKEN`を使い、未設定・不一致は拒否する。claimはqueuedを古い順にatomic取得し、180秒leaseとUUID claim tokenを発行する。lease期限切れは再queueせずneeds_humanへ移す。
 
 Phase 2AではAPIのDB状態更新だけを行う。Windows RunnerのCodex/Git/GitHub処理、worktree管理、Draft PR、Discord報告はPhase 2B/2Cの対象であり、APIはtask descriptionと固定された状態情報だけを返す。
+## Phase 2B Local Runner
+
+Windows Runnerは`--once`で1 taskだけ処理する。Control Planeからclaimした後、source repositoryのclean状態と固定originを確認し、`origin/main`をfetchしてUUID由来のbranch/worktreeを作成する。Codex実行中とtest中はheartbeatを送り、lease維持に失敗した場合は処理を止めてworktreeを保持する。CodexのcommitやGitHub操作は許可しない。
+
+Phase 2Bは固定test registryと`git diff --check`を実行し、結果をprogressへ保存してtaskをtestingのまま終了する。Codex実行、Git、filesystem、API通信はfakeで検証し、実機Codex子プロセスやproduction/staging接続はこのPhaseのcheckで行わない。
+RunnerのGit executableは`AI_TASK_RUNNER_GIT_PATH`で絶対path指定し、source repo/worktree配下の実行ファイルを拒否する。Codex childはGit credential helperを無効化した環境で起動し、stdout/stderrはbounded drainで上限を設ける。test registryも同じprocess tree停止と出力上限を使う。
