@@ -26,6 +26,8 @@ PR_URL_PATTERN = re.compile(r"^https://github\.com/U-KID-AI/ichiyon-robot/pull/(
 MAX_CURRENT_STEP_LENGTH = 500
 MAX_TEST_SUMMARY_LENGTH = 8000
 MAX_CHANGED_FILES_SUMMARY_LENGTH = 8000
+MAX_REVIEW_SUMMARY_LENGTH = 2000
+MAX_WORKFLOW_RUN_ID = 9_223_372_036_854_775_807
 
 
 def is_valid_runner_id(value: str) -> bool:
@@ -58,6 +60,16 @@ def validate_pr_number(value: int) -> None:
 def validate_pr_url(value: str, pr_number: int) -> None:
     if not is_valid_pr_url(value, pr_number):
         raise ValueError("invalid PR URL")
+
+
+def validate_workflow_run_id(value: int) -> None:
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or value <= 0
+        or value > MAX_WORKFLOW_RUN_ID
+    ):
+        raise ValueError("invalid workflow run ID")
 
 
 class AITaskRepository:
@@ -397,6 +409,187 @@ class AITaskRepository:
                 and existing.get("changed_files_summary") == changed_files_summary
             ):
                 return existing
+            return None
+
+    def mark_completed(
+        self,
+        *,
+        task_id: uuid.UUID,
+        runner_id: str,
+        claim_token: uuid.UUID,
+        commit_sha: str,
+        pr_number: int,
+        pr_url: str,
+        test_summary: str,
+        changed_files_summary: str,
+        ci_workflow_run_id: int,
+        review_summary: str,
+        merge_commit_sha: str,
+    ) -> Optional[Dict[str, Any]]:
+        validate_runner_id(runner_id)
+
+        if (
+            not isinstance(task_id, uuid.UUID)
+            or not isinstance(claim_token, uuid.UUID)
+        ):
+            raise ValueError(
+                "task_id and claim_token must be UUIDs"
+            )
+
+        validate_sha1(commit_sha)
+        validate_pr_number(pr_number)
+        validate_pr_url(pr_url, pr_number)
+        validate_workflow_run_id(
+            ci_workflow_run_id
+        )
+        validate_sha1(merge_commit_sha)
+
+        if (
+            len(test_summary)
+            > MAX_TEST_SUMMARY_LENGTH
+            or len(changed_files_summary)
+            > MAX_CHANGED_FILES_SUMMARY_LENGTH
+            or not isinstance(review_summary, str)
+            or not 1 <= len(review_summary)
+            <= MAX_REVIEW_SUMMARY_LENGTH
+        ):
+            raise ValueError(
+                "completion summary is invalid"
+            )
+
+        result_summary = (
+            "Auto review approved. CI run "
+            + str(ci_workflow_run_id)
+            + ". Merge commit "
+            + merge_commit_sha
+            + ". Review: "
+            + review_summary
+        )[:MAX_PROGRESS_FIELD_LENGTH]
+
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE ai_tasks
+                SET status = 'completed',
+                    commit_sha = %s,
+                    pr_number = %s,
+                    pr_url = %s,
+                    test_summary = %s,
+                    changed_files_summary = %s,
+                    ci_workflow_run_id = %s,
+                    review_summary = %s,
+                    merge_commit_sha = %s,
+                    current_step = 'completed',
+                    progress_summary =
+                        'Automatically reviewed and merged.',
+                    result_summary = %s,
+                    completed_at =
+                        COALESCE(completed_at, NOW()),
+                    updated_at = NOW()
+                WHERE task_id = %s
+                  AND bot_id = %s
+                  AND runner_id = %s
+                  AND claim_token = %s
+                  AND status = 'testing'
+                  AND lease_expires_at > NOW()
+                RETURNING
+                    task_id,
+                    status,
+                    commit_sha,
+                    pr_number,
+                    pr_url,
+                    ci_workflow_run_id,
+                    review_summary,
+                    merge_commit_sha
+                """,
+                (
+                    commit_sha,
+                    pr_number,
+                    pr_url,
+                    test_summary,
+                    changed_files_summary,
+                    ci_workflow_run_id,
+                    review_summary,
+                    merge_commit_sha,
+                    result_summary,
+                    task_id,
+                    self.bot_id,
+                    runner_id,
+                    claim_token,
+                ),
+            )
+
+            row = fetch_one(cursor)
+
+            if row is not None:
+                return row
+
+            cursor.execute(
+                """
+                SELECT
+                    task_id,
+                    status,
+                    runner_id,
+                    claim_token,
+                    commit_sha,
+                    pr_number,
+                    pr_url,
+                    test_summary,
+                    changed_files_summary,
+                    ci_workflow_run_id,
+                    review_summary,
+                    merge_commit_sha
+                FROM ai_tasks
+                WHERE task_id = %s
+                  AND bot_id = %s
+                  AND runner_id = %s
+                  AND claim_token = %s
+                """,
+                (
+                    task_id,
+                    self.bot_id,
+                    runner_id,
+                    claim_token,
+                ),
+            )
+
+            existing = fetch_one(cursor)
+
+            if (
+                not existing
+                or existing.get("status")
+                != "completed"
+            ):
+                return None
+
+            if (
+                existing.get("commit_sha")
+                == commit_sha
+                and existing.get("pr_number")
+                == pr_number
+                and existing.get("pr_url")
+                == pr_url
+                and existing.get("test_summary")
+                == test_summary
+                and existing.get(
+                    "changed_files_summary"
+                )
+                == changed_files_summary
+                and existing.get(
+                    "ci_workflow_run_id"
+                )
+                == ci_workflow_run_id
+                and existing.get(
+                    "review_summary"
+                )
+                == review_summary
+                and existing.get(
+                    "merge_commit_sha"
+                )
+                == merge_commit_sha
+            ):
+                return existing
+
             return None
 
     def _transition_active_task(self, *, task_id: uuid.UUID, runner_id: str, claim_token: uuid.UUID,

@@ -168,9 +168,118 @@ class RunnerAPIClient:
             },
         )
 
+    def mark_completed(
+        self,
+        task_id: uuid.UUID,
+        claim_token: uuid.UUID,
+        *,
+        commit_sha: str,
+        pr_number: int,
+        pr_url: str,
+        test_summary: str,
+        changed_files_summary: str,
+        ci_workflow_run_id: int,
+        review_summary: str,
+        merge_commit_sha: str,
+    ) -> dict[str, Any]:
+        match = (
+            PR_URL_PATTERN.fullmatch(pr_url)
+            if isinstance(pr_url, str)
+            else None
+        )
+
+        if (
+            not isinstance(commit_sha, str)
+            or SHA_PATTERN.fullmatch(
+                commit_sha
+            )
+            is None
+            or not isinstance(
+                merge_commit_sha,
+                str,
+            )
+            or SHA_PATTERN.fullmatch(
+                merge_commit_sha
+            )
+            is None
+            or not isinstance(pr_number, int)
+            or isinstance(pr_number, bool)
+            or pr_number <= 0
+            or pr_number > 2_147_483_647
+            or match is None
+            or int(match.group(1)) != pr_number
+            or not isinstance(
+                ci_workflow_run_id,
+                int,
+            )
+            or isinstance(
+                ci_workflow_run_id,
+                bool,
+            )
+            or ci_workflow_run_id <= 0
+            or ci_workflow_run_id
+            > 9_223_372_036_854_775_807
+            or not isinstance(
+                test_summary,
+                str,
+            )
+            or len(test_summary) > 8000
+            or not isinstance(
+                changed_files_summary,
+                str,
+            )
+            or len(
+                changed_files_summary
+            )
+            > 8000
+            or not isinstance(
+                review_summary,
+                str,
+            )
+            or not 1
+            <= len(review_summary)
+            <= 2000
+        ):
+            raise ValueError(
+                "invalid completion metadata"
+            )
+
+        fields = {
+            "commit_sha": commit_sha,
+            "pr_number": pr_number,
+            "pr_url": pr_url,
+            "test_summary": test_summary,
+            "changed_files_summary":
+                changed_files_summary,
+            "ci_workflow_run_id":
+                ci_workflow_run_id,
+            "review_summary":
+                review_summary,
+            "merge_commit_sha":
+                merge_commit_sha,
+        }
+
+        # Completion is idempotent. One retry covers
+        # an ambiguous lost response after the database
+        # may already have committed the terminal state.
+        try:
+            return self._owned(
+                "completed",
+                task_id,
+                claim_token,
+                fields,
+            )
+        except RunnerAPIError:
+            return self._owned(
+                "completed",
+                task_id,
+                claim_token,
+                fields,
+            )
+
     def _owned(self, operation: str, task_id: uuid.UUID, claim_token: uuid.UUID,
                fields: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        if operation not in {"heartbeat", "progress", "testing", "fail", "needs-human", "ready-for-review"}:
+        if operation not in {"heartbeat", "progress", "testing", "fail", "needs-human", "ready-for-review", "completed"}:
             raise ValueError("operation is not allowlisted")
         if not isinstance(task_id, uuid.UUID) or not isinstance(claim_token, uuid.UUID):
             raise ValueError("task identifiers must be UUIDs")

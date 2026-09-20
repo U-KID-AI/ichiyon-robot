@@ -14,6 +14,7 @@ from bot.repositories.ai_tasks import (
     is_valid_runner_id,
     is_valid_sha1,
     validate_pr_number,
+    validate_workflow_run_id,
 )
 
 
@@ -56,6 +57,20 @@ class ReadyForReviewRequest(HeartbeatRequest):
     pr_url: str = Field(..., max_length=200)
     test_summary: str = Field(..., max_length=8000)
     changed_files_summary: str = Field(..., max_length=8000)
+
+
+class CompletedRequest(ReadyForReviewRequest):
+    ci_workflow_run_id: StrictInt
+    review_summary: str = Field(
+        ...,
+        min_length=1,
+        max_length=2000,
+    )
+    merge_commit_sha: str = Field(
+        ...,
+        min_length=40,
+        max_length=40,
+    )
 
 
 def require_runner_token(authorization: Optional[str]) -> None:
@@ -202,3 +217,61 @@ def ready_for_review(task_id: UUID, request: ReadyForReviewRequest, authorizatio
         commit_sha=req.commit_sha, pr_number=req.pr_number, pr_url=req.pr_url,
         test_summary=req.test_summary, changed_files_summary=req.changed_files_summary,
     ))
+
+
+@router.post("/{task_id}/completed")
+def completed(
+    task_id: UUID,
+    request: CompletedRequest,
+    authorization: Optional[str] = Header(default=None),
+):
+    require_runner_token(authorization)
+    _validate_runner_id(request.runner_id)
+
+    try:
+        validate_pr_number(request.pr_number)
+        validate_workflow_run_id(
+            request.ci_workflow_run_id
+        )
+
+        if (
+            not is_valid_sha1(request.commit_sha)
+            or not is_valid_sha1(
+                request.merge_commit_sha
+            )
+            or not is_valid_pr_url(
+                request.pr_url,
+                request.pr_number,
+            )
+        ):
+            raise ValueError
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid completion metadata",
+        )
+
+    return _run_owned_operation(
+        task_id,
+        request,
+        lambda repo, tid, req:
+            repo.mark_completed(
+                task_id=tid,
+                runner_id=req.runner_id,
+                claim_token=req.claim_token,
+                commit_sha=req.commit_sha,
+                pr_number=req.pr_number,
+                pr_url=req.pr_url,
+                test_summary=req.test_summary,
+                changed_files_summary=(
+                    req.changed_files_summary
+                ),
+                ci_workflow_run_id=(
+                    req.ci_workflow_run_id
+                ),
+                review_summary=req.review_summary,
+                merge_commit_sha=(
+                    req.merge_commit_sha
+                ),
+            ),
+    )

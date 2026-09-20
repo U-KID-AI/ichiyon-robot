@@ -1,9 +1,10 @@
-"""Phase 2C Windows local AI task runner.
+"""Phase 2D Windows local AI task runner.
 
 The default mode processes at most one task. This module never connects directly
 to the database. After fixed offline validation it may create a deterministic
 commit object, push only the UUID task branch, create or adopt an exact Draft PR,
-and mark the task ready for human review. It never merges or deploys.
+wait for exact CI, run a read-only code review, and perform a guarded squash merge.
+It never deploys.
 """
 
 import argparse
@@ -15,11 +16,14 @@ from pathlib import Path
 from threading import Event
 
 from ai_task_api_client import ClaimedTask, RunnerAPIClient, RunnerAPIError
+from ai_task_auto_merge import AutoMergeAdapter, AutoMergeSafetyError
+from ai_task_code_review import CodeReviewAdapter, CodeReviewSafetyError
 from ai_task_codex import CodexAdapter, CodexResult, CodexSafetyError, build_prompt
 from ai_task_git import GitAdapter, GitSafetyError
 from ai_task_github import GitHubAdapter, GitHubSafetyError
 from ai_task_process import ProcessTerminationError
 from ai_task_publish import GitPublisher, PublishSafetyError
+from ai_task_review_merge import ReviewMergeGate, ReviewMergeSafetyError
 from ai_task_runner_config import RunnerConfig
 from ai_task_safety import (SafetyError, is_reparse_point, task_worktree_path,
                              validate_changed_paths, validate_claim_names, validate_project_codex_layer)
@@ -103,6 +107,9 @@ class LocalRunner:
         codex=None,
         publisher=None,
         github=None,
+        reviewer=None,
+        review_gate=None,
+        auto_merger=None,
         test_runner=run_tests,
         heartbeat_factory=LeaseHeartbeat,
     ):
@@ -137,6 +144,10 @@ class LocalRunner:
                 config.gh_path,
             )
 
+        self.reviewer = reviewer
+        self.review_gate = review_gate
+        self.auto_merger = auto_merger
+
         self.test_runner = test_runner
         self.heartbeat_factory = heartbeat_factory
 
@@ -156,6 +167,9 @@ class LocalRunner:
             GitHubSafetyError,
             PublishSafetyError,
             CodexSafetyError,
+            CodeReviewSafetyError,
+            ReviewMergeSafetyError,
+            AutoMergeSafetyError,
             ProcessTerminationError,
             SafetyError,
             TestRegistryError,
@@ -504,17 +518,219 @@ class LocalRunner:
                 )
                 return False
 
+            if self.reviewer is None:
+                self.reviewer = CodeReviewAdapter(
+                    self.config.codex_path,
+                    temp_root=self.config.worktree_root,
+                )
+
+            if self.review_gate is None:
+                if self.config.gh_path is None:
+                    raise SafetyError(
+                        "Phase 2D GitHub review gate is not configured"
+                    )
+
+                self.review_gate = ReviewMergeGate(
+                    self.config.gh_path,
+                )
+
+            if self.auto_merger is None:
+                if self.config.gh_path is None:
+                    raise SafetyError(
+                        "Phase 2D auto merge is not configured"
+                    )
+
+                self.auto_merger = AutoMergeAdapter(
+                    self.config.gh_path,
+                    gate=self.review_gate,
+                )
+
             self.client.progress(
                 task.task_id,
                 task.claim_token,
-                current_step="draft_pr_created",
+                current_step="waiting_for_ci",
                 progress_summary=(
-                    "Draft PR verified; marking task "
-                    "ready for human review"
+                    "Waiting for exact GitHub CI on the Draft PR"
                 ),
             )
 
-            self.client.ready_for_review(
+            gate_result = (
+                self.review_gate.wait_for_draft_candidate(
+                    worktree_path,
+                    task.task_id,
+                    commit_result.commit_sha,
+                    pull_request.number,
+                    pull_request.url,
+                    changed_after_tests,
+                    timeout=self.config.codex_timeout_seconds,
+                    interval=self.config.poll_seconds,
+                    stop_event=heartbeat.lost,
+                )
+            )
+
+            if heartbeat.lost.is_set():
+                self.client.mark_needs_human(
+                    task.task_id,
+                    task.claim_token,
+                    "Control Plane lease was lost while waiting for CI",
+                )
+                return False
+
+            expected_review_files = tuple(
+                sorted(changed_after_tests)
+            )
+
+            if (
+                gate_result.head_sha
+                != commit_result.commit_sha
+                or gate_result.base_sha != base_sha
+                or gate_result.pr_number
+                != pull_request.number
+                or gate_result.pr_url
+                != pull_request.url
+                or gate_result.changed_files
+                != expected_review_files
+            ):
+                raise SafetyError(
+                    "CI gate result does not match the tested candidate"
+                )
+
+            self.client.progress(
+                task.task_id,
+                task.claim_token,
+                current_step="code_review",
+                progress_summary=(
+                    "Running read-only automated code review"
+                ),
+            )
+
+            review_result = self.reviewer.run(
+                worktree_path,
+                task_id=task.task_id,
+                task_description=task.description,
+                base_sha=gate_result.base_sha,
+                head_sha=gate_result.head_sha,
+                changed_files=changed_after_tests,
+                timeout=self.config.codex_timeout_seconds,
+                codex_home=self.config.codex_home,
+                stop_event=heartbeat.lost,
+            )
+
+            if heartbeat.lost.is_set():
+                self.client.mark_needs_human(
+                    task.task_id,
+                    task.claim_token,
+                    "Control Plane lease was lost during code review",
+                )
+                return False
+
+            after_review = self.git.snapshot(
+                worktree_path
+            )
+            changed_after_review = (
+                self.git.changed_files(
+                    worktree_path
+                )
+            )
+
+            validate_changed_paths(
+                worktree_path,
+                changed_after_review,
+            )
+
+            if (
+                after_review != before
+                or changed_after_review
+                != changed_after_tests
+                or self.git.staged_files(
+                    worktree_path
+                )
+            ):
+                self.client.mark_needs_human(
+                    task.task_id,
+                    task.claim_token,
+                    (
+                        "Repository changed during "
+                        "read-only code review"
+                    ),
+                )
+                return False
+
+            if not review_result.approved:
+                reason = (
+                    "Automated code review rejected "
+                    "the candidate. "
+                    + review_result.summary
+                )[:4000]
+
+                self.client.mark_needs_human(
+                    task.task_id,
+                    task.claim_token,
+                    reason,
+                )
+                return False
+
+            if (
+                review_result.base_sha
+                != gate_result.base_sha
+                or review_result.head_sha
+                != gate_result.head_sha
+                or review_result.findings
+            ):
+                raise SafetyError(
+                    "code review approval binding is invalid"
+                )
+
+            self.client.progress(
+                task.task_id,
+                task.claim_token,
+                current_step="merging",
+                progress_summary=(
+                    "Revalidating PR and performing guarded squash merge"
+                ),
+            )
+
+            merge_result = (
+                self.auto_merger.ready_and_squash_merge(
+                    worktree_path,
+                    task.task_id,
+                    commit_result.commit_sha,
+                    pull_request.number,
+                    pull_request.url,
+                    changed_after_tests,
+                    stop_event=heartbeat.lost,
+                )
+            )
+
+            if heartbeat.lost.is_set():
+                raise SafetyError(
+                    "lease was lost during merge finalization"
+                )
+
+            if (
+                merge_result.head_sha
+                != review_result.head_sha
+                or merge_result.base_sha
+                != review_result.base_sha
+                or merge_result.pr_number
+                != pull_request.number
+                or merge_result.pr_url
+                != pull_request.url
+            ):
+                raise SafetyError(
+                    "merged candidate differs from reviewed candidate"
+                )
+
+            self.client.progress(
+                task.task_id,
+                task.claim_token,
+                current_step="recording_completion",
+                progress_summary=(
+                    "Recording exact CI, review, and merge metadata"
+                ),
+            )
+
+            self.client.mark_completed(
                 task.task_id,
                 task.claim_token,
                 commit_sha=commit_result.commit_sha,
@@ -522,6 +738,15 @@ class LocalRunner:
                 pr_url=pull_request.url,
                 test_summary=summary,
                 changed_files_summary=files_summary,
+                ci_workflow_run_id=(
+                    merge_result.workflow_run_id
+                ),
+                review_summary=(
+                    review_result.summary
+                ),
+                merge_commit_sha=(
+                    merge_result.merge_sha
+                ),
             )
 
             return True
@@ -537,7 +762,7 @@ def main() -> int:
     try:
         config = RunnerConfig.from_environment()
         runner = LocalRunner(config)
-        # --once remains the only supported execution mode in Phase 2C.
+        # --once remains the only supported execution mode in Phase 2D.
         outcome = runner.run_once()
         return outcome_exit_code(outcome)
     except (ValueError, OSError) as exc:
