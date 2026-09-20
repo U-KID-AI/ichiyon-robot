@@ -584,6 +584,110 @@ class RemoteChecks(unittest.TestCase):
                             with self.assertRaises(AssertionError):
                                 h.health(release, ['fixed'])
 
+    def test_rollback_health_uses_previous_image_check(self):
+        h = self.h
+
+        with tempfile.TemporaryDirectory() as temp:
+            release = Path(temp)
+
+            mounts = [
+                dict(
+                    Source=s,
+                    Destination=t,
+                    RW=not r,
+                    Type=k,
+                )
+                for s, t, r, k in h.expected_mounts()
+            ]
+
+            containers = {
+                name: {
+                    'Id': name,
+                    'Image': 'image-id',
+                    'Config': {
+                        'Image':
+                        'ichiyon-robot-app:' + SHA,
+                    },
+                    'State': {
+                        'Running': True,
+                        'StartedAt': 'fixed',
+                    },
+                    'RestartCount': 0,
+                    'Mounts': copy.deepcopy(mounts),
+                    'NetworkSettings': {
+                        'Networks': {
+                            h.NETWORK: {},
+                        },
+                    },
+                }
+                for name in h.APPS
+            }
+
+            def fake_run(args, **kwargs):
+                if args[0] == 'curl':
+                    return b'200'
+
+                if args[:2] == ['docker', 'logs']:
+                    return b'Logged in as '
+
+                raise AssertionError(
+                    'unexpected fake operation'
+                )
+
+            with patch.object(
+                h,
+                'release',
+                return_value=SHA,
+            ), patch.object(
+                h,
+                'contract',
+            ) as contract, patch.object(
+                h,
+                'previous_image_check',
+                return_value='image-id',
+            ) as previous_image_check, patch.object(
+                h,
+                'image_check',
+            ) as image_check, patch.object(
+                h,
+                'container',
+                side_effect=containers.__getitem__,
+            ), patch.object(
+                h,
+                'infra',
+                return_value=['fixed'],
+            ), patch.object(
+                h,
+                'run',
+                side_effect=fake_run,
+            ), patch.object(
+                h.time,
+                'sleep',
+            ), patch.object(
+                h.subprocess,
+                'run',
+                return_value=types.SimpleNamespace(
+                    stderr=b'',
+                ),
+            ):
+                h.health(
+                    release,
+                    ['fixed'],
+                    migrations=False,
+                    previous=True,
+                )
+
+                contract.assert_called_once_with(
+                    release,
+                    previous=True,
+                )
+
+                previous_image_check.assert_called_once_with(
+                    release
+                )
+
+                image_check.assert_not_called()
+
     def test_infrastructure_snapshot(self):
         h = self.h
         containers = {name: {'Id': name, 'Name': '/ichiyon-robot-' + name,

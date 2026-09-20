@@ -291,7 +291,12 @@ def previous_image_check(path):
 def health(path, expected_infra, migrations=True, previous=False):
     sha = release(path)
     contract(path, previous=previous)
-    image_id = image_check(sha)
+
+    if previous:
+        image_id = previous_image_check(path)
+    else:
+        image_id = image_check(sha)
+
     initial = None
     # Six samples over 30 seconds; startup gets a bounded separate retry window.
     for sample in range(7):
