@@ -421,17 +421,71 @@ def main():
                           ("push",), ("branch",), ("checkout",), ("switch",), ("merge",), ("rebase",)):
             check(f"strict Git rejects {' '.join(forbidden)}", _rejects(lambda forbidden=forbidden: adapter._run(forbidden)))
 
-    check("registry commands are fixed", all(Path(argv[0]).name.lower().startswith("python") and all(part not in ("shell", "-c") for part in argv) for _, argv in select_tests(["main.py"])))
-    check("admin changes map to admin checks", all(name in [item[0] for item in select_tests(["admin/main.py"])] for name in ("scripts/check_admin_user_management.py", "scripts/check_admin_feature_flags.py")))
-    check("AI changes map to AI checks", all(name in [item[0] for item in select_tests(["scripts/ai_task_runner.py"])] for name in ("scripts/check_ai_tasks.py", "scripts/check_ai_task_control_plane.py")))
-    check("registry excludes arbitrary command", "scripts/unknown.py" not in ALLOWED_CHECKS)
-    fake_results = []
-    def fake_test_runner(argv, **kwargs):
-        fake_results.append((argv, kwargs))
-        return type("Result", (), {"returncode": 0, "stdout": "ok", "stderr": ""})()
-    results = run_tests(ROOT, ["main.py"], runner=fake_test_runner, timeout=3)
-    check("registry uses fixed cwd and timeout", results and fake_results[0][1]["cwd"] == str(ROOT.resolve()) and fake_results[0][1]["shell"] is False)
-    check("test helper preserves returncode zero", results[0].returncode == 0)
+    check(
+        "registry selects static Python syntax only",
+        select_tests(["admin/main.py"])
+        == [("python-syntax", ["admin/main.py"])],
+    )
+    check(
+        "registry selects no executable checks for non-Python changes",
+        select_tests(["docs/readme.md"]) == [],
+    )
+
+    with tempfile.TemporaryDirectory() as registry_directory:
+        registry_root = Path(registry_directory)
+
+        nonexecuted = registry_root / "must_not_execute.py"
+        nonexecuted.write_text(
+            'raise RuntimeError("repository code must never execute")\n',
+            encoding="utf-8",
+        )
+
+        static_results = run_tests(
+            registry_root,
+            ["must_not_execute.py"],
+        )
+
+        check(
+            "registry compiles without executing repository code",
+            len(static_results) == 1
+            and static_results[0].name == "python-syntax"
+            and static_results[0].returncode == 0,
+        )
+
+        check(
+            "registry creates no pycache",
+            not (registry_root / "__pycache__").exists(),
+        )
+
+        invalid = registry_root / "invalid.py"
+        invalid.write_text("def broken(:\n", encoding="utf-8")
+
+        invalid_results = run_tests(
+            registry_root,
+            ["invalid.py"],
+        )
+
+        check(
+            "registry rejects invalid Python syntax",
+            len(invalid_results) == 1
+            and invalid_results[0].returncode != 0,
+        )
+
+        stopped_event = threading.Event()
+        stopped_event.set()
+
+        stopped_results = run_tests(
+            registry_root,
+            ["must_not_execute.py"],
+            stop_event=stopped_event,
+        )
+
+        check(
+            "registry honors lease stop",
+            len(stopped_results) == 1
+            and stopped_results[0].stopped,
+        )
+
     runner_source = (ROOT / "scripts" / "ai_task_runner.py").read_text(encoding="utf-8")
     check("runner delegates Codex without subprocess in check", "self.codex.run" in runner_source and "subprocess" not in runner_source)
     orchestration_checks()

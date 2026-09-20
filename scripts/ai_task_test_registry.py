@@ -1,10 +1,15 @@
-"""Offline fixed test registry for Phase 2B."""
+"""Static, non-executing test registry for the Phase 2B local runner.
 
-import subprocess
-import sys
+Phase 2B must never execute repository Python code outside the Codex sandbox.
+Python changes are syntax-compiled in memory only.
+"""
+
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+
+
+MAX_PYTHON_FILE_BYTES = 1024 * 1024
+MAX_PYTHON_FILES = 200
 
 
 @dataclass(frozen=True)
@@ -16,59 +21,102 @@ class TestResult:
     stopped: bool = False
 
 
-ALLOWED_CHECKS = {
-    "scripts/check_ai_tasks.py",
-    "scripts/check_ai_task_control_plane.py",
-    "scripts/check_admin_user_management.py",
-    "scripts/check_admin_feature_flags.py",
-}
-
-
 class TestRegistryError(RuntimeError):
     pass
 
 
 def select_tests(changed_files: list[str]) -> list[tuple[str, list[str]]]:
-    selected: list[tuple[str, list[str]]] = []
-    if any(path.endswith(".py") for path in changed_files):
-        selected.append(("python-compile", [sys.executable, "-m", "compileall", *[path for path in changed_files if path.endswith(".py")]]))
-    if any(path.startswith("admin/") or path.startswith("admin\\") for path in changed_files):
-        selected.extend((check, [sys.executable, check]) for check in ("scripts/check_admin_user_management.py", "scripts/check_admin_feature_flags.py"))
-    if any("ai_task" in path.replace("\\", "/") or path.startswith("migrations/") for path in changed_files):
-        selected.extend((check, [sys.executable, check]) for check in ("scripts/check_ai_tasks.py", "scripts/check_ai_task_control_plane.py"))
-    return selected
+    python_files = [
+        path
+        for path in changed_files
+        if path.replace("\\", "/").lower().endswith(".py")
+    ]
+    if not python_files:
+        return []
+    return [("python-syntax", python_files)]
 
 
-def run_tests(repo_root: Path, changed_files: list[str], *, runner: Callable[..., object] | None = None,
-              timeout: float = 300, max_output_bytes: int = 64 * 1024, stop_event=None,
-              process_terminator=None) -> list[TestResult]:
-    if runner is not None:
-        return _run_fake_tests(repo_root, changed_files, runner, timeout, max_output_bytes)
-    from ai_task_process import ProcessTerminationError, communicate_bounded, terminate_process_tree
-    run_terminator = process_terminator or terminate_process_tree
-    results = []
-    for name, argv in select_tests(changed_files):
-        process = subprocess.Popen(argv, cwd=str(repo_root.resolve()), shell=False, stdin=subprocess.DEVNULL,
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False)
+def run_tests(
+    repo_root: Path,
+    changed_files: list[str],
+    *,
+    runner=None,
+    timeout: float = 300,
+    max_output_bytes: int = 64 * 1024,
+    stop_event=None,
+    process_terminator=None,
+) -> list[TestResult]:
+    # runner/process_terminator are intentionally unused in production.
+    # They remain in the signature so LocalRunner has a stable interface.
+    del runner, timeout, process_terminator
+
+    selected = select_tests(changed_files)
+    if not selected:
+        return []
+
+    _, python_files = selected
+
+    if len(python_files) > MAX_PYTHON_FILES:
+        return [
+            TestResult(
+                "python-syntax",
+                1,
+                f"too many Python files: {len(python_files)}",
+            )
+        ]
+
+    root = repo_root.resolve()
+
+    for relative in python_files:
+        if stop_event is not None and stop_event.is_set():
+            return [
+                TestResult(
+                    "python-syntax",
+                    -1,
+                    "stopped because the task lease was lost",
+                    stopped=True,
+                )
+            ]
+
+        candidate = root / relative
+        resolved = candidate.resolve()
+
+        if root not in resolved.parents:
+            raise TestRegistryError("Python test path escapes repository")
+
         try:
-            result = communicate_bounded(process, input_text=None, timeout=timeout,
-                                         max_output_bytes=max_output_bytes, stop_event=stop_event,
-                                         terminator=run_terminator)
-        except ProcessTerminationError as exc:
-            raise TestRegistryError("test process termination could not be verified") from exc
-        output = (result.stdout + "\n" + result.stderr)[-max_output_bytes:]
-        results.append(TestResult(name, result.returncode, output, result.timed_out, result.stopped))
-        if result.returncode != 0 or result.timed_out or result.stopped:
-            break
-    return results
+            size = resolved.stat().st_size
+        except OSError as exc:
+            raise TestRegistryError("Python test file cannot be inspected") from exc
 
+        if size > MAX_PYTHON_FILE_BYTES:
+            return [
+                TestResult(
+                    "python-syntax",
+                    1,
+                    f"{relative}: file is too large",
+                )
+            ]
 
-def _run_fake_tests(repo_root, changed_files, runner, timeout, max_output_bytes):
-    results = []
-    for name, argv in select_tests(changed_files):
-        result = runner(argv, cwd=str(repo_root.resolve()), shell=False, timeout=timeout, check=False)
-        output = (result.stdout + "\n" + result.stderr)[-max_output_bytes:]
-        results.append(TestResult(name, result.returncode, output))
-        if result.returncode != 0:
-            break
-    return results
+        try:
+            source = resolved.read_text(encoding="utf-8")
+            compile(source, relative, "exec", dont_inherit=True)
+        except (OSError, UnicodeError) as exc:
+            return [
+                TestResult(
+                    "python-syntax",
+                    1,
+                    f"{relative}: cannot read UTF-8 source ({type(exc).__name__})",
+                )
+            ]
+        except SyntaxError as exc:
+            return [
+                TestResult(
+                    "python-syntax",
+                    1,
+                    f"{relative}:{exc.lineno or 0}: {exc.msg}",
+                )
+            ]
+
+    message = f"syntax checked {len(python_files)} Python file(s)"
+    return [TestResult("python-syntax", 0, message[:max_output_bytes])]
