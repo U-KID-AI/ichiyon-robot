@@ -238,18 +238,28 @@ def main():
         r"(?ms)^  admin:\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)",
         COMPOSE_SOURCE,
     )
+    admin_body = admin_compose.group("body") if admin_compose else ""
     check(
         "admin compose passes runner token",
-        bool(admin_compose)
-        and "AI_TASK_RUNNER_API_TOKEN: ${AI_TASK_RUNNER_API_TOKEN:-}"
-        in admin_compose.group("body"),
+        "AI_TASK_RUNNER_API_TOKEN: ${AI_TASK_RUNNER_API_TOKEN:-}"
+        in admin_body,
     )
-    check(
-        "admin compose passes admin port",
-        bool(admin_compose)
-        and "ADMIN_PORT: ${ADMIN_PORT:-8080}"
-        in admin_compose.group("body"),
+    admin_port = re.search(
+        r"(?m)^[ \t]+ADMIN_PORT:[ \t]+\$\{ADMIN_PORT:-(?P<default>[0-9]+)\}[ \t]*$",
+        admin_body,
     )
+    check("admin compose passes admin port", admin_port is not None)
+    if admin_port is not None:
+        default_port = admin_port.group("default")
+        check(
+            "admin compose command uses admin port",
+            f"--port $${{ADMIN_PORT:-{default_port}}}" in admin_body,
+        )
+        check(
+            "admin compose publishes admin port",
+            f'"${{ADMIN_PORT:-{default_port}}}:${{ADMIN_PORT:-{default_port}}}"'
+            in admin_body,
+        )
 
     old_token = config.AI_TASK_RUNNER_API_TOKEN
     try:

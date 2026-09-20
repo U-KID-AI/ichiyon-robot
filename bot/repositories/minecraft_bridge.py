@@ -21,6 +21,8 @@ MINECRAFT_COMMAND_TYPES = (
     "taketumi_spawn_egg",
     "e_schrift_item",
     "held_item_inspect",
+    "sync_diagnostics",
+    "join_history",
     "server_status",
     "taketumi_spawn_near_player",
     "taketumi_remove_near_player",
@@ -31,6 +33,19 @@ MINECRAFT_COMMAND_TYPES = (
     "poster_killzael",
     "poster_caravan_mammoth",
     "poster_itsutake",
+    "poster_cat_tuner",
+    "poster_wilbert",
+    "poster_miltio",
+    "poster_ace",
+    "poster_eyes_eden",
+    "poster_akuki",
+    "softshell_crab",
+    "gonta_spawn_near_player",
+    "gonta_remove_near_player",
+    "molcar_spawn_near_player",
+    "molcar_remove_near_player",
+    "molcar3_spawn_near_player",
+    "molcar3_remove_near_player",
 )
 
 

@@ -31,6 +31,12 @@ COMMAND_BLOCK_COMMAND = "コマンドブロック"
 TAKETUMI_EGG_COMMAND = "タケツミエッグ"
 TAKETUMI_SPAWN_COMMAND = "タケツミ召喚"
 TAKETUMI_REMOVE_COMMAND = "タケツミ削除"
+GONTA_SPAWN_COMMAND = "ゴン太召喚"
+GONTA_REMOVE_COMMAND = "ゴン太削除"
+MOLCAR_SPAWN_COMMAND = "モルカー召喚"
+MOLCAR_REMOVE_COMMAND = "モルカー削除"
+MOLCAR3_SPAWN_COMMAND = "モルカー3召喚"
+MOLCAR3_REMOVE_COMMAND = "モルカー3削除"
 E_SEIMONJI_COMMAND = "Eの聖文字"
 IRSIA_POSTER_COMMAND = "イルシアポスター"
 RAIO_POSTER_COMMAND = "ライオポスター"
@@ -39,10 +45,20 @@ AURELIA_POSTER_COMMAND = "オーレリアポスター"
 KILLZAEL_POSTER_COMMAND = "キルザエルポスター"
 CARAVAN_MAMMOTH_POSTER_COMMAND = "キャラバンマンモスポスター"
 ITSUTAKE_POSTER_COMMAND = "イツタケポスター"
+CAT_TUNER_POSTER_COMMAND = "キャットチューナーポスター"
+WILBERT_POSTER_COMMAND = "ウィルバートポスター"
+MILTIO_POSTER_COMMAND = "ミルティオポスター"
+ACE_POSTER_COMMAND = "エースポスター"
+EYES_EDEN_POSTER_COMMAND = "アイズエデンポスター"
+AKUKI_POSTER_COMMAND = "悪鬼ポスター"
+SOFTSHELL_CRAB_COMMAND = "ソフトシェルクラブ"
 HELD_ITEM_INSPECT_COMMAND = "手持ち確認"
+SYNC_DIAGNOSTICS_COMMAND = "同期診断"
+JOIN_HISTORY_COMMAND = "join履歴"
 SERVER_STATUS_COMMAND = "状態"
 SERVER_RESTART_COMMAND = "再起動"
 SERVER_STATUS_PLAYER_PLACEHOLDER = "ServerStatus"
+JOIN_HISTORY_PLAYER_PLACEHOLDER = "JoinHistory"
 _MINECRAFT_ITEM_COMMANDS = {
     STRUCTURE_BLOCK_COMMAND: {
         "type": "structure_block",
@@ -112,16 +128,52 @@ _MINECRAFT_ITEM_COMMANDS = {
         "type": "poster_itsutake",
         "label": "イツタケポスター",
     },
+    CAT_TUNER_POSTER_COMMAND: {
+        "type": "poster_cat_tuner",
+        "label": "キャットチューナーポスター",
+    },
+    WILBERT_POSTER_COMMAND: {
+        "type": "poster_wilbert",
+        "label": "ウィルバートポスター",
+    },
+    MILTIO_POSTER_COMMAND: {
+        "type": "poster_miltio",
+        "label": "ミルティオポスター",
+    },
+    ACE_POSTER_COMMAND: {
+        "type": "poster_ace",
+        "label": "エースポスター",
+    },
+    EYES_EDEN_POSTER_COMMAND: {
+        "type": "poster_eyes_eden",
+        "label": "アイズエデンポスター",
+    },
+    AKUKI_POSTER_COMMAND: {
+        "type": "poster_akuki",
+        "label": "悪鬼ポスター",
+    },
+    SOFTSHELL_CRAB_COMMAND: {
+        "type": "softshell_crab",
+        "label": "ソフトシェルクラブ",
+    },
 }
 _UNAVAILABLE_COMMAND_MESSAGES = {}
 _COMMAND_TYPES_BY_TEXT = {
     NARITA_CARPET_COMMAND: "narita_carpet",
     TAKETUMI_SPAWN_COMMAND: "taketumi_spawn_near_player",
     TAKETUMI_REMOVE_COMMAND: "taketumi_remove_near_player",
+    GONTA_SPAWN_COMMAND: "gonta_spawn_near_player",
+    GONTA_REMOVE_COMMAND: "gonta_remove_near_player",
+    MOLCAR_SPAWN_COMMAND: "molcar_spawn_near_player",
+    MOLCAR_REMOVE_COMMAND: "molcar_remove_near_player",
+    MOLCAR3_SPAWN_COMMAND: "molcar3_spawn_near_player",
+    MOLCAR3_REMOVE_COMMAND: "molcar3_remove_near_player",
     HELD_ITEM_INSPECT_COMMAND: "held_item_inspect",
+    SYNC_DIAGNOSTICS_COMMAND: "sync_diagnostics",
     **{text: spec["type"] for text, spec in _MINECRAFT_ITEM_COMMANDS.items()},
 }
 _PLAYERLESS_COMMAND_TYPES_BY_TEXT = {
+    JOIN_HISTORY_COMMAND: "join_history",
     SERVER_STATUS_COMMAND: "server_status",
     SERVER_RESTART_COMMAND: "server_restart",
 }
@@ -129,6 +181,12 @@ _SUCCESS_MESSAGES = {
     "narita_carpet": "{player} に成田カーペットを送り付けました。",
     "taketumi_spawn_near_player": "{player} の近くにタケツミを召喚しました。",
     "taketumi_remove_near_player": "{player} の近くのタケツミ削除を完了しました。",
+    "gonta_spawn_near_player": "{player} の近くにゴン太を召喚しました。",
+    "gonta_remove_near_player": "{player} の近くのゴン太削除を完了しました。",
+    "molcar_spawn_near_player": "{player} の近くにモルカーを召喚しました。",
+    "molcar_remove_near_player": "{player} の近くのモルカー削除を完了しました。",
+    "molcar3_spawn_near_player": "{player} の近くにモルカー3を召喚しました。",
+    "molcar3_remove_near_player": "{player} の近くのモルカー3削除を完了しました。",
     **{
         spec["type"]: "{player} に" + spec["label"] + "を送り付けました。"
         for spec in _MINECRAFT_ITEM_COMMANDS.values()
@@ -148,9 +206,15 @@ MINECRAFT_COMMAND_USAGE = (
     "イルシアポスター <Minecraft名> / ライオポスター <Minecraft名> / "
     "トレントポスター <Minecraft名> / オーレリアポスター <Minecraft名> / "
     "キルザエルポスター <Minecraft名> / キャラバンマンモスポスター <Minecraft名> / "
-    "イツタケポスター <Minecraft名> / "
+    "イツタケポスター <Minecraft名> / キャットチューナーポスター <Minecraft名> / "
+    "ウィルバートポスター <Minecraft名> / ミルティオポスター <Minecraft名> / "
+    "エースポスター <Minecraft名> / アイズエデンポスター <Minecraft名> / "
+    "悪鬼ポスター <Minecraft名> / ソフトシェルクラブ <Minecraft名> / "
     "タケツミ召喚 <Minecraft名> / タケツミ削除 <Minecraft名> / "
-    "手持ち確認 <Minecraft名> / 状態 / 再起動"
+    "ゴン太召喚 <Minecraft名> / ゴン太削除 <Minecraft名> / "
+    "モルカー召喚 <Minecraft名> / モルカー削除 <Minecraft名> / "
+    "モルカー3召喚 <Minecraft名> / モルカー3削除 <Minecraft名> / "
+    "手持ち確認 <Minecraft名> / 同期診断 <Minecraft名> / join履歴 / 状態 / 再起動"
 )
 _COMMAND_RE = re.compile(
     r"^\s*マイクラ[\s\u3000]+(?P<subcommand>"
@@ -177,6 +241,8 @@ def parse_minecraft_command(command_text: Optional[str]):
     if subcommand in _PLAYERLESS_COMMAND_TYPES_BY_TEXT:
         if str(match.group("arg") or "").strip():
             return _PLAYERLESS_COMMAND_TYPES_BY_TEXT[subcommand], None, True
+        if subcommand == JOIN_HISTORY_COMMAND:
+            return _PLAYERLESS_COMMAND_TYPES_BY_TEXT[subcommand], JOIN_HISTORY_PLAYER_PLACEHOLDER, True
         return _PLAYERLESS_COMMAND_TYPES_BY_TEXT[subcommand], SERVER_STATUS_PLAYER_PLACEHOLDER, True
     command_type = _COMMAND_TYPES_BY_TEXT[subcommand]
     player_name = str(match.group("arg") or "").strip()
@@ -275,7 +341,16 @@ async def _handle_bridge_queue_command(
         return True
     if result.get("status") == "succeeded":
         result_message = str(result.get("result_message") or "").strip()
-        if command_type in ("held_item_inspect", "server_status", "taketumi_remove_near_player") and result_message:
+        if command_type in (
+            "held_item_inspect",
+            "sync_diagnostics",
+            "join_history",
+            "server_status",
+            "taketumi_remove_near_player",
+            "gonta_remove_near_player",
+            "molcar_remove_near_player",
+            "molcar3_remove_near_player",
+        ) and result_message:
             await message.channel.send(result_message[:1900])
             return True
         await message.channel.send(_SUCCESS_MESSAGES[command_type].format(player=minecraft_player_name))
@@ -410,6 +485,18 @@ def _result_error_message(minecraft_player_name: str, reason: str) -> str:
         return "タケツミの名前設定に失敗しました。"
     if reason == "taketumi_remove_failed":
         return "タケツミの削除に失敗しました。"
+    if reason == "gonta_spawn_failed":
+        return "{0} の近くにゴン太を召喚できませんでした。".format(minecraft_player_name)
+    if reason == "gonta_remove_failed":
+        return "ゴン太の削除に失敗しました。"
+    if reason == "molcar_spawn_failed":
+        return "{0} の近くにモルカーを召喚できませんでした。".format(minecraft_player_name)
+    if reason == "molcar_remove_failed":
+        return "モルカーの削除に失敗しました。"
+    if reason == "molcar3_spawn_failed":
+        return "{0} の近くにモルカー3を召喚できませんでした。".format(minecraft_player_name)
+    if reason == "molcar3_remove_failed":
+        return "モルカー3の削除に失敗しました。"
     if reason == "empty_hand":
         return "{0} は現在なにも手に持っていません。".format(minecraft_player_name)
     if reason in (
