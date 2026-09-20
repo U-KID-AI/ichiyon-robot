@@ -186,6 +186,7 @@ class RemoteChecks(unittest.TestCase):
                 SHA + '\n',
                 encoding='utf-8',
             )
+
             (src / 'legacy.txt').write_text(
                 'phase3b\n',
                 encoding='utf-8',
@@ -202,29 +203,125 @@ class RemoteChecks(unittest.TestCase):
                     encoding='utf-8',
                 )
 
-            (release / 'immutable-image.txt').write_text(
-                'ichiyon-robot-app:' + SHA + '\n',
+            legacy_image_id = (
+                'sha256:' +
+                ('1' * 64)
+            )
+
+            legacy_metadata = (
+                'release_sha=' + SHA + '\n'
+                'image_tag=ichiyon-robot-app:' + SHA + '\n'
+                'image_id=' + legacy_image_id + '\n'
+                'source=' + str(src) + '\n'
+                'compose_base=' +
+                str(src / 'docker-compose.yml') + '\n'
+                'compose_overlay=' +
+                str(release / 'compose.immutable.yml') + '\n'
+                'shared_root=' + str(h.SHARED) + '\n'
+                'database_volume=' + h.VOLUME + '\n'
+                'network=' + h.NETWORK + '\n'
+            )
+
+            image_metadata = release / 'immutable-image.txt'
+
+            image_metadata.write_text(
+                legacy_metadata,
                 encoding='utf-8',
             )
 
             with patch.object(h, 'ROOT', root):
-                # Actual Phase 3B production shape: no src/REVISION.
+                metadata = h.immutable_image_metadata(
+                    release
+                )
+
+                self.assertEqual(
+                    metadata['format'],
+                    'phase3b',
+                )
+
+                self.assertEqual(
+                    metadata['image_id'],
+                    legacy_image_id,
+                )
+
                 self.assertEqual(
                     h.release(release),
                     SHA,
                 )
 
-                # New-format marker, when present, remains strictly bound.
-                (src / 'REVISION').write_text(
-                    'b' * 40 + '\n',
+                with patch.object(
+                    h,
+                    'image_check',
+                    return_value=legacy_image_id,
+                ) as image_check:
+                    self.assertEqual(
+                        h.previous_image_check(release),
+                        legacy_image_id,
+                    )
+
+                    image_check.assert_called_once_with(
+                        SHA,
+                        require_revision=False,
+                    )
+
+                with patch.object(
+                    h,
+                    'image_check',
+                    return_value='sha256:' + ('2' * 64),
+                ), self.assertRaises(AssertionError):
+                    h.previous_image_check(release)
+
+                bad = legacy_metadata.replace(
+                    'release_sha=' + SHA,
+                    'release_sha=' + ('b' * 40),
+                )
+
+                image_metadata.write_text(
+                    bad,
                     encoding='utf-8',
                 )
 
                 with self.assertRaises(AssertionError):
                     h.release(release)
 
+                image_metadata.write_text(
+                    legacy_metadata +
+                    'unexpected=value\n',
+                    encoding='utf-8',
+                )
+
+                with self.assertRaises(AssertionError):
+                    h.release(release)
+
+                image_metadata.write_text(
+                    legacy_metadata +
+                    'network=' + h.NETWORK + '\n',
+                    encoding='utf-8',
+                )
+
+                with self.assertRaises(AssertionError):
+                    h.release(release)
+
+                image_metadata.write_text(
+                    legacy_metadata,
+                    encoding='utf-8',
+                )
+
+                # Legacy metadata must not be accepted for a new-format
+                # release that has src/REVISION.
                 (src / 'REVISION').write_text(
                     SHA + '\n',
+                    encoding='utf-8',
+                )
+
+                with self.assertRaises(AssertionError):
+                    h.release(release)
+
+                # Current-format release metadata remains strict.
+                image_metadata.write_text(
+                    'ichiyon-robot-app:' +
+                    SHA +
+                    '\n',
                     encoding='utf-8',
                 )
 
@@ -295,6 +392,11 @@ class RemoteChecks(unittest.TestCase):
             release = root / SHA
             src = release / 'src'
             src.mkdir(parents=True)
+
+            (release / 'immutable-image.txt').write_text(
+                'ichiyon-robot-app:' + SHA + '\n',
+                encoding='utf-8',
+            )
 
             with patch.object(
                 h,

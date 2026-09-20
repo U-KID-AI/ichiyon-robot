@@ -97,6 +97,73 @@ def tree(path):
             result[str(p.relative_to(path))] = hashlib.sha256(p.read_bytes()).hexdigest()
     return result
 
+def immutable_image_metadata(path):
+    metadata = path / 'immutable-image.txt'
+    normal(metadata)
+
+    text = metadata.read_text()
+    tag = 'ichiyon-robot-app:' + path.name
+
+    # Current Phase 3C+ format.
+    if text in (tag, tag + '\n'):
+        return {
+            'format': 'current',
+            'image_tag': tag,
+            'image_id': None,
+        }
+
+    # Phase 3B used an explicit key=value manifest.
+    # Only a release that also predates src/REVISION may use it.
+    assert not (path / 'src/REVISION').exists()
+
+    fields = {}
+
+    for line in text.splitlines():
+        assert line and '=' in line
+        key, value = line.split('=', 1)
+        assert key and value and key not in fields
+        fields[key] = value
+
+    required = {
+        'release_sha',
+        'image_tag',
+        'image_id',
+        'source',
+        'compose_base',
+        'compose_overlay',
+        'shared_root',
+        'database_volume',
+        'network',
+    }
+
+    assert set(fields) == required
+
+    assert fields['release_sha'] == path.name
+    assert fields['image_tag'] == tag
+    assert re.fullmatch(
+        'sha256:[0-9a-f]{64}',
+        fields['image_id'],
+    )
+
+    assert fields['source'] == str(path / 'src')
+    assert fields['compose_base'] == str(
+        path / 'src/docker-compose.yml'
+    )
+    assert fields['compose_overlay'] == str(
+        path / 'compose.immutable.yml'
+    )
+
+    assert fields['shared_root'] == str(SHARED)
+    assert fields['database_volume'] == VOLUME
+    assert fields['network'] == NETWORK
+
+    return {
+        'format': 'phase3b',
+        'image_tag': fields['image_tag'],
+        'image_id': fields['image_id'],
+    }
+
+
 def release(path):
     assert path.parent == ROOT and re.fullmatch('[0-9a-f]{40}', path.name)
     normal(path, True)
@@ -114,7 +181,7 @@ def release(path):
     for name in ('compose.immutable.yml', 'immutable-image.txt', 'persistence.txt',
                  'rollback-images.txt', 'validate-immutable-compose.py'):
         normal(path / name)
-    assert (path / 'immutable-image.txt').read_text().strip() == 'ichiyon-robot-app:' + path.name
+    immutable_image_metadata(path)
     return path.name
 
 def compose(path, *args):
@@ -184,11 +251,24 @@ def image_check(sha, require_revision=True):
 
 def previous_image_check(path):
     sha = release(path)
+    metadata = immutable_image_metadata(path)
+
     # Phase 3B images predate /app/REVISION exactly when their immutable
     # release source predates src/REVISION. New-format previous releases
     # therefore remain strict.
     require_revision = (path / 'src/REVISION').exists()
-    return image_check(sha, require_revision=require_revision)
+
+    image_id = image_check(
+        sha,
+        require_revision=require_revision,
+    )
+
+    # Bind the old Phase 3B manifest's recorded immutable image identity
+    # to the actual locally installed Docker image.
+    if metadata['format'] == 'phase3b':
+        assert metadata['image_id'] == image_id
+
+    return image_id
 
 
 def health(path, expected_infra, migrations=True):
