@@ -56,30 +56,163 @@ class AvatarChecks(unittest.TestCase):
         for skin in SKINS:
             self.assertNotIn(f"ichiyon:{skin}", identifiers)
 
-    def test_stationary_and_invulnerable_in_every_group(self):
+
+    def test_home_bound_mobile_and_damageable(self):
         components = self.entity["components"]
+
         self.assertEqual(self.document["format_version"], "1.26.10")
-        self.assertEqual(components["minecraft:movement"], {"value": 0})
-        self.assertEqual(components["minecraft:physics"], {
-            "has_gravity": False, "has_collision": True,
-            "push_towards_closest_space": False,
-        })
-        self.assertEqual(components["minecraft:knockback_resistance"]["value"], 1)
-        self.assertEqual(components["minecraft:damage_sensor"], {
-            "triggers": [{"cause": "all", "deals_damage": "no"}],
-        })
+
+        self.assertEqual(
+            components["minecraft:movement"],
+            {"value": 0.12},
+        )
+
+        self.assertEqual(
+            components["minecraft:physics"],
+            {
+                "has_gravity": False,
+                "has_collision": True,
+                "push_towards_closest_space": False,
+            },
+        )
+
+        self.assertEqual(
+            components["minecraft:home"],
+            {
+                "restriction_radius": 2,
+                "restriction_type": "all_movement",
+            },
+        )
+
+        self.assertEqual(
+            components["minecraft:navigation.walk"],
+            {
+                "avoid_water": True,
+                "can_path_over_water": False,
+                "can_pass_doors": False,
+                "can_open_doors": False,
+            },
+        )
+
+        self.assertEqual(
+            components["minecraft:movement.basic"],
+            {},
+        )
+
+        self.assertEqual(
+            components["minecraft:behavior.look_at_player"],
+            {
+                "priority": 1,
+                "look_distance": 8,
+                "probability": 0.12,
+                "look_time": {
+                    "min": 2,
+                    "max": 5,
+                },
+                "angle_of_view_horizontal": 120,
+                "angle_of_view_vertical": 80,
+            },
+        )
+
+        self.assertEqual(
+            components["minecraft:behavior.random_look_around"],
+            {
+                "priority": 2,
+                "probability": 0.08,
+                "look_time": {
+                    "min": 2,
+                    "max": 4,
+                },
+                "min_angle_of_view_horizontal": -70,
+                "max_angle_of_view_horizontal": 70,
+            },
+        )
+
+        self.assertEqual(
+            components["minecraft:behavior.random_stroll"],
+            {
+                "priority": 3,
+                "speed_multiplier": 0.65,
+                "interval": 80,
+                "xz_dist": 2,
+                "y_dist": 1,
+            },
+        )
+
+        self.assertEqual(
+            components["minecraft:health"],
+            {
+                "value": 20,
+                "max": 20,
+            },
+        )
+
+        # Damage must reach HP now.
+        self.assertNotIn("minecraft:damage_sensor", components)
+
+        # Attacks may damage the avatar, but should not launch it away.
+        self.assertEqual(
+            components["minecraft:knockback_resistance"],
+            {
+                "value": 1,
+                "max": 1,
+            },
+        )
+
         self.assertIn("minecraft:persistent", components)
         self.assertIn("minecraft:fire_immune", components)
-        # With format >= 1.26.10, omitting BOTH pushable_by_* disables pushing.
-        forbidden = ("minecraft:behavior.", "minecraft:navigation.", "minecraft:movement.",
-                     "minecraft:pushable", "minecraft:despawn", "minecraft:leashable",
-                     "minecraft:rideable", "minecraft:attack", "minecraft:timer")
-        for group in [components, *self.entity["component_groups"].values()]:
-            self.assertFalse(any(key.startswith(forbidden) for key in group))
-        self.assertEqual(components["minecraft:collision_box"], {"width": 0.6, "height": 1.8})
-        self.assertEqual(components["minecraft:is_collidable"], {})
-        self.assertNotIn("minecraft:entity_spawned", self.entity["events"])
-        self.assertFalse((BP / "spawn_rules/avatar.json").exists())
+
+        self.assertEqual(
+            components["minecraft:collision_box"],
+            {
+                "width": 0.6,
+                "height": 1.8,
+            },
+        )
+
+        self.assertEqual(
+            components["minecraft:is_collidable"],
+            {},
+        )
+
+        # Player/block pushing remains disabled.
+        for key in components:
+            self.assertFalse(
+                key.startswith("minecraft:pushable"),
+                key,
+            )
+
+        # It is allowed to look and stroll, but must not gain combat,
+        # riding, despawn or unrelated autonomous behavior.
+        forbidden = (
+            "minecraft:behavior.melee",
+            "minecraft:behavior.ranged",
+            "minecraft:behavior.hurt_by_target",
+            "minecraft:behavior.nearest_attackable_target",
+            "minecraft:attack",
+            "minecraft:despawn",
+            "minecraft:leashable",
+            "minecraft:rideable",
+            "minecraft:timer",
+        )
+
+        for group in [
+            components,
+            *self.entity["component_groups"].values(),
+        ]:
+            self.assertFalse(
+                any(key.startswith(forbidden) for key in group),
+                group,
+            )
+
+        self.assertNotIn(
+            "minecraft:entity_spawned",
+            self.entity["events"],
+        )
+
+        self.assertFalse(
+            (BP / "spawn_rules/avatar.json").exists()
+        )
 
     def test_creative_proxies_transform_to_shared_entity(self):
         for index, skin in enumerate(SKINS):
@@ -111,26 +244,115 @@ class AvatarChecks(unittest.TestCase):
                     self.assertNotIn("?", value)
                     self.assertTrue(value.strip())
 
-    def test_idle_is_small_periodic_upper_body_rotation_only(self):
-        self.assertEqual(self.client["animations"], {"idle": "animation.ichiyon.avatar.idle"})
-        self.assertEqual(self.client["scripts"], {"animate": ["idle"]})
-        animations = read_json(RP / "animations/avatar.animation.json")["animations"]
-        self.assertEqual(set(animations), {"animation.ichiyon.avatar.idle"})
-        idle = animations["animation.ichiyon.avatar.idle"]
-        self.assertEqual(set(idle), {"loop", "animation_length", "bones"})
+
+    def test_idle_walk_and_look_animation_contract(self):
+        self.assertEqual(
+            self.client["animations"],
+            {
+                "idle": "animation.ichiyon.avatar.idle",
+                "walk": "animation.ichiyon.avatar.walk",
+                "look_at_target": "animation.common.look_at_target",
+            },
+        )
+
+        self.assertEqual(
+            self.client["scripts"],
+            {
+                "animate": [
+                    "idle",
+                    {
+                        "walk": "query.modified_move_speed",
+                    },
+                    "look_at_target",
+                ],
+            },
+        )
+
+        animations = read_json(
+            RP / "animations/avatar.animation.json"
+        )["animations"]
+
+        self.assertEqual(
+            set(animations),
+            {
+                "animation.ichiyon.avatar.idle",
+                "animation.ichiyon.avatar.walk",
+            },
+        )
+
+        idle = animations[
+            "animation.ichiyon.avatar.idle"
+        ]
+
         self.assertIs(idle["loop"], True)
         self.assertEqual(idle["animation_length"], 8)
-        self.assertEqual(set(idle["bones"]), {"body", "head", "leftArm", "rightArm"})
+
+        # Head is intentionally NOT animated by idle:
+        # look_at_target owns head movement.
+        self.assertEqual(
+            set(idle["bones"]),
+            {
+                "body",
+                "rightArm",
+                "leftArm",
+            },
+        )
+
+        self.assertNotIn("head", idle["bones"])
+
         for bone in idle["bones"].values():
-            self.assertEqual(set(bone), {"rotation"})
-            pitch, yaw, roll = bone["rotation"]
-            self.assertEqual([yaw, roll], [0, 0])
-            match = re.fullmatch(r"math\.sin\(query\.anim_time \* (45|90)\) \* (-?0\.\d+)", pitch)
-            self.assertIsNotNone(match)
-            speed, amplitude = map(float, match.groups())
-            self.assertLessEqual(abs(amplitude), 0.6)
-            self.assertGreater(abs(amplitude), 0)
-            self.assertAlmostEqual(math.sin(math.radians(speed * idle["animation_length"])), 0)
+            self.assertEqual(
+                set(bone),
+                {"rotation"},
+            )
+
+        walk = animations[
+            "animation.ichiyon.avatar.walk"
+        ]
+
+        self.assertIs(walk["loop"], True)
+
+        self.assertEqual(
+            walk["anim_time_update"],
+            "query.modified_distance_moved * 2.5",
+        )
+
+        self.assertEqual(
+            set(walk["bones"]),
+            {
+                "body",
+                "rightArm",
+                "leftArm",
+                "rightLeg",
+                "leftLeg",
+            },
+        )
+
+        # Walking must actually animate both legs.
+        right_leg = walk["bones"]["rightLeg"]["rotation"][0]
+        left_leg = walk["bones"]["leftLeg"]["rotation"][0]
+
+        self.assertIn("* 28", right_leg)
+        self.assertIn("* -28", left_leg)
+
+        geometry = read_json(
+            RP / "models/entity/avatar.geo.json"
+        )["minecraft:geometry"][0]
+
+        bone_names = {
+            bone["name"]
+            for bone in geometry["bones"]
+        }
+
+        for required in (
+            "body",
+            "head",
+            "rightArm",
+            "leftArm",
+            "rightLeg",
+            "leftLeg",
+        ):
+            self.assertIn(required, bone_names)
 
     def test_robot_contract_and_parser_without_settings_import(self):
         # Execute only inert assignments and the pure parser, never bot.config/dotenv.
@@ -256,7 +478,7 @@ class AvatarChecks(unittest.TestCase):
                 self.assertLessEqual(v + y + z, 64)
 
     def test_pack_versions_and_localized_names(self):
-        for pack, version in ((BP, [1, 0, 26]), (RP, [1, 0, 28])):
+        for pack, version in ((BP, [1, 0, 27]), (RP, [1, 0, 29])):
             manifest = read_json(pack / "manifest.json")
             self.assertEqual(manifest["header"]["version"], version)
             self.assertTrue(all(m["version"] == version for m in manifest["modules"]))

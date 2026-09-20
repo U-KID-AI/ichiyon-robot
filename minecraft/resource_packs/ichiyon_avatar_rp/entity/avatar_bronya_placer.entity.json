@@ -16,11 +16,17 @@
         "default": "geometry.ichiyon.avatar"
       },
       "animations": {
-        "idle": "animation.ichiyon.avatar.idle"
+        "idle": "animation.ichiyon.avatar.idle",
+        "walk": "animation.ichiyon.avatar.walk",
+        "look_at_target": "animation.common.look_at_target"
       },
       "scripts": {
         "animate": [
-          "idle"
+          "idle",
+          {
+            "walk": "query.modified_move_speed"
+          },
+          "look_at_target"
         ]
       },
       "render_controllers": [

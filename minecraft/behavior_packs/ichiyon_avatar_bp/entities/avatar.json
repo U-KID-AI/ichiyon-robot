@@ -46,7 +46,7 @@
         "max": 20
       },
       "minecraft:movement": {
-        "value": 0
+        "value": 0.12
       },
       "minecraft:physics": {
         "has_gravity": false,
@@ -62,17 +62,48 @@
         "value": 1,
         "max": 1
       },
-      "minecraft:damage_sensor": {
-        "triggers": [
-          {
-            "cause": "all",
-            "deals_damage": "no"
-          }
-        ]
-      },
       "minecraft:fire_immune": {},
       "minecraft:persistent": {},
-      "minecraft:nameable": {}
+      "minecraft:nameable": {},
+      "minecraft:movement.basic": {},
+      "minecraft:navigation.walk": {
+        "avoid_water": true,
+        "can_path_over_water": false,
+        "can_pass_doors": false,
+        "can_open_doors": false
+      },
+      "minecraft:home": {
+        "restriction_radius": 2,
+        "restriction_type": "all_movement"
+      },
+      "minecraft:behavior.look_at_player": {
+        "priority": 1,
+        "look_distance": 8,
+        "probability": 0.12,
+        "look_time": {
+          "min": 2,
+          "max": 5
+        },
+        "angle_of_view_horizontal": 120,
+        "angle_of_view_vertical": 80
+      },
+      "minecraft:behavior.random_look_around": {
+        "priority": 2,
+        "probability": 0.08,
+        "look_time": {
+          "min": 2,
+          "max": 4
+        },
+        "min_angle_of_view_horizontal": -70,
+        "max_angle_of_view_horizontal": 70
+      },
+      "minecraft:behavior.random_stroll": {
+        "priority": 3,
+        "speed_multiplier": 0.65,
+        "interval": 80,
+        "xz_dist": 2,
+        "y_dist": 1
+      }
     },
     "events": {
       "ichiyon:kiana": {
