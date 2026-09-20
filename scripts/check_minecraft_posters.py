@@ -286,8 +286,8 @@ def verify_versions():
     bp_manifest = load_json(BP_DIR / "manifest.json")
     rp_manifest = load_json(RP_DIR / "manifest.json")
     import_manifest = load_json(ROOT_DIR / "minecraft" / "behavior_packs" / "import_structures" / "manifest.json")
-    results.append(check("avatar BP version remains [1, 0, 4]", bp_manifest["header"]["version"] == [1, 0, 4] and bp_manifest["modules"][0]["version"] == [1, 0, 4]))
-    results.append(check("avatar RP version remains [1, 0, 3]", rp_manifest["header"]["version"] == [1, 0, 3] and rp_manifest["modules"][0]["version"] == [1, 0, 3]))
+    results.append(check("avatar BP version [1, 0, 5]", bp_manifest["header"]["version"] == [1, 0, 5] and bp_manifest["modules"][0]["version"] == [1, 0, 5]))
+    results.append(check("avatar RP version [1, 0, 4]", rp_manifest["header"]["version"] == [1, 0, 4] and rp_manifest["modules"][0]["version"] == [1, 0, 4]))
     results.append(check("import structures version remains [1, 0, 1]", import_manifest["header"]["version"] == [1, 0, 1] and all(module["version"] == [1, 0, 1] for module in import_manifest["modules"])))
     return results
 
