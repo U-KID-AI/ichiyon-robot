@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from types import SimpleNamespace
 from uuid import UUID
 
@@ -394,11 +394,22 @@ def main():
         raise AssertionError(args)
 
     fake_path = Path(sys.executable).resolve()
+
+    # The constructor still validates a real local file.
+    # Network helper formatting is deliberately Windows-only
+    # in production, so simulate that trusted Windows path
+    # when this offline test runs on Linux CI.
+    fake_windows_gcm = PureWindowsPath(
+        "C:/Program Files/Git/mingw64/bin/"
+        "git-credential-manager.exe"
+    )
+
     fake_publisher = GitPublisher(
         fake_path,
         gcm_path=fake_path,
         runner=fake_git,
     )
+    fake_publisher.gcm_path = fake_windows_gcm
 
     pushed = fake_publisher.push_task_branch(
         ROOT,
@@ -494,6 +505,7 @@ def main():
             stderr="",
         ),
     )
+    mismatch_publisher.gcm_path = fake_windows_gcm
 
     check(
         "existing remote mismatch is rejected",
