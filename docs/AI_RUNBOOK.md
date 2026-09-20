@@ -86,3 +86,18 @@ Windows Runnerは`--once`で1 taskだけ処理する。Control Planeからclaim�
 
 Phase 2Bは固定test registryと`git diff --check`を実行し、結果をprogressへ保存してtaskをtestingのまま終了する。Codex実行、Git、filesystem、API通信はfakeで検証し、実機Codex子プロセスやproduction/staging接続はこのPhaseのcheckで行わない。
 RunnerのGit executableは`AI_TASK_RUNNER_GIT_PATH`で絶対path指定し、source repo/worktree配下の実行ファイルを拒否する。Codex childはGit credential helperを無効化した環境で起動し、stdout/stderrはbounded drainで上限を設ける。test registryも同じprocess tree停止と出力上限を使う。
+## Phase 2C Safe Publishing
+
+Phase 2Cは、Phase 2BのCodex実行・静的テスト・差分検証に成功し、Control Planeのleaseを維持できているtaskだけをレビュー可能なGitHub状態へ進める。
+
+RunnerはworktreeのHEADや実indexを移動させず、検証済み変更から決定的なcommit objectを生成する。remote操作直前に同じ候補を再構築し、commit SHAとtree SHAが一致しなければpublishしない。
+
+push先は固定repositoryの `ai/task/<UUID>` branchだけとし、force pushを行わない。remote branchが既に存在する場合は、期待commit SHAと完全一致する場合だけretryとして採用し、不一致なら停止する。
+
+branch publish後は `main` をbaseとするDraft Pull Requestを1件だけ作成または採用する。PR number、URL、Draft状態、base branch、head branch、head SHAを再検証し、すべて期待値と一致した場合だけControl Planeを `ready_for_review` へ遷移させる。
+
+Git/GitHub subprocessはshellを使わず、出力上限と停止処理を持つ。Git network操作はinteractive authenticationを無効化し、検証済みのGit Credential Managerだけを使用する。task由来の秘密情報やrunner API tokenをGit/Codex/GitHub child environmentへ渡さない。
+
+pushまたはPR作成の応答が不明確な状態でprocessが終了した場合、retry時は固定UUID branchとPRを再照合する。期待SHA・base・head・Draft metadataが完全一致する場合だけ既存成果物を採用し、それ以外はfail closedとする。
+
+Phase 2Cでもmerge、production deploy、restart、DB migration、secrets変更、network変更その他Level 3操作は自動実行しない。Draft PRから先は人間レビューへ引き渡す。
