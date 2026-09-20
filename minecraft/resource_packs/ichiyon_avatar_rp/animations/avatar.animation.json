@@ -5,10 +5,68 @@
       "loop": true,
       "animation_length": 8,
       "bones": {
-        "body": {"rotation": ["math.sin(query.anim_time * 90) * 0.35", 0, 0]},
-        "head": {"rotation": ["math.sin(query.anim_time * 45) * 0.6", 0, 0]},
-        "rightArm": {"rotation": ["math.sin(query.anim_time * 90) * 0.5", 0, 0]},
-        "leftArm": {"rotation": ["math.sin(query.anim_time * 90) * -0.5", 0, 0]}
+        "body": {
+          "rotation": [
+            "math.sin(query.anim_time * 90) * 0.25",
+            0,
+            "math.sin(query.anim_time * 45) * 0.20"
+          ]
+        },
+        "rightArm": {
+          "rotation": [
+            "math.sin(query.anim_time * 90) * 0.35",
+            0,
+            0
+          ]
+        },
+        "leftArm": {
+          "rotation": [
+            "math.sin(query.anim_time * 90) * -0.35",
+            0,
+            0
+          ]
+        }
+      }
+    },
+    "animation.ichiyon.avatar.walk": {
+      "loop": true,
+      "anim_time_update": "query.modified_distance_moved * 2.5",
+      "bones": {
+        "rightLeg": {
+          "rotation": [
+            "math.cos(query.anim_time * 180) * 28",
+            0,
+            0
+          ]
+        },
+        "leftLeg": {
+          "rotation": [
+            "math.cos(query.anim_time * 180) * -28",
+            0,
+            0
+          ]
+        },
+        "rightArm": {
+          "rotation": [
+            "math.cos(query.anim_time * 180) * -18",
+            0,
+            0
+          ]
+        },
+        "leftArm": {
+          "rotation": [
+            "math.cos(query.anim_time * 180) * 18",
+            0,
+            0
+          ]
+        },
+        "body": {
+          "rotation": [
+            "math.sin(query.anim_time * 360) * 1.5",
+            0,
+            0
+          ]
+        }
       }
     }
   }
