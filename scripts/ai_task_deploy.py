@@ -53,8 +53,12 @@ class ProductionDeployAdapter:
                     "bash", "-s", "--", merge_sha]
             process = subprocess.Popen(argv, shell=False, stdin=subprocess.PIPE,
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            # Once the fixed production transaction has started, transient Control
+            # Plane lease loss must not kill SSH mid-backup/migration/cutover.
+            # Lease loss is still checked before launch and immediately after the
+            # remote protocol returns, so Control Plane completion stays fail-closed.
             result = communicate_bounded(process, input_text=script, timeout=c.timeout,
-                                         max_output_bytes=c.max_output_bytes, stop_event=stop_event)
+                                         max_output_bytes=c.max_output_bytes, stop_event=None)
             if (result.timed_out or result.stopped or result.stdin_cleanup_failed
                     or result.returncode != 0 or result.stderr
                     or (stop_event is not None and stop_event.is_set())

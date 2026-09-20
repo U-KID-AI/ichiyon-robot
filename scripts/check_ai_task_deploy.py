@@ -85,7 +85,7 @@ class DeploymentTests(unittest.TestCase):
         self.assertIs(kwargs['shell'], False)
         self.assertEqual(kwargs['stdin'], subprocess.PIPE)
         self.assertEqual(communicate.call_args.kwargs['input_text'], SCRIPT)
-        self.assertIs(communicate.call_args.kwargs['stop_event'], stop)
+        self.assertIsNone(communicate.call_args.kwargs['stop_event'])
         self.assertEqual(communicate.call_args.kwargs['timeout'], self.config.timeout)
         self.assertEqual(communicate.call_args.kwargs['max_output_bytes'], self.config.max_output_bytes)
 
