@@ -4,8 +4,8 @@ The default mode processes at most one task. This module never connects directly
 to the database. After fixed offline validation it may create a deterministic
 commit object, push only the UUID task branch, create or adopt an exact Draft PR,
 wait for exact CI, run a read-only code review, and perform a guarded squash merge.
-Real production deployment is not implemented in Phase 3C-1D.
-The durable deploying state precedes any injected fixed-operation deployer.
+Production deployment is available only through the reviewed fixed-operation deployer.
+The durable deploying state precedes the fixed-operation deployer.
 """
 
 import argparse
@@ -25,6 +25,8 @@ from ai_task_github import GitHubAdapter, GitHubSafetyError
 from ai_task_process import ProcessTerminationError
 from ai_task_publish import GitPublisher, PublishSafetyError
 from ai_task_review_merge import ReviewMergeGate, ReviewMergeSafetyError
+from ai_task_deploy import ProductionDeployAdapter
+from ai_task_deploy_config import DeployConfig
 from ai_task_runner_config import RunnerConfig
 from ai_task_safety import (SafetyError, is_reparse_point, task_worktree_path,
                              validate_changed_paths, validate_claim_names, validate_project_codex_layer)
@@ -779,11 +781,18 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     try:
         config = RunnerConfig.from_environment()
-        runner = LocalRunner(config)
-        # --once remains the only supported execution mode in Phase 2D.
+        deploy_config = DeployConfig.from_environment(
+            repo_root=config.repo_root,
+            worktree_root=config.worktree_root,
+        )
+        runner = LocalRunner(
+            config,
+            deployer=ProductionDeployAdapter(deploy_config),
+        )
+        # --once remains the only supported execution mode.
         outcome = runner.run_once()
         return outcome_exit_code(outcome)
-    except (ValueError, OSError) as exc:
+    except (ValueError, OSError, SafetyError) as exc:
         logger.error("Runner configuration failed: %s", type(exc).__name__)
         return 2
 
