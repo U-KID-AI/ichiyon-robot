@@ -385,28 +385,29 @@ def main():
         check("effective CODEX_HOME is fixed in child", child_environment.get("CODEX_HOME") == str(effective_codex_home.resolve()))
         check("parent CODEX_SQLITE_HOME is removed", "CODEX_SQLITE_HOME" not in child_environment)
 
-        taskkill_calls = []
-        system_root = root / "windows"
-        (system_root / "System32").mkdir(parents=True)
-        (system_root / "System32" / "taskkill.exe").write_bytes(b"")
-        terminate_process_tree(process, runner=lambda argv, **kwargs: (taskkill_calls.append((argv, kwargs)) or SimpleNamespace(returncode=0)), system_root=system_root)
-        check("Windows process tree termination uses fixed PID argv", taskkill_calls and taskkill_calls[0][0][1:] == ["/PID", "4321", "/T", "/F"] and taskkill_calls[0][1]["shell"] is False)
-        check("taskkill invocation exception becomes ProcessTerminationError",
-              _raises_type(lambda: terminate_process_tree(FakeProcess(None), runner=lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError()), system_root=system_root), ProcessTerminationError))
-        class AliveProcess(FakeProcess):
-            def __init__(self):
-                super().__init__(None)
-            def poll(self):
-                return None
-            def terminate(self):
-                pass
-            def kill(self):
-                pass
-        alive_process = AliveProcess()
-        check("taskkill failure with live process is rejected", _rejects(lambda: terminate_process_tree(alive_process, runner=lambda *args, **kwargs: SimpleNamespace(returncode=1), system_root=system_root)))
-        check("taskkill failure after process exit is a safe race", terminate_process_tree(FakeProcess(0), runner=lambda *args, **kwargs: SimpleNamespace(returncode=1), system_root=system_root) is None)
-        missing_taskkill_root = root / "missing-windows"
-        check("missing taskkill is never success", _rejects(lambda: terminate_process_tree(FakeProcess(0), runner=lambda *args, **kwargs: SimpleNamespace(returncode=0), system_root=missing_taskkill_root)))
+        with patch("ai_task_process.os.name", "nt"):
+            taskkill_calls = []
+            system_root = root / "windows"
+            (system_root / "System32").mkdir(parents=True)
+            (system_root / "System32" / "taskkill.exe").write_bytes(b"")
+            terminate_process_tree(process, runner=lambda argv, **kwargs: (taskkill_calls.append((argv, kwargs)) or SimpleNamespace(returncode=0)), system_root=system_root)
+            check("Windows process tree termination uses fixed PID argv", taskkill_calls and taskkill_calls[0][0][1:] == ["/PID", "4321", "/T", "/F"] and taskkill_calls[0][1]["shell"] is False)
+            check("taskkill invocation exception becomes ProcessTerminationError",
+                  _raises_type(lambda: terminate_process_tree(FakeProcess(None), runner=lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError()), system_root=system_root), ProcessTerminationError))
+            class AliveProcess(FakeProcess):
+                def __init__(self):
+                    super().__init__(None)
+                def poll(self):
+                    return None
+                def terminate(self):
+                    pass
+                def kill(self):
+                    pass
+            alive_process = AliveProcess()
+            check("taskkill failure with live process is rejected", _rejects(lambda: terminate_process_tree(alive_process, runner=lambda *args, **kwargs: SimpleNamespace(returncode=1), system_root=system_root)))
+            check("taskkill failure after process exit is a safe race", terminate_process_tree(FakeProcess(0), runner=lambda *args, **kwargs: SimpleNamespace(returncode=1), system_root=system_root) is None)
+            missing_taskkill_root = root / "missing-windows"
+            check("missing taskkill is never success", _rejects(lambda: terminate_process_tree(FakeProcess(0), runner=lambda *args, **kwargs: SimpleNamespace(returncode=0), system_root=missing_taskkill_root)))
 
         status_paths = "?? space name.txt\0?? unicode-東京.txt\0R  new -> literal.txt\0old -> source.txt\0"
         parsed = adapter.parse_status_z(status_paths)
