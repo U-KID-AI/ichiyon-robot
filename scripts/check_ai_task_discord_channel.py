@@ -151,6 +151,7 @@ class ChannelChecks(unittest.IsolatedAsyncioTestCase):
         node = next(n for n in ast.parse(source).body if isinstance(n, ast.AsyncFunctionDef) and n.name == "on_message")
         node.decorator_list = []
         namespace = dict(discord=SimpleNamespace(Message=object), messages=messages,
+                         config=config,
                          parse_ai_command=ai_tasks.parse_ai_command,
                          is_ai_task_channel=ai_tasks.is_ai_task_channel,
                          handle_ai_task_channel_message=ai_tasks.handle_ai_task_channel_message)
@@ -163,8 +164,14 @@ class ChannelChecks(unittest.IsolatedAsyncioTestCase):
                 bot_message = self.message("private bot text")
                 bot_message.author.bot = True
                 await namespace["on_message"](bot_message)
+                with patch.object(config, "BOT_INSTANCE_ID", "irsia"):
+                    await namespace["on_message"](self.message("private irsia prompt"))
             self.assertNotIn("private", log.getvalue())
             self.assertIn("<AI development prompt redacted>", log.getvalue())
+            self.assertIn(
+                "ignored AI development channel for non-Ichiyon bot",
+                log.getvalue(),
+            )
             self.assertEqual(len(self.connection.created), 1)
 
     async def test_notification_dedupe_scope_and_mentions(self):
@@ -263,7 +270,9 @@ class StaticAndSQLChecks(unittest.TestCase):
         text = ast.get_source_segment(source, handler)
         self.assertLess(text.index("if message.author.bot:"), text.index("get_mention_command_text"))
         self.assertLess(text.index("<AI development prompt redacted>"), text.index('content={debug_content'))
+        irsia_guard = text.index('config.BOT_INSTANCE_ID != "ichiyon"')
         route = text.index("await handle_ai_task_channel_message")
+        self.assertLess(irsia_guard, route)
         for feature in ("handle_empty_mention_message", "handle_context_panel_command", "handle_mention_music_links",
                         "handle_voice_command", "handle_minecraft_command", "handle_horoscope_command", "handle_db_runtime_message",
                         "hayusu.", "handle_mention_message", "handle_word_response", "maybe_enqueue_tts"):

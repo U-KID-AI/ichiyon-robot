@@ -197,6 +197,10 @@ async def on_message(message: discord.Message):
         debug_content = "<AI development prompt redacted>"
     print(f"[DEBUG] on_message: author={message.author} content={debug_content!r}")
 
+    if is_ai_task_channel(message) and config.BOT_INSTANCE_ID != "ichiyon":
+        print("[DEBUG] ignored AI development channel for non-Ichiyon bot")
+        return
+
     if await handle_ai_task_channel_message(message, command_text):
         return
 
