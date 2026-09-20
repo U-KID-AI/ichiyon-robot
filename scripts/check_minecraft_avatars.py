@@ -1,9 +1,13 @@
 """Offline asset/contract checks only; never imports bot settings or opens a world."""
 
+import ast
 import hashlib
 import itertools
 import json
+import math
 from pathlib import Path
+import re
+from typing import Optional
 import unittest
 
 from PIL import Image
@@ -26,6 +30,13 @@ def read_json(path):
 
 
 class AvatarChecks(unittest.TestCase):
+    def test_all_pack_json_parses(self):
+        packs = ROOT / "minecraft"
+        for directory in (packs / "behavior_packs", packs / "resource_packs"):
+            for path in directory.rglob("*.json"):
+                with self.subTest(path=path.relative_to(ROOT)):
+                    read_json(path)
+
     def setUp(self):
         self.document = read_json(BP / "entities/avatar.json")
         self.entity = self.document["minecraft:entity"]
@@ -50,7 +61,7 @@ class AvatarChecks(unittest.TestCase):
         self.assertEqual(self.document["format_version"], "1.26.10")
         self.assertEqual(components["minecraft:movement"], {"value": 0})
         self.assertEqual(components["minecraft:physics"], {
-            "has_gravity": False, "has_collision": False,
+            "has_gravity": False, "has_collision": True,
             "push_towards_closest_space": False,
         })
         self.assertEqual(components["minecraft:knockback_resistance"]["value"], 1)
@@ -65,10 +76,112 @@ class AvatarChecks(unittest.TestCase):
                      "minecraft:rideable", "minecraft:attack", "minecraft:timer")
         for group in [components, *self.entity["component_groups"].values()]:
             self.assertFalse(any(key.startswith(forbidden) for key in group))
-        self.assertNotIn("animations", self.client)
-        self.assertNotIn("scripts", self.client)
+        self.assertEqual(components["minecraft:collision_box"], {"width": 0.6, "height": 1.8})
+        self.assertEqual(components["minecraft:is_collidable"], {})
         self.assertNotIn("minecraft:entity_spawned", self.entity["events"])
         self.assertFalse((BP / "spawn_rules/avatar.json").exists())
+
+    def test_creative_proxies_transform_to_shared_entity(self):
+        for index, skin in enumerate(SKINS):
+            proxy = read_json(BP / f"entities/avatar_{skin}_placer.json")
+            entity = proxy["minecraft:entity"]
+            self.assertEqual(proxy["format_version"], self.document["format_version"])
+            self.assertEqual(entity["description"], {
+                **self.entity["description"], "identifier": f"ichiyon:avatar_{skin}_placer",
+            })
+            self.assertEqual(entity["components"], {
+                **self.entity["components"], "minecraft:variant": {"value": index},
+                "minecraft:transformation": {
+                    "into": "ichiyon:avatar", "delay": 0,
+                    "add": [{"component_groups": [f"ichiyon:avatar_{skin}"]}],
+                },
+            })
+            self.assertNotIn("events", entity)
+            self.assertNotIn("component_groups", entity)
+            client = read_json(RP / f"entity/avatar_{skin}_placer.entity.json")
+            self.assertEqual(client["minecraft:client_entity"]["description"], {
+                **self.client, "identifier": f"ichiyon:avatar_{skin}_placer",
+            })
+            for locale in ("ja_JP", "en_US"):
+                lines = (RP / f"texts/{locale}.lang").read_text(encoding="utf-8").splitlines()
+                for prefix in ("entity.", "item.spawn_egg.entity."):
+                    key = f"{prefix}ichiyon:avatar_{skin}_placer.name="
+                    self.assertEqual(sum(line.startswith(key) for line in lines), 1)
+                    value = next(line[len(key):] for line in lines if line.startswith(key))
+                    self.assertNotIn("?", value)
+                    self.assertTrue(value.strip())
+
+    def test_idle_is_small_periodic_upper_body_rotation_only(self):
+        self.assertEqual(self.client["animations"], {"idle": "animation.ichiyon.avatar.idle"})
+        self.assertEqual(self.client["scripts"], {"animate": ["idle"]})
+        animations = read_json(RP / "animations/avatar.animation.json")["animations"]
+        self.assertEqual(set(animations), {"animation.ichiyon.avatar.idle"})
+        idle = animations["animation.ichiyon.avatar.idle"]
+        self.assertEqual(set(idle), {"loop", "animation_length", "bones"})
+        self.assertIs(idle["loop"], True)
+        self.assertEqual(idle["animation_length"], 8)
+        self.assertEqual(set(idle["bones"]), {"body", "head", "leftArm", "rightArm"})
+        for bone in idle["bones"].values():
+            self.assertEqual(set(bone), {"rotation"})
+            pitch, yaw, roll = bone["rotation"]
+            self.assertEqual([yaw, roll], [0, 0])
+            match = re.fullmatch(r"math\.sin\(query\.anim_time \* (45|90)\) \* (-?0\.\d+)", pitch)
+            self.assertIsNotNone(match)
+            speed, amplitude = map(float, match.groups())
+            self.assertLessEqual(abs(amplitude), 0.6)
+            self.assertGreater(abs(amplitude), 0)
+            self.assertAlmostEqual(math.sin(math.radians(speed * idle["animation_length"])), 0)
+
+    def test_robot_contract_and_parser_without_settings_import(self):
+        # Execute only inert assignments and the pure parser, never bot.config/dotenv.
+        service = (ROOT / "bot/services/minecraft_bridge.py").read_text(encoding="utf-8")
+        tree = ast.parse(service)
+        nodes = [node for node in tree.body if isinstance(node, ast.Assign) or
+                 isinstance(node, ast.FunctionDef) and node.name in ("parse_minecraft_command", "_result_error_message")]
+        namespace = {"re": re, "Optional": Optional,
+                     "is_valid_minecraft_player_name": lambda value: bool(re.fullmatch(r"[A-Za-z0-9_]{1,16}", value))}
+        exec(compile(ast.Module(body=nodes, type_ignores=[]), "avatar_parser_contract", "exec"), namespace)
+        parser = namespace["parse_minecraft_command"]
+        expected = {f"avatar_{skin}_{action}_near_player" for skin in SKINS for action in ("spawn", "remove")}
+        expected.add("avatar_all_remove_near_player")
+        self.assertEqual(set(namespace["_AVATAR_COMMANDS"].values()), expected)
+        repo = ast.parse((ROOT / "bot/repositories/minecraft_bridge.py").read_text(encoding="utf-8"))
+        allowed = next(ast.literal_eval(node.value) for node in repo.body if isinstance(node, ast.Assign)
+                       and any(isinstance(t, ast.Name) and t.id == "MINECRAFT_COMMAND_TYPES" for t in node.targets))
+        sql = (ROOT / "migrations/064_add_minecraft_avatar_commands.sql").read_text(encoding="utf-8")
+        self.assertEqual(set(re.findall(r"'([a-z0-9_]+)'", sql)), set(allowed))
+        bridge = (ROOT / "minecraft/behavior_packs/import_structures/scripts/avatar_commands.js").read_text(encoding="utf-8")
+        entries = dict(re.findall(r"^  (avatar_\w+): (\{[^\n]+\}),$", bridge, re.M))
+        self.assertEqual(set(entries), expected)
+        for label, command in namespace["_AVATAR_COMMANDS"].items():
+            self.assertEqual(parser(f"マイクラ {label} Player_123"), (command, "Player_123", True))
+            self.assertIn(command, namespace["_SUCCESS_MESSAGES"])
+            for bad in ("", "@e", "a;kill", "a/b", "a b", "x" * 17):
+                self.assertIsNone(parser(f"マイクラ {label} {bad}")[1])
+        self.assertIsNone(parser("マイクラ avatar_unknown Player_123")[0])
+        for label, command in namespace["_COMMAND_TYPES_BY_TEXT"].items():
+            self.assertEqual(parser(f"マイクラ {label} Player_123"), (command, "Player_123", True))
+        for reason in ("avatar_spawn_failed", "avatar_remove_failed", "avatar_cleanup_failed"):
+            self.assertIn("マネキン", namespace["_result_error_message"]("Player_123", reason))
+        for index, skin in enumerate(SKINS):
+            self.assertEqual(entries[f"avatar_{skin}_spawn_near_player"],
+                             f'{{ action: "spawn", variant: {index}, event: "ichiyon:{skin}" }}')
+            self.assertEqual(entries[f"avatar_{skin}_remove_near_player"],
+                             f'{{ action: "remove", variant: {index} }}')
+        self.assertEqual(entries["avatar_all_remove_near_player"], '{ action: "remove", variant: null }')
+        for contract in ('Object.prototype.hasOwnProperty.call(AVATAR_COMMANDS, command.type)',
+                         'helpers.isValidPlayerName(playerName)', 'helpers.findOnlinePlayer(playerName)',
+                         'spawnEntity("ichiyon:avatar", helpers.playerForwardSpawnLocation(player))',
+                         'spawned.triggerEvent(spec.event)', 'spawned.setRotation({ x: 0, y: player.getRotation().y })',
+                         'type: "ichiyon:avatar", location: player.location, maxDistance: 16',
+                         'entity.getComponent("minecraft:variant")', 'variant.value === spec.variant',
+                         'matching.slice(0, 1)', 'for (const entity of selected) entity.remove()',
+                         '"avatar_cleanup_failed"', '"avatar_remove_failed"'):
+            self.assertIn(contract, bridge)
+        self.assertNotRegex(bridge, r"runCommand|eval\(|new Function|HttpRequest|teleport|runInterval")
+        main = (ROOT / "minecraft/behavior_packs/import_structures/scripts/main.js").read_text(encoding="utf-8")
+        self.assertIn('import { handleAvatarCommand } from "./avatar_commands.js";', main)
+        self.assertIn('await handleAvatarCommand(command, {', main)
 
     def test_all_variant_transitions_and_repeated_selection(self):
         groups = self.entity["component_groups"]
@@ -143,7 +256,7 @@ class AvatarChecks(unittest.TestCase):
                 self.assertLessEqual(v + y + z, 64)
 
     def test_pack_versions_and_localized_names(self):
-        for pack, version in ((BP, [1, 0, 25]), (RP, [1, 0, 27])):
+        for pack, version in ((BP, [1, 0, 26]), (RP, [1, 0, 28])):
             manifest = read_json(pack / "manifest.json")
             self.assertEqual(manifest["header"]["version"], version)
             self.assertTrue(all(m["version"] == version for m in manifest["modules"]))

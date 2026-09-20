@@ -9,6 +9,15 @@ from bot.repositories.base import fetch_one
 
 MINECRAFT_PLAYER_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_]{1,16}$")
 MINECRAFT_COMMAND_TYPES = (
+    "avatar_kiana_spawn_near_player",
+    "avatar_mei_spawn_near_player",
+    "avatar_bronya_spawn_near_player",
+    "avatar_albert_spawn_near_player",
+    "avatar_kiana_remove_near_player",
+    "avatar_mei_remove_near_player",
+    "avatar_bronya_remove_near_player",
+    "avatar_albert_remove_near_player",
+    "avatar_all_remove_near_player",
     "narita_carpet",
     "structure_block",
     "command_block",

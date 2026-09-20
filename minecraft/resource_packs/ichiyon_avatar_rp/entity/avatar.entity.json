@@ -11,6 +11,8 @@
         "albert": "textures/entity/avatar/albert"
       },
       "geometry": {"default": "geometry.ichiyon.avatar"},
+      "animations": {"idle": "animation.ichiyon.avatar.idle"},
+      "scripts": {"animate": ["idle"]},
       "render_controllers": ["controller.render.ichiyon.avatar"],
       "spawn_egg": {"base_color": "#DED8EF", "overlay_color": "#70539B"}
     }

@@ -158,7 +158,19 @@ _MINECRAFT_ITEM_COMMANDS = {
     },
 }
 _UNAVAILABLE_COMMAND_MESSAGES = {}
+_AVATAR_COMMANDS = {
+    "キアナ召喚": "avatar_kiana_spawn_near_player",
+    "芽衣召喚": "avatar_mei_spawn_near_player",
+    "ブローニャ召喚": "avatar_bronya_spawn_near_player",
+    "アルベール召喚": "avatar_albert_spawn_near_player",
+    "キアナ削除": "avatar_kiana_remove_near_player",
+    "芽衣削除": "avatar_mei_remove_near_player",
+    "ブローニャ削除": "avatar_bronya_remove_near_player",
+    "アルベール削除": "avatar_albert_remove_near_player",
+    "マネキン全削除": "avatar_all_remove_near_player",
+}
 _COMMAND_TYPES_BY_TEXT = {
+    **_AVATAR_COMMANDS,
     NARITA_CARPET_COMMAND: "narita_carpet",
     TAKETUMI_SPAWN_COMMAND: "taketumi_spawn_near_player",
     TAKETUMI_REMOVE_COMMAND: "taketumi_remove_near_player",
@@ -178,6 +190,10 @@ _PLAYERLESS_COMMAND_TYPES_BY_TEXT = {
     SERVER_RESTART_COMMAND: "server_restart",
 }
 _SUCCESS_MESSAGES = {
+    **{
+        command: "{player} の近くで" + label + "を完了しました。"
+        for label, command in _AVATAR_COMMANDS.items()
+    },
     "narita_carpet": "{player} に成田カーペットを送り付けました。",
     "taketumi_spawn_near_player": "{player} の近くにタケツミを召喚しました。",
     "taketumi_remove_near_player": "{player} の近くのタケツミ削除を完了しました。",
@@ -214,6 +230,8 @@ MINECRAFT_COMMAND_USAGE = (
     "ゴン太召喚 <Minecraft名> / ゴン太削除 <Minecraft名> / "
     "モルカー召喚 <Minecraft名> / モルカー削除 <Minecraft名> / "
     "モルカー3召喚 <Minecraft名> / モルカー3削除 <Minecraft名> / "
+    "キアナ召喚・削除 / 芽衣召喚・削除 / ブローニャ召喚・削除 / "
+    "アルベール召喚・削除 / マネキン全削除（各 <Minecraft名>、削除は16ブロック以内） / "
     "手持ち確認 <Minecraft名> / 同期診断 <Minecraft名> / join履歴 / 状態 / 再起動"
 )
 _COMMAND_RE = re.compile(
@@ -350,6 +368,11 @@ async def _handle_bridge_queue_command(
             "gonta_remove_near_player",
             "molcar_remove_near_player",
             "molcar3_remove_near_player",
+            "avatar_kiana_remove_near_player",
+            "avatar_mei_remove_near_player",
+            "avatar_bronya_remove_near_player",
+            "avatar_albert_remove_near_player",
+            "avatar_all_remove_near_player",
         ) and result_message:
             await message.channel.send(result_message[:1900])
             return True
@@ -471,6 +494,12 @@ async def wait_for_minecraft_result(request_id: str, timeout_seconds: int):
 
 
 def _result_error_message(minecraft_player_name: str, reason: str) -> str:
+    if reason == "avatar_spawn_failed":
+        return "{0} の近くにマネキンを召喚できませんでした。".format(minecraft_player_name)
+    if reason == "avatar_remove_failed":
+        return "マネキンの削除に失敗しました。一部だけ削除されている可能性があります。"
+    if reason == "avatar_cleanup_failed":
+        return "マネキンの設定と後片付けに失敗しました。未設定の個体が残っている可能性があります。"
     if reason == "player_offline":
         return "{0} は現在Minecraftにいません。".format(minecraft_player_name)
     if reason == "inventory_full":
