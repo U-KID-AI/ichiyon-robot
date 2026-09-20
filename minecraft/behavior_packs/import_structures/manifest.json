@@ -7,7 +7,7 @@
     "version": [
       1,
       0,
-      1
+      26
     ],
     "min_engine_version": [
       1,
@@ -22,7 +22,7 @@
       "version": [
         1,
         0,
-        1
+        26
       ]
     },
     {
@@ -33,14 +33,14 @@
       "version": [
         1,
         0,
-        1
+        26
       ]
     }
   ],
   "dependencies": [
     {
       "module_name": "@minecraft/server",
-      "version": "2.10.0-beta"
+      "version": "2.11.0-beta"
     },
     {
       "module_name": "@minecraft/server-net",
