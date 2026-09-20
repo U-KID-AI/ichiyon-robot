@@ -104,7 +104,13 @@ def release(path):
     assert (path / 'REVISION').read_text() == path.name + '\n'
     files = tree(path / 'src')
     assert not any('.git' in Path(p).parts or Path(p).parts[0] == 'secrets' for p in files)
-    assert (path / 'src/REVISION').read_text() == path.name + '\n'
+    # Phase 3B immutable releases predate src/REVISION.
+    # New releases always contain it, but a reviewed legacy previous
+    # release remains valid without this later marker.
+    src_revision = path / 'src/REVISION'
+    if src_revision.exists():
+        normal(src_revision)
+        assert src_revision.read_text() == path.name + '\n'
     for name in ('compose.immutable.yml', 'immutable-image.txt', 'persistence.txt',
                  'rollback-images.txt', 'validate-immutable-compose.py'):
         normal(path / name)
