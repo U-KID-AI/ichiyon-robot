@@ -1,7 +1,9 @@
-"""Phase 2B Windows local AI task runner.
+"""Phase 2C Windows local AI task runner.
 
-The default mode processes at most one task. This module does not connect to a
-database and does not create commits, pushes, or pull requests.
+The default mode processes at most one task. This module never connects directly
+to the database. After fixed offline validation it may create a deterministic
+commit object, push only the UUID task branch, create or adopt an exact Draft PR,
+and mark the task ready for human review. It never merges or deploys.
 """
 
 import argparse
@@ -15,7 +17,9 @@ from threading import Event
 from ai_task_api_client import ClaimedTask, RunnerAPIClient, RunnerAPIError
 from ai_task_codex import CodexAdapter, CodexResult, CodexSafetyError, build_prompt
 from ai_task_git import GitAdapter, GitSafetyError
+from ai_task_github import GitHubAdapter, GitHubSafetyError
 from ai_task_process import ProcessTerminationError
+from ai_task_publish import GitPublisher, PublishSafetyError
 from ai_task_runner_config import RunnerConfig
 from ai_task_safety import (SafetyError, is_reparse_point, task_worktree_path,
                              validate_changed_paths, validate_claim_names, validate_project_codex_layer)
@@ -90,14 +94,49 @@ class LeaseHeartbeat:
 
 
 class LocalRunner:
-    def __init__(self, config: RunnerConfig, *, client=None, git=None, codex=None, test_runner=run_tests,
-                 heartbeat_factory=LeaseHeartbeat):
+    def __init__(
+        self,
+        config: RunnerConfig,
+        *,
+        client=None,
+        git=None,
+        codex=None,
+        publisher=None,
+        github=None,
+        test_runner=run_tests,
+        heartbeat_factory=LeaseHeartbeat,
+    ):
         self.config = config
         self.client = client or RunnerAPIClient(config.api_base_url, config.api_token, config.runner_id,
                                                timeout=config.api_timeout_seconds,
                                                max_response_bytes=config.max_api_response_bytes)
-        self.git = git or GitAdapter(config.repo_root, config.git_path)
-        self.codex = codex or CodexAdapter(config.codex_path)
+        self.git = git or GitAdapter(
+            config.repo_root,
+            config.git_path,
+        )
+        self.codex = codex or CodexAdapter(
+            config.codex_path,
+        )
+
+        self.publisher = publisher
+        if (
+            self.publisher is None
+            and config.gcm_path is not None
+        ):
+            self.publisher = GitPublisher(
+                config.git_path,
+                gcm_path=config.gcm_path,
+            )
+
+        self.github = github
+        if (
+            self.github is None
+            and config.gh_path is not None
+        ):
+            self.github = GitHubAdapter(
+                config.gh_path,
+            )
+
         self.test_runner = test_runner
         self.heartbeat_factory = heartbeat_factory
 
@@ -111,11 +150,36 @@ class LocalRunner:
             return RunOutcome.NO_TASK
         try:
             return RunOutcome.SUCCESS if self._process(task) else RunOutcome.FAILED
-        except (RunnerAPIError, GitSafetyError, CodexSafetyError, ProcessTerminationError,
-                SafetyError, TestRegistryError, OSError, ValueError, TimeoutError) as exc:
+        except (
+            RunnerAPIError,
+            GitSafetyError,
+            GitHubSafetyError,
+            PublishSafetyError,
+            CodexSafetyError,
+            ProcessTerminationError,
+            SafetyError,
+            TestRegistryError,
+            OSError,
+            ValueError,
+            TimeoutError,
+        ) as exc:
             logger.error("AI task failed safely: %s", type(exc).__name__)
             try:
                 self.client.mark_needs_human(task.task_id, task.claim_token, "Runner safety validation failed")
+            except Exception:
+                pass
+            return RunOutcome.FAILED
+        except Exception as exc:
+            logger.error(
+                "AI task runner internal failure: %s",
+                type(exc).__name__,
+            )
+            try:
+                self.client.mark_needs_human(
+                    task.task_id,
+                    task.claim_token,
+                    "Runner internal failure",
+                )
             except Exception:
                 pass
             return RunOutcome.FAILED
@@ -191,7 +255,275 @@ class LocalRunner:
                 self.client.mark_failed(task.task_id, task.claim_token, "Fixed test registry failed")
                 return False
             self.git.diff_check(worktree_path)
-            self.client.progress(task.task_id, task.claim_token, current_step="phase2b_complete", progress_summary="Phase 2B complete; task remains testing", test_summary=summary, changed_files_summary=files_summary)
+
+            if heartbeat.lost.is_set():
+                self.client.mark_needs_human(
+                    task.task_id,
+                    task.claim_token,
+                    "Control Plane lease could not be maintained",
+                )
+                return False
+
+            if (
+                self.publisher is None
+                or self.github is None
+            ):
+                raise SafetyError(
+                    "Phase 2C publishing is not configured"
+                )
+
+            self.client.progress(
+                task.task_id,
+                task.claim_token,
+                current_step="creating_commit",
+                progress_summary=(
+                    "Creating fixed Phase 2C commit object"
+                ),
+                test_summary=summary,
+                changed_files_summary=files_summary,
+            )
+
+            commit_result = (
+                self.publisher.safe_commit_object(
+                    worktree_path,
+                    task.task_id,
+                    base_sha,
+                    changed_after_tests,
+                )
+            )
+
+            if heartbeat.lost.is_set():
+                self.client.mark_needs_human(
+                    task.task_id,
+                    task.claim_token,
+                    "Control Plane lease could not be maintained",
+                )
+                return False
+
+            after_commit = self.git.snapshot(
+                worktree_path
+            )
+            changed_before_push = (
+                self.git.changed_files(
+                    worktree_path
+                )
+            )
+
+            validate_changed_paths(
+                worktree_path,
+                changed_before_push,
+            )
+
+            if self.git.staged_files(
+                worktree_path
+            ):
+                self.client.mark_needs_human(
+                    task.task_id,
+                    task.claim_token,
+                    (
+                        "Git index changed before "
+                        "publishing"
+                    ),
+                )
+                return False
+
+            if (
+                after_commit != before
+                or changed_before_push
+                != changed_after_tests
+            ):
+                self.client.mark_needs_human(
+                    task.task_id,
+                    task.claim_token,
+                    (
+                        "Repository changed after "
+                        "commit preparation"
+                    ),
+                )
+                return False
+
+            # Read the candidate tree again immediately
+            # before the first remote side effect.
+            # Deterministic commit construction means
+            # the exact SHA must be reproduced.
+            verified_commit = (
+                self.publisher.safe_commit_object(
+                    worktree_path,
+                    task.task_id,
+                    base_sha,
+                    changed_before_push,
+                )
+            )
+
+            if (
+                verified_commit.commit_sha
+                != commit_result.commit_sha
+                or verified_commit.tree_sha
+                != commit_result.tree_sha
+            ):
+                self.client.mark_needs_human(
+                    task.task_id,
+                    task.claim_token,
+                    (
+                        "Candidate commit changed "
+                        "before publishing"
+                    ),
+                )
+                return False
+
+            if heartbeat.lost.is_set():
+                self.client.mark_needs_human(
+                    task.task_id,
+                    task.claim_token,
+                    "Control Plane lease could not be maintained",
+                )
+                return False
+
+            self.client.progress(
+                task.task_id,
+                task.claim_token,
+                current_step="pushing_branch",
+                progress_summary=(
+                    "Pushing fixed UUID task branch"
+                ),
+            )
+
+            self.publisher.push_task_branch(
+                worktree_path,
+                task.task_id,
+                commit_result.commit_sha,
+                stop_event=heartbeat.lost,
+            )
+
+            if heartbeat.lost.is_set():
+                self.client.mark_needs_human(
+                    task.task_id,
+                    task.claim_token,
+                    (
+                        "Control Plane lease was lost "
+                        "after branch publication"
+                    ),
+                )
+                return False
+
+            # A push must not modify the local task
+            # worktree, index, branch, or changed-file
+            # set.
+            after_push = self.git.snapshot(
+                worktree_path
+            )
+            changed_after_push = (
+                self.git.changed_files(
+                    worktree_path
+                )
+            )
+
+            validate_changed_paths(
+                worktree_path,
+                changed_after_push,
+            )
+
+            if (
+                after_push != before
+                or changed_after_push
+                != changed_after_tests
+                or self.git.staged_files(
+                    worktree_path
+                )
+            ):
+                self.client.mark_needs_human(
+                    task.task_id,
+                    task.claim_token,
+                    (
+                        "Repository changed during "
+                        "branch publication"
+                    ),
+                )
+                return False
+
+            self.client.progress(
+                task.task_id,
+                task.claim_token,
+                current_step="creating_draft_pr",
+                progress_summary=(
+                    "Creating or verifying Draft PR"
+                ),
+            )
+
+            pull_request = (
+                self.github.ensure_draft_pr(
+                    worktree_path,
+                    task.task_id,
+                    commit_result.commit_sha,
+                    stop_event=heartbeat.lost,
+                )
+            )
+
+            if heartbeat.lost.is_set():
+                self.client.mark_needs_human(
+                    task.task_id,
+                    task.claim_token,
+                    (
+                        "Control Plane lease was lost "
+                        "after Draft PR creation"
+                    ),
+                )
+                return False
+
+            # Final local state check before the
+            # terminal Control Plane transition.
+            final_snapshot = self.git.snapshot(
+                worktree_path
+            )
+            final_changed = (
+                self.git.changed_files(
+                    worktree_path
+                )
+            )
+
+            validate_changed_paths(
+                worktree_path,
+                final_changed,
+            )
+
+            if (
+                final_snapshot != before
+                or final_changed
+                != changed_after_tests
+                or self.git.staged_files(
+                    worktree_path
+                )
+            ):
+                self.client.mark_needs_human(
+                    task.task_id,
+                    task.claim_token,
+                    (
+                        "Repository changed before "
+                        "ready-for-review"
+                    ),
+                )
+                return False
+
+            self.client.progress(
+                task.task_id,
+                task.claim_token,
+                current_step="draft_pr_created",
+                progress_summary=(
+                    "Draft PR verified; marking task "
+                    "ready for human review"
+                ),
+            )
+
+            self.client.ready_for_review(
+                task.task_id,
+                task.claim_token,
+                commit_sha=commit_result.commit_sha,
+                pr_number=pull_request.number,
+                pr_url=pull_request.url,
+                test_summary=summary,
+                changed_files_summary=files_summary,
+            )
+
             return True
         finally:
             heartbeat.stop()
@@ -205,7 +537,7 @@ def main() -> int:
     try:
         config = RunnerConfig.from_environment()
         runner = LocalRunner(config)
-        # --once is the only supported execution mode in Phase 2B.
+        # --once remains the only supported execution mode in Phase 2C.
         outcome = runner.run_once()
         return outcome_exit_code(outcome)
     except (ValueError, OSError) as exc:

@@ -1,4 +1,4 @@
-"""Offline fake based checks for the Phase 2B local runner."""
+"""Offline fake based checks for the Phase 2C local runner."""
 
 import json
 import io
@@ -138,6 +138,8 @@ def main():
         config_tasks = config_root / "tasks"; config_tasks.mkdir()
         codex_file = config_root / "codex.exe"; codex_file.write_bytes(b"")
         git_file = config_root / "git.exe"; git_file.write_bytes(b"")
+        gh_file = config_root / "gh.exe"; gh_file.write_bytes(b"")
+        gcm_file = config_root / "git-credential-manager.exe"; gcm_file.write_bytes(b"")
         config_values = {
             "AI_TASK_RUNNER_API_BASE_URL": "https://runner.example",
             "AI_TASK_RUNNER_API_TOKEN": "test",
@@ -146,6 +148,8 @@ def main():
             "AI_TASK_RUNNER_WORKTREE_ROOT": str(config_tasks),
             "AI_TASK_RUNNER_CODEX_PATH": str(codex_file),
             "AI_TASK_RUNNER_GIT_PATH": str(git_file),
+            "AI_TASK_RUNNER_GH_PATH": str(gh_file),
+            "AI_TASK_RUNNER_GCM_PATH": str(gcm_file),
         }
         tracked_keys = set(config_values) | {"AI_TASK_RUNNER_POLL_SECONDS", "AI_TASK_RUNNER_CODEX_TIMEOUT_SECONDS", "AI_TASK_RUNNER_CODEX_HOME", "CODEX_HOME", "CODEX_SQLITE_HOME"}
         previous = {key: os.environ.get(key) for key in tracked_keys}
@@ -174,6 +178,8 @@ def main():
             os.environ["CODEX_HOME"] = str(safe_codex_home)
             safe_config = RunnerConfig.from_environment()
             check("safe parent CODEX_HOME becomes effective", safe_config.codex_home == safe_codex_home.resolve())
+            check("validated GH path becomes effective", safe_config.gh_path == gh_file.resolve())
+            check("validated GCM path becomes effective", safe_config.gcm_path == gcm_file.resolve())
             os.environ["AI_TASK_RUNNER_CODEX_HOME"] = str(second_safe_codex_home)
             override_config = RunnerConfig.from_environment()
             check("explicit runner CODEX_HOME overrides parent", override_config.codex_home == second_safe_codex_home.resolve())
@@ -209,7 +215,46 @@ def main():
     check("claim UUID validation", claimed.task_id == TASK_ID and claimed.claim_token == CLAIM_TOKEN)
     check("claim fixed endpoint and bearer payload", requests[0][0:2] == ("POST", "/internal/ai-tasks/claim") and "secret" not in requests[0][2])
     check("API client uses fixed operation", all(path.startswith("/internal/ai-tasks/") for _, path, _ in requests))
-    check("API client does not expose ready operation", not hasattr(client, "ready_for_review"))
+
+    client.ready_for_review(
+        TASK_ID,
+        CLAIM_TOKEN,
+        commit_sha="a" * 40,
+        pr_number=123,
+        pr_url="https://github.com/U-KID-AI/ichiyon-robot/pull/123",
+        test_summary="tests=0",
+        changed_files_summary="src/main.py",
+    )
+
+    ready_method, ready_path, ready_payload = requests[-1]
+
+    check(
+        "API client exposes fixed ready operation",
+        ready_method == "POST"
+        and ready_path
+        == f"/internal/ai-tasks/{TASK_ID}/ready-for-review"
+        and ready_payload["commit_sha"] == "a" * 40
+        and ready_payload["pr_number"] == 123
+        and ready_payload["pr_url"]
+        == "https://github.com/U-KID-AI/ichiyon-robot/pull/123"
+        and ready_payload["test_summary"] == "tests=0"
+        and ready_payload["changed_files_summary"] == "src/main.py",
+    )
+
+    check(
+        "API client rejects mismatched PR metadata",
+        _rejects(
+            lambda: client.ready_for_review(
+                TASK_ID,
+                CLAIM_TOKEN,
+                commit_sha="a" * 40,
+                pr_number=124,
+                pr_url="https://github.com/U-KID-AI/ichiyon-robot/pull/123",
+                test_summary="tests=0",
+                changed_files_summary="src/main.py",
+            )
+        ),
+    )
     bad_claim = dict(claim)
     bad_claim["task"] = dict(claim["task"], branch_name="ai/task/attacker")
     bad_client = RunnerAPIClient("https://runner.example.test", "secret", "runner-1", requester=lambda *_: json.dumps(bad_claim).encode())
@@ -502,14 +547,53 @@ def orchestration_checks():
                                   "worktree_name": expected_worktree_name(TASK_ID), "claim_token": CLAIM_TOKEN,
                                   "lease_expires_at": "future"})()
         class FakeClient:
-            def __init__(self):
+            def __init__(self, events=None):
                 self.calls = []
-            def claim(self): self.calls.append("claim"); return task
-            def progress(self, *args, **kwargs): self.calls.append(("progress", kwargs))
-            def mark_testing(self, *args, **kwargs): self.calls.append("testing")
-            def mark_needs_human(self, *args, **kwargs): self.calls.append(("needs_human", args[-1]))
-            def mark_failed(self, *args, **kwargs): self.calls.append(("failed", args[-1]))
-            def heartbeat(self, *args, **kwargs): self.calls.append("heartbeat")
+                self.events = events
+
+            def claim(self):
+                self.calls.append("claim")
+                return task
+
+            def progress(self, *args, **kwargs):
+                self.calls.append(
+                    ("progress", kwargs)
+                )
+
+            def mark_testing(self, *args, **kwargs):
+                self.calls.append("testing")
+
+            def mark_needs_human(
+                self,
+                *args,
+                **kwargs,
+            ):
+                self.calls.append(
+                    ("needs_human", args[-1])
+                )
+
+            def mark_failed(
+                self,
+                *args,
+                **kwargs,
+            ):
+                self.calls.append(
+                    ("failed", args[-1])
+                )
+
+            def heartbeat(self, *args, **kwargs):
+                self.calls.append("heartbeat")
+
+            def ready_for_review(
+                self,
+                *args,
+                **kwargs,
+            ):
+                self.calls.append(
+                    ("ready", kwargs)
+                )
+                if self.events is not None:
+                    self.events.append("ready")
         class ActiveHeartbeat:
             def __init__(self, client, task, *, interval, on_lost):
                 self.client, self.task, self.on_lost = client, task, on_lost
@@ -542,18 +626,408 @@ def orchestration_checks():
             def diff_stat(self, *args): return "1 file changed"
             def diff_check(self, *args): return ""
         class FakeCodex:
-            def run(self, *args, **kwargs): return type("Result", (), {"returncode": 0, "timed_out": False})()
-            def stop(self): pass
+            def run(self, *args, **kwargs):
+                return type(
+                    "Result",
+                    (),
+                    {
+                        "returncode": 0,
+                        "timed_out": False,
+                    },
+                )()
+
+            def stop(self):
+                pass
+
+        commit_sha = "c" * 40
+        tree_sha = "d" * 40
+        pr_url = (
+            "https://github.com/"
+            "U-KID-AI/ichiyon-robot/pull/123"
+        )
+
+        class FakePublisher:
+            def __init__(self, events=None):
+                self.events = events
+                self.safe_calls = []
+                self.push_calls = []
+
+            def safe_commit_object(
+                self,
+                cwd,
+                task_id,
+                base_sha,
+                changed,
+            ):
+                self.safe_calls.append(
+                    (
+                        cwd,
+                        task_id,
+                        base_sha,
+                        tuple(changed),
+                    )
+                )
+
+                if self.events is not None:
+                    self.events.append("commit")
+
+                return SimpleNamespace(
+                    commit_sha=commit_sha,
+                    tree_sha=tree_sha,
+                )
+
+            def push_task_branch(
+                self,
+                cwd,
+                task_id,
+                value,
+                *,
+                stop_event=None,
+            ):
+                self.push_calls.append(
+                    (
+                        cwd,
+                        task_id,
+                        value,
+                        stop_event,
+                    )
+                )
+
+                if self.events is not None:
+                    self.events.append("push")
+
+                return value
+
+        class FakeGitHub:
+            def __init__(self, events=None):
+                self.events = events
+                self.calls = []
+
+            def ensure_draft_pr(
+                self,
+                cwd,
+                task_id,
+                value,
+                *,
+                stop_event=None,
+            ):
+                self.calls.append(
+                    (
+                        cwd,
+                        task_id,
+                        value,
+                        stop_event,
+                    )
+                )
+
+                if self.events is not None:
+                    self.events.append("pr")
+
+                return SimpleNamespace(
+                    number=123,
+                    url=pr_url,
+                    head_sha=value,
+                )
+
         def fake_tests(cwd, changed, stop_event=None):
             check("heartbeat active during tests", stop_event is not None and not stop_event.is_set())
             return [TestResult("fake", 0, "ok")]
         config = RunnerConfig("https://runner.example", "token", "runner-1", root, worktree_root, Path("C:/codex.exe"), None, Path("C:/git.exe"), 5, 60)
-        client = FakeClient(); git = FakeGit()
-        runner = LocalRunner(config, client=client, git=git, codex=FakeCodex(), test_runner=fake_tests,
-                             heartbeat_factory=ActiveHeartbeat)
-        check("normal orchestration ends testing", runner.run_once() == RunOutcome.SUCCESS and "testing" in client.calls and any(item[0] == "progress" for item in client.calls if isinstance(item, tuple)))
-        check("normal orchestration creates worktree", git.added and not any(item[0] == "needs_human" for item in client.calls if isinstance(item, tuple)))
-        check("heartbeat API is called during orchestration", client.calls.count("heartbeat") >= 1)
+        normal_events = []
+        normal_client = FakeClient(normal_events)
+        normal_git = FakeGit()
+        normal_publisher = FakePublisher(
+            normal_events
+        )
+        normal_github = FakeGitHub(
+            normal_events
+        )
+
+        runner = LocalRunner(
+            config,
+            client=normal_client,
+            git=normal_git,
+            codex=FakeCodex(),
+            publisher=normal_publisher,
+            github=normal_github,
+            test_runner=fake_tests,
+            heartbeat_factory=ActiveHeartbeat,
+        )
+
+        normal_result = runner.run_once()
+
+        check(
+            "normal orchestration reaches ready for review",
+            normal_result == RunOutcome.SUCCESS
+            and "testing" in normal_client.calls
+            and any(
+                item[0] == "ready"
+                for item in normal_client.calls
+                if isinstance(item, tuple)
+            ),
+        )
+
+        check(
+            "normal orchestration creates worktree",
+            normal_git.added
+            and not any(
+                item[0] == "needs_human"
+                for item in normal_client.calls
+                if isinstance(item, tuple)
+            ),
+        )
+
+        check(
+            "heartbeat API is called during orchestration",
+            normal_client.calls.count("heartbeat")
+            >= 1,
+        )
+
+        check(
+            "Phase 2C side effects occur in fixed order",
+            normal_events
+            == [
+                "commit",
+                "commit",
+                "push",
+                "pr",
+                "ready",
+            ],
+        )
+
+        check(
+            "candidate commit is verified twice",
+            len(normal_publisher.safe_calls) == 2
+            and normal_publisher.safe_calls[0]
+            == normal_publisher.safe_calls[1],
+        )
+
+        check(
+            "push uses verified deterministic commit",
+            len(normal_publisher.push_calls) == 1
+            and normal_publisher.push_calls[0][2]
+            == commit_sha
+            and normal_publisher.push_calls[0][3]
+            is not None,
+        )
+
+        check(
+            "Draft PR uses pushed commit",
+            len(normal_github.calls) == 1
+            and normal_github.calls[0][2]
+            == commit_sha
+            and normal_github.calls[0][3]
+            is not None,
+        )
+
+        ready_calls = [
+            item
+            for item in normal_client.calls
+            if (
+                isinstance(item, tuple)
+                and item[0] == "ready"
+            )
+        ]
+
+        check(
+            "ready transition uses verified PR metadata",
+            len(ready_calls) == 1
+            and ready_calls[0][1][
+                "commit_sha"
+            ]
+            == commit_sha
+            and ready_calls[0][1][
+                "pr_number"
+            ]
+            == 123
+            and ready_calls[0][1][
+                "pr_url"
+            ]
+            == pr_url,
+        )
+
+        # A changed candidate between the first and
+        # second deterministic construction must never
+        # reach push.
+        if task_path.exists():
+            shutil.rmtree(task_path)
+
+        class MismatchPublisher(FakePublisher):
+            def safe_commit_object(
+                self,
+                cwd,
+                task_id,
+                base_sha,
+                changed,
+            ):
+                result = super().safe_commit_object(
+                    cwd,
+                    task_id,
+                    base_sha,
+                    changed,
+                )
+
+                if len(self.safe_calls) == 2:
+                    return SimpleNamespace(
+                        commit_sha="e" * 40,
+                        tree_sha=result.tree_sha,
+                    )
+
+                return result
+
+        mismatch_client = FakeClient()
+        mismatch_git = FakeGit()
+        mismatch_publisher = MismatchPublisher()
+        mismatch_github = FakeGitHub()
+
+        mismatch_runner = LocalRunner(
+            config,
+            client=mismatch_client,
+            git=mismatch_git,
+            codex=FakeCodex(),
+            publisher=mismatch_publisher,
+            github=mismatch_github,
+            test_runner=fake_tests,
+            heartbeat_factory=ActiveHeartbeat,
+        )
+
+        mismatch_result = mismatch_runner.run_once()
+
+        check(
+            "candidate SHA mismatch blocks all remote side effects",
+            mismatch_result == RunOutcome.FAILED
+            and not mismatch_publisher.push_calls
+            and not mismatch_github.calls
+            and not any(
+                item[0] == "ready"
+                for item in mismatch_client.calls
+                if isinstance(item, tuple)
+            ),
+        )
+
+        # Losing the lease immediately after push may
+        # leave the exact remote branch present, but it
+        # must prevent PR creation and ready transition.
+        if task_path.exists():
+            shutil.rmtree(task_path)
+
+        class LeaseLossPublisher(FakePublisher):
+            def push_task_branch(
+                self,
+                cwd,
+                task_id,
+                value,
+                *,
+                stop_event=None,
+            ):
+                result = super().push_task_branch(
+                    cwd,
+                    task_id,
+                    value,
+                    stop_event=stop_event,
+                )
+                stop_event.set()
+                return result
+
+        push_loss_client = FakeClient()
+        push_loss_git = FakeGit()
+        push_loss_publisher = (
+            LeaseLossPublisher()
+        )
+        push_loss_github = FakeGitHub()
+
+        push_loss_runner = LocalRunner(
+            config,
+            client=push_loss_client,
+            git=push_loss_git,
+            codex=FakeCodex(),
+            publisher=push_loss_publisher,
+            github=push_loss_github,
+            test_runner=fake_tests,
+            heartbeat_factory=ActiveHeartbeat,
+        )
+
+        push_loss_result = (
+            push_loss_runner.run_once()
+        )
+
+        check(
+            "lease loss after push blocks Draft PR and ready",
+            push_loss_result == RunOutcome.FAILED
+            and len(
+                push_loss_publisher.push_calls
+            )
+            == 1
+            and not push_loss_github.calls
+            and any(
+                item[0] == "needs_human"
+                for item in push_loss_client.calls
+                if isinstance(item, tuple)
+            )
+            and not any(
+                item[0] == "ready"
+                for item in push_loss_client.calls
+                if isinstance(item, tuple)
+            ),
+        )
+
+        # Losing the lease after PR creation must never
+        # mark the task ready. A retry can adopt the
+        # deterministic branch and exact Draft PR.
+        if task_path.exists():
+            shutil.rmtree(task_path)
+
+        class LeaseLossGitHub(FakeGitHub):
+            def ensure_draft_pr(
+                self,
+                cwd,
+                task_id,
+                value,
+                *,
+                stop_event=None,
+            ):
+                result = super().ensure_draft_pr(
+                    cwd,
+                    task_id,
+                    value,
+                    stop_event=stop_event,
+                )
+                stop_event.set()
+                return result
+
+        pr_loss_client = FakeClient()
+        pr_loss_git = FakeGit()
+        pr_loss_publisher = FakePublisher()
+        pr_loss_github = LeaseLossGitHub()
+
+        pr_loss_runner = LocalRunner(
+            config,
+            client=pr_loss_client,
+            git=pr_loss_git,
+            codex=FakeCodex(),
+            publisher=pr_loss_publisher,
+            github=pr_loss_github,
+            test_runner=fake_tests,
+            heartbeat_factory=ActiveHeartbeat,
+        )
+
+        pr_loss_result = pr_loss_runner.run_once()
+
+        check(
+            "lease loss after Draft PR blocks ready transition",
+            pr_loss_result == RunOutcome.FAILED
+            and len(pr_loss_github.calls) == 1
+            and any(
+                item[0] == "needs_human"
+                for item in pr_loss_client.calls
+                if isinstance(item, tuple)
+            )
+            and not any(
+                item[0] == "ready"
+                for item in pr_loss_client.calls
+                if isinstance(item, tuple)
+            ),
+        )
 
         def run_case(changed=None, mutate=False, dirty=False, lose_lease=False, timed_out=False, staged=False, termination_failure=False):
             if task_path.exists():
@@ -590,8 +1064,73 @@ def orchestration_checks():
         check("test termination failure becomes failed and needs human", result == RunOutcome.FAILED and any(item[0] == "needs_human" for item in client.calls if isinstance(item, tuple)))
         result, client, git = run_case(dirty=True)
         check("dirty source prevents worktree", result == RunOutcome.FAILED and not git.added)
+        class UnexpectedGit(FakeGit):
+            def require_source_repo(self):
+                raise AttributeError("unexpected internal bug")
+
+        unexpected_client = FakeClient()
+        unexpected_runner = LocalRunner(
+            config,
+            client=unexpected_client,
+            git=UnexpectedGit(),
+            codex=FakeCodex(),
+            test_runner=fake_tests,
+        )
+
+        unexpected_result = unexpected_runner.run_once()
+
+        check(
+            "unexpected claimed-task exception becomes failed and needs human",
+            unexpected_result == RunOutcome.FAILED
+            and any(
+                item[0] == "needs_human"
+                and item[1] == "Runner internal failure"
+                for item in unexpected_client.calls
+                if isinstance(item, tuple)
+            ),
+        )
+
+        class ReportingFailureClient(FakeClient):
+            def __init__(self):
+                super().__init__()
+                self.report_attempted = False
+
+            def mark_needs_human(self, *args, **kwargs):
+                self.report_attempted = True
+                raise RuntimeError("report failed")
+
+        reporting_client = ReportingFailureClient()
+        reporting_runner = LocalRunner(
+            config,
+            client=reporting_client,
+            git=UnexpectedGit(),
+            codex=FakeCodex(),
+            test_runner=fake_tests,
+        )
+
+        reporting_result = reporting_runner.run_once()
+
+        check(
+            "unexpected failure remains failed if needs-human reporting fails",
+            reporting_result == RunOutcome.FAILED
+            and reporting_client.report_attempted,
+        )
+
         check("runner exit codes distinguish outcomes", outcome_exit_code(RunOutcome.NO_TASK) == 0 and outcome_exit_code(RunOutcome.SUCCESS) == 0 and outcome_exit_code(RunOutcome.FAILED) != 0 and outcome_exit_code(RunOutcome.CLAIM_FAILED) != 0)
-        check("orchestration never calls ready", not hasattr(client, "ready_for_review"))
+        check(
+            "normal orchestration calls ready exactly once",
+            len(
+                [
+                    item
+                    for item in normal_client.calls
+                    if (
+                        isinstance(item, tuple)
+                        and item[0] == "ready"
+                    )
+                ]
+            )
+            == 1,
+        )
 
 
 def heartbeat_runtime_checks():

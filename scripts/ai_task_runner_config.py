@@ -65,6 +65,38 @@ def _validate_executable(path: Path, name: str, repo_root: Path, worktree_root: 
     return resolved
 
 
+def _validate_gcm_executable(
+    path: Path,
+    git_path: Path,
+    repo_root: Path,
+    worktree_root: Path,
+) -> Path:
+    resolved = _validate_executable(
+        path,
+        "Git Credential Manager path",
+        repo_root,
+        worktree_root,
+    )
+
+    git_parent = git_path.parent
+    git_root = (
+        git_parent.parent
+        if git_parent.name.lower() in {"cmd", "bin"}
+        else git_parent
+    )
+
+    if (
+        resolved.name.lower()
+        != "git-credential-manager.exe"
+        or git_root not in resolved.parents
+    ):
+        raise ValueError(
+            "Git Credential Manager must belong to the trusted Git installation"
+        )
+
+    return resolved
+
+
 @dataclass(frozen=True)
 class RunnerConfig:
     api_base_url: str
@@ -80,6 +112,8 @@ class RunnerConfig:
     api_timeout_seconds: float = 15.0
     max_api_response_bytes: int = 256 * 1024
     heartbeat_seconds: float = 30.0
+    gh_path: Path | None = None
+    gcm_path: Path | None = None
 
     @classmethod
     def from_environment(cls) -> "RunnerConfig":
@@ -98,6 +132,13 @@ class RunnerConfig:
             raise ValueError("repository roots must be separate")
         codex_path = _validate_executable(Path(_required("AI_TASK_RUNNER_CODEX_PATH")), "Codex path", repo_root, worktree_root)
         git_path = _validate_executable(Path(_required("AI_TASK_RUNNER_GIT_PATH")), "Git path", repo_root, worktree_root)
+        gh_path = _validate_executable(Path(_required("AI_TASK_RUNNER_GH_PATH")), "GitHub CLI path", repo_root, worktree_root)
+        gcm_path = _validate_gcm_executable(
+            Path(_required("AI_TASK_RUNNER_GCM_PATH")),
+            git_path,
+            repo_root,
+            worktree_root,
+        )
         codex_home_candidate = Path(codex_home_value)
         if (not codex_home_candidate.is_absolute() or not codex_home_candidate.is_dir()
                 or codex_home_candidate.is_symlink() or is_reparse_point(codex_home_candidate)):
@@ -115,5 +156,7 @@ class RunnerConfig:
             codex_home=codex_home,
             git_path=git_path,
             poll_seconds=poll_seconds,
+            gh_path=gh_path,
+            gcm_path=gcm_path,
             codex_timeout_seconds=timeout,
         )
