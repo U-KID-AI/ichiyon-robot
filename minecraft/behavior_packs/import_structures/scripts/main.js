@@ -1,6 +1,7 @@
 import { BlockPermutation, EntityComponentTypes, ItemStack, system, world } from "@minecraft/server";
 import { HttpHeader, HttpRequest, HttpRequestMethod, http } from "@minecraft/server-net";
 import { secrets, variables } from "@minecraft/server-admin";
+import { handleAvatarCommand } from "./avatar_commands.js";
 
 console.warn("[NaritaBridge] main.js loaded");
 
@@ -1125,6 +1126,9 @@ async function pollOnce() {
   }
   httpDiagnostics.lastCommandType = String(command.type || "");
   httpDiagnostics.lastCommandReceivedMs = Date.now();
+  if (await handleAvatarCommand(command, {
+    isValidPlayerName, findOnlinePlayer, playerForwardSpawnLocation, postResult,
+  })) return;
   if (command.type === "narita_carpet") {
     await handleNaritaCarpet(command);
     return;

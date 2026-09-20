@@ -1,0 +1,64 @@
+{
+  "format_version": "1.26.10",
+  "minecraft:entity": {
+    "description": {
+      "identifier": "ichiyon:avatar_kiana_placer",
+      "is_spawnable": true,
+      "is_summonable": true,
+      "is_experimental": false
+    },
+    "components": {
+      "minecraft:type_family": {
+        "family": [
+          "ichiyon_mannequin"
+        ]
+      },
+      "minecraft:variant": {
+        "value": 0
+      },
+      "minecraft:health": {
+        "value": 20,
+        "max": 20
+      },
+      "minecraft:movement": {
+        "value": 0
+      },
+      "minecraft:physics": {
+        "has_gravity": false,
+        "has_collision": true,
+        "push_towards_closest_space": false
+      },
+      "minecraft:collision_box": {
+        "width": 0.6,
+        "height": 1.8
+      },
+      "minecraft:is_collidable": {},
+      "minecraft:knockback_resistance": {
+        "value": 1,
+        "max": 1
+      },
+      "minecraft:damage_sensor": {
+        "triggers": [
+          {
+            "cause": "all",
+            "deals_damage": "no"
+          }
+        ]
+      },
+      "minecraft:fire_immune": {},
+      "minecraft:persistent": {},
+      "minecraft:nameable": {},
+      "minecraft:transformation": {
+        "into": "ichiyon:avatar",
+        "delay": 0,
+        "add": [
+          {
+            "component_groups": [
+              "ichiyon:avatar_kiana"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

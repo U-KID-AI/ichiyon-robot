@@ -1,0 +1,15 @@
+{
+  "format_version": "1.8.0",
+  "animations": {
+    "animation.ichiyon.avatar.idle": {
+      "loop": true,
+      "animation_length": 8,
+      "bones": {
+        "body": {"rotation": ["math.sin(query.anim_time * 90) * 0.35", 0, 0]},
+        "head": {"rotation": ["math.sin(query.anim_time * 45) * 0.6", 0, 0]},
+        "rightArm": {"rotation": ["math.sin(query.anim_time * 90) * 0.5", 0, 0]},
+        "leftArm": {"rotation": ["math.sin(query.anim_time * 90) * -0.5", 0, 0]}
+      }
+    }
+  }
+}

@@ -3,17 +3,17 @@
 既存の `ichiyon_avatar_bp` / `ichiyon_avatar_rp` に共通Entity
 `ichiyon:avatar` を追加する。キアナ・芽衣・ブローニャ・アルベールは
 Entityを複製せず `minecraft:variant` とテクスチャ配列で切り替える。
-スクリプト、Java Edition機能、実験機能、Discordコマンドの追加はない。
+配置後は従来の共通avatarを使う。ロボット操作は既存Narita Bridgeの固定操作を拡張する。
 
 ## パックと対応範囲
 
-- BP **1.0.5**、RP **1.0.4**。既存UUIDを維持している。
+- BP **1.0.26**、RP **1.0.28**、Imported Structures **1.0.27**。既存UUIDを維持する。
 - 最低エンジンバージョンは既存の **1.26.45** を維持する。
 - 両パックを同じ検証用ワールドで有効にする。既存ワールドから更新する場合は
   ワールド側のパック参照バージョンも合わせる。RPの受信・適用が必要。
 - Switchを含むBedrock向けの標準JSON/PNG構成。Switch実機での描画・参加可否は
   未検証。Switch側の接続方法やパック配布環境は、この変更では構築しない。
-- この変更はパックのリポジトリ内実装のみ。本番worldへのコピー、再起動、
+- この変更はリポジトリ内の実装のみ。本番worldへのコピー、再起動、
   パック有効化は行わない。
 
 ## 生成と選択
@@ -21,6 +21,12 @@ Entityを複製せず `minecraft:variant` とテクスチャ配列で切り替�
 チートが有効なローカル検証ワールドで、権限のあるプレイヤーが実行する。
 単純な `/summon ichiyon:avatar` とクリエイティブの共通スポーンエッグは
 variant 0（キアナ）になる。ランダム選択はしない。
+
+Creativeには4種の名前付きエッグ `ichiyon:avatar_<skin>_placer` も表示される。
+`<skin>` は `kiana` / `mei` / `bronya` / `albert`。配置用proxyは無重力・無敵・
+移動不能で、delay 0のtransformationにより `ichiyon:avatar` に変換される。
+変換時に既存variant groupを追加する。変換前後で同じgeometry・texture配列・idleを使う。
+この選択はBP/RPだけで動作し、Bridgeや新規Script API依存を必要としない。
 
 | キャラクター | variant | イベント |
 | --- | --- | --- |
@@ -61,10 +67,11 @@ variant 0（キアナ）になる。ランダム選択はしない。
 
 ## 静止と描画の設計
 
-行動AI、navigation、movement controller、注視、歩行・待機アニメーションは
-定義しない。movementは0、重力と物理衝突とブロック内からの押し出しを無効にする。
-足場を外しても落ちない展示物で、通行を遮る壁にはならない。
-Entityの当たり判定は選択用に残す。
+行動AI、navigation、movement controller、注視、歩行は定義しない。
+movementは0、既存physicsの重力・自身の物理移動衝突・ブロック内からの押し出し無効を維持する。
+別途 `minecraft:is_collidable` と幅0.6・高さ1.8のcollision boxで、他のプレイヤー/Mob側に
+静止展示物との衝突を持たせる。毎tickのteleportや追尾で固定する方式ではない。
+水流・ピストン・接触時の不動性とプレイヤー側の衝突感は、静的検証では保証できず実機未検証。
 
 BP Entityのformatは `1.26.10`。このformatでは旧 `minecraft:pushable` が
 解釈されないため使用せず、`minecraft:pushable_by_entity` と
@@ -86,34 +93,64 @@ BP Entityのformatは `1.26.10`。このformatでは旧 `minecraft:pushable` が
 removeリスト、client entityのtexture名、render controller配列、テストを更新する。
 既存個体の選択情報を維持するため、生成イベントでvariantを再初期化しない。
 
-`root` と頭・胴体・手足のboneを分離してあるので、将来のポーズは共通モデルの
-静的animationと専用の同期property等で追加できる。今回は直立ポーズのみ。
+共通の8秒ループidleは頭・胴・腕のpitchのみを最大0.6度動かす。
+呼吸相当の周期は4秒、頭は8秒。root・脚・座標・yawを動かさず、プレイヤー位置を参照しない。
+帽子・上着・袖は既存の子bone構造で追従する。geometry、UV、textureは変更しない。
 variantはスキン用に予約し、ポーズや向きの状態と混用しない。
 slim（腕幅3px）スキンを将来追加する場合は別geometryの選択を拡張する。
+
+## いちよんロボ操作
+
+既存の権限確認、プレイヤー名検証、DBキュー、内部API、BDS側Bridge pollingを使用する。
+DiscordからBDSへの直接接続や任意コマンドは追加しない。
+
+| Discordコマンド（先頭に `@いちよんロボ マイクラ`） | 動作 |
+| --- | --- |
+| `キアナ召喚 <Minecraft名>` / `キアナ削除 <Minecraft名>` | Kianaを召喚 / 最寄り1体削除 |
+| `芽衣召喚 <Minecraft名>` / `芽衣削除 <Minecraft名>` | Meiを召喚 / 最寄り1体削除 |
+| `ブローニャ召喚 <Minecraft名>` / `ブローニャ削除 <Minecraft名>` | Bronyaを召喚 / 最寄り1体削除 |
+| `アルベール召喚 <Minecraft名>` / `アルベール削除 <Minecraft名>` | Albertを召喚 / 最寄り1体削除 |
+| `マネキン全削除 <Minecraft名>` | 範囲内の4種すべて削除 |
+
+対象プレイヤーのオンラインが必要。召喚位置は既存Bridgeと同じ前方2ブロック、
+高さはプレイヤーと同じ。yawは配置時に一度だけ設定する。
+削除は同じdimensionの16ブロック以内の `ichiyon:avatar` のみ。
+「全削除」はこの範囲内の全種・全個体であり、未ロードチャンクや別dimensionには及ばない。
+既存summon個体・Creative設置個体も現在のvariantで選択し、名前や古いtagに依存しない。
+対象なしは0体の成功、削除途中の例外は部分削除の可能性があるため失敗として返す。
+variant適用や向き設定の失敗時には生成個体をremoveし、cleanup失敗も別の失敗理由で返す。
+
+DB制約に9操作を追加するmigration `064_add_minecraft_avatar_commands.sql` を追加した。
+適用はこの作業では行わない。利用にはmigrationと更新パック・Botの反映が必要。
+Bridgeが既に使う実験Script API依存は変更していない。
 
 ## 検証
 
 ```text
 python scripts/check_minecraft_avatars.py
 python scripts/check_minecraft_posters.py
+node scripts/check_minecraft_avatar_bridge.mjs
 ```
 
 新規checkはネットワーク、環境設定、DB、worldにアクセスせず、PNGの寸法・
 原本ハッシュ・コピー一致、BP/RP参照、UV・第2レイヤー、16通りのvariant間遷移と
-同じ選択の繰り返し、静止設定を検証する。上記2つのcheckはローカル検証として実行する。
+同じ選択の繰り返し、静止・collision設定、Creative proxy変換、idleの振幅・周期、
+ロボット操作のparser・DB制約・Bridge固定操作契約を検証する。
+Node checkは偽Entityで召喚・削除範囲・失敗時cleanup・不正入力を検証する。
 現在CIでは実行されておらず、CIへの組み込みは承認済みの別作業として扱う。
 これはBedrockエンジン上の動作試験を代替しない。
 
 本番適用前に、別のローカル検証ワールドとSwitch実機で次を確認する。
 
 1. 両パックが読まれ、Content LogにEntity・geometry・Molangのエラーがない。
-2. デフォルト生成と4イベント生成、16通りの切替が正しい。顔・左右の腕と脚・
+2. デフォルト生成と4イベント生成、Creativeの4種配置・変換、16通りの切替が正しい。顔・左右の腕と脚・
    背面・袖・帽子・上着・ズボンのUVと透過を全方向から確認する。
 3. プレイヤー/Mobとの接触、ノックバック付き攻撃、矢、爆発、炎、溶岩、
    水中・水流、窒息、足場除去、ピストンで位置・向き・生存状態が変わらない。
 4. 放置、プレイヤー移動、チャンクの再読込、ワールドの保存・再開でも
    座標・向き・variantが維持される。平和難易度でも消えない。
 5. 明示的なyaw変更とremoveイベントが対象個体だけに作用する。
+   idle中も足とyawは固定。ロボットから4種召喚、最寄り1体削除、範囲内全種削除ができる。
 6. タケツミ、ポスター、既存Narita Bridge機能が従来どおり動く。
 
 ## 参照したBedrock公式仕様
@@ -124,3 +161,6 @@ python scripts/check_minecraft_posters.py
 - [押し出しコンポーネントの省略](https://feedback.minecraft.net/hc/en-us/articles/43775430834701-Minecraft-Beta-Preview-26-10-25)
 - [damage sensor](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/entitycomponents/minecraftcomponent_damage_sensor?view=minecraft-bedrock-stable)
 - [summon構文](https://learn.microsoft.com/en-us/minecraft/creator/commands/commands/summon?view=minecraft-bedrock-stable)
+
+- [静止Entityへの衝突](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/entitycomponents/minecraftcomponent_is_collidable?view=minecraft-bedrock-stable)
+- [proxy変換とcomponent group追加](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/entitycomponents/minecraftcomponent_transformation?view=minecraft-bedrock-stable)
