@@ -24,6 +24,18 @@ jobs:
       - name: Compile Python
         run: python -m compileall admin bot scripts
 
+      - name: Run AI automation safety checks
+        run: |
+          python scripts/check_ai_tasks.py
+          python scripts/check_ai_task_control_plane.py
+          python scripts/check_ai_task_phase2d_control_plane.py
+          python scripts/check_ai_task_publish.py
+          python scripts/check_ai_task_github.py
+          python scripts/check_ai_task_review_merge.py
+          python scripts/check_ai_task_code_review.py
+          python scripts/check_ai_task_auto_merge.py
+          python scripts/check_ai_task_local_runner.py
+
       - name: Run static checks
         run: |
           python scripts/check_spotify_premium_free_runtime.py

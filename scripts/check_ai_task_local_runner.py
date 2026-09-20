@@ -385,28 +385,29 @@ def main():
         check("effective CODEX_HOME is fixed in child", child_environment.get("CODEX_HOME") == str(effective_codex_home.resolve()))
         check("parent CODEX_SQLITE_HOME is removed", "CODEX_SQLITE_HOME" not in child_environment)
 
-        taskkill_calls = []
-        system_root = root / "windows"
-        (system_root / "System32").mkdir(parents=True)
-        (system_root / "System32" / "taskkill.exe").write_bytes(b"")
-        terminate_process_tree(process, runner=lambda argv, **kwargs: (taskkill_calls.append((argv, kwargs)) or SimpleNamespace(returncode=0)), system_root=system_root)
-        check("Windows process tree termination uses fixed PID argv", taskkill_calls and taskkill_calls[0][0][1:] == ["/PID", "4321", "/T", "/F"] and taskkill_calls[0][1]["shell"] is False)
-        check("taskkill invocation exception becomes ProcessTerminationError",
-              _raises_type(lambda: terminate_process_tree(FakeProcess(None), runner=lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError()), system_root=system_root), ProcessTerminationError))
-        class AliveProcess(FakeProcess):
-            def __init__(self):
-                super().__init__(None)
-            def poll(self):
-                return None
-            def terminate(self):
-                pass
-            def kill(self):
-                pass
-        alive_process = AliveProcess()
-        check("taskkill failure with live process is rejected", _rejects(lambda: terminate_process_tree(alive_process, runner=lambda *args, **kwargs: SimpleNamespace(returncode=1), system_root=system_root)))
-        check("taskkill failure after process exit is a safe race", terminate_process_tree(FakeProcess(0), runner=lambda *args, **kwargs: SimpleNamespace(returncode=1), system_root=system_root) is None)
-        missing_taskkill_root = root / "missing-windows"
-        check("missing taskkill is never success", _rejects(lambda: terminate_process_tree(FakeProcess(0), runner=lambda *args, **kwargs: SimpleNamespace(returncode=0), system_root=missing_taskkill_root)))
+        with patch("ai_task_process.os.name", "nt"):
+            taskkill_calls = []
+            system_root = root / "windows"
+            (system_root / "System32").mkdir(parents=True)
+            (system_root / "System32" / "taskkill.exe").write_bytes(b"")
+            terminate_process_tree(process, runner=lambda argv, **kwargs: (taskkill_calls.append((argv, kwargs)) or SimpleNamespace(returncode=0)), system_root=system_root)
+            check("Windows process tree termination uses fixed PID argv", taskkill_calls and taskkill_calls[0][0][1:] == ["/PID", "4321", "/T", "/F"] and taskkill_calls[0][1]["shell"] is False)
+            check("taskkill invocation exception becomes ProcessTerminationError",
+                  _raises_type(lambda: terminate_process_tree(FakeProcess(None), runner=lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError()), system_root=system_root), ProcessTerminationError))
+            class AliveProcess(FakeProcess):
+                def __init__(self):
+                    super().__init__(None)
+                def poll(self):
+                    return None
+                def terminate(self):
+                    pass
+                def kill(self):
+                    pass
+            alive_process = AliveProcess()
+            check("taskkill failure with live process is rejected", _rejects(lambda: terminate_process_tree(alive_process, runner=lambda *args, **kwargs: SimpleNamespace(returncode=1), system_root=system_root)))
+            check("taskkill failure after process exit is a safe race", terminate_process_tree(FakeProcess(0), runner=lambda *args, **kwargs: SimpleNamespace(returncode=1), system_root=system_root) is None)
+            missing_taskkill_root = root / "missing-windows"
+            check("missing taskkill is never success", _rejects(lambda: terminate_process_tree(FakeProcess(0), runner=lambda *args, **kwargs: SimpleNamespace(returncode=0), system_root=missing_taskkill_root)))
 
         status_paths = "?? space name.txt\0?? unicode-東京.txt\0R  new -> literal.txt\0old -> source.txt\0"
         parsed = adapter.parse_status_z(status_paths)
@@ -592,8 +593,20 @@ def orchestration_checks():
                 self.calls.append(
                     ("ready", kwargs)
                 )
+
+            def mark_completed(
+                self,
+                *args,
+                **kwargs,
+            ):
+                self.calls.append(
+                    ("completed", kwargs)
+                )
                 if self.events is not None:
-                    self.events.append("ready")
+                    self.events.append(
+                        "completed"
+                    )
+
         class ActiveHeartbeat:
             def __init__(self, client, task, *, interval, on_lost):
                 self.client, self.task, self.on_lost = client, task, on_lost
@@ -732,6 +745,112 @@ def orchestration_checks():
         def fake_tests(cwd, changed, stop_event=None):
             check("heartbeat active during tests", stop_event is not None and not stop_event.is_set())
             return [TestResult("fake", 0, "ok")]
+
+        class FakeReviewGate:
+            def __init__(self, events=None):
+                self.events = events
+                self.calls = []
+
+            def wait_for_draft_candidate(
+                self,
+                cwd,
+                task_id,
+                head_sha,
+                pr_number,
+                pr_url_value,
+                changed,
+                *,
+                timeout,
+                interval,
+                stop_event=None,
+            ):
+                self.calls.append(
+                    (
+                        cwd,
+                        task_id,
+                        head_sha,
+                        pr_number,
+                        pr_url_value,
+                        tuple(changed),
+                        stop_event,
+                    )
+                )
+
+                if self.events is not None:
+                    self.events.append("ci")
+
+                return SimpleNamespace(
+                    pr_number=pr_number,
+                    pr_url=pr_url_value,
+                    head_sha=head_sha,
+                    base_sha="a" * 40,
+                    workflow_run_id=900,
+                    changed_files=tuple(
+                        sorted(changed)
+                    ),
+                )
+
+        class FakeReviewer:
+            def __init__(self, events=None):
+                self.events = events
+                self.calls = []
+
+            def run(self, cwd, **kwargs):
+                self.calls.append(
+                    (cwd, kwargs)
+                )
+
+                if self.events is not None:
+                    self.events.append("review")
+
+                return SimpleNamespace(
+                    approved=True,
+                    decision="approve",
+                    base_sha=kwargs["base_sha"],
+                    head_sha=kwargs["head_sha"],
+                    summary="No findings.",
+                    findings=(),
+                )
+
+        class FakeAutoMerger:
+            def __init__(self, events=None):
+                self.events = events
+                self.calls = []
+
+            def ready_and_squash_merge(
+                self,
+                cwd,
+                task_id,
+                head_sha,
+                pr_number,
+                pr_url_value,
+                changed,
+                *,
+                stop_event=None,
+            ):
+                self.calls.append(
+                    (
+                        cwd,
+                        task_id,
+                        head_sha,
+                        pr_number,
+                        pr_url_value,
+                        tuple(changed),
+                        stop_event,
+                    )
+                )
+
+                if self.events is not None:
+                    self.events.append("merge")
+
+                return SimpleNamespace(
+                    pr_number=pr_number,
+                    pr_url=pr_url_value,
+                    head_sha=head_sha,
+                    base_sha="a" * 40,
+                    workflow_run_id=900,
+                    merge_sha="e" * 40,
+                )
         config = RunnerConfig("https://runner.example", "token", "runner-1", root, worktree_root, Path("C:/codex.exe"), None, Path("C:/git.exe"), 5, 60)
         normal_events = []
         normal_client = FakeClient(normal_events)
@@ -742,6 +861,15 @@ def orchestration_checks():
         normal_github = FakeGitHub(
             normal_events
         )
+        normal_review_gate = FakeReviewGate(
+            normal_events
+        )
+        normal_reviewer = FakeReviewer(
+            normal_events
+        )
+        normal_auto_merger = FakeAutoMerger(
+            normal_events
+        )
 
         runner = LocalRunner(
             config,
@@ -750,6 +878,9 @@ def orchestration_checks():
             codex=FakeCodex(),
             publisher=normal_publisher,
             github=normal_github,
+            reviewer=normal_reviewer,
+            review_gate=normal_review_gate,
+            auto_merger=normal_auto_merger,
             test_runner=fake_tests,
             heartbeat_factory=ActiveHeartbeat,
         )
@@ -757,10 +888,15 @@ def orchestration_checks():
         normal_result = runner.run_once()
 
         check(
-            "normal orchestration reaches ready for review",
+            "normal orchestration reaches automatic completion",
             normal_result == RunOutcome.SUCCESS
             and "testing" in normal_client.calls
             and any(
+                item[0] == "completed"
+                for item in normal_client.calls
+                if isinstance(item, tuple)
+            )
+            and not any(
                 item[0] == "ready"
                 for item in normal_client.calls
                 if isinstance(item, tuple)
@@ -784,14 +920,17 @@ def orchestration_checks():
         )
 
         check(
-            "Phase 2C side effects occur in fixed order",
+            "Phase 2D side effects occur in fixed order",
             normal_events
             == [
                 "commit",
                 "commit",
                 "push",
                 "pr",
-                "ready",
+                "ci",
+                "review",
+                "merge",
+                "completed",
             ],
         )
 
@@ -820,30 +959,38 @@ def orchestration_checks():
             is not None,
         )
 
-        ready_calls = [
+        completed_calls = [
             item
             for item in normal_client.calls
             if (
                 isinstance(item, tuple)
-                and item[0] == "ready"
+                and item[0] == "completed"
             )
         ]
 
         check(
-            "ready transition uses verified PR metadata",
-            len(ready_calls) == 1
-            and ready_calls[0][1][
+            "completion transition uses reviewed merge metadata",
+            len(completed_calls) == 1
+            and completed_calls[0][1][
                 "commit_sha"
             ]
             == commit_sha
-            and ready_calls[0][1][
+            and completed_calls[0][1][
                 "pr_number"
             ]
             == 123
-            and ready_calls[0][1][
+            and completed_calls[0][1][
                 "pr_url"
             ]
-            == pr_url,
+            == pr_url
+            and completed_calls[0][1][
+                "ci_workflow_run_id"
+            ]
+            == 900
+            and completed_calls[0][1][
+                "merge_commit_sha"
+            ]
+            == "e" * 40,
         )
 
         # A changed candidate between the first and
@@ -1118,18 +1265,23 @@ def orchestration_checks():
 
         check("runner exit codes distinguish outcomes", outcome_exit_code(RunOutcome.NO_TASK) == 0 and outcome_exit_code(RunOutcome.SUCCESS) == 0 and outcome_exit_code(RunOutcome.FAILED) != 0 and outcome_exit_code(RunOutcome.CLAIM_FAILED) != 0)
         check(
-            "normal orchestration calls ready exactly once",
+            "normal orchestration completes exactly once",
             len(
                 [
                     item
                     for item in normal_client.calls
                     if (
                         isinstance(item, tuple)
-                        and item[0] == "ready"
+                        and item[0] == "completed"
                     )
                 ]
             )
-            == 1,
+            == 1
+            and not any(
+                isinstance(item, tuple)
+                and item[0] == "ready"
+                for item in normal_client.calls
+            ),
         )
 
 
