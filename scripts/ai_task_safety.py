@@ -7,6 +7,9 @@ from uuid import UUID
 
 
 PROTECTED_EXACT = {
+    "Dockerfile", ".dockerignore", "docker-compose.yml", "docker-compose.prod.yml",
+    "scripts/ai_task_deploy.py", "scripts/ai_task_deploy_config.py",
+    "scripts/ai_task_deploy_remote.sh", "scripts/check_ai_task_deploy.py",
     "AGENTS.md", "docs/AI_RULES.md", ".gitattributes",
     "admin/ai_tasks_internal.py",
     "bot/repositories/ai_tasks.py", "scripts/ai_task_runner.py",
