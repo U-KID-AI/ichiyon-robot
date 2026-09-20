@@ -29,6 +29,7 @@ jobs:
           python scripts/check_ai_task_deploy.py
           bash -n scripts/ai_task_deploy_remote.sh
           python scripts/check_ai_tasks.py
+          python scripts/check_ai_task_discord_channel.py
           python scripts/check_ai_task_control_plane.py
           python scripts/check_ai_task_phase2d_control_plane.py
           python scripts/check_ai_task_publish.py

@@ -8,7 +8,10 @@ from bot.ng_words import contains_ng_word
 from bot.quotes import draw_quote_message
 from bot.reactions import handle_word_response
 from bot.services.auto_posts import run_db_auto_posts_once
-from bot.services.ai_tasks import handle_ai_task_command, parse_ai_command
+from bot.services.ai_tasks import (
+    handle_ai_task_channel_message, is_ai_task_channel,
+    notify_ai_task_terminal_updates_once, parse_ai_command,
+)
 from bot.services.reaction_thresholds import handle_db_reaction_threshold
 from bot.services.interaction_panel import handle_context_panel_command, mention_text_is_empty, register_persistent_views
 from bot.services.mention_shortcuts import handle_mention_shortcut_command
@@ -111,6 +114,8 @@ async def on_ready():
         _PERSISTENT_VIEWS_REGISTERED = True
 
     if config.DATA_BACKEND == "db":
+        if config.BOT_INSTANCE_ID == "ichiyon" and not ai_task_notification_task.is_running():
+            ai_task_notification_task.start()
         if not db_auto_post_task.is_running():
             db_auto_post_task.start()
     elif not annual_message_task.is_running():
@@ -125,6 +130,19 @@ async def on_guild_join(guild: discord.Guild):
     channel = messages.get_guild_startup_channel(guild)
     if channel is not None:
         await messages.send_startup_message(channel)
+
+
+@tasks.loop(seconds=5)
+async def ai_task_notification_task():
+    try:
+        await notify_ai_task_terminal_updates_once(bot)
+    except Exception as exc:
+        print("[WARN] AI terminal notification failed: " + type(exc).__name__)
+
+
+@ai_task_notification_task.before_loop
+async def before_ai_task_notification_task():
+    await bot.wait_until_ready()
 
 
 @tasks.loop(hours=1)
@@ -169,16 +187,21 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot:
-        print(f"[DEBUG] on_message: author={message.author} content={message.content!r}")
         print("[DEBUG] ignored bot message")
         return
 
     command_text = messages.get_mention_command_text(message)
     _ai_action, _ai_argument, is_ai_command = parse_ai_command(command_text)
     debug_content = "<AI command redacted>" if is_ai_command else message.content
+    if is_ai_task_channel(message):
+        debug_content = "<AI development prompt redacted>"
     print(f"[DEBUG] on_message: author={message.author} content={debug_content!r}")
 
-    if await handle_ai_task_command(message, command_text):
+    if is_ai_task_channel(message) and config.BOT_INSTANCE_ID != "ichiyon":
+        print("[DEBUG] ignored AI development channel for non-Ichiyon bot")
+        return
+
+    if await handle_ai_task_channel_message(message, command_text):
         return
 
     if await handle_empty_mention_message(message, command_text):
