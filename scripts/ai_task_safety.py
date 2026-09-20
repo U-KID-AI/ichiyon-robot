@@ -7,15 +7,18 @@ from uuid import UUID
 
 
 PROTECTED_EXACT = {
-    "AGENTS.md", "docs/AI_RULES.md", "admin/ai_tasks_internal.py",
+    "AGENTS.md", "docs/AI_RULES.md", ".gitattributes",
+    "admin/ai_tasks_internal.py",
     "bot/repositories/ai_tasks.py", "scripts/ai_task_runner.py",
     "scripts/ai_task_runner_config.py", "scripts/ai_task_api_client.py",
     "scripts/ai_task_git.py", "scripts/ai_task_codex.py",
     "scripts/ai_task_test_registry.py", "scripts/ai_task_safety.py",
-    "scripts/ai_task_process.py",
+    "scripts/ai_task_process.py", "scripts/ai_task_publish.py",
+    "scripts/ai_task_github.py",
     "docs/AI_CONTEXT.md", "docs/AI_RUNBOOK.md", "docs/AI_TASKS.md",
     ".gitmodules",
     "scripts/check_ai_tasks.py", "scripts/check_ai_task_control_plane.py",
+    "scripts/check_ai_task_publish.py", "scripts/check_ai_task_github.py",
     "scripts/check_admin_user_management.py", "scripts/check_admin_feature_flags.py",
     "scripts/check_ai_task_local_runner.py",
 }
@@ -99,8 +102,17 @@ def validate_changed_paths(repo_root: Path, changed_files: list[str]) -> None:
         if root not in resolved.parents and resolved != root:
             raise SafetyError("changed path escapes repository")
         candidate = root / path
-        if candidate.is_symlink() or is_reparse_point(candidate):
-            raise SafetyError("symlink changed path is not allowed")
+        try:
+            candidate.lstat()
+        except FileNotFoundError:
+            # A missing path is valid for a tracked deletion. Parent paths
+            # are still inspected below.
+            pass
+        except OSError as exc:
+            raise SafetyError("changed path cannot be inspected") from exc
+        else:
+            if candidate.is_symlink() or is_reparse_point(candidate):
+                raise SafetyError("symlink changed path is not allowed")
         current = candidate.parent
         while current != root and root in current.parents:
             if current.is_symlink() or is_reparse_point(current):

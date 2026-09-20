@@ -11,6 +11,10 @@ from urllib.request import Request, urlopen
 
 
 TASK_ID_PATTERN = re.compile(r"^[0-9a-fA-F-]{36}$")
+SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
+PR_URL_PATTERN = re.compile(
+    r"^https://github\.com/U-KID-AI/ichiyon-robot/pull/([1-9][0-9]*)$"
+)
 
 
 @dataclass(frozen=True)
@@ -118,9 +122,55 @@ class RunnerAPIClient:
     def mark_needs_human(self, task_id: uuid.UUID, claim_token: uuid.UUID, reason: str) -> dict[str, Any]:
         return self._owned("needs-human", task_id, claim_token, {"reason": reason})
 
+    def ready_for_review(
+        self,
+        task_id: uuid.UUID,
+        claim_token: uuid.UUID,
+        *,
+        commit_sha: str,
+        pr_number: int,
+        pr_url: str,
+        test_summary: str,
+        changed_files_summary: str,
+    ) -> dict[str, Any]:
+        match = (
+            PR_URL_PATTERN.fullmatch(pr_url)
+            if isinstance(pr_url, str)
+            else None
+        )
+
+        if (
+            not isinstance(commit_sha, str)
+            or SHA_PATTERN.fullmatch(commit_sha) is None
+            or not isinstance(pr_number, int)
+            or isinstance(pr_number, bool)
+            or pr_number <= 0
+            or pr_number > 2_147_483_647
+            or match is None
+            or int(match.group(1)) != pr_number
+            or not isinstance(test_summary, str)
+            or len(test_summary) > 8000
+            or not isinstance(changed_files_summary, str)
+            or len(changed_files_summary) > 8000
+        ):
+            raise ValueError("invalid ready-for-review metadata")
+
+        return self._owned(
+            "ready-for-review",
+            task_id,
+            claim_token,
+            {
+                "commit_sha": commit_sha,
+                "pr_number": pr_number,
+                "pr_url": pr_url,
+                "test_summary": test_summary,
+                "changed_files_summary": changed_files_summary,
+            },
+        )
+
     def _owned(self, operation: str, task_id: uuid.UUID, claim_token: uuid.UUID,
                fields: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        if operation not in {"heartbeat", "progress", "testing", "fail", "needs-human"}:
+        if operation not in {"heartbeat", "progress", "testing", "fail", "needs-human", "ready-for-review"}:
             raise ValueError("operation is not allowlisted")
         if not isinstance(task_id, uuid.UUID) or not isinstance(claim_token, uuid.UUID):
             raise ValueError("task identifiers must be UUIDs")
