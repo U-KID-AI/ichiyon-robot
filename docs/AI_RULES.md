@@ -127,3 +127,19 @@ This phase validates these assumptions with offline fakes and static inspection;
 prior release artifact formats, production compatibility and migration rollback
 compatibility remain independent
 human audit items before Phase 3C-2F activation.
+
+## Phase 3C-3: fixed deploy adapter activation
+
+Runner startup now constructs the reviewed ProductionDeployAdapter from
+trusted AI_TASK_RUNNER_DEPLOY_* process configuration and injects it into
+LocalRunner. Generic Codex/task execution still receives no SSH, production,
+secret, host, path, service, SQL, or arbitrary-command authority.
+
+The only task-derived production input remains the reviewed lowercase merge
+SHA. Deployment transport and the remote operation vocabulary remain fixed in
+reviewed infrastructure code.
+
+This activation does not change the fail-closed stale-deploying policy.
+Production bootstrap, runner-token provisioning, scheduled runner activation,
+and the first real Discord-to-production E2E are operational steps performed
+after this reviewed wiring is merged.

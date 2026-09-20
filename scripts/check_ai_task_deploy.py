@@ -506,7 +506,23 @@ class RemoteChecks(unittest.TestCase):
         for value in ('python-and-compose:', 'python scripts/check_ai_task_deploy.py', 'bash -n scripts/ai_task_deploy_remote.sh'):
             self.assertIn(value, ci)
         runner = (ROOT / 'scripts/ai_task_runner.py').read_text(encoding='utf-8')
-        self.assertNotIn('ProductionDeployAdapter', runner)
+        self.assertIn(
+            'from ai_task_deploy import ProductionDeployAdapter',
+            runner,
+        )
+        self.assertIn(
+            'from ai_task_deploy_config import DeployConfig',
+            runner,
+        )
+        self.assertIn('DeployConfig.from_environment(', runner)
+        self.assertIn(
+            'deployer=ProductionDeployAdapter(deploy_config)',
+            ''.join(runner.split()),
+        )
+        self.assertIn(
+            'except(ValueError,OSError,SafetyError)asexc:',
+            ''.join(runner.split()),
+        )
 
 
 def bash_syntax():
