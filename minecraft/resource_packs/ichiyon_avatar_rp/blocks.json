@@ -92,6 +92,22 @@
     "textures": "poster_raio",
     "sound": "wood"
   },
+  "ichiyon:poster_raio_r5c0": {
+    "textures": "poster_raio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_raio_r5c1": {
+    "textures": "poster_raio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_raio_r5c2": {
+    "textures": "poster_raio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_raio_r5c3": {
+    "textures": "poster_raio",
+    "sound": "wood"
+  },
   "ichiyon:poster_trent": {
     "textures": "poster_trent",
     "sound": "wood"
@@ -173,6 +189,22 @@
     "sound": "wood"
   },
   "ichiyon:poster_trent_r4c3": {
+    "textures": "poster_trent",
+    "sound": "wood"
+  },
+  "ichiyon:poster_trent_r5c0": {
+    "textures": "poster_trent",
+    "sound": "wood"
+  },
+  "ichiyon:poster_trent_r5c1": {
+    "textures": "poster_trent",
+    "sound": "wood"
+  },
+  "ichiyon:poster_trent_r5c2": {
+    "textures": "poster_trent",
+    "sound": "wood"
+  },
+  "ichiyon:poster_trent_r5c3": {
     "textures": "poster_trent",
     "sound": "wood"
   },
@@ -260,6 +292,22 @@
     "textures": "poster_aurelia",
     "sound": "wood"
   },
+  "ichiyon:poster_aurelia_r5c0": {
+    "textures": "poster_aurelia",
+    "sound": "wood"
+  },
+  "ichiyon:poster_aurelia_r5c1": {
+    "textures": "poster_aurelia",
+    "sound": "wood"
+  },
+  "ichiyon:poster_aurelia_r5c2": {
+    "textures": "poster_aurelia",
+    "sound": "wood"
+  },
+  "ichiyon:poster_aurelia_r5c3": {
+    "textures": "poster_aurelia",
+    "sound": "wood"
+  },
   "ichiyon:poster_killzael": {
     "textures": "poster_killzael",
     "sound": "wood"
@@ -341,6 +389,22 @@
     "sound": "wood"
   },
   "ichiyon:poster_killzael_r4c3": {
+    "textures": "poster_killzael",
+    "sound": "wood"
+  },
+  "ichiyon:poster_killzael_r5c0": {
+    "textures": "poster_killzael",
+    "sound": "wood"
+  },
+  "ichiyon:poster_killzael_r5c1": {
+    "textures": "poster_killzael",
+    "sound": "wood"
+  },
+  "ichiyon:poster_killzael_r5c2": {
+    "textures": "poster_killzael",
+    "sound": "wood"
+  },
+  "ichiyon:poster_killzael_r5c3": {
     "textures": "poster_killzael",
     "sound": "wood"
   },
@@ -428,6 +492,22 @@
     "textures": "poster_caravan_mammoth",
     "sound": "wood"
   },
+  "ichiyon:poster_caravan_mammoth_r5c0": {
+    "textures": "poster_caravan_mammoth",
+    "sound": "wood"
+  },
+  "ichiyon:poster_caravan_mammoth_r5c1": {
+    "textures": "poster_caravan_mammoth",
+    "sound": "wood"
+  },
+  "ichiyon:poster_caravan_mammoth_r5c2": {
+    "textures": "poster_caravan_mammoth",
+    "sound": "wood"
+  },
+  "ichiyon:poster_caravan_mammoth_r5c3": {
+    "textures": "poster_caravan_mammoth",
+    "sound": "wood"
+  },
   "ichiyon:poster_itsutake": {
     "textures": "poster_itsutake",
     "sound": "wood"
@@ -511,5 +591,546 @@
   "ichiyon:poster_itsutake_r4c3": {
     "textures": "poster_itsutake",
     "sound": "wood"
+  },
+  "ichiyon:poster_itsutake_r5c0": {
+    "textures": "poster_itsutake",
+    "sound": "wood"
+  },
+  "ichiyon:poster_itsutake_r5c1": {
+    "textures": "poster_itsutake",
+    "sound": "wood"
+  },
+  "ichiyon:poster_itsutake_r5c2": {
+    "textures": "poster_itsutake",
+    "sound": "wood"
+  },
+  "ichiyon:poster_itsutake_r5c3": {
+    "textures": "poster_itsutake",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r0c0": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r0c1": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r0c2": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r0c3": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r1c0": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r1c1": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r1c2": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r1c3": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r2c0": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r2c1": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r2c2": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r2c3": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r3c0": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r3c1": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r3c2": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r3c3": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r4c0": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r4c1": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r4c2": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r4c3": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r5c0": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r5c1": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r5c2": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_cat_tuner_r5c3": {
+    "textures": "poster_cat_tuner",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r0c0": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r0c1": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r0c2": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r0c3": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r1c0": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r1c1": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r1c2": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r1c3": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r2c0": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r2c1": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r2c2": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r2c3": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r3c0": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r3c1": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r3c2": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r3c3": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r4c0": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r4c1": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r4c2": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r4c3": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r5c0": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r5c1": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r5c2": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_wilbert_r5c3": {
+    "textures": "poster_wilbert",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r0c0": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r0c1": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r0c2": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r0c3": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r1c0": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r1c1": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r1c2": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r1c3": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r2c0": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r2c1": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r2c2": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r2c3": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r3c0": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r3c1": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r3c2": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r3c3": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r4c0": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r4c1": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r4c2": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r4c3": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r5c0": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r5c1": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r5c2": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_miltio_r5c3": {
+    "textures": "poster_miltio",
+    "sound": "wood"
+  },
+  "ichiyon:poster_eyes_eden": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r0c0": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r0c1": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r0c2": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r0c3": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r1c0": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r1c1": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r1c2": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r1c3": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r2c0": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r2c1": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r2c2": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r2c3": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r3c0": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r3c1": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r3c2": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r3c3": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r4c0": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r4c1": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r4c2": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r4c3": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r5c0": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r5c1": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r5c2": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_eyes_eden_r5c3": {
+    "textures": "poster_eyes_eden"
+  },
+  "ichiyon:poster_akuki": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r0c0": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r0c1": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r0c2": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r0c3": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r0c4": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r0c5": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r1c0": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r1c1": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r1c2": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r1c3": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r1c4": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r1c5": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r2c0": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r2c1": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r2c2": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r2c3": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r2c4": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r2c5": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r3c0": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r3c1": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r3c2": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r3c3": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r3c4": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_akuki_r3c5": {
+    "textures": "poster_akuki"
+  },
+  "ichiyon:poster_ace": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r0c0": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r0c1": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r0c2": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r0c3": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r1c0": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r1c1": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r1c2": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r1c3": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r2c0": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r2c1": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r2c2": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r2c3": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r3c0": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r3c1": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r3c2": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r3c3": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r4c0": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r4c1": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r4c2": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r4c3": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r5c0": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r5c1": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r5c2": {
+    "textures": "poster_ace"
+  },
+  "ichiyon:poster_ace_r5c3": {
+    "textures": "poster_ace"
   }
 }

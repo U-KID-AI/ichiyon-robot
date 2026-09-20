@@ -36,6 +36,10 @@
             "hurt": "query.hurt_time > 0.0"
           }
         ]
+      },
+      "spawn_egg": {
+        "base_color": "#D62828",
+        "overlay_color": "#2457D6"
       }
     }
   }

@@ -1,0 +1,35 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "ichiyon:gonta",
+      "materials": {
+        "default": "entity_alphatest"
+      },
+      "textures": {
+        "default": "textures/entity/gonta"
+      },
+      "geometry": {
+        "default": "geometry.gonta"
+      },
+      "animations": {
+        "walk": "animation.gonta.walk"
+      },
+      "scripts": {
+        "scale": "1.0",
+        "animate": [
+          {
+            "walk": "query.is_moving"
+          }
+        ]
+      },
+      "render_controllers": [
+        "controller.render.default"
+      ],
+      "spawn_egg": {
+        "base_color": "#F1D900",
+        "overlay_color": "#111111"
+      }
+    }
+  }
+}

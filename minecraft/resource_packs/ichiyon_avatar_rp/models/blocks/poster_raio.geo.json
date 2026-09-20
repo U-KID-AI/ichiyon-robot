@@ -6,8 +6,8 @@
         "identifier": "geometry.poster_raio",
         "texture_width": 367,
         "texture_height": 512,
-        "visible_bounds_width": 1.0,
-        "visible_bounds_height": 1.0,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
         "visible_bounds_offset": [
           0,
           0.5,
@@ -19,7 +19,7 @@
           "name": "poster",
           "pivot": [
             0,
-            0,
+            8,
             0
           ],
           "cubes": [
@@ -37,12 +37,12 @@
               "uv": {
                 "north": {
                   "uv": [
-                    0.0,
-                    0.0
+                    0,
+                    0
                   ],
                   "uv_size": [
-                    367.0,
-                    512.0
+                    367,
+                    512
                   ]
                 }
               }
@@ -56,8 +56,8 @@
         "identifier": "geometry.poster_raio_r0c0",
         "texture_width": 367,
         "texture_height": 512,
-        "visible_bounds_width": 1.2,
-        "visible_bounds_height": 1.2,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
         "visible_bounds_offset": [
           0,
           0.5,
@@ -69,30 +69,30 @@
           "name": "poster",
           "pivot": [
             0,
-            0,
+            8,
             0
           ],
           "cubes": [
             {
               "origin": [
-                -4.67188,
-                0.0,
+                -8.0,
+                3.35695,
                 7.46875
               ],
               "size": [
-                14.33594,
                 16.0,
+                12.64305,
                 0.03125
               ],
               "uv": {
                 "north": {
                   "uv": [
                     0.0,
-                    0.0
+                    439.5
                   ],
                   "uv_size": [
                     91.75,
-                    102.4
+                    72.5
                   ]
                 }
               }
@@ -106,8 +106,8 @@
         "identifier": "geometry.poster_raio_r0c1",
         "texture_width": 367,
         "texture_height": 512,
-        "visible_bounds_width": 1.2,
-        "visible_bounds_height": 1.2,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
         "visible_bounds_offset": [
           0,
           0.5,
@@ -119,30 +119,30 @@
           "name": "poster",
           "pivot": [
             0,
-            0,
+            8,
             0
           ],
           "cubes": [
             {
               "origin": [
-                -6.33594,
-                0.0,
+                -8.0,
+                3.35695,
                 7.46875
               ],
               "size": [
-                14.33594,
                 16.0,
+                12.64305,
                 0.03125
               ],
               "uv": {
                 "north": {
                   "uv": [
                     91.75,
-                    0.0
+                    439.5
                   ],
                   "uv_size": [
                     91.75,
-                    102.4
+                    72.5
                   ]
                 }
               }
@@ -156,8 +156,8 @@
         "identifier": "geometry.poster_raio_r0c2",
         "texture_width": 367,
         "texture_height": 512,
-        "visible_bounds_width": 1.2,
-        "visible_bounds_height": 1.2,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
         "visible_bounds_offset": [
           0,
           0.5,
@@ -169,30 +169,30 @@
           "name": "poster",
           "pivot": [
             0,
-            0,
+            8,
             0
           ],
           "cubes": [
             {
               "origin": [
                 -8.0,
-                0.0,
+                3.35695,
                 7.46875
               ],
               "size": [
-                14.33594,
                 16.0,
+                12.64305,
                 0.03125
               ],
               "uv": {
                 "north": {
                   "uv": [
                     183.5,
-                    0.0
+                    439.5
                   ],
                   "uv_size": [
                     91.75,
-                    102.4
+                    72.5
                   ]
                 }
               }
@@ -206,8 +206,8 @@
         "identifier": "geometry.poster_raio_r0c3",
         "texture_width": 367,
         "texture_height": 512,
-        "visible_bounds_width": 1.2,
-        "visible_bounds_height": 1.2,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
         "visible_bounds_offset": [
           0,
           0.5,
@@ -219,30 +219,30 @@
           "name": "poster",
           "pivot": [
             0,
-            0,
+            8,
             0
           ],
           "cubes": [
             {
               "origin": [
-                -9.66406,
-                0.0,
+                -8.0,
+                3.35695,
                 7.46875
               ],
               "size": [
-                14.33594,
                 16.0,
+                12.64305,
                 0.03125
               ],
               "uv": {
                 "north": {
                   "uv": [
                     275.25,
-                    0.0
+                    439.5
                   ],
                   "uv_size": [
                     91.75,
-                    102.4
+                    72.5
                   ]
                 }
               }
@@ -256,8 +256,8 @@
         "identifier": "geometry.poster_raio_r1c0",
         "texture_width": 367,
         "texture_height": 512,
-        "visible_bounds_width": 1.2,
-        "visible_bounds_height": 1.2,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
         "visible_bounds_offset": [
           0,
           0.5,
@@ -269,18 +269,18 @@
           "name": "poster",
           "pivot": [
             0,
-            0,
+            8,
             0
           ],
           "cubes": [
             {
               "origin": [
-                -4.67188,
+                -8.0,
                 0.0,
                 7.46875
               ],
               "size": [
-                14.33594,
+                16.0,
                 16.0,
                 0.03125
               ],
@@ -288,11 +288,11 @@
                 "north": {
                   "uv": [
                     0.0,
-                    102.4
+                    347.75
                   ],
                   "uv_size": [
                     91.75,
-                    102.4
+                    91.75
                   ]
                 }
               }
@@ -306,8 +306,8 @@
         "identifier": "geometry.poster_raio_r1c1",
         "texture_width": 367,
         "texture_height": 512,
-        "visible_bounds_width": 1.2,
-        "visible_bounds_height": 1.2,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
         "visible_bounds_offset": [
           0,
           0.5,
@@ -319,18 +319,18 @@
           "name": "poster",
           "pivot": [
             0,
-            0,
+            8,
             0
           ],
           "cubes": [
             {
               "origin": [
-                -6.33594,
+                -8.0,
                 0.0,
                 7.46875
               ],
               "size": [
-                14.33594,
+                16.0,
                 16.0,
                 0.03125
               ],
@@ -338,11 +338,11 @@
                 "north": {
                   "uv": [
                     91.75,
-                    102.4
+                    347.75
                   ],
                   "uv_size": [
                     91.75,
-                    102.4
+                    91.75
                   ]
                 }
               }
@@ -356,8 +356,8 @@
         "identifier": "geometry.poster_raio_r1c2",
         "texture_width": 367,
         "texture_height": 512,
-        "visible_bounds_width": 1.2,
-        "visible_bounds_height": 1.2,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
         "visible_bounds_offset": [
           0,
           0.5,
@@ -369,7 +369,7 @@
           "name": "poster",
           "pivot": [
             0,
-            0,
+            8,
             0
           ],
           "cubes": [
@@ -380,7 +380,7 @@
                 7.46875
               ],
               "size": [
-                14.33594,
+                16.0,
                 16.0,
                 0.03125
               ],
@@ -388,11 +388,11 @@
                 "north": {
                   "uv": [
                     183.5,
-                    102.4
+                    347.75
                   ],
                   "uv_size": [
                     91.75,
-                    102.4
+                    91.75
                   ]
                 }
               }
@@ -406,8 +406,8 @@
         "identifier": "geometry.poster_raio_r1c3",
         "texture_width": 367,
         "texture_height": 512,
-        "visible_bounds_width": 1.2,
-        "visible_bounds_height": 1.2,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
         "visible_bounds_offset": [
           0,
           0.5,
@@ -419,18 +419,18 @@
           "name": "poster",
           "pivot": [
             0,
-            0,
+            8,
             0
           ],
           "cubes": [
             {
               "origin": [
-                -9.66406,
+                -8.0,
                 0.0,
                 7.46875
               ],
               "size": [
-                14.33594,
+                16.0,
                 16.0,
                 0.03125
               ],
@@ -438,11 +438,11 @@
                 "north": {
                   "uv": [
                     275.25,
-                    102.4
+                    347.75
                   ],
                   "uv_size": [
                     91.75,
-                    102.4
+                    91.75
                   ]
                 }
               }
@@ -456,8 +456,8 @@
         "identifier": "geometry.poster_raio_r2c0",
         "texture_width": 367,
         "texture_height": 512,
-        "visible_bounds_width": 1.2,
-        "visible_bounds_height": 1.2,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
         "visible_bounds_offset": [
           0,
           0.5,
@@ -469,18 +469,18 @@
           "name": "poster",
           "pivot": [
             0,
-            0,
+            8,
             0
           ],
           "cubes": [
             {
               "origin": [
-                -4.67188,
+                -8.0,
                 0.0,
                 7.46875
               ],
               "size": [
-                14.33594,
+                16.0,
                 16.0,
                 0.03125
               ],
@@ -488,11 +488,11 @@
                 "north": {
                   "uv": [
                     0.0,
-                    204.8
+                    256.0
                   ],
                   "uv_size": [
                     91.75,
-                    102.4
+                    91.75
                   ]
                 }
               }
@@ -506,8 +506,8 @@
         "identifier": "geometry.poster_raio_r2c1",
         "texture_width": 367,
         "texture_height": 512,
-        "visible_bounds_width": 1.2,
-        "visible_bounds_height": 1.2,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
         "visible_bounds_offset": [
           0,
           0.5,
@@ -519,18 +519,18 @@
           "name": "poster",
           "pivot": [
             0,
-            0,
+            8,
             0
           ],
           "cubes": [
             {
               "origin": [
-                -6.33594,
+                -8.0,
                 0.0,
                 7.46875
               ],
               "size": [
-                14.33594,
+                16.0,
                 16.0,
                 0.03125
               ],
@@ -538,11 +538,11 @@
                 "north": {
                   "uv": [
                     91.75,
-                    204.8
+                    256.0
                   ],
                   "uv_size": [
                     91.75,
-                    102.4
+                    91.75
                   ]
                 }
               }
@@ -556,8 +556,8 @@
         "identifier": "geometry.poster_raio_r2c2",
         "texture_width": 367,
         "texture_height": 512,
-        "visible_bounds_width": 1.2,
-        "visible_bounds_height": 1.2,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
         "visible_bounds_offset": [
           0,
           0.5,
@@ -569,7 +569,7 @@
           "name": "poster",
           "pivot": [
             0,
-            0,
+            8,
             0
           ],
           "cubes": [
@@ -580,7 +580,7 @@
                 7.46875
               ],
               "size": [
-                14.33594,
+                16.0,
                 16.0,
                 0.03125
               ],
@@ -588,11 +588,11 @@
                 "north": {
                   "uv": [
                     183.5,
-                    204.8
+                    256.0
                   ],
                   "uv_size": [
                     91.75,
-                    102.4
+                    91.75
                   ]
                 }
               }
@@ -606,8 +606,8 @@
         "identifier": "geometry.poster_raio_r2c3",
         "texture_width": 367,
         "texture_height": 512,
-        "visible_bounds_width": 1.2,
-        "visible_bounds_height": 1.2,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
         "visible_bounds_offset": [
           0,
           0.5,
@@ -619,18 +619,18 @@
           "name": "poster",
           "pivot": [
             0,
-            0,
+            8,
             0
           ],
           "cubes": [
             {
               "origin": [
-                -9.66406,
+                -8.0,
                 0.0,
                 7.46875
               ],
               "size": [
-                14.33594,
+                16.0,
                 16.0,
                 0.03125
               ],
@@ -638,11 +638,11 @@
                 "north": {
                   "uv": [
                     275.25,
-                    204.8
+                    256.0
                   ],
                   "uv_size": [
                     91.75,
-                    102.4
+                    91.75
                   ]
                 }
               }
@@ -656,8 +656,8 @@
         "identifier": "geometry.poster_raio_r3c0",
         "texture_width": 367,
         "texture_height": 512,
-        "visible_bounds_width": 1.2,
-        "visible_bounds_height": 1.2,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
         "visible_bounds_offset": [
           0,
           0.5,
@@ -669,18 +669,18 @@
           "name": "poster",
           "pivot": [
             0,
-            0,
+            8,
             0
           ],
           "cubes": [
             {
               "origin": [
-                -4.67188,
+                -8.0,
                 0.0,
                 7.46875
               ],
               "size": [
-                14.33594,
+                16.0,
                 16.0,
                 0.03125
               ],
@@ -688,11 +688,11 @@
                 "north": {
                   "uv": [
                     0.0,
-                    307.2
+                    164.25
                   ],
                   "uv_size": [
                     91.75,
-                    102.4
+                    91.75
                   ]
                 }
               }
@@ -706,8 +706,8 @@
         "identifier": "geometry.poster_raio_r3c1",
         "texture_width": 367,
         "texture_height": 512,
-        "visible_bounds_width": 1.2,
-        "visible_bounds_height": 1.2,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
         "visible_bounds_offset": [
           0,
           0.5,
@@ -719,18 +719,18 @@
           "name": "poster",
           "pivot": [
             0,
-            0,
+            8,
             0
           ],
           "cubes": [
             {
               "origin": [
-                -6.33594,
+                -8.0,
                 0.0,
                 7.46875
               ],
               "size": [
-                14.33594,
+                16.0,
                 16.0,
                 0.03125
               ],
@@ -738,11 +738,11 @@
                 "north": {
                   "uv": [
                     91.75,
-                    307.2
+                    164.25
                   ],
                   "uv_size": [
                     91.75,
-                    102.4
+                    91.75
                   ]
                 }
               }
@@ -756,8 +756,8 @@
         "identifier": "geometry.poster_raio_r3c2",
         "texture_width": 367,
         "texture_height": 512,
-        "visible_bounds_width": 1.2,
-        "visible_bounds_height": 1.2,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
         "visible_bounds_offset": [
           0,
           0.5,
@@ -769,7 +769,7 @@
           "name": "poster",
           "pivot": [
             0,
-            0,
+            8,
             0
           ],
           "cubes": [
@@ -780,7 +780,7 @@
                 7.46875
               ],
               "size": [
-                14.33594,
+                16.0,
                 16.0,
                 0.03125
               ],
@@ -788,11 +788,11 @@
                 "north": {
                   "uv": [
                     183.5,
-                    307.2
+                    164.25
                   ],
                   "uv_size": [
                     91.75,
-                    102.4
+                    91.75
                   ]
                 }
               }
@@ -806,8 +806,8 @@
         "identifier": "geometry.poster_raio_r3c3",
         "texture_width": 367,
         "texture_height": 512,
-        "visible_bounds_width": 1.2,
-        "visible_bounds_height": 1.2,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
         "visible_bounds_offset": [
           0,
           0.5,
@@ -819,18 +819,18 @@
           "name": "poster",
           "pivot": [
             0,
-            0,
+            8,
             0
           ],
           "cubes": [
             {
               "origin": [
-                -9.66406,
+                -8.0,
                 0.0,
                 7.46875
               ],
               "size": [
-                14.33594,
+                16.0,
                 16.0,
                 0.03125
               ],
@@ -838,11 +838,11 @@
                 "north": {
                   "uv": [
                     275.25,
-                    307.2
+                    164.25
                   ],
                   "uv_size": [
                     91.75,
-                    102.4
+                    91.75
                   ]
                 }
               }
@@ -856,8 +856,8 @@
         "identifier": "geometry.poster_raio_r4c0",
         "texture_width": 367,
         "texture_height": 512,
-        "visible_bounds_width": 1.2,
-        "visible_bounds_height": 1.2,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
         "visible_bounds_offset": [
           0,
           0.5,
@@ -869,18 +869,18 @@
           "name": "poster",
           "pivot": [
             0,
-            0,
+            8,
             0
           ],
           "cubes": [
             {
               "origin": [
-                -4.67188,
+                -8.0,
                 0.0,
                 7.46875
               ],
               "size": [
-                14.33594,
+                16.0,
                 16.0,
                 0.03125
               ],
@@ -888,11 +888,11 @@
                 "north": {
                   "uv": [
                     0.0,
-                    409.6
+                    72.5
                   ],
                   "uv_size": [
                     91.75,
-                    102.4
+                    91.75
                   ]
                 }
               }
@@ -906,8 +906,8 @@
         "identifier": "geometry.poster_raio_r4c1",
         "texture_width": 367,
         "texture_height": 512,
-        "visible_bounds_width": 1.2,
-        "visible_bounds_height": 1.2,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
         "visible_bounds_offset": [
           0,
           0.5,
@@ -919,18 +919,18 @@
           "name": "poster",
           "pivot": [
             0,
-            0,
+            8,
             0
           ],
           "cubes": [
             {
               "origin": [
-                -6.33594,
+                -8.0,
                 0.0,
                 7.46875
               ],
               "size": [
-                14.33594,
+                16.0,
                 16.0,
                 0.03125
               ],
@@ -938,11 +938,11 @@
                 "north": {
                   "uv": [
                     91.75,
-                    409.6
+                    72.5
                   ],
                   "uv_size": [
                     91.75,
-                    102.4
+                    91.75
                   ]
                 }
               }
@@ -956,8 +956,8 @@
         "identifier": "geometry.poster_raio_r4c2",
         "texture_width": 367,
         "texture_height": 512,
-        "visible_bounds_width": 1.2,
-        "visible_bounds_height": 1.2,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
         "visible_bounds_offset": [
           0,
           0.5,
@@ -969,7 +969,7 @@
           "name": "poster",
           "pivot": [
             0,
-            0,
+            8,
             0
           ],
           "cubes": [
@@ -980,7 +980,7 @@
                 7.46875
               ],
               "size": [
-                14.33594,
+                16.0,
                 16.0,
                 0.03125
               ],
@@ -988,11 +988,11 @@
                 "north": {
                   "uv": [
                     183.5,
-                    409.6
+                    72.5
                   ],
                   "uv_size": [
                     91.75,
-                    102.4
+                    91.75
                   ]
                 }
               }
@@ -1006,8 +1006,8 @@
         "identifier": "geometry.poster_raio_r4c3",
         "texture_width": 367,
         "texture_height": 512,
-        "visible_bounds_width": 1.2,
-        "visible_bounds_height": 1.2,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
         "visible_bounds_offset": [
           0,
           0.5,
@@ -1019,18 +1019,18 @@
           "name": "poster",
           "pivot": [
             0,
-            0,
+            8,
             0
           ],
           "cubes": [
             {
               "origin": [
-                -9.66406,
+                -8.0,
                 0.0,
                 7.46875
               ],
               "size": [
-                14.33594,
+                16.0,
                 16.0,
                 0.03125
               ],
@@ -1038,11 +1038,211 @@
                 "north": {
                   "uv": [
                     275.25,
-                    409.6
+                    72.5
                   ],
                   "uv_size": [
                     91.75,
-                    102.4
+                    91.75
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r5c0",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                12.64305,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    0.0,
+                    0.0
+                  ],
+                  "uv_size": [
+                    91.75,
+                    72.5
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r5c1",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                12.64305,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    91.75,
+                    0.0
+                  ],
+                  "uv_size": [
+                    91.75,
+                    72.5
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r5c2",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                12.64305,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    183.5,
+                    0.0
+                  ],
+                  "uv_size": [
+                    91.75,
+                    72.5
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_raio_r5c3",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                12.64305,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    275.25,
+                    0.0
+                  ],
+                  "uv_size": [
+                    91.75,
+                    72.5
                   ]
                 }
               }
