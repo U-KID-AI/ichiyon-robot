@@ -54,7 +54,7 @@ def run_tests(
     if not selected:
         return []
 
-    _, python_files = selected
+    _, python_files = selected[0]
 
     if len(python_files) > MAX_PYTHON_FILES:
         return [
