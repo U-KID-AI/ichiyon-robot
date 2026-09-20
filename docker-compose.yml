@@ -32,8 +32,10 @@ services:
       BOT_DATA_BACKEND: ${BOT_DATA_BACKEND:-${ICHIYON_DATA_BACKEND:-db}}
       ICHIYON_DATA_BACKEND: ${ICHIYON_DATA_BACKEND:-db}
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://ichiyon_robot:ichiyon_robot_password@db:5432/ichiyon_robot}
+      ADMIN_PORT: ${ADMIN_PORT:-8080}
       ADMIN_BASE_URL: ${ADMIN_BASE_URL:-http://localhost:8080}
       ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET:-local_development_session_secret_change_me}
+      AI_TASK_RUNNER_API_TOKEN: ${AI_TASK_RUNNER_API_TOKEN:-}
       DISCORD_OAUTH_CLIENT_ID: ${DISCORD_OAUTH_CLIENT_ID:-}
       DISCORD_OAUTH_CLIENT_SECRET: ${DISCORD_OAUTH_CLIENT_SECRET:-}
       DISCORD_OAUTH_REDIRECT_URI: ${DISCORD_OAUTH_REDIRECT_URI:-http://localhost:8080/auth/discord/callback}

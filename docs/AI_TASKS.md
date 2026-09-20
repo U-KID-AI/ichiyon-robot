@@ -60,3 +60,8 @@ production deploy、production restart、production DB migration、production se
 `migrations/060_add_ai_task_runner_fields.sql`でRunner識別、claim token、lease、試験結果、commit/PR情報を追加する。`queued` taskは固定APIのclaimで`running`になり、heartbeatとprogressを経て、`testing`、`needs_human`、`failed`、`ready_for_review`へ固定遷移する。lease期限切れは自動再queueせず`needs_human`へ遷移する。
 
 Phase 2AはControl Planeだけを提供し、Codex、Git、worktree、branch、PR作成、Discord通知は実行しない。
+## Phase 2B Local Runner
+
+Runnerの設定はprocess environmentからのみ読み取り、dotenvは読み込まない。API URL、Runner ID、source repo、専用worktree root、Codex実行ファイルを検証する。taskのbranch/worktree名はUUIDから再生成してAPI値と一致確認し、Codex終了後にHEAD、branch、worktree一覧、remoteを比較する。保護ファイル、repo外path、symlink、secret系pathの変更はneeds_humanとする。
+
+Codexは固定argv、workspace-write、ephemeral、ignore-user-config、Bearer tokenを渡さないclean environmentで実行する。Phase 2Bではready_for_reviewを呼ばず、commit/push/Draft PRはPhase 2Cへ残す。

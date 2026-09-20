@@ -68,3 +68,6 @@ AIごとに専用branchと専用worktreeを割り当て、他の作業者の変�
 ## Phase 2A Control Plane
 
 Phase 2Aでは、Bot/AdminサーバーがPostgreSQLと固定AI task APIを担当し、Windows側の将来RunnerがCodex/Git/GitHubを担当する責務分離を採用する。固定Bearer token、claim token、lease、atomic claimによりRunner操作を制限する。Codex実行、worktree/branch作成、GitHub操作、Discord通知はPhase 2B/2Cで実装する。
+## Phase 2B Local Runner
+
+Phase 2BではWindows上の専用Local Runnerが固定Control Plane APIから1 taskをclaimし、最新のorigin/mainから専用worktreeでCodexとoffline test registryを実行する。RunnerはDBへ直接接続せず、commit、push、PR、staging、production操作を行わない。Phase 2Bの正常終了状態はtestingである。

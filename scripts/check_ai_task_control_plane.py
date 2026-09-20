@@ -17,6 +17,7 @@ from bot.repositories import ai_tasks as repository
 
 
 MIGRATION = (ROOT / "migrations/060_add_ai_task_runner_fields.sql").read_text(encoding="utf-8")
+COMPOSE_SOURCE = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 REPO_SOURCE = inspect.getsource(repository.AITaskRepository)
 API_SOURCE = inspect.getsource(api)
 
@@ -232,6 +233,23 @@ def main():
         check(f"migration column {column}", re.search(rf"\b{column}\b", MIGRATION) is not None)
     check("attempt_count constraint", "attempt_count >= 0" in MIGRATION)
     check("lease index", "status, lease_expires_at" in MIGRATION)
+
+    admin_compose = re.search(
+        r"(?ms)^  admin:\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)",
+        COMPOSE_SOURCE,
+    )
+    check(
+        "admin compose passes runner token",
+        bool(admin_compose)
+        and "AI_TASK_RUNNER_API_TOKEN: ${AI_TASK_RUNNER_API_TOKEN:-}"
+        in admin_compose.group("body"),
+    )
+    check(
+        "admin compose passes admin port",
+        bool(admin_compose)
+        and "ADMIN_PORT: ${ADMIN_PORT:-8080}"
+        in admin_compose.group("body"),
+    )
 
     old_token = config.AI_TASK_RUNNER_API_TOKEN
     try:
