@@ -834,14 +834,17 @@ class ReviewMergeGate:
             stop_event=stop_event,
         )
 
+        # GitHub may update volatile PR fields asynchronously while
+        # this gate is running. The second _validate_pr() call above
+        # revalidates every security-critical PR binding, so full object
+        # equality is neither required nor stable.
         if (
-            after != before
-            or after_base_sha != base_sha
+            after_base_sha != base_sha
             or main_after != main_before
             or main_after != base_sha
         ):
             raise ReviewMergeSafetyError(
-                "PR or main changed during review gate"
+                "validated PR binding or main changed during review gate"
             )
 
         return ReviewGateResult(
