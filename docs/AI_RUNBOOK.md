@@ -80,6 +80,8 @@ Runner APIは`/internal/ai-tasks/claim`、`/{task_id}/heartbeat`、`/{task_id}/p
 Phase 2AではAPIのDB状態更新だけを行う。Windows RunnerのCodex/Git/GitHub処理、worktree管理、Draft PR、Discord報告はPhase 2B/2Cの対象であり、APIはtask descriptionと固定された状態情報だけを返す。
 ## Phase 2B Local Runner
 
+Phase 2B?runtime test registry?untrusted?repository Python??????import???????Python??????????compile??????`__pycache__`?`.pyc`??????repository???check script???????
+
 Windows Runnerは`--once`で1 taskだけ処理する。Control Planeからclaimした後、source repositoryのclean状態と固定originを確認し、`origin/main`をfetchしてUUID由来のbranch/worktreeを作成する。Codex実行中とtest中はheartbeatを送り、lease維持に失敗した場合は処理を止めてworktreeを保持する。CodexのcommitやGitHub操作は許可しない。
 
 Phase 2Bは固定test registryと`git diff --check`を実行し、結果をprogressへ保存してtaskをtestingのまま終了する。Codex実行、Git、filesystem、API通信はfakeで検証し、実機Codex子プロセスやproduction/staging接続はこのPhaseのcheckで行わない。

@@ -28,7 +28,7 @@ from ai_task_safety import (SafetyError, expected_branch, expected_worktree_name
                              task_worktree_path, validate_changed_paths, validate_claim_names,
                              is_reparse_point,
                              validate_project_codex_layer)
-from ai_task_test_registry import ALLOWED_CHECKS, TestResult, run_tests, select_tests
+from ai_task_test_registry import TestResult, run_tests, select_tests
 
 
 def check(name, condition):
