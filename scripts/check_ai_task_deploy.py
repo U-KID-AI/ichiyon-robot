@@ -279,9 +279,58 @@ class RemoteChecks(unittest.TestCase):
                     self.assertEqual(h.image_check(SHA), 'sha256:fake')
                     self.assertIn('none', run.call_args.args[0])
                     self.assertIn('--read-only', run.call_args.args[0])
+                    self.assertEqual(
+                        run.call_args.args[0][-1],
+                        '1',
+                    )
         image['Config']['Labels']['org.opencontainers.image.revision'] = 'b' * 40
         with patch.object(h, 'run', return_value=json.dumps([image]).encode()), self.assertRaises(AssertionError):
             h.image_check(SHA)
+
+    def test_legacy_previous_image_revision_policy(self):
+        h = self.h
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            release = root / SHA
+            src = release / 'src'
+            src.mkdir(parents=True)
+
+            with patch.object(
+                h,
+                'release',
+                return_value=SHA,
+            ), patch.object(
+                h,
+                'image_check',
+                return_value='image-id',
+            ) as check:
+                self.assertEqual(
+                    h.previous_image_check(release),
+                    'image-id',
+                )
+
+                check.assert_called_once_with(
+                    SHA,
+                    require_revision=False,
+                )
+
+                check.reset_mock()
+
+                (src / 'REVISION').write_text(
+                    SHA + '\n',
+                    encoding='utf-8',
+                )
+
+                self.assertEqual(
+                    h.previous_image_check(release),
+                    'image-id',
+                )
+
+                check.assert_called_once_with(
+                    SHA,
+                    require_revision=True,
+                )
 
     def test_health_checks_actual_state_with_fakes(self):
         h = self.h

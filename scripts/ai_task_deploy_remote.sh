@@ -169,17 +169,27 @@ def infra():
         result.append([c['Id'], c['RestartCount'], c['State']['StartedAt']])
     return result
 
-def image_check(sha):
+def image_check(sha, require_revision=True):
     tag = 'ichiyon-robot-app:' + sha
     image = json.loads(run(['docker', 'image', 'inspect', tag]))[0]
     assert image['Config']['Labels']['org.opencontainers.image.revision'] == sha
     assert not image['Config'].get('Volumes')
     # Only the count leaves the isolated image process. No file names or contents.
-    code = "from pathlib import Path; import sys; p=Path('/app'); assert (p/'REVISION').read_text()==sys.argv[1]+'\\n'; n=sum(1 for x in (p/'secrets').rglob('*') if not x.is_dir()); n+=sum(1 for x in p.rglob('*') if x.is_file() and (x.name=='.env' or x.suffix in ('.key','.pem','.p12'))); print('BAKED_SECRET_FILE_COUNT='+str(n))"
+    code = "from pathlib import Path; import sys; p=Path('/app'); marker=p/'REVISION'; required=sys.argv[2]=='1'; assert (not required or marker.is_file()); assert (not marker.exists() or marker.is_file()); assert (not marker.exists() or marker.read_text()==sys.argv[1]+'\\n'); n=sum(1 for x in (p/'secrets').rglob('*') if not x.is_dir()); n+=sum(1 for x in p.rglob('*') if x.is_file() and (x.name=='.env' or x.suffix in ('.key','.pem','.p12'))); print('BAKED_SECRET_FILE_COUNT='+str(n))"
     out = run(['docker', 'run', '--rm', '--network', 'none', '--read-only', '--cap-drop', 'ALL',
-               '--security-opt', 'no-new-privileges', '--entrypoint', 'python', tag, '-I', '-c', code, sha])
+               '--security-opt', 'no-new-privileges', '--entrypoint', 'python', tag, '-I', '-c', code, sha,
+               '1' if require_revision else '0'])
     assert out == b'BAKED_SECRET_FILE_COUNT=0\n'
     return image['Id']
+
+def previous_image_check(path):
+    sha = release(path)
+    # Phase 3B images predate /app/REVISION exactly when their immutable
+    # release source predates src/REVISION. New-format previous releases
+    # therefore remain strict.
+    require_revision = (path / 'src/REVISION').exists()
+    return image_check(sha, require_revision=require_revision)
+
 
 def health(path, expected_infra, migrations=True):
     sha = release(path)
@@ -391,6 +401,8 @@ def main():
         print(json.dumps(infra()))
     elif mode == 'image':
         image_check(path.name)
+    elif mode == 'previous-image':
+        previous_image_check(path)
     elif mode == 'health':
         health(path, json.loads(Path(sys.argv[3]).read_text()), len(sys.argv) == 4)
     else:
@@ -499,7 +511,7 @@ else
     python3 -I "$helper" image "$release"
     python3 -I "$helper" contract "$release"
     python3 -I "$helper" contract "$previous"
-    python3 -I "$helper" image "$previous"
+    python3 -I "$helper" previous-image "$previous"
     infra_same
     [[ $(readlink -e "$current_link") == "$previous" ]]
     backup=$backups_root/$sha
