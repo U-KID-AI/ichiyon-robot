@@ -1,6 +1,7 @@
 """Offline fake based checks for the Phase 2C local runner."""
 
 import json
+from dataclasses import replace
 import io
 import os
 import shutil
@@ -19,7 +20,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from ai_task_api_client import RunnerAPIClient, RunnerAPIError
 from ai_task_codex import CodexAdapter, CodexSafetyError, build_prompt
-from ai_task_git import EXPECTED_ORIGIN, GitAdapter, GitSafetyError, GitSnapshot
+from ai_task_git import EXPECTED_ORIGIN, GitAdapter, GitSafetyError, GitSnapshot, GitDiffCheckError, repairable_paths
 from ai_task_process import ProcessTerminationError, terminate_process_tree
 from ai_task_process import communicate_bounded
 from ai_task_runner import LeaseHeartbeat, LocalRunner, RunOutcome, outcome_exit_code
@@ -151,7 +152,7 @@ def main():
             "AI_TASK_RUNNER_GH_PATH": str(gh_file),
             "AI_TASK_RUNNER_GCM_PATH": str(gcm_file),
         }
-        tracked_keys = set(config_values) | {"AI_TASK_RUNNER_POLL_SECONDS", "AI_TASK_RUNNER_CODEX_TIMEOUT_SECONDS", "AI_TASK_RUNNER_CODEX_HOME", "CODEX_HOME", "CODEX_SQLITE_HOME"}
+        tracked_keys = set(config_values) | {"AI_TASK_RUNNER_POLL_SECONDS", "AI_TASK_RUNNER_CODEX_TIMEOUT_SECONDS", "AI_TASK_RUNNER_CODEX_HOME", "CODEX_HOME", "CODEX_SQLITE_HOME", "AI_TASK_RUNNER_MAX_ATTEMPTS"}
         previous = {key: os.environ.get(key) for key in tracked_keys}
         os.environ.update(config_values)
         try:
@@ -176,7 +177,16 @@ def main():
             os.environ["CODEX_HOME"] = str(config_tasks)
             check("parent CODEX_HOME inside worktree rejected", _rejects(RunnerConfig.from_environment))
             os.environ["CODEX_HOME"] = str(safe_codex_home)
+            os.environ.pop("AI_TASK_RUNNER_MAX_ATTEMPTS", None)
             safe_config = RunnerConfig.from_environment()
+            check("default max attempts is five", safe_config.max_attempts == 5)
+            for value in ("1", "7", "10"):
+                os.environ["AI_TASK_RUNNER_MAX_ATTEMPTS"] = value
+                check("max attempts override " + value, RunnerConfig.from_environment().max_attempts == int(value))
+            for value in ("0", "11", "-1", "1.5", "abc", "", "True"):
+                os.environ["AI_TASK_RUNNER_MAX_ATTEMPTS"] = value
+                check("invalid attempts rejected " + value, _rejects(RunnerConfig.from_environment))
+            os.environ.pop("AI_TASK_RUNNER_MAX_ATTEMPTS")
             check("safe parent CODEX_HOME becomes effective", safe_config.codex_home == safe_codex_home.resolve())
             check("validated GH path becomes effective", safe_config.gh_path == gh_file.resolve())
             check("validated GCM path becomes effective", safe_config.gcm_path == gcm_file.resolve())
@@ -535,8 +545,68 @@ def main():
 
     runner_source = (ROOT / "scripts" / "ai_task_runner.py").read_text(encoding="utf-8")
     check("runner delegates Codex without subprocess in check", "self.codex.run" in runner_source and "subprocess" not in runner_source)
+    recovery_git_checks()
     orchestration_checks()
     print("AI task local runner checks passed")
+
+
+def recovery_git_checks():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        worktree = root / expected_worktree_name(TASK_ID)
+        worktree.mkdir()
+        (worktree / "AGENTS.md").write_text("edited", encoding="utf-8")
+        (worktree / "new.rules").write_text("untracked", encoding="utf-8")
+        (worktree / "allowed.py").write_text("allowed edits", encoding="utf-8")
+        (worktree / ".codex").mkdir()
+        (worktree / ".codex/config.toml").write_text("fake config", encoding="utf-8")
+        commands = []
+        state = {"staged": True, "restored": False}
+        base = "a" * 40
+        def fake_git(argv, **kwargs):
+            assert kwargs["shell"] is False
+            commands.append(tuple(argv[1:]))
+            args = tuple(argv[1:])
+            output = ""
+            if args == ("rev-parse", "--show-toplevel"): output = str(worktree)
+            elif args == ("rev-parse", "HEAD"): output = base
+            elif args == ("rev-parse", "--abbrev-ref", "HEAD"): output = expected_branch(TASK_ID)
+            elif args == ("remote", "get-url", "origin"): output = EXPECTED_ORIGIN
+            elif args == ("worktree", "list", "--porcelain"):
+                output = f"worktree {root}\nHEAD {base}\nbranch refs/heads/main\n\nworktree {worktree}\nHEAD {base}\nbranch refs/heads/{expected_branch(TASK_ID)}\n\n"
+            elif args[0] == "status":
+                status = "M " if state["staged"] else " M"
+                output = status + " allowed.py\0"
+                if not state["restored"]: output += status + " AGENTS.md\0"
+                if (worktree / "new.rules").exists(): output += "?? new.rules\0"
+                if (worktree / ".codex/config.toml").exists(): output += "?? .codex/config.toml\0"
+            elif args == ("restore", "--staged", "--source", base, "--", "."): state["staged"] = False
+            elif args[:3] == ("ls-tree", "-z", "--full-tree"):
+                if args[-1] == "AGENTS.md": output = f"100644 blob {base}\tAGENTS.md\0"
+            elif args == ("restore", "--worktree", "--source", base, "--", ":(literal)AGENTS.md"):
+                state["restored"] = True
+                (worktree / "AGENTS.md").write_text("base rules", encoding="utf-8")
+            else: raise AssertionError(args)
+            return SimpleNamespace(returncode=0, stdout=output, stderr="")
+        adapter = GitAdapter(root, Path(sys.executable), runner=fake_git)
+        adapter.unstage(worktree, TASK_ID, base)
+        check("real adapter unstage preserves allowed edits", not state["staged"] and (worktree / "allowed.py").read_text() == "allowed edits")
+        adapter.restore_protected(worktree, TASK_ID, base, ["AGENTS.md", "new.rules", ".codex/config.toml"])
+        check("real adapter restores tracked and removes only untracked protected paths",
+              (worktree / "AGENTS.md").read_text() == "base rules" and not (worktree / "new.rules").exists()
+              and (worktree / "allowed.py").read_text() == "allowed edits")
+        check("removed Codex layer leaves no empty directory", not (worktree / ".codex").exists())
+        check("restoration uses exact base and literal path", ("restore", "--worktree", "--source", base, "--", ":(literal)AGENTS.md") in commands)
+        for path in ("../escape", ".env", "nested/.env.local", "secrets/data", ".ssh/id_rsa", "cert.pem", "token.txt", "C:/outside", "a:stream", ".git/config"):
+            check("repair boundary rejects " + path, _rejects(lambda: repairable_paths(worktree, [path])))
+        with patch("ai_task_git.is_reparse_point", side_effect=lambda path: path.name == "AGENTS.md"):
+            check("repair rejects protected reparse before restoring", _rejects(lambda: adapter.restore_protected(worktree, TASK_ID, base, ["AGENTS.md"])))
+        with patch.object(Path, "is_symlink", side_effect=lambda: True):
+            check("repair rejects symlink worktree", _rejects(lambda: repairable_paths(worktree, ["AGENTS.md"])))
+        for args in (("restore", "--worktree", "--source", base, "--", ":(literal)../AGENTS.md"),
+                     ("restore", "--worktree", "--source", base, "--", ":(literal)allowed.py"),
+                     ("reset", "--hard", base, "--"), ("reset", "--mixed", "main", "--")):
+            check("repair argv rejects unsafe variant", not adapter._is_allowed_argv(args))
 
 
 def orchestration_checks():
@@ -641,7 +711,13 @@ def orchestration_checks():
             def validate_worktree(self, *args): pass
             def snapshot(self, *args): return GitSnapshot("b" * 40 if self.mutated else "a" * 40, "branch", "worktrees", EXPECTED_ORIGIN)
             def changed_files(self, *args): return self.changed
-            def staged_files(self, *args): return []
+            def staged_files(self, *args): return ["src/main.py"] if getattr(self, "staged", False) else []
+            def unstage(self, *args): self.staged = False
+            def restore_protected(self, cwd, task_id, base_sha, paths):
+                self.changed = [path for path in self.changed if path not in paths]
+                for path in paths:
+                    if path == "AGENTS.md":
+                        (cwd / path).write_text("rules", encoding="utf-8")
             def diff_stat(self, *args): return "1 file changed"
             def diff_check(self, *args): return ""
         class FakeCodex:
@@ -1013,6 +1089,72 @@ def orchestration_checks():
         check("completion contains only deployment proof", normal_client.calls[-1] == (
             "completed", {"deployed_commit_sha": "e" * 40, "deployment_summary": "Deployment verified."}))
 
+        for scenario in ("timeout", "nonzero", "no_changes", "staged", "protected", "test", "test_staged", "diff", "exhaust", "exhaust_nonzero", "exhaust_no_changes", "exhaust_test", "test_protected", "exception_timeout"):
+            if task_path.exists():
+                shutil.rmtree(task_path)
+            retry_git = FakeGit()
+            prompts, outputs, stops = [], [], []
+            retry_tests = []
+            class RetryCodex(FakeCodex):
+                def run(self, cwd, output, prompt, **kwargs):
+                    prompts.append(prompt)
+                    outputs.append(output)
+                    assert not output.exists()
+                    output.write_text("fake output", encoding="utf-8")
+                    retry_git.changed = ["src/main.py"]
+                    if len(prompts) == 1:
+                        if scenario == "no_changes": retry_git.changed = []
+                        if scenario == "staged": retry_git.staged = True
+                        if scenario == "protected":
+                            retry_git.changed.append("AGENTS.md")
+                            (cwd / "AGENTS.md").write_text("edited rules", encoding="utf-8")
+                        if scenario == "exception_timeout": raise TimeoutError("SECRET_SENTINEL")
+                    if scenario == "exhaust_no_changes": retry_git.changed = []
+                    if len(prompts) > 1 and scenario in ("protected", "test_protected"):
+                        assert (cwd / "AGENTS.md").read_text(encoding="utf-8") == "rules"
+                        assert (cwd / "src/main.py").read_text(encoding="utf-8") == "pass"
+                    return SimpleNamespace(returncode=1 if scenario == "exhaust_nonzero" or scenario == "nonzero" and len(prompts) == 1 else 0,
+                                           timed_out=scenario == "exhaust" or scenario == "timeout" and len(prompts) == 1)
+                def stop(self): stops.append(True)
+            def retry_test(cwd, changed, **kwargs):
+                retry_tests.append(True)
+                if scenario == "test_staged": retry_git.staged = True
+                if scenario == "test_protected" and len(retry_tests) == 1:
+                    retry_git.changed.append("AGENTS.md")
+                    (cwd / "AGENTS.md").write_text("test edited rules", encoding="utf-8")
+                failed = scenario == "exhaust_test" or scenario == "test" and len(retry_tests) == 1
+                return [TestResult("python-syntax", int(failed), "src/main.py:3: invalid syntax SECRET_SENTINEL" if failed else "ok")]
+            diff_calls = []
+            def retry_diff(*args):
+                diff_calls.append(True)
+                if scenario == "diff" and len(diff_calls) == 1:
+                    raise GitDiffCheckError("SECRET_SENTINEL")
+            retry_git.diff_check = retry_diff
+            client = FakeClient()
+            runner = LocalRunner(replace(config, max_attempts=2) if scenario.startswith("exhaust_") else config, client=client, git=retry_git, codex=RetryCodex(),
+                                 publisher=FakePublisher(), github=FakeGitHub(), reviewer=FakeReviewer([]),
+                                 review_gate=FakeReviewGate([]), auto_merger=FakeAutoMerger([]), deployer=FakeDeployer([]),
+                                 test_runner=retry_test, heartbeat_factory=ActiveHeartbeat)
+            outcome = runner.run_once()
+            check("retry scenario " + scenario, outcome == (RunOutcome.FAILED if scenario.startswith("exhaust") else RunOutcome.SUCCESS))
+            expected = 5 if scenario == "exhaust" else 1 if scenario in ("staged", "test_staged") else 2
+            check("bounded attempts " + scenario, len(prompts) == expected and len(set(outputs)) == expected)
+            check("same heartbeat and one testing transition " + scenario, client.calls.count("heartbeat") == 1 and client.calls.count("testing") <= 1)
+            check("feedback excludes raw secrets " + scenario, all("SECRET_SENTINEL" not in prompt for prompt in prompts))
+            if scenario == "test":
+                check("test failure feedback", "python-syntax=1: invalid syntax at line 3" in prompts[1])
+            if scenario.startswith("exhaust_"):
+                reason = next(item[1] for item in client.calls if isinstance(item, tuple) and item[0] == "failed")
+                expected_reason = {"exhaust_nonzero": "Codex nonzero exit", "exhaust_no_changes": "implementation changes are required",
+                                   "exhaust_test": "python-syntax=1: invalid syntax"}[scenario]
+                check("specific exhausted failure " + scenario, reason.startswith("Attempts exhausted (2)") and expected_reason in reason)
+            if scenario == "exhaust":
+                check("concrete exhaustion reason", ("failed", "Attempts exhausted (5): Codex timed out") in client.calls and len(stops) == 6)
+            if scenario in ("staged", "test_staged"):
+                check("index recovered " + scenario, not retry_git.staged)
+            for output in outputs:
+                output.unlink()
+
         # All dependencies are fakes; exercise the complete runner around deployment.
         for scenario in ("missing", "mismatch", "empty", "long", "invalid_type", "before", "after", "durable_error"):
             if task_path.exists():
@@ -1245,7 +1387,7 @@ def orchestration_checks():
             if task_path.exists():
                 shutil.rmtree(task_path)
             client = FakeClient(); git = FakeGit(); git.changed = changed or ["src/main.py"]; git.staged = staged
-            git.staged_files = lambda *args: ["src/main.py"] if staged else []
+            git.staged_files = lambda *args: ["src/main.py"] if git.staged else []
             if dirty:
                 git.require_source_repo = lambda: (_ for _ in ()).throw(GitSafetyError("dirty"))
             class CaseCodex(FakeCodex):
@@ -1267,11 +1409,11 @@ def orchestration_checks():
         result, client, git = run_case(timed_out=True)
         check("test timeout becomes failed", result == RunOutcome.FAILED and any(item[0] == "failed" for item in client.calls if isinstance(item, tuple)))
         result, client, git = run_case(mutate=True)
-        check("HEAD mutation needs human without reset", result == RunOutcome.FAILED and any(item[0] == "needs_human" for item in client.calls if isinstance(item, tuple)))
+        check("HEAD mutation fails without reset", result == RunOutcome.FAILED and any(item[0] == "failed" for item in client.calls if isinstance(item, tuple)))
         result, client, git = run_case(changed=["scripts/check_ai_tasks.py"])
-        check("protected check change is rejected", result == RunOutcome.FAILED and any(item[0] == "needs_human" for item in client.calls if isinstance(item, tuple)))
+        check("protected check is restored then no changes exhaust retries", result == RunOutcome.FAILED and any(item[0] == "failed" for item in client.calls if isinstance(item, tuple)))
         result, client, git = run_case(staged=True)
-        check("staged index change needs human", result == RunOutcome.FAILED and any(item[0] == "needs_human" for item in client.calls if isinstance(item, tuple)))
+        check("staged index recovered before missing publisher failure", result == RunOutcome.FAILED and not git.staged and any(item[0] == "failed" for item in client.calls if isinstance(item, tuple)))
         result, client, git = run_case(termination_failure=True)
         check("test termination failure becomes failed and needs human", result == RunOutcome.FAILED and any(item[0] == "needs_human" for item in client.calls if isinstance(item, tuple)))
         result, client, git = run_case(dirty=True)
@@ -1292,11 +1434,11 @@ def orchestration_checks():
         unexpected_result = unexpected_runner.run_once()
 
         check(
-            "unexpected claimed-task exception becomes failed and needs human",
+            "unexpected claimed-task exception becomes concrete failed",
             unexpected_result == RunOutcome.FAILED
             and any(
-                item[0] == "needs_human"
-                and item[1] == "Runner internal failure"
+                item[0] == "failed"
+                and item[1] == "Runner internal operation failed; inspect runner implementation"
                 for item in unexpected_client.calls
                 if isinstance(item, tuple)
             ),
@@ -1307,7 +1449,7 @@ def orchestration_checks():
                 super().__init__()
                 self.report_attempted = False
 
-            def mark_needs_human(self, *args, **kwargs):
+            def mark_failed(self, *args, **kwargs):
                 self.report_attempted = True
                 raise RuntimeError("report failed")
 
@@ -1323,7 +1465,7 @@ def orchestration_checks():
         reporting_result = reporting_runner.run_once()
 
         check(
-            "unexpected failure remains failed if needs-human reporting fails",
+            "unexpected failure remains failed if failure reporting fails",
             reporting_result == RunOutcome.FAILED
             and reporting_client.report_attempted,
         )

@@ -114,9 +114,17 @@ class RunnerConfig:
     heartbeat_seconds: float = 30.0
     gh_path: Path | None = None
     gcm_path: Path | None = None
+    max_attempts: int = 5
+
+    def __post_init__(self):
+        if type(self.max_attempts) is not int or not 1 <= self.max_attempts <= 10:
+            raise ValueError("max attempts must be an integer from 1 through 10")
 
     @classmethod
     def from_environment(cls) -> "RunnerConfig":
+        attempts = os.environ.get("AI_TASK_RUNNER_MAX_ATTEMPTS", "5")
+        if not re.fullmatch(r"[0-9]+", attempts) or not 1 <= int(attempts) <= 10:
+            raise ValueError("AI_TASK_RUNNER_MAX_ATTEMPTS must be an integer from 1 through 10")
         poll_seconds = float(os.environ.get("AI_TASK_RUNNER_POLL_SECONDS", "5"))
         timeout = float(os.environ.get("AI_TASK_RUNNER_CODEX_TIMEOUT_SECONDS", "1800"))
         if not math.isfinite(poll_seconds) or poll_seconds < 5:
@@ -159,4 +167,5 @@ class RunnerConfig:
             gh_path=gh_path,
             gcm_path=gcm_path,
             codex_timeout_seconds=timeout,
+            max_attempts=int(attempts),
         )
