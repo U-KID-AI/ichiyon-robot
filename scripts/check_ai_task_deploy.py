@@ -173,6 +173,66 @@ class RemoteChecks(unittest.TestCase):
         self.h = types.ModuleType('offline_remote_helper')
         exec(compile(HELPER, '<reviewed remote helper>', 'exec'), self.h.__dict__)
 
+    def test_phase3b_legacy_release_without_src_revision(self):
+        h = self.h
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            release = root / SHA
+            src = release / 'src'
+            src.mkdir(parents=True)
+
+            (release / 'REVISION').write_text(
+                SHA + '\n',
+                encoding='utf-8',
+            )
+            (src / 'legacy.txt').write_text(
+                'phase3b\n',
+                encoding='utf-8',
+            )
+
+            for name in (
+                'compose.immutable.yml',
+                'persistence.txt',
+                'rollback-images.txt',
+                'validate-immutable-compose.py',
+            ):
+                (release / name).write_text(
+                    'fixture\n',
+                    encoding='utf-8',
+                )
+
+            (release / 'immutable-image.txt').write_text(
+                'ichiyon-robot-app:' + SHA + '\n',
+                encoding='utf-8',
+            )
+
+            with patch.object(h, 'ROOT', root):
+                # Actual Phase 3B production shape: no src/REVISION.
+                self.assertEqual(
+                    h.release(release),
+                    SHA,
+                )
+
+                # New-format marker, when present, remains strictly bound.
+                (src / 'REVISION').write_text(
+                    'b' * 40 + '\n',
+                    encoding='utf-8',
+                )
+
+                with self.assertRaises(AssertionError):
+                    h.release(release)
+
+                (src / 'REVISION').write_text(
+                    SHA + '\n',
+                    encoding='utf-8',
+                )
+
+                self.assertEqual(
+                    h.release(release),
+                    SHA,
+                )
+
     def test_compose_contract_with_fakes(self):
         h = self.h
         mounts = [dict(source=s, target=t, read_only=r, type=k) for s, t, r, k in h.expected_mounts()]
