@@ -1,0 +1,1255 @@
+{
+  "format_version": "1.16.0",
+  "minecraft:geometry": [
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -5.73438,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                11.46875,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    367,
+                    512
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r0c0",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                3.35695,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                12.64305,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    0.0,
+                    439.5
+                  ],
+                  "uv_size": [
+                    91.75,
+                    72.5
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r0c1",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                3.35695,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                12.64305,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    91.75,
+                    439.5
+                  ],
+                  "uv_size": [
+                    91.75,
+                    72.5
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r0c2",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                3.35695,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                12.64305,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    183.5,
+                    439.5
+                  ],
+                  "uv_size": [
+                    91.75,
+                    72.5
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r0c3",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                3.35695,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                12.64305,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    275.25,
+                    439.5
+                  ],
+                  "uv_size": [
+                    91.75,
+                    72.5
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r1c0",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    0.0,
+                    347.75
+                  ],
+                  "uv_size": [
+                    91.75,
+                    91.75
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r1c1",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    91.75,
+                    347.75
+                  ],
+                  "uv_size": [
+                    91.75,
+                    91.75
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r1c2",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    183.5,
+                    347.75
+                  ],
+                  "uv_size": [
+                    91.75,
+                    91.75
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r1c3",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    275.25,
+                    347.75
+                  ],
+                  "uv_size": [
+                    91.75,
+                    91.75
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r2c0",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    0.0,
+                    256.0
+                  ],
+                  "uv_size": [
+                    91.75,
+                    91.75
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r2c1",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    91.75,
+                    256.0
+                  ],
+                  "uv_size": [
+                    91.75,
+                    91.75
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r2c2",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    183.5,
+                    256.0
+                  ],
+                  "uv_size": [
+                    91.75,
+                    91.75
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r2c3",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    275.25,
+                    256.0
+                  ],
+                  "uv_size": [
+                    91.75,
+                    91.75
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r3c0",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    0.0,
+                    164.25
+                  ],
+                  "uv_size": [
+                    91.75,
+                    91.75
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r3c1",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    91.75,
+                    164.25
+                  ],
+                  "uv_size": [
+                    91.75,
+                    91.75
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r3c2",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    183.5,
+                    164.25
+                  ],
+                  "uv_size": [
+                    91.75,
+                    91.75
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r3c3",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    275.25,
+                    164.25
+                  ],
+                  "uv_size": [
+                    91.75,
+                    91.75
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r4c0",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    0.0,
+                    72.5
+                  ],
+                  "uv_size": [
+                    91.75,
+                    91.75
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r4c1",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    91.75,
+                    72.5
+                  ],
+                  "uv_size": [
+                    91.75,
+                    91.75
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r4c2",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    183.5,
+                    72.5
+                  ],
+                  "uv_size": [
+                    91.75,
+                    91.75
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r4c3",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    275.25,
+                    72.5
+                  ],
+                  "uv_size": [
+                    91.75,
+                    91.75
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r5c0",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                12.64305,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    0.0,
+                    0.0
+                  ],
+                  "uv_size": [
+                    91.75,
+                    72.5
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r5c1",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                12.64305,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    91.75,
+                    0.0
+                  ],
+                  "uv_size": [
+                    91.75,
+                    72.5
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r5c2",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                12.64305,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    183.5,
+                    0.0
+                  ],
+                  "uv_size": [
+                    91.75,
+                    72.5
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_eyes_eden_r5c3",
+        "texture_width": 367,
+        "texture_height": 512,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                12.64305,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    275.25,
+                    0.0
+                  ],
+                  "uv_size": [
+                    91.75,
+                    72.5
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

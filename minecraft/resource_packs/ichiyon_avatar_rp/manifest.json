@@ -4,14 +4,26 @@
     "name": "Ichiyon Avatar RP",
     "description": "Resource pack for custom avatar mobs",
     "uuid": "3e1bcf76-b5e3-465a-a184-d2d90cfa0d74",
-    "version": [1, 0, 4],
-    "min_engine_version": [1, 26, 45]
+    "version": [
+      1,
+      0,
+      27
+    ],
+    "min_engine_version": [
+      1,
+      26,
+      45
+    ]
   },
   "modules": [
     {
       "type": "resources",
       "uuid": "c9a2d4a4-8a58-4871-b844-d033f3b41d1c",
-      "version": [1, 0, 4]
+      "version": [
+        1,
+        0,
+        27
+      ]
     }
   ]
 }

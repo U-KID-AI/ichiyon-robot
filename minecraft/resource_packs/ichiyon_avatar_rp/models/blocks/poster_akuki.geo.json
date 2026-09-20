@@ -1,0 +1,1255 @@
+{
+  "format_version": "1.16.0",
+  "minecraft:geometry": [
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.25,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                3.46875,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                9.0625,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    512,
+                    290
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r0c0",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                4.8125,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                11.1875,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    0.0,
+                    230.33333
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    59.66667
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r0c1",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                4.8125,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                11.1875,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    85.33333,
+                    230.33333
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    59.66667
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r0c2",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                4.8125,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                11.1875,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    170.66667,
+                    230.33333
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    59.66667
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r0c3",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                4.8125,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                11.1875,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    256.0,
+                    230.33333
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    59.66667
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r0c4",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                4.8125,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                11.1875,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    341.33333,
+                    230.33333
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    59.66667
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r0c5",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                4.8125,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                11.1875,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    426.66667,
+                    230.33333
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    59.66667
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r1c0",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    0.0,
+                    145.0
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    85.33333
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r1c1",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    85.33333,
+                    145.0
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    85.33333
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r1c2",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    170.66667,
+                    145.0
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    85.33333
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r1c3",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    256.0,
+                    145.0
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    85.33333
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r1c4",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    341.33333,
+                    145.0
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    85.33333
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r1c5",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    426.66667,
+                    145.0
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    85.33333
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r2c0",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    0.0,
+                    59.66667
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    85.33333
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r2c1",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    85.33333,
+                    59.66667
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    85.33333
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r2c2",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    170.66667,
+                    59.66667
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    85.33333
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r2c3",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    256.0,
+                    59.66667
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    85.33333
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r2c4",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    341.33333,
+                    59.66667
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    85.33333
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r2c5",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                16.0,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    426.66667,
+                    59.66667
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    85.33333
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r3c0",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                11.1875,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    0.0,
+                    0.0
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    59.66667
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r3c1",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                11.1875,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    85.33333,
+                    0.0
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    59.66667
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r3c2",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                11.1875,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    170.66667,
+                    0.0
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    59.66667
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r3c3",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                11.1875,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    256.0,
+                    0.0
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    59.66667
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r3c4",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                11.1875,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    341.33333,
+                    0.0
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    59.66667
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.poster_akuki_r3c5",
+        "texture_width": 512,
+        "texture_height": 290,
+        "visible_bounds_width": 1.25,
+        "visible_bounds_height": 1.5,
+        "visible_bounds_offset": [
+          0,
+          0.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "poster",
+          "pivot": [
+            0,
+            8,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                0.0,
+                7.46875
+              ],
+              "size": [
+                16.0,
+                11.1875,
+                0.03125
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    426.66667,
+                    0.0
+                  ],
+                  "uv_size": [
+                    85.33333,
+                    59.66667
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

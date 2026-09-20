@@ -7,18 +7,18 @@
         "minecraft:placement_direction": {
           "enabled_states": [
             "minecraft:cardinal_direction"
-          ]
+          ],
+          "y_rotation_offset": 180
         }
       }
     },
     "components": {
-      "minecraft:geometry": "geometry.poster_raio_r4c0",
+      "minecraft:geometry": "geometry.poster_caravan_mammoth_r4c0",
       "minecraft:material_instances": {
         "*": {
           "texture": "poster_caravan_mammoth",
           "render_method": "alpha_test",
-          "face_dimming": false,
-          "ambient_occlusion": 0
+          "face_dimming": false
         }
       },
       "minecraft:collision_box": false,
@@ -33,6 +33,10 @@
           16,
           0.03125
         ]
+      },
+      "minecraft:light_dampening": 0,
+      "minecraft:destructible_by_mining": {
+        "seconds_to_destroy": 0.2
       },
       "minecraft:placement_filter": {
         "conditions": [
@@ -79,7 +83,7 @@
           "minecraft:transformation": {
             "rotation": [
               0,
-              90,
+              270,
               0
             ]
           }
@@ -91,7 +95,7 @@
           "minecraft:transformation": {
             "rotation": [
               0,
-              -90,
+              90,
               0
             ]
           }

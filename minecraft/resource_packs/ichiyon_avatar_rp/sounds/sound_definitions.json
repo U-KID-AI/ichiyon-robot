@@ -1,0 +1,59 @@
+{
+  "format_version": "1.20.20",
+  "sound_definitions": {
+    "ichiyon:molcar.pui": {
+      "category": "neutral",
+      "sounds": [
+        "sounds/molcar/molcar_common"
+      ]
+    },
+    "ichiyon:molcar.mount": {
+      "category": "neutral",
+      "sounds": [
+        "sounds/molcar/molcar_common"
+      ]
+    },
+    "ichiyon:molcar.dismount": {
+      "category": "neutral",
+      "sounds": [
+        "sounds/molcar/molcar_common"
+      ]
+    },
+    "ichiyon:molcar.spawn": {
+      "category": "neutral",
+      "sounds": [
+        "sounds/molcar/molcar_common"
+      ]
+    },
+    "ichiyon:molcar.hit": {
+      "category": "neutral",
+      "sounds": [
+        "sounds/molcar/molcar_common"
+      ]
+    },
+    "ichiyon:molcar.crash": {
+      "category": "neutral",
+      "sounds": [
+        "sounds/molcar/molcar_common"
+      ]
+    },
+    "ichiyon:molcar.hurt": {
+      "category": "neutral",
+      "sounds": [
+        "sounds/molcar/molcar_common"
+      ]
+    },
+    "ichiyon:molcar.death": {
+      "category": "neutral",
+      "sounds": [
+        "sounds/molcar/molcar_common"
+      ]
+    },
+    "ichiyon:molcar.run": {
+      "category": "neutral",
+      "sounds": [
+        "sounds/molcar/molcar_common"
+      ]
+    }
+  }
+}

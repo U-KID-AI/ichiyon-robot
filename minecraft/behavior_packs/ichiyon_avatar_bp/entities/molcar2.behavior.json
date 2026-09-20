@@ -1,0 +1,101 @@
+{
+  "format_version": "1.20.80",
+  "minecraft:entity": {
+    "description": {
+      "identifier": "ichiyon:molcar2",
+      "is_spawnable": true,
+      "is_summonable": true,
+      "is_experimental": false
+    },
+    "components": {
+      "minecraft:type_family": {
+        "family": [
+          "molcar",
+          "molcar2",
+          "mob"
+        ]
+      },
+      "minecraft:health": {
+        "value": 30,
+        "max": 30
+      },
+      "minecraft:collision_box": {
+        "width": 1.5,
+        "height": 1.25
+      },
+      "minecraft:movement": {
+        "value": 0.4,
+        "max": 0.4
+      },
+      "minecraft:movement.basic": {},
+      "minecraft:navigation.walk": {
+        "can_path_over_water": true,
+        "avoid_water": true
+      },
+      "minecraft:jump.static": {
+        "jump_power": 0.42
+      },
+      "minecraft:physics": {},
+      "minecraft:pushable": {
+        "is_pushable": true,
+        "is_pushable_by_piston": true
+      },
+      "minecraft:nameable": {},
+      "minecraft:behavior.float": {
+        "priority": 0
+      },
+      "minecraft:rideable": {
+        "seat_count": 1,
+        "family_types": [
+          "player",
+          "zombie"
+        ],
+        "interact_text": "action.interact.mount",
+        "seats": [
+          {
+            "position": [
+              0.0,
+              0.68,
+              0.0
+            ]
+          }
+        ]
+      },
+      "minecraft:input_ground_controlled": {},
+      "minecraft:variable_max_auto_step": {
+        "base_value": 1.0,
+        "controlled_value": 1.0,
+        "jump_prevented_value": 0.5625
+      },
+      "minecraft:leashable": {},
+      "minecraft:can_power_jump": {},
+      "minecraft:horse.jump_strength": {
+        "value": 0.55
+      },
+      "minecraft:damage_sensor": {
+        "triggers": [
+          {
+            "cause": "fall",
+            "deals_damage": "no"
+          }
+        ]
+      }
+    },
+    "component_groups": {
+      "ichiyon:zombie_molcar": {
+        "minecraft:addrider": {
+          "entity_type": "minecraft:zombie"
+        }
+      }
+    },
+    "events": {
+      "ichiyon:spawn_zombie_molcar": {
+        "add": {
+          "component_groups": [
+            "ichiyon:zombie_molcar"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -24,6 +24,24 @@
     },
     "poster_itsutake": {
       "textures": "textures/blocks/poster_itsutake"
+    },
+    "poster_cat_tuner": {
+      "textures": "textures/blocks/poster_cat_tuner"
+    },
+    "poster_wilbert": {
+      "textures": "textures/blocks/poster_wilbert"
+    },
+    "poster_miltio": {
+      "textures": "textures/blocks/poster_miltio"
+    },
+    "poster_eyes_eden": {
+      "textures": "textures/blocks/poster_eyes_eden"
+    },
+    "poster_akuki": {
+      "textures": "textures/blocks/poster_akuki"
+    },
+    "poster_ace": {
+      "textures": "textures/blocks/poster_ace"
     }
   }
 }
