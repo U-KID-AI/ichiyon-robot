@@ -10,6 +10,7 @@ The durable deploying state precedes the fixed-operation deployer.
 
 import argparse
 import logging
+import re
 import threading
 import time
 from enum import Enum
@@ -20,7 +21,7 @@ from ai_task_api_client import ClaimedTask, RunnerAPIClient, RunnerAPIError, SHA
 from ai_task_auto_merge import AutoMergeAdapter, AutoMergeSafetyError
 from ai_task_code_review import CodeReviewAdapter, CodeReviewSafetyError
 from ai_task_codex import CodexAdapter, CodexResult, CodexSafetyError, build_prompt
-from ai_task_git import GitAdapter, GitSafetyError
+from ai_task_git import GitAdapter, GitSafetyError, GitDiffCheckError, repairable_paths
 from ai_task_github import GitHubAdapter, GitHubSafetyError
 from ai_task_process import ProcessTerminationError
 from ai_task_publish import GitPublisher, PublishSafetyError
@@ -34,6 +35,54 @@ from ai_task_test_registry import TestRegistryError, run_tests
 
 
 logger = logging.getLogger("ai_task_runner")
+
+
+def failure_reason(exc):
+    # Never serialize arbitrary exception text (transport errors may contain credentials).
+    safe_messages = {
+        "task Git topology changed", "origin repository mismatch", "source repository is not clean",
+        "worktree root mismatch", "worktree base mismatch", "worktree branch mismatch",
+        "worktree name mismatch", "invalid worktree input", "Git snapshot validation failed",
+        "unsafe or credential changed path", "changed path is a symlink",
+        "changed path is a reparse point", "changed path escapes repository",
+        "automatic unstage failed", "protected path restoration failed",
+        "protected base path is not a regular file", "origin fetch failed",
+        "Phase 2C publishing is not configured", "invalid task ID",
+        "claim names do not match task ID", "Codex input cleanup did not complete",
+    }
+    if type(exc) in (GitSafetyError, SafetyError, ProcessTerminationError) and str(exc) in safe_messages:
+        return str(exc)
+    reasons = {
+        GitSafetyError: "Git integrity or recovery operation failed; ownership, origin, base or worktree could not be verified",
+        SafetyError: "Repository filesystem or policy boundary validation failed",
+        CodexSafetyError: "Codex adapter safety or process handling failed",
+        ProcessTerminationError: "Process cleanup could not be verified; human inspection required",
+        RunnerAPIError: "Control Plane operation failed; task transition could not be confirmed",
+        TestRegistryError: "Fixed offline test registry could not inspect an implementation file",
+        PublishSafetyError: "Deterministic task publication validation failed",
+        GitHubSafetyError: "Draft PR identity or GitHub operation validation failed",
+        OSError: "Runner filesystem or process operation failed",
+    }
+    return next((message for kind, message in reasons.items() if isinstance(exc, kind)),
+                "Runner validation failed in a fixed operation; inspect runner diagnostics")
+
+
+def test_feedback(item, changed=()):
+    # The fixed registry is python-syntax. Project-derived syntax messages can
+    # contain source literals, so export only known diagnostic phrases and lines.
+    name = "python-syntax" if item.name == "python-syntax" else "offline-test"
+    result = "timeout" if item.timed_out else "stopped" if getattr(item, "stopped", False) else str(int(item.returncode))
+    if result == "0":
+        return f"{name}=0"
+    diagnostics = ("invalid syntax", "expected ':'", "was never closed", "unexpected indent",
+                   "unindent does not match", "file is too large", "cannot read UTF-8 source",
+                   "too many Python files")
+    output = str(item.output)[:4000]
+    detail = next((phrase for phrase in diagnostics if phrase in output), "diagnostic output omitted")
+    line = re.search(r":([0-9]{1,7}):", output)
+    filename = next((path for path in changed if output.startswith(path + ":")), "")
+    return (f"{name}={result}: {detail}" + (f" at line {line[1]}" if line else "")
+            + (f" ({filename[:300]})" if filename else ""))
 
 
 class RunOutcome(Enum):
@@ -157,6 +206,7 @@ class LocalRunner:
         self.heartbeat_factory = heartbeat_factory
 
     def run_once(self) -> RunOutcome:
+        self._deployment_started = False
         try:
             task = self.client.claim()
         except RunnerAPIError:
@@ -184,7 +234,10 @@ class LocalRunner:
         ) as exc:
             logger.error("AI task failed safely: %s", type(exc).__name__)
             try:
-                self.client.mark_needs_human(task.task_id, task.claim_token, "Runner safety validation failed")
+                cleanup_uncertain = (isinstance(exc, ProcessTerminationError)
+                                     or isinstance(exc, CodexSafetyError) and str(exc) == "Codex process handling and cleanup failed")
+                report = self.client.mark_needs_human if self._deployment_started or cleanup_uncertain else self.client.mark_failed
+                report(task.task_id, task.claim_token, failure_reason(exc))
             except Exception:
                 pass
             return RunOutcome.FAILED
@@ -194,14 +247,32 @@ class LocalRunner:
                 type(exc).__name__,
             )
             try:
-                self.client.mark_needs_human(
+                report = self.client.mark_needs_human if self._deployment_started else self.client.mark_failed
+                report(
                     task.task_id,
                     task.claim_token,
-                    "Runner internal failure",
+                    "Runner internal operation failed; inspect runner implementation",
                 )
             except Exception:
                 pass
             return RunOutcome.FAILED
+
+    def _repair_changes(self, task, worktree, base_sha, before):
+        self.git.validate_worktree(task.task_id, worktree, base_sha)
+        if self.git.snapshot(worktree) != before:
+            raise GitSafetyError("task Git topology changed")
+        changed = self.git.changed_files(worktree)
+        protected = repairable_paths(worktree, changed)
+        if self.git.staged_files(worktree):
+            self.git.unstage(worktree, task.task_id, base_sha)
+        if protected:
+            self.git.restore_protected(worktree, task.task_id, base_sha, protected)
+        changed = self.git.changed_files(worktree)
+        validate_changed_paths(worktree, changed)
+        validate_project_codex_layer(worktree)
+        if self.git.snapshot(worktree) != before or self.git.staged_files(worktree):
+            raise GitSafetyError("Git integrity changed during automatic recovery")
+        return protected, changed
 
     def _process(self, task: ClaimedTask) -> bool:
         validate_claim_names(task.task_id, task.branch_name, task.worktree_name)
@@ -221,59 +292,83 @@ class LocalRunner:
         heartbeat = self.heartbeat_factory(self.client, task, interval=self.config.heartbeat_seconds, on_lost=self.codex.stop)
         heartbeat.start()
         try:
-            self.client.progress(task.task_id, task.claim_token, current_step="running_codex", progress_summary="Running non-interactive Codex")
-            result: CodexResult = self.codex.run(worktree_path, self.config.worktree_root / ("." + task.worktree_name + ".codex-output.txt"), prompt,
-                                                 timeout=self.config.codex_timeout_seconds,
-                                                 codex_home=self.config.codex_home, stop_event=heartbeat.lost)
-            if heartbeat.lost.is_set():
-                self.client.mark_needs_human(task.task_id, task.claim_token, "Control Plane lease could not be maintained")
+            testing = False
+            feedback = ""
+            for attempt in range(1, self.config.max_attempts + 1):
+                if heartbeat.lost.is_set():
+                    self.client.mark_needs_human(task.task_id, task.claim_token, "Control Plane lease could not be maintained")
+                    return False
+                self.git.validate_worktree(task.task_id, worktree_path, base_sha)
+                if self.git.snapshot(worktree_path) != before:
+                    raise GitSafetyError("task Git topology changed")
+                self.client.progress(task.task_id, task.claim_token, current_step="running_codex",
+                                     progress_summary=f"Running Codex attempt {attempt}/{self.config.max_attempts}")
+                attempt_prompt = prompt
+                if feedback:
+                    attempt_prompt += "\n<retry_feedback>\n" + feedback[:2000] + "\nRepair the implementation and preserve allowed edits.\n</retry_feedback>"
+                output = self.config.worktree_root / f".{task.worktree_name}.codex-output-attempt-{attempt}.txt"
+                if (output.exists() or output.is_symlink() or output.parent.is_symlink()
+                        or is_reparse_point(output.parent)):
+                    raise CodexSafetyError("Codex output path is unsafe")
+                try:
+                    result: CodexResult = self.codex.run(
+                        worktree_path, output, attempt_prompt, timeout=self.config.codex_timeout_seconds,
+                        codex_home=self.config.codex_home, stop_event=heartbeat.lost)
+                except TimeoutError:
+                    self.codex.stop()
+                    result = CodexResult(-1, "", "", timed_out=True)
+                if heartbeat.lost.is_set():
+                    self.client.mark_needs_human(task.task_id, task.claim_token, "Control Plane lease could not be maintained")
+                    return False
+                if getattr(result, "stdin_cleanup_failed", False):
+                    self.codex.stop()
+                    raise ProcessTerminationError("Codex input cleanup did not complete")
+                feedback = ""
+                if result.timed_out or result.returncode != 0 or getattr(result, "stopped", False):
+                    self.codex.stop()
+                    feedback = ("Codex timed out" if result.timed_out else
+                                "Codex process stopped unexpectedly" if getattr(result, "stopped", False) else
+                                "Codex nonzero exit")
+                protected, changed = self._repair_changes(task, worktree_path, base_sha, before)
+                if protected:
+                    feedback = (feedback + "; " if feedback else "") + "Protected paths were reverted: " + ", ".join(protected)[:1400]
+                if feedback:
+                    continue
+                if not changed:
+                    feedback = "No repository changes; implementation changes are required"
+                    continue
+                if not testing:
+                    self.client.mark_testing(task.task_id, task.claim_token)
+                    testing = True
+                self.client.progress(task.task_id, task.claim_token, current_step="testing", progress_summary="Running fixed offline test registry")
+                results = self.test_runner(worktree_path, changed, stop_event=heartbeat.lost)
+                if heartbeat.lost.is_set():
+                    self.client.mark_needs_human(task.task_id, task.claim_token, "Control Plane lease could not be maintained")
+                    return False
+                protected, changed_after_tests = self._repair_changes(task, worktree_path, base_sha, before)
+                if protected:
+                    feedback = "Protected paths were reverted after tests: " + ", ".join(protected)[:1400]
+                    continue
+                if not changed_after_tests:
+                    feedback = "No repository changes after tests; implementation changes are required"
+                    continue
+                summary = "; ".join(test_feedback(item, changed_after_tests) for item in results)[:2000]
+                files_summary = ("\n".join(changed_after_tests) + "\n" + self.git.diff_stat(worktree_path))[:8000]
+                failures = [item for item in results if item.returncode != 0 or item.timed_out or getattr(item, "stopped", False)]
+                if failures:
+                    feedback = "Fixed test registry failed: " + "; ".join(test_feedback(item, changed_after_tests) for item in failures)[:1800]
+                    self.client.progress(task.task_id, task.claim_token, test_summary=summary, changed_files_summary=files_summary)
+                    continue
+                try:
+                    self.git.diff_check(worktree_path)
+                except GitDiffCheckError:
+                    feedback = "git diff --check failed; repair whitespace errors"
+                    continue
+                break
+            else:
+                self.client.mark_failed(task.task_id, task.claim_token,
+                                        f"Attempts exhausted ({self.config.max_attempts}): {feedback}"[:2400])
                 return False
-            if result.timed_out:
-                self.client.mark_needs_human(task.task_id, task.claim_token, "Codex execution timed out")
-                return False
-            if getattr(result, "stopped", False):
-                self.client.mark_needs_human(task.task_id, task.claim_token, "Codex process stopped unexpectedly")
-                return False
-            if getattr(result, "stdin_cleanup_failed", False):
-                self.client.mark_needs_human(task.task_id, task.claim_token, "Codex input cleanup did not complete")
-                return False
-            if result.returncode != 0:
-                self.client.mark_failed(task.task_id, task.claim_token, "Codex execution failed")
-                return False
-            after = self.git.snapshot(worktree_path)
-            if after.head != before.head or after.branch != before.branch or after.worktrees != before.worktrees or after.origin != before.origin:
-                self.client.mark_needs_human(task.task_id, task.claim_token, "Codex changed protected Git state")
-                return False
-            changed = self.git.changed_files(worktree_path)
-            validate_changed_paths(worktree_path, changed)
-            if self.git.staged_files(worktree_path):
-                self.client.mark_needs_human(task.task_id, task.claim_token, "Codex changed the Git index")
-                return False
-            if not changed:
-                self.client.mark_needs_human(task.task_id, task.claim_token, "No repository changes were produced")
-                return False
-            self.client.mark_testing(task.task_id, task.claim_token)
-            self.client.progress(task.task_id, task.claim_token, current_step="testing", progress_summary="Running fixed offline test registry")
-            results = self.test_runner(worktree_path, changed, stop_event=heartbeat.lost)
-            if heartbeat.lost.is_set():
-                self.client.mark_needs_human(task.task_id, task.claim_token, "Control Plane lease could not be maintained")
-                return False
-            after_tests = self.git.snapshot(worktree_path)
-            changed_after_tests = self.git.changed_files(worktree_path)
-            validate_changed_paths(worktree_path, changed_after_tests)
-            if self.git.staged_files(worktree_path):
-                self.client.mark_needs_human(task.task_id, task.claim_token, "Tests changed the Git index")
-                return False
-            if after_tests != before:
-                self.client.mark_needs_human(task.task_id, task.claim_token, "Tests changed protected Git state")
-                return False
-            summary = "; ".join(f"{item.name}={item.returncode}" for item in results)[:8000]
-            files_summary = ("\n".join(changed_after_tests) + "\n" + self.git.diff_stat(worktree_path))[:8000]
-            if any(item.returncode != 0 or item.timed_out for item in results):
-                self.client.progress(task.task_id, task.claim_token, test_summary=summary, changed_files_summary=files_summary)
-                self.client.mark_failed(task.task_id, task.claim_token, "Fixed test registry failed")
-                return False
-            self.git.diff_check(worktree_path)
 
             if heartbeat.lost.is_set():
                 self.client.mark_needs_human(
@@ -336,7 +431,7 @@ class LocalRunner:
             if self.git.staged_files(
                 worktree_path
             ):
-                self.client.mark_needs_human(
+                self.client.mark_failed(
                     task.task_id,
                     task.claim_token,
                     (
@@ -351,7 +446,7 @@ class LocalRunner:
                 or changed_before_push
                 != changed_after_tests
             ):
-                self.client.mark_needs_human(
+                self.client.mark_failed(
                     task.task_id,
                     task.claim_token,
                     (
@@ -380,7 +475,7 @@ class LocalRunner:
                 or verified_commit.tree_sha
                 != commit_result.tree_sha
             ):
-                self.client.mark_needs_human(
+                self.client.mark_failed(
                     task.task_id,
                     task.claim_token,
                     (
@@ -728,6 +823,7 @@ class LocalRunner:
                     "merged candidate differs from reviewed candidate"
                 )
 
+            self._deployment_started = True
             self.client.mark_deploying(
                 task.task_id,
                 task.claim_token,
@@ -771,7 +867,10 @@ class LocalRunner:
 
             return True
         finally:
-            heartbeat.stop()
+            try:
+                self.codex.stop()
+            finally:
+                heartbeat.stop()
 
 
 def main() -> int:
