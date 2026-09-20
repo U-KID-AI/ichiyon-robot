@@ -26,6 +26,8 @@ jobs:
 
       - name: Run AI automation safety checks
         run: |
+          python scripts/check_ai_task_deploy.py
+          bash -n scripts/ai_task_deploy_remote.sh
           python scripts/check_ai_tasks.py
           python scripts/check_ai_task_control_plane.py
           python scripts/check_ai_task_phase2d_control_plane.py
