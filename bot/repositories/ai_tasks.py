@@ -10,6 +10,7 @@ AI_TASK_STATUSES = (
     "queued",
     "running",
     "testing",
+    "deploying",
     "needs_human",
     "ready_for_review",
     "failed",
@@ -53,7 +54,7 @@ def validate_sha1(value: str) -> None:
 
 
 def validate_pr_number(value: int) -> None:
-    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+    if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= 2_147_483_647:
         raise ValueError("invalid PR number")
 
 
@@ -159,7 +160,8 @@ class AITaskRepository:
     ) -> Optional[Dict[str, Any]]:
         if not isinstance(task_id, uuid.UUID):
             raise ValueError("task_id must be a UUID")
-        if status not in AI_TASK_STATUS_SET:
+        # Merge/deployment transitions must use the owned, proof-bound methods.
+        if status not in AI_TASK_STATUS_SET or status in ("deploying", "completed"):
             raise ValueError("invalid ai task status")
 
         with self.connection.cursor() as cursor:
@@ -237,7 +239,7 @@ class AITaskRepository:
                     progress_summary = COALESCE(progress_summary, 'Runner lease expired; human inspection required.'),
                     updated_at = NOW()
                 WHERE bot_id = %s
-                  AND status IN ('running', 'testing')
+                  AND status IN ('running', 'testing', 'deploying')
                   AND lease_expires_at IS NOT NULL
                   AND lease_expires_at < NOW()
                 RETURNING task_id, status, runner_id, claimed_at, heartbeat_at, lease_expires_at
@@ -291,7 +293,7 @@ class AITaskRepository:
                     lease_expires_at = NOW() + (%s * INTERVAL '1 second'),
                     updated_at = NOW()
                 WHERE task_id = %s AND bot_id = %s AND runner_id = %s AND claim_token = %s
-                  AND status IN ('running', 'testing')
+                  AND status IN ('running', 'testing', 'deploying')
                   AND lease_expires_at > NOW()
                 RETURNING task_id, status, heartbeat_at, lease_expires_at
                 """,
@@ -337,7 +339,7 @@ class AITaskRepository:
                     changed_files_summary = COALESCE(%s, changed_files_summary),
                     updated_at = NOW()
                 WHERE task_id = %s AND bot_id = %s AND runner_id = %s AND claim_token = %s
-                  AND status IN ('running', 'testing')
+                  AND status IN ('running', 'testing', 'deploying')
                   AND lease_expires_at > NOW()
                 RETURNING task_id, status, current_step, progress_summary,
                           base_commit_sha, test_summary, changed_files_summary
@@ -411,7 +413,7 @@ class AITaskRepository:
                 return existing
             return None
 
-    def mark_completed(
+    def mark_deploying(
         self,
         *,
         task_id: uuid.UUID,
@@ -445,7 +447,9 @@ class AITaskRepository:
         validate_sha1(merge_commit_sha)
 
         if (
-            len(test_summary)
+            not isinstance(test_summary, str)
+            or not isinstance(changed_files_summary, str)
+            or len(test_summary)
             > MAX_TEST_SUMMARY_LENGTH
             or len(changed_files_summary)
             > MAX_CHANGED_FILES_SUMMARY_LENGTH
@@ -454,7 +458,7 @@ class AITaskRepository:
             <= MAX_REVIEW_SUMMARY_LENGTH
         ):
             raise ValueError(
-                "completion summary is invalid"
+                "reviewed merge summary is invalid"
             )
 
         result_summary = (
@@ -470,7 +474,7 @@ class AITaskRepository:
             cursor.execute(
                 """
                 UPDATE ai_tasks
-                SET status = 'completed',
+                SET status = 'deploying',
                     commit_sha = %s,
                     pr_number = %s,
                     pr_url = %s,
@@ -479,12 +483,11 @@ class AITaskRepository:
                     ci_workflow_run_id = %s,
                     review_summary = %s,
                     merge_commit_sha = %s,
-                    current_step = 'completed',
+                    current_step = 'deploying',
                     progress_summary =
-                        'Automatically reviewed and merged.',
+                        'Reviewed merge recorded; deployment pending.',
                     result_summary = %s,
-                    completed_at =
-                        COALESCE(completed_at, NOW()),
+                    deployment_started_at = NOW(),
                     updated_at = NOW()
                 WHERE task_id = %s
                   AND bot_id = %s
@@ -544,6 +547,7 @@ class AITaskRepository:
                   AND bot_id = %s
                   AND runner_id = %s
                   AND claim_token = %s
+                  AND lease_expires_at > NOW()
                 """,
                 (
                     task_id,
@@ -558,7 +562,7 @@ class AITaskRepository:
             if (
                 not existing
                 or existing.get("status")
-                != "completed"
+                != "deploying"
             ):
                 return None
 
@@ -590,6 +594,51 @@ class AITaskRepository:
             ):
                 return existing
 
+            return None
+
+    def mark_completed(
+        self, *, task_id: uuid.UUID, runner_id: str, claim_token: uuid.UUID,
+        deployed_commit_sha: str, deployment_summary: str,
+    ) -> Optional[Dict[str, Any]]:
+        validate_runner_id(runner_id)
+        if not isinstance(task_id, uuid.UUID) or not isinstance(claim_token, uuid.UUID):
+            raise ValueError("task_id and claim_token must be UUIDs")
+        validate_sha1(deployed_commit_sha)
+        if not isinstance(deployment_summary, str) or not 1 <= len(deployment_summary) <= 4000:
+            raise ValueError("deployment summary is invalid")
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE ai_tasks
+                SET status = 'completed', current_step = 'completed',
+                    deployed_commit_sha = %s, deployment_summary = %s,
+                    progress_summary = 'Reviewed merge deployment confirmed.',
+                    deployed_at = NOW(), completed_at = NOW(), updated_at = NOW()
+                WHERE task_id = %s AND bot_id = %s AND runner_id = %s AND claim_token = %s
+                  AND status = 'deploying' AND lease_expires_at > NOW()
+                  AND merge_commit_sha = %s
+                RETURNING task_id, status, deployed_commit_sha, deployment_summary, deployed_at, completed_at
+                """,
+                (deployed_commit_sha, deployment_summary, task_id, self.bot_id,
+                 runner_id, claim_token, deployed_commit_sha),
+            )
+            row = fetch_one(cursor)
+            if row is not None:
+                return row
+            cursor.execute(
+                """
+                SELECT task_id, status, merge_commit_sha, deployed_commit_sha, deployment_summary
+                FROM ai_tasks
+                WHERE task_id = %s AND bot_id = %s AND runner_id = %s AND claim_token = %s
+                """,
+                (task_id, self.bot_id, runner_id, claim_token),
+            )
+            existing = fetch_one(cursor)
+            if (existing and existing.get("status") == "completed"
+                    and existing.get("merge_commit_sha") == deployed_commit_sha
+                    and existing.get("deployed_commit_sha") == deployed_commit_sha
+                    and existing.get("deployment_summary") == deployment_summary):
+                return existing
             return None
 
     def _transition_active_task(self, *, task_id: uuid.UUID, runner_id: str, claim_token: uuid.UUID,
@@ -637,7 +686,7 @@ class AITaskRepository:
                 UPDATE ai_tasks SET status = 'failed', error_message = %s,
                     completed_at = COALESCE(completed_at, NOW()), updated_at = NOW()
                 WHERE task_id = %s AND bot_id = %s AND runner_id = %s AND claim_token = %s
-                  AND status IN ('running', 'testing') AND lease_expires_at > NOW()
+                  AND status IN ('running', 'testing', 'deploying') AND lease_expires_at > NOW()
                 RETURNING task_id, status, error_message, completed_at
             """
         else:
@@ -645,7 +694,7 @@ class AITaskRepository:
                 UPDATE ai_tasks SET status = 'needs_human', current_step = 'needs_human',
                     progress_summary = %s, updated_at = NOW()
                 WHERE task_id = %s AND bot_id = %s AND runner_id = %s AND claim_token = %s
-                  AND status IN ('running', 'testing') AND lease_expires_at > NOW()
+                  AND status IN ('running', 'testing', 'deploying') AND lease_expires_at > NOW()
                 RETURNING task_id, status, progress_summary
             """
         with self.connection.cursor() as cursor:

@@ -4,7 +4,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, status
-from pydantic import BaseModel, Field, StrictInt
+from pydantic import BaseModel, Field, StrictInt, StrictStr
 
 from bot import config
 from bot.db import get_connection
@@ -52,25 +52,30 @@ class NeedsHumanRequest(HeartbeatRequest):
 
 
 class ReadyForReviewRequest(HeartbeatRequest):
-    commit_sha: str = Field(..., min_length=40, max_length=40)
+    commit_sha: StrictStr = Field(..., min_length=40, max_length=40)
     pr_number: StrictInt
-    pr_url: str = Field(..., max_length=200)
-    test_summary: str = Field(..., max_length=8000)
-    changed_files_summary: str = Field(..., max_length=8000)
+    pr_url: StrictStr = Field(..., max_length=200)
+    test_summary: StrictStr = Field(..., max_length=8000)
+    changed_files_summary: StrictStr = Field(..., max_length=8000)
 
 
-class CompletedRequest(ReadyForReviewRequest):
+class DeployingRequest(ReadyForReviewRequest):
     ci_workflow_run_id: StrictInt
-    review_summary: str = Field(
+    review_summary: StrictStr = Field(
         ...,
         min_length=1,
         max_length=2000,
     )
-    merge_commit_sha: str = Field(
+    merge_commit_sha: StrictStr = Field(
         ...,
         min_length=40,
         max_length=40,
     )
+
+
+class CompletedRequest(HeartbeatRequest):
+    deployed_commit_sha: StrictStr = Field(..., min_length=40, max_length=40)
+    deployment_summary: StrictStr = Field(..., min_length=1, max_length=4000)
 
 
 def require_runner_token(authorization: Optional[str]) -> None:
@@ -219,10 +224,10 @@ def ready_for_review(task_id: UUID, request: ReadyForReviewRequest, authorizatio
     ))
 
 
-@router.post("/{task_id}/completed")
-def completed(
+@router.post("/{task_id}/deploying")
+def deploying(
     task_id: UUID,
-    request: CompletedRequest,
+    request: DeployingRequest,
     authorization: Optional[str] = Header(default=None),
 ):
     require_runner_token(authorization)
@@ -248,14 +253,14 @@ def completed(
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Invalid completion metadata",
+            detail="Invalid reviewed merge metadata",
         )
 
     return _run_owned_operation(
         task_id,
         request,
         lambda repo, tid, req:
-            repo.mark_completed(
+            repo.mark_deploying(
                 task_id=tid,
                 runner_id=req.runner_id,
                 claim_token=req.claim_token,
@@ -275,3 +280,14 @@ def completed(
                 ),
             ),
     )
+
+
+@router.post("/{task_id}/completed")
+def completed(task_id: UUID, request: CompletedRequest, authorization: Optional[str] = Header(default=None)):
+    require_runner_token(authorization)
+    if not is_valid_sha1(request.deployed_commit_sha):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid deployed commit SHA")
+    return _run_owned_operation(task_id, request, lambda repo, tid, req: repo.mark_completed(
+        task_id=tid, runner_id=req.runner_id, claim_token=req.claim_token,
+        deployed_commit_sha=req.deployed_commit_sha, deployment_summary=req.deployment_summary,
+    ))

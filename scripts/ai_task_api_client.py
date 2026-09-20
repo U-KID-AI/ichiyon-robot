@@ -168,7 +168,7 @@ class RunnerAPIClient:
             },
         )
 
-    def mark_completed(
+    def mark_deploying(
         self,
         task_id: uuid.UUID,
         claim_token: uuid.UUID,
@@ -241,7 +241,7 @@ class RunnerAPIClient:
             <= 2000
         ):
             raise ValueError(
-                "invalid completion metadata"
+                "invalid reviewed merge metadata"
             )
 
         fields = {
@@ -259,27 +259,44 @@ class RunnerAPIClient:
                 merge_commit_sha,
         }
 
-        # Completion is idempotent. One retry covers
+        # The durable deploying transition is idempotent. One retry covers
         # an ambiguous lost response after the database
-        # may already have committed the terminal state.
+        # may already have committed the deploying state.
         try:
             return self._owned(
-                "completed",
+                "deploying",
                 task_id,
                 claim_token,
                 fields,
             )
         except RunnerAPIError:
             return self._owned(
-                "completed",
+                "deploying",
                 task_id,
                 claim_token,
                 fields,
             )
 
+    def mark_completed(
+        self, task_id: uuid.UUID, claim_token: uuid.UUID, *,
+        deployed_commit_sha: str, deployment_summary: str,
+    ) -> dict[str, Any]:
+        if (not isinstance(deployed_commit_sha, str)
+                or SHA_PATTERN.fullmatch(deployed_commit_sha) is None
+                or not isinstance(deployment_summary, str)
+                or not 1 <= len(deployment_summary) <= 4000):
+            raise ValueError("invalid deployment metadata")
+        fields = {"deployed_commit_sha": deployed_commit_sha,
+                  "deployment_summary": deployment_summary}
+        # Retry the identical proof once if the committed response was lost.
+        try:
+            return self._owned("completed", task_id, claim_token, fields)
+        except RunnerAPIError:
+            return self._owned("completed", task_id, claim_token, fields)
+
     def _owned(self, operation: str, task_id: uuid.UUID, claim_token: uuid.UUID,
                fields: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        if operation not in {"heartbeat", "progress", "testing", "fail", "needs-human", "ready-for-review", "completed"}:
+        if operation not in {"heartbeat", "progress", "testing", "fail", "needs-human", "ready-for-review", "deploying", "completed"}:
             raise ValueError("operation is not allowlisted")
         if not isinstance(task_id, uuid.UUID) or not isinstance(claim_token, uuid.UUID):
             raise ValueError("task identifiers must be UUIDs")
