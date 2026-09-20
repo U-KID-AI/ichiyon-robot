@@ -120,6 +120,7 @@ def run_item(
 def fake_backend(
     *,
     pr=None,
+    pr_after=None,
     files=None,
     page2=None,
     runs=None,
@@ -128,6 +129,8 @@ def fake_backend(
     calls = []
 
     pr = pr if pr is not None else pr_item()
+    pr_after = pr if pr_after is None else pr_after
+    pr_reads = 0
     files = (
         files
         if files is not None
@@ -141,6 +144,8 @@ def fake_backend(
     )
 
     def runner(argv, **kwargs):
+        nonlocal pr_reads
+
         calls.append((argv, kwargs))
         args = argv[1:]
 
@@ -176,9 +181,16 @@ def fake_backend(
                 "ichiyon-robot/pulls/123"
             )
         ):
+            value = (
+                pr
+                if pr_reads == 0
+                else pr_after
+            )
+            pr_reads += 1
+
             return SimpleNamespace(
                 returncode=0,
-                stdout=json.dumps(pr),
+                stdout=json.dumps(value),
                 stderr="",
             )
 
@@ -232,6 +244,7 @@ def fake_backend(
 def inspect_with(
     *,
     pr=None,
+    pr_after=None,
     files=None,
     page2=None,
     runs=None,
@@ -240,6 +253,7 @@ def inspect_with(
 ):
     runner, calls = fake_backend(
         pr=pr,
+        pr_after=pr_after,
         files=files,
         page2=page2,
         runs=runs,
@@ -298,6 +312,37 @@ def main():
         and result.base_sha == BASE_SHA
         and result.workflow_run_id == 900
         and result.changed_files == tuple(sorted(FILES)),
+    )
+
+    volatile_after = pr_item()
+    volatile_after["updated_at"] = (
+        "2026-09-20T04:29:44Z"
+    )
+    volatile_after["mergeable_state"] = "clean"
+
+    volatile_result, _volatile_calls = inspect_with(
+        pr_after=volatile_after,
+    )
+
+    check(
+        "volatile PR metadata may change during review gate",
+        volatile_result.head_sha == COMMIT_SHA
+        and volatile_result.base_sha == BASE_SHA,
+    )
+
+    changed_head_after = pr_item()
+    changed_head_after["head"] = dict(
+        changed_head_after["head"]
+    )
+    changed_head_after["head"]["sha"] = "b" * 40
+
+    check(
+        "critical PR binding change between reads is rejected",
+        rejects(
+            lambda: inspect_with(
+                pr_after=changed_head_after,
+            )
+        ),
     )
 
     ready_pr = pr_item()
