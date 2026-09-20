@@ -340,6 +340,106 @@ class RemoteChecks(unittest.TestCase):
         config['services']['db'] = {'volumes': [{'source': 'postgres_data', 'target': '/var/lib/postgresql/data'}]}
         with patch.object(h, 'release', return_value=SHA), patch.object(h, 'compose', return_value=json.dumps(config)):
             h.contract(Path('/unused'))
+
+        legacy = copy.deepcopy(config)
+        legacy['volumes']['postgres_data']['external'] = False
+        legacy['networks']['default']['external'] = False
+
+        with patch.object(
+            h,
+            'release',
+            return_value=SHA,
+        ), patch.object(
+            h,
+            'compose',
+            return_value=json.dumps(legacy),
+        ), patch.object(
+            h,
+            'immutable_image_metadata',
+            return_value={'format': 'phase3b'},
+        ):
+            h.contract(
+                Path('/unused'),
+                previous=True,
+            )
+
+        # The same non-external contract is never accepted for a new target.
+        with patch.object(
+            h,
+            'release',
+            return_value=SHA,
+        ), patch.object(
+            h,
+            'compose',
+            return_value=json.dumps(legacy),
+        ):
+            with self.assertRaises(AssertionError):
+                h.contract(Path('/unused'))
+
+        # A modern previous release remains under the modern strict contract.
+        with patch.object(
+            h,
+            'release',
+            return_value=SHA,
+        ), patch.object(
+            h,
+            'compose',
+            return_value=json.dumps(legacy),
+        ), patch.object(
+            h,
+            'immutable_image_metadata',
+            return_value={'format': 'current'},
+        ):
+            with self.assertRaises(AssertionError):
+                h.contract(
+                    Path('/unused'),
+                    previous=True,
+                )
+
+        # Legacy compatibility never relaxes the fixed resource identities.
+        for section, key in (
+            ('volumes', 'postgres_data'),
+            ('networks', 'default'),
+        ):
+            bad_legacy = copy.deepcopy(legacy)
+            bad_legacy[section][key]['name'] = 'wrong-resource'
+
+            with patch.object(
+                h,
+                'release',
+                return_value=SHA,
+            ), patch.object(
+                h,
+                'compose',
+                return_value=json.dumps(bad_legacy),
+            ), patch.object(
+                h,
+                'immutable_image_metadata',
+                return_value={'format': 'phase3b'},
+            ):
+                with self.assertRaises(AssertionError):
+                    h.contract(
+                        Path('/unused'),
+                        previous=True,
+                    )
+
+        self.assertIn(
+            "elif mode == 'previous-contract':",
+            HELPER,
+        )
+
+        self.assertEqual(
+            SCRIPT.count(
+                'python3 -I "$helper" previous-contract "$previous"'
+            ),
+            2,
+        )
+
+        self.assertIn(
+            'previous=rollback',
+            HELPER,
+        )
+
         for field, value in [('image', 'latest'), ('build', {'context': '.'}), ('build', None), ('pull_policy', 'always'),
                              ('privileged', True), ('volumes', mounts + [dict(source='/', target='/app', type='bind')]),
                              ('networks', {'other': {}})]:

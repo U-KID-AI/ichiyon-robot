@@ -190,13 +190,30 @@ def compose(path, *args):
                 '-f', str(path / 'src/docker-compose.yml'),
                 '-f', str(path / 'compose.immutable.yml'), *args])
 
-def contract(path):
+def contract(path, *, previous=False):
     sha = release(path)
     c = json.loads(compose(path, 'config', '--format', 'json'))
+
+    legacy_previous = False
+
+    if previous:
+        metadata = immutable_image_metadata(path)
+        legacy_previous = metadata['format'] == 'phase3b'
+
+        if legacy_previous:
+            assert not (path / 'src/REVISION').exists()
+
     assert c['volumes']['postgres_data']['name'] == VOLUME
-    assert c['volumes']['postgres_data']['external'] is True
     assert c['networks']['default']['name'] == NETWORK
-    assert c['networks']['default']['external'] is True
+
+    if legacy_previous:
+        # Phase 3B predates the external-resource declaration.
+        # Exact names and independently inspected live infra remain mandatory.
+        assert c['volumes']['postgres_data'].get('external') in (None, False)
+        assert c['networks']['default'].get('external') in (None, False)
+    else:
+        assert c['volumes']['postgres_data']['external'] is True
+        assert c['networks']['default']['external'] is True
     for service in APPS:
         s = c['services'][service]
         assert s['image'] == 'ichiyon-robot-app:' + sha
@@ -271,9 +288,9 @@ def previous_image_check(path):
     return image_id
 
 
-def health(path, expected_infra, migrations=True):
+def health(path, expected_infra, migrations=True, previous=False):
     sha = release(path)
-    contract(path)
+    contract(path, previous=previous)
     image_id = image_check(sha)
     initial = None
     # Six samples over 30 seconds; startup gets a bounded separate retry window.
@@ -467,6 +484,8 @@ def main():
         release(path)
     elif mode == 'contract':
         contract(path)
+    elif mode == 'previous-contract':
+        contract(path, previous=True)
     elif mode == 'prepare':
         prepare(path, sys.argv[3])
     elif mode == 'compare':
@@ -484,7 +503,19 @@ def main():
     elif mode == 'previous-image':
         previous_image_check(path)
     elif mode == 'health':
-        health(path, json.loads(Path(sys.argv[3]).read_text()), len(sys.argv) == 4)
+        rollback = len(sys.argv) == 5
+
+        if rollback:
+            assert sys.argv[4] == 'rollback'
+        else:
+            assert len(sys.argv) == 4
+
+        health(
+            path,
+            json.loads(Path(sys.argv[3]).read_text()),
+            migrations=not rollback,
+            previous=rollback,
+        )
     else:
         raise ValueError
 
@@ -536,7 +567,7 @@ on_exit() {
     if (( code != 0 )); then
         if (( quiesced == 1 )) && [[ -n $previous ]]; then
             # Explicit checks: never rely on errexit inside a conditional/trap.
-            if migration_idle && python3 -I "$helper" contract "$previous" && infra_same &&
+            if migration_idle && python3 -I "$helper" previous-contract "$previous" && infra_same &&
                 compose "$previous" up -d --no-deps --no-build --pull never --force-recreate admin bot bot-irsia &&
                 infra_same && python3 -I "$helper" health "$previous" "$infra_file" rollback; then
                 printf '%s\n' 'DEPLOY_ERROR=ROLLED_BACK' >&3
@@ -590,7 +621,7 @@ else
     fi
     python3 -I "$helper" image "$release"
     python3 -I "$helper" contract "$release"
-    python3 -I "$helper" contract "$previous"
+    python3 -I "$helper" previous-contract "$previous"
     python3 -I "$helper" previous-image "$previous"
     infra_same
     [[ $(readlink -e "$current_link") == "$previous" ]]
