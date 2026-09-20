@@ -43,7 +43,8 @@ class GitAdapter:
         if not self._is_allowed_argv(tuple(args)):
             raise GitSafetyError("Git operation is not allowlisted")
         result = self._runner([str(self.git_path), *args], cwd=str((cwd or self.repo_root).resolve()), shell=False,
-                              capture_output=True, text=True, timeout=timeout, check=False)
+                              capture_output=True, text=True, encoding="utf-8", errors="replace",
+                              timeout=timeout, check=False)
         return GitResult(result.returncode, result.stdout, result.stderr)
 
     @staticmethod
