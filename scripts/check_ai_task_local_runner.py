@@ -340,8 +340,9 @@ def main():
         check("Codex forbidden flags absent", not any(flag in argv for flag in ("--dangerously-bypass-approvals-and-sandbox", "--add-dir", "--worktree", "--skip-git-repo-check")))
         check("Codex prompt uses stdin", kwargs["stdin"] is not None and process.stdin.data.decode() == prompt)
         process.stdin.data = b""
-        stopped_codex = codex.run(root, root / "stopped2.txt", prompt, timeout=10,
-                                  stop_event=type("AlreadyStopped", (), {"is_set": lambda self: True})())
+        with patch("ai_task_codex.terminate_process_tree", side_effect=lambda proc: proc.terminate()):
+            stopped_codex = codex.run(root, root / "stopped2.txt", prompt, timeout=10,
+                                      stop_event=type("AlreadyStopped", (), {"is_set": lambda self: True})())
         check("Codex adapter preserves stopped state", stopped_codex.stopped)
         with patch("ai_task_codex.communicate_bounded", side_effect=ProcessTerminationError("terminate failed")), \
              patch("ai_task_codex.terminate_process_tree", side_effect=ProcessTerminationError("cleanup failed")):
@@ -593,6 +594,11 @@ def orchestration_checks():
                 self.calls.append(
                     ("ready", kwargs)
                 )
+
+            def mark_deploying(self, *args, **kwargs):
+                self.calls.append(("deploying", kwargs))
+                if self.events is not None:
+                    self.events.append("deploying")
 
             def mark_completed(
                 self,
@@ -851,6 +857,14 @@ def orchestration_checks():
                     workflow_run_id=900,
                     merge_sha="e" * 40,
                 )
+        class FakeDeployer:
+            def __init__(self, events):
+                self.events = events
+            def deploy(self, merge_sha, *, stop_event):
+                assert merge_sha == "e" * 40 and not stop_event.is_set()
+                self.events.append("deployer")
+                return SimpleNamespace(deployed_commit_sha=merge_sha, summary="Deployment verified.")
+
         config = RunnerConfig("https://runner.example", "token", "runner-1", root, worktree_root, Path("C:/codex.exe"), None, Path("C:/git.exe"), 5, 60)
         normal_events = []
         normal_client = FakeClient(normal_events)
@@ -881,6 +895,7 @@ def orchestration_checks():
             reviewer=normal_reviewer,
             review_gate=normal_review_gate,
             auto_merger=normal_auto_merger,
+            deployer=FakeDeployer(normal_events),
             test_runner=fake_tests,
             heartbeat_factory=ActiveHeartbeat,
         )
@@ -920,7 +935,7 @@ def orchestration_checks():
         )
 
         check(
-            "Phase 2D side effects occur in fixed order",
+            "merge and deployment occur in fixed order",
             normal_events
             == [
                 "commit",
@@ -930,6 +945,8 @@ def orchestration_checks():
                 "ci",
                 "review",
                 "merge",
+                "deploying",
+                "deployer",
                 "completed",
             ],
         )
@@ -959,39 +976,87 @@ def orchestration_checks():
             is not None,
         )
 
-        completed_calls = [
+        deploying_calls = [
             item
             for item in normal_client.calls
             if (
                 isinstance(item, tuple)
-                and item[0] == "completed"
+                and item[0] == "deploying"
             )
         ]
 
         check(
-            "completion transition uses reviewed merge metadata",
-            len(completed_calls) == 1
-            and completed_calls[0][1][
+            "deploying transition uses reviewed merge metadata",
+            len(deploying_calls) == 1
+            and deploying_calls[0][1][
                 "commit_sha"
             ]
             == commit_sha
-            and completed_calls[0][1][
+            and deploying_calls[0][1][
                 "pr_number"
             ]
             == 123
-            and completed_calls[0][1][
+            and deploying_calls[0][1][
                 "pr_url"
             ]
             == pr_url
-            and completed_calls[0][1][
+            and deploying_calls[0][1][
                 "ci_workflow_run_id"
             ]
             == 900
-            and completed_calls[0][1][
+            and deploying_calls[0][1][
                 "merge_commit_sha"
             ]
             == "e" * 40,
         )
+
+        check("completion contains only deployment proof", normal_client.calls[-1] == (
+            "completed", {"deployed_commit_sha": "e" * 40, "deployment_summary": "Deployment verified."}))
+
+        # All dependencies are fakes; exercise the complete runner around deployment.
+        for scenario in ("missing", "mismatch", "empty", "long", "invalid_type", "before", "after", "durable_error"):
+            if task_path.exists():
+                shutil.rmtree(task_path)
+            events = []
+            class DeploymentClient(FakeClient):
+                def mark_deploying(self, *args, **kwargs):
+                    super().mark_deploying(*args, **kwargs)
+                    if scenario == "before":
+                        active_heartbeat[0].lost.set()
+                    if scenario == "durable_error":
+                        raise RunnerAPIError("ambiguous transition")
+            active_heartbeat = []
+            class DeploymentHeartbeat(ActiveHeartbeat):
+                def __init__(self, *args, **kwargs):
+                    super().__init__(*args, **kwargs)
+                    self.stopped = False
+                    active_heartbeat.append(self)
+                def stop(self):
+                    self.stopped = True
+            class CaseDeployer:
+                def deploy(self, merge_sha, *, stop_event):
+                    assert not active_heartbeat[0].stopped
+                    assert stop_event is active_heartbeat[0].lost
+                    assert merge_sha == "e" * 40
+                    events.append("deployer")
+                    if scenario == "after":
+                        stop_event.set()
+                    return SimpleNamespace(
+                        deployed_commit_sha="f" * 40 if scenario == "mismatch" else merge_sha,
+                        summary={"empty": "", "long": "x" * 4001, "invalid_type": None}.get(scenario, "ok"))
+            client = DeploymentClient(events)
+            case_runner = LocalRunner(
+                config, client=client, git=FakeGit(), codex=FakeCodex(),
+                publisher=FakePublisher(events), github=FakeGitHub(events),
+                reviewer=FakeReviewer(events), review_gate=FakeReviewGate(events),
+                auto_merger=FakeAutoMerger(events),
+                deployer=None if scenario == "missing" else CaseDeployer(),
+                test_runner=fake_tests, heartbeat_factory=DeploymentHeartbeat)
+            check("deployment fails closed: " + scenario, case_runner.run_once() == RunOutcome.FAILED
+                  and "deploying" in events and "completed" not in events
+                  and active_heartbeat[0].stopped)
+            if scenario in ("missing", "before", "durable_error"):
+                check("no deployer invocation: " + scenario, "deployer" not in events)
 
         # A changed candidate between the first and
         # second deterministic construction must never

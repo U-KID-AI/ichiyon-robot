@@ -286,7 +286,7 @@ def main():
     check("progress has no arbitrary column API", "column:" not in API_SOURCE and "column" not in progress_fields)
     check("progress has no arbitrary status", "status:" not in API_SOURCE and "status" not in progress_fields)
     check("testing only from running", "status = 'running' AND lease_expires_at > NOW()" in REPO_SOURCE)
-    check("fail only active states", "status IN ('running', 'testing')" in REPO_SOURCE)
+    check("fail only active states", "status IN ('running', 'testing', 'deploying')" in REPO_SOURCE)
     check("needs human only active states", "status = 'needs_human'" in REPO_SOURCE)
     check("ready only testing", "status = 'testing' AND lease_expires_at > NOW()" in REPO_SOURCE)
     check("SHA validation", repository.is_valid_sha1("a" * 40) and not repository.is_valid_sha1("a" * 39))

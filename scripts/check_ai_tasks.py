@@ -126,7 +126,8 @@ async def run() -> int:
 
     migration = (ROOT_DIR / "migrations" / "059_add_ai_tasks.sql").read_text(encoding="utf-8")
     check.add("duplicate message constraint exists", "UNIQUE (bot_id, discord_message_id)" in migration)
-    check.add("all eight statuses are in schema", all("'" + status + "'" in migration for status in AI_TASK_STATUSES))
+    deployment_migration = (ROOT_DIR / "migrations" / "062_add_ai_task_deployment_fields.sql").read_text(encoding="utf-8")
+    check.add("all statuses are in current schema", all("'" + status + "'" in deployment_migration for status in AI_TASK_STATUSES))
 
     repository_source = (ROOT_DIR / "bot" / "repositories" / "ai_tasks.py").read_text(encoding="utf-8")
     check.add("repository queries are parameterized", "%s" in repository_source and "f\"" not in repository_source and "format(" not in repository_source)

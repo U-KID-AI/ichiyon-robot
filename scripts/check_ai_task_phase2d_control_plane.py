@@ -1,4 +1,4 @@
-"""Offline checks for Phase 2D completion state."""
+"""Offline checks for Phase 2D reviewed merge metadata, now persisted at deploying."""
 
 import inspect
 import json
@@ -122,45 +122,45 @@ def main():
     )
 
     check(
-        "completion only transitions active testing task",
-        "def mark_completed" in repo_source
+        "deploying only transitions active testing task",
+        "def mark_deploying" in repo_source
         and "status = 'testing'"
         in repo_source[
             repo_source.index(
-                "def mark_completed"
+                "def mark_deploying"
             ):
             repo_source.index(
-                "def _transition_active_task"
+                "def mark_completed"
             )
         ]
         and "lease_expires_at > NOW()"
         in repo_source[
             repo_source.index(
-                "def mark_completed"
+                "def mark_deploying"
             ):
             repo_source.index(
-                "def _transition_active_task"
+                "def mark_completed"
             )
         ],
     )
 
     check(
-        "completion records completed_at",
-        "completed_at"
+        "deployment records deployment_started_at",
+        "deployment_started_at"
         in repo_source[
             repo_source.index(
-                "def mark_completed"
+                "def mark_deploying"
             ):
             repo_source.index(
-                "def _transition_active_task"
+                "def mark_completed"
             )
         ],
     )
 
     check(
-        "completion endpoint is fixed",
-        hasattr(api, "completed")
-        and hasattr(api, "CompletedRequest"),
+        "deploying endpoint is fixed",
+        hasattr(api, "deploying")
+        and hasattr(api, "DeployingRequest"),
     )
 
     requests = []
@@ -172,7 +172,7 @@ def main():
         return json.dumps(
             {
                 "task_id": str(TASK_ID),
-                "status": "completed",
+                "status": "deploying",
             }
         ).encode("utf-8")
 
@@ -183,7 +183,7 @@ def main():
         requester=requester,
     )
 
-    response = client.mark_completed(
+    response = client.mark_deploying(
         TASK_ID,
         CLAIM_TOKEN,
         commit_sha=HEAD_SHA,
@@ -197,14 +197,14 @@ def main():
     )
 
     check(
-        "API client completion operation is fixed",
-        response["status"] == "completed"
+        "API client deploying operation is fixed",
+        response["status"] == "deploying"
         and len(requests) == 1
         and requests[0][0] == "POST"
         and requests[0][1]
         == (
             f"/internal/ai-tasks/"
-            f"{TASK_ID}/completed"
+            f"{TASK_ID}/deploying"
         )
         and requests[0][2][
             "merge_commit_sha"
@@ -219,7 +219,7 @@ def main():
     check(
         "API client rejects invalid merge SHA",
         rejects(
-            lambda: client.mark_completed(
+            lambda: client.mark_deploying(
                 TASK_ID,
                 CLAIM_TOKEN,
                 commit_sha=HEAD_SHA,
@@ -237,7 +237,7 @@ def main():
     check(
         "API client rejects invalid workflow ID",
         rejects(
-            lambda: client.mark_completed(
+            lambda: client.mark_deploying(
                 TASK_ID,
                 CLAIM_TOKEN,
                 commit_sha=HEAD_SHA,
@@ -254,7 +254,7 @@ def main():
 
     existing = {
         "task_id": TASK_ID,
-        "status": "completed",
+        "status": "deploying",
         "runner_id": "runner-1",
         "claim_token": CLAIM_TOKEN,
         "commit_sha": HEAD_SHA,
@@ -276,7 +276,7 @@ def main():
     )
 
     try:
-        same = repo.mark_completed(
+        same = repo.mark_deploying(
             task_id=TASK_ID,
             runner_id="runner-1",
             claim_token=CLAIM_TOKEN,
@@ -297,7 +297,7 @@ def main():
         repository.fetch_one = old_fetch_one
 
     check(
-        "completed retry with exact metadata is idempotent",
+        "deploying retry with exact metadata is idempotent",
         same == existing,
     )
 
@@ -311,7 +311,7 @@ def main():
     )
 
     try:
-        mismatch = repo.mark_completed(
+        mismatch = repo.mark_deploying(
             task_id=TASK_ID,
             runner_id="runner-1",
             claim_token=CLAIM_TOKEN,
@@ -332,7 +332,7 @@ def main():
         repository.fetch_one = old_fetch_one
 
     check(
-        "completed retry with different metadata is rejected",
+        "deploying retry with different metadata is rejected",
         mismatch is None,
     )
 

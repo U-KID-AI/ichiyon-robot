@@ -1,10 +1,11 @@
-"""Phase 2D Windows local AI task runner.
+"""Phase 3C-1D Windows local AI task runner.
 
 The default mode processes at most one task. This module never connects directly
 to the database. After fixed offline validation it may create a deterministic
 commit object, push only the UUID task branch, create or adopt an exact Draft PR,
 wait for exact CI, run a read-only code review, and perform a guarded squash merge.
-It never deploys.
+Real production deployment is not implemented in Phase 3C-1D.
+The durable deploying state precedes any injected fixed-operation deployer.
 """
 
 import argparse
@@ -15,7 +16,7 @@ from enum import Enum
 from pathlib import Path
 from threading import Event
 
-from ai_task_api_client import ClaimedTask, RunnerAPIClient, RunnerAPIError
+from ai_task_api_client import ClaimedTask, RunnerAPIClient, RunnerAPIError, SHA_PATTERN
 from ai_task_auto_merge import AutoMergeAdapter, AutoMergeSafetyError
 from ai_task_code_review import CodeReviewAdapter, CodeReviewSafetyError
 from ai_task_codex import CodexAdapter, CodexResult, CodexSafetyError, build_prompt
@@ -110,9 +111,11 @@ class LocalRunner:
         reviewer=None,
         review_gate=None,
         auto_merger=None,
+        deployer=None,
         test_runner=run_tests,
         heartbeat_factory=LeaseHeartbeat,
     ):
+        self.deployer = deployer
         self.config = config
         self.client = client or RunnerAPIClient(config.api_base_url, config.api_token, config.runner_id,
                                                timeout=config.api_timeout_seconds,
@@ -708,7 +711,9 @@ class LocalRunner:
                 )
 
             if (
-                merge_result.head_sha
+                not isinstance(merge_result.merge_sha, str)
+                or SHA_PATTERN.fullmatch(merge_result.merge_sha) is None
+                or merge_result.head_sha
                 != review_result.head_sha
                 or merge_result.base_sha
                 != review_result.base_sha
@@ -721,16 +726,7 @@ class LocalRunner:
                     "merged candidate differs from reviewed candidate"
                 )
 
-            self.client.progress(
-                task.task_id,
-                task.claim_token,
-                current_step="recording_completion",
-                progress_summary=(
-                    "Recording exact CI, review, and merge metadata"
-                ),
-            )
-
-            self.client.mark_completed(
+            self.client.mark_deploying(
                 task.task_id,
                 task.claim_token,
                 commit_sha=commit_result.commit_sha,
@@ -747,6 +743,28 @@ class LocalRunner:
                 merge_commit_sha=(
                     merge_result.merge_sha
                 ),
+            )
+
+            if heartbeat.lost.is_set():
+                raise SafetyError("lease was lost before deployment")
+            if self.deployer is None:
+                raise SafetyError("Phase 3C-1D production deployment is not implemented")
+            merge_sha = merge_result.merge_sha
+            deployment = self.deployer.deploy(merge_sha, stop_event=heartbeat.lost)
+            if heartbeat.lost.is_set():
+                raise SafetyError("lease was lost during deployment")
+            deployed_sha = getattr(deployment, "deployed_commit_sha", None)
+            deployment_summary = getattr(deployment, "summary", None)
+            if (not isinstance(deployed_sha, str) or deployed_sha != merge_sha
+                    or not isinstance(deployment_summary, str)
+                    or not 1 <= len(deployment_summary) <= 4000):
+                raise SafetyError("deployment proof does not match the reviewed merge")
+            if heartbeat.lost.is_set():
+                raise SafetyError("lease was lost before completion")
+            self.client.mark_completed(
+                task.task_id, task.claim_token,
+                deployed_commit_sha=deployed_sha,
+                deployment_summary=deployment_summary,
             )
 
             return True
