@@ -133,6 +133,16 @@ def get_channel_guild(channel: discord.abc.Messageable) -> Optional[discord.Guil
 
 def get_mention_command_text(message: discord.Message) -> Optional[str]:
     bot = get_bot()
+    from bot.services.ai_tasks import is_ai_task_channel, parse_ai_command
+
+    if is_ai_task_channel(message):
+        print("[DEBUG] command_text=<AI development prompt redacted>")
+        if config.BOT_INSTANCE_ID != "ichiyon" or bot.user is None:
+            return None
+        for mention in (f"<@{bot.user.id}>", f"<@!{bot.user.id}>"):
+            if message.content.startswith(mention):
+                return message.content[len(mention):].lstrip()
+        return None
     print(f"[DEBUG] mentions={message.mentions}")
     if bot.user is None or bot.user not in message.mentions:
         return None
@@ -144,7 +154,6 @@ def get_mention_command_text(message: discord.Message) -> Optional[str]:
     content = content.replace(f"<@{bot_id}>", "")
     content = content.replace(f"<@!{bot_id}>", "")
     command_text = content.strip()
-    from bot.services.ai_tasks import parse_ai_command
 
     _action, _argument, is_ai_command = parse_ai_command(command_text)
     debug_command_text = "<AI command redacted>" if is_ai_command else command_text

@@ -103,3 +103,46 @@ This activation does not change the fail-closed stale-deploying policy.
 Production bootstrap, runner-token provisioning, scheduled runner activation,
 and the first real Discord-to-production E2E are operational steps performed
 after this reviewed wiring is merged.
+
+
+## Phase 3D: fixed Discord development channel
+
+The authoritative defaults are Guild `1515983621461245972` (いちよんラボ)
+and Channel `1551004878808285377` (ai開発). Trusted integer process settings
+`AI_TASK_DISCORD_GUILD_ID` and `AI_TASK_DISCORD_CHANNEL_ID` may override them;
+Discord/task content cannot configure these IDs. Names are informational only.
+
+Only `BOT_INSTANCE_ID=ichiyon` consumes this exact Guild + Channel. No mention
+or `AI 開発` prefix is required: one human message becomes one task description,
+without previous conversation history. The legacy `AI 開発`, `AI 状態`, and
+`AI 一覧` forms also work there. A leading Ichiyon mention is optional; other
+prompt contents are preserved. `AI_TASK_ALLOWED_USER_IDS` remains mandatory;
+an empty allowlist rejects everybody, before DB access. DB backend is required.
+Outside-channel capture is disabled, including mention-based task creation;
+Irsia never consumes the freeform AI-development channel. Prompts in the fixed
+channel are redacted from debug logs, including mentioned freeform prompts.
+
+A dedicated five-second Ichiyon DB loop returns `completed`, `failed`,
+`needs_human`, and `cancelled` results to the same fixed channel after checking
+its Guild ID. Responses disable all mentions and sanitize @everyone / @here.
+Migration 063 adds nullable terminal-notified status, timestamp, and Discord
+message ID columns with a consistency constraint and a pending-notification
+partial index. Old terminal tasks in this exact location are eligible after
+migration. Successful sends are recorded and committed; normal bot restarts do
+not resend recorded results. Failed sends remain pending. Row locks with
+`SKIP LOCKED` serialize concurrent notifiers, held through a bounded batch.
+There is an unavoidable crash window between Discord accepting a message and
+the DB batch commit: a retry may duplicate accepted messages in that batch.
+The cached channel must be available and message sending permitted; otherwise
+notification remains pending. Migration 063 must be applied by the authorized
+operational process before enabling this version; this repository change does
+not execute migrations or activate a live bot.
+
+This wiring does not weaken deploy/SSH/secret boundaries. Discord content is
+intent only; it never becomes shell, SSH, path, environment, or executable SQL
+input. Task descriptions are stored only as parameterized data. Notification
+formatting reads explicit result fields, never task descriptions or transport
+configuration; producers must continue to keep result/error summaries free of
+secrets. Generic task execution gains no production authority. Local/offline
+validation must not read credentials, send Discord messages, execute SSH,
+deploy, or run production migrations.

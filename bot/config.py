@@ -192,6 +192,8 @@ MINECRAFT_RESTART_ALLOWED_USER_IDS = tuple(
     for user_id in get_env_str("MINECRAFT_RESTART_ALLOWED_USER_IDS", "").split(",")
     if user_id.strip()
 )
+AI_TASK_DISCORD_GUILD_ID = get_env_int("AI_TASK_DISCORD_GUILD_ID", 1515983621461245972)
+AI_TASK_DISCORD_CHANNEL_ID = get_env_int("AI_TASK_DISCORD_CHANNEL_ID", 1551004878808285377)
 AI_TASK_ALLOWED_USER_IDS = tuple(
     user_id.strip()
     for user_id in get_env_str("AI_TASK_ALLOWED_USER_IDS", "").split(",")

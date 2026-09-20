@@ -19,6 +19,36 @@ AI_UNAUTHORIZED = "AI開発taskを利用する権限がありません。"
 AI_DB_ERROR = "AI taskを処理できませんでした。"
 AI_DB_REQUIRED = "AI task機能はDB構成時のみ利用できます。"
 AI_COMMAND_RE = re.compile(r"^AI(?:[\s\u3000]+|$)")
+TERMINAL_STATUSES = frozenset(("completed", "failed", "needs_human", "cancelled"))
+
+
+def is_ai_task_channel(message: discord.Message) -> bool:
+    # Location only: redact this channel even in another bot instance.
+    return (
+        getattr(getattr(message, "guild", None), "id", None) == config.AI_TASK_DISCORD_GUILD_ID
+        and getattr(getattr(message, "channel", None), "id", None) == config.AI_TASK_DISCORD_CHANNEL_ID
+    )
+
+
+async def handle_ai_task_channel_message(
+    message: discord.Message, command_text: Optional[str] = None,
+) -> bool:
+    if not is_ai_task_channel(message) or config.BOT_INSTANCE_ID != "ichiyon":
+        return False
+    if getattr(message.author, "bot", False):
+        return False
+    if not is_ai_task_allowed(message.author.id):
+        await _send_ai_response(message, AI_UNAUTHORIZED)
+        return True
+    if config.DATA_BACKEND != "db":
+        await _send_ai_response(message, AI_DB_REQUIRED)
+        return True
+    # The mention parser supplies text with only the leading Ichiyon mention removed.
+    text = message.content if command_text is None else command_text
+    action, _argument, _owned = parse_ai_command(text)
+    if action is not None:
+        return await handle_ai_task_command(message, text)
+    return await _handle_create(message, text)
 
 
 def parse_ai_command(command_text: Optional[str]) -> Tuple[Optional[str], Optional[str], bool]:
@@ -145,6 +175,8 @@ async def handle_ai_task_command(
     message: discord.Message,
     command_text: Optional[str],
 ) -> bool:
+    if not is_ai_task_channel(message) or config.BOT_INSTANCE_ID != "ichiyon":
+        return False
     action, argument, owned = parse_ai_command(command_text)
     if not owned:
         return False
@@ -171,7 +203,7 @@ async def handle_ai_task_command(
 
 
 async def _handle_create(message: discord.Message, description: str) -> bool:
-    if not description or len(description) > MAX_DISCORD_DESCRIPTION_LENGTH:
+    if not description.strip() or len(description) > MAX_DISCORD_DESCRIPTION_LENGTH:
         await _send_ai_response(
             message,
             "依頼内容は1文字以上1800文字以内で入力してください。"
@@ -233,3 +265,54 @@ async def _handle_list(message: discord.Message) -> bool:
         return True
     await _send_ai_response(message, format_task_list(rows))
     return True
+
+
+def format_task_terminal(row: Dict[str, Any]) -> str:
+    if row.get("status") not in TERMINAL_STATUSES:
+        raise ValueError("terminal status required")
+    # Only explicit result fields; never include description or transport settings.
+    fields = (
+        ("task ID", "task_id"), ("status", "status"), ("PR", "pr_url"),
+        ("deployed SHA", "deployed_commit_sha"), ("result", "result_summary"),
+        ("progress", "progress_summary"), ("error", "error_message"),
+        ("deployment", "deployment_summary"),
+    )
+    lines = ["AI task結果"]
+    for label, key in fields:
+        if row.get(key):
+            lines.append("{0}: {1}".format(label, _safe_text(row[key])[:250]))
+    return _response("\n".join(lines))
+
+
+async def notify_ai_task_terminal_updates_once(bot) -> None:
+    if config.BOT_INSTANCE_ID != "ichiyon" or config.DATA_BACKEND != "db":
+        return
+    channel = bot.get_channel(config.AI_TASK_DISCORD_CHANNEL_ID)
+    if (
+        channel is None
+        or getattr(channel, "id", None) != config.AI_TASK_DISCORD_CHANNEL_ID
+        or getattr(getattr(channel, "guild", None), "id", None) != config.AI_TASK_DISCORD_GUILD_ID
+    ):
+        return
+    with get_connection() as connection:
+        repository = AITaskRepository(connection)
+        # Row locks prevent concurrent notifier processes sending the same batch.
+        rows = repository.list_unnotified_terminal_tasks(
+            guild_id=str(config.AI_TASK_DISCORD_GUILD_ID),
+            discord_channel_id=str(config.AI_TASK_DISCORD_CHANNEL_ID), limit=10,
+        )
+        for row in rows:
+            try:
+                sent = await channel.send(
+                    format_task_terminal(row), allowed_mentions=discord.AllowedMentions.none(),
+                )
+            except Exception as exc:
+                print("[WARN] AI terminal notification send failed: " + type(exc).__name__)
+                continue
+            marked = repository.mark_terminal_notified(
+                task_id=row["task_id"], status=row["status"],
+                message_id=str(sent.id) if getattr(sent, "id", None) is not None else None,
+            )
+            if marked is None:
+                raise RuntimeError("terminal notification state changed")
+        connection.commit()

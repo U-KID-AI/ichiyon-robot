@@ -152,6 +152,52 @@ class AITaskRepository:
             )
             return fetch_all(cursor)
 
+    def list_unnotified_terminal_tasks(
+        self, *, guild_id: str, discord_channel_id: str, limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        safe_limit = max(1, min(int(limit), 20))
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT task_id, status, pr_url, result_summary, progress_summary,
+                       error_message, deployed_commit_sha, deployment_summary
+                FROM ai_tasks
+                WHERE bot_id = %s AND guild_id = %s AND discord_channel_id = %s
+                  AND status IN ('completed', 'failed', 'needs_human', 'cancelled')
+                  AND discord_terminal_notified_status IS NULL
+                  AND discord_terminal_notified_at IS NULL
+                ORDER BY updated_at, task_id
+                LIMIT %s
+                FOR UPDATE SKIP LOCKED
+                """,
+                (self.bot_id, guild_id, discord_channel_id, safe_limit),
+            )
+            return fetch_all(cursor)
+
+    def mark_terminal_notified(
+        self, *, task_id: uuid.UUID, status: str, message_id: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        if not isinstance(task_id, uuid.UUID):
+            raise ValueError("task_id must be a UUID")
+        if status not in ("completed", "failed", "needs_human", "cancelled"):
+            raise ValueError("terminal status required")
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE ai_tasks
+                SET discord_terminal_notified_status = %s,
+                    discord_terminal_notified_at = NOW(),
+                    discord_terminal_notification_message_id = %s
+                WHERE task_id = %s AND status = %s AND bot_id = %s
+                  AND status IN ('completed', 'failed', 'needs_human', 'cancelled')
+                  AND discord_terminal_notified_status IS NULL
+                  AND discord_terminal_notified_at IS NULL
+                RETURNING task_id, discord_terminal_notified_status
+                """,
+                (status, message_id, task_id, status, self.bot_id),
+            )
+            return fetch_one(cursor)
+
     def update_status(
         self,
         *,
