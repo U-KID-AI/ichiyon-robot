@@ -1,5 +1,7 @@
 pack.name=Ichiyon Avatar RP
 pack.description=Custom avatar resource pack
+entity.ichiyon:avatar.name=Display Mannequin
+item.spawn_egg.entity.ichiyon:avatar.name=Display Mannequin (Kiana)
 entity.ichiyon:taketumi.name=Taketumi
 item.ichiyon:taketumi_spawn_egg.name=タケツミエッグ
 tile.ichiyon:poster_irsia.name=イルシアポスター

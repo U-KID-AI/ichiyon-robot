@@ -1,0 +1,18 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "ichiyon:avatar",
+      "materials": {"default": "entity_alphatest"},
+      "textures": {
+        "kiana": "textures/entity/avatar/kiana",
+        "mei": "textures/entity/avatar/mei",
+        "bronya": "textures/entity/avatar/bronya",
+        "albert": "textures/entity/avatar/albert"
+      },
+      "geometry": {"default": "geometry.ichiyon.avatar"},
+      "render_controllers": ["controller.render.ichiyon.avatar"],
+      "spawn_egg": {"base_color": "#DED8EF", "overlay_color": "#70539B"}
+    }
+  }
+}
