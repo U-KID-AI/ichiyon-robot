@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import filecmp
 import hmac
 import json
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import FastAPI, Header, HTTPException, status
+from minecraft_diagnostics import Diagnostics
 
 
 PROJECT_DIR = Path(os.getenv("MINECRAFT_CONTROL_PROJECT_DIR", "/home/ubuntu/minecraft-bedrock-creative"))
@@ -24,6 +26,9 @@ CONTAINER_NAME = os.getenv("MINECRAFT_CONTROL_CONTAINER_NAME", "minecraft-bedroc
 PACK_SOURCE_DIR_RAW = os.getenv("MINECRAFT_CONTROL_PACK_SOURCE_DIR", "").strip()
 PACK_SOURCE_DIR = Path(PACK_SOURCE_DIR_RAW).expanduser() if PACK_SOURCE_DIR_RAW else None
 CONTROL_SECRET = os.getenv("MINECRAFT_CONTROL_SECRET", "")
+DIAGNOSTICS_SECRET = os.getenv("MINECRAFT_DIAGNOSTICS_SECRET", "")
+DIAGNOSTICS_BROADCAST_CONTAINER = os.getenv("MINECRAFT_DIAGNOSTICS_BROADCAST_CONTAINER", "")
+DIAGNOSTICS_LOCK = asyncio.Lock()
 BACKUP_DIR = PROJECT_DIR / "backups"
 WORLD_NAME = os.getenv("MINECRAFT_CONTROL_WORLD_NAME", "ichiyon-creative-flat")
 BEDROCK_PORT = os.getenv("MINECRAFT_CONTROL_BEDROCK_PORT", "19134")
@@ -401,6 +406,25 @@ def wait_for_ready(timeout_seconds: int) -> Dict[str, Any]:
 def get_status(x_minecraft_control_secret: Optional[str] = Header(default=None)) -> Dict[str, Any]:
     require_secret(x_minecraft_control_secret)
     return status_payload()
+
+
+@app.get("/diagnostics")
+async def get_diagnostics(x_minecraft_diagnostics_secret: Optional[str] = Header(default=None)) -> Dict[str, Any]:
+    # Separate read-only credential; it must never authorize /restart.
+    if not DIAGNOSTICS_SECRET or DIAGNOSTICS_SECRET == CONTROL_SECRET:
+        raise HTTPException(status_code=503, detail="diagnostics disabled")
+    if x_minecraft_diagnostics_secret is None or not hmac.compare_digest(
+        x_minecraft_diagnostics_secret, DIAGNOSTICS_SECRET
+    ):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    try:
+        collector = Diagnostics(CONTAINER_NAME, DIAGNOSTICS_BROADCAST_CONTAINER, BEDROCK_PORT)
+    except ValueError:
+        raise HTTPException(status_code=503, detail="diagnostics configuration rejected") from None
+    if DIAGNOSTICS_LOCK.locked():
+        raise HTTPException(status_code=429, detail="diagnostics busy")
+    async with DIAGNOSTICS_LOCK:
+        return await collector.snapshot()
 
 
 @app.post("/restart")
