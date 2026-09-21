@@ -1089,7 +1089,7 @@ def orchestration_checks():
         check("completion contains only deployment proof", normal_client.calls[-1] == (
             "completed", {"deployed_commit_sha": "e" * 40, "deployment_summary": "Deployment verified."}))
 
-        for scenario in ("timeout", "nonzero", "no_changes", "staged", "protected", "test", "test_staged", "diff", "exhaust", "exhaust_nonzero", "exhaust_no_changes", "exhaust_test", "test_protected", "exception_timeout"):
+        for scenario in ("timeout", "nonzero", "usage_limit", "no_changes", "staged", "protected", "test", "test_staged", "diff", "exhaust", "exhaust_nonzero", "exhaust_no_changes", "exhaust_test", "test_protected", "exception_timeout"):
             if task_path.exists():
                 shutil.rmtree(task_path)
             retry_git = FakeGit()
@@ -1113,8 +1113,27 @@ def orchestration_checks():
                     if len(prompts) > 1 and scenario in ("protected", "test_protected"):
                         assert (cwd / "AGENTS.md").read_text(encoding="utf-8") == "rules"
                         assert (cwd / "src/main.py").read_text(encoding="utf-8") == "pass"
-                    return SimpleNamespace(returncode=1 if scenario == "exhaust_nonzero" or scenario == "nonzero" and len(prompts) == 1 else 0,
-                                           timed_out=scenario == "exhaust" or scenario == "timeout" and len(prompts) == 1)
+                    return SimpleNamespace(
+                        returncode=(
+                            1
+                            if scenario == "usage_limit"
+                            or scenario == "exhaust_nonzero"
+                            or scenario == "nonzero" and len(prompts) == 1
+                            else 0
+                        ),
+                        timed_out=(
+                            scenario == "exhaust"
+                            or scenario == "timeout" and len(prompts) == 1
+                        ),
+                        stdout="",
+                        stderr=(
+                            "You have reached your usage limit"
+                            if scenario == "usage_limit"
+                            else ""
+                        ),
+                        stopped=False,
+                        stdin_cleanup_failed=False,
+                    )
                 def stop(self): stops.append(True)
             def retry_test(cwd, changed, **kwargs):
                 retry_tests.append(True)
@@ -1136,11 +1155,49 @@ def orchestration_checks():
                                  review_gate=FakeReviewGate([]), auto_merger=FakeAutoMerger([]), deployer=FakeDeployer([]),
                                  test_runner=retry_test, heartbeat_factory=ActiveHeartbeat)
             outcome = runner.run_once()
-            check("retry scenario " + scenario, outcome == (RunOutcome.FAILED if scenario.startswith("exhaust") else RunOutcome.SUCCESS))
-            expected = 5 if scenario == "exhaust" else 1 if scenario in ("staged", "test_staged") else 2
+            check(
+                "retry scenario " + scenario,
+                outcome
+                == (
+                    RunOutcome.FAILED
+                    if scenario.startswith("exhaust") or scenario == "usage_limit"
+                    else RunOutcome.SUCCESS
+                ),
+            )
+            expected = (
+                5
+                if scenario == "exhaust"
+                else 1
+                if scenario in ("staged", "test_staged", "usage_limit")
+                else 2
+            )
             check("bounded attempts " + scenario, len(prompts) == expected and len(set(outputs)) == expected)
             check("same heartbeat and one testing transition " + scenario, client.calls.count("heartbeat") == 1 and client.calls.count("testing") <= 1)
             check("feedback excludes raw secrets " + scenario, all("SECRET_SENTINEL" not in prompt for prompt in prompts))
+            if scenario == "usage_limit":
+                check(
+                    "usage limit stops Codex retry",
+                    len(prompts) == 1,
+                )
+                check(
+                    "usage limit becomes needs human",
+                    (
+                        "needs_human",
+                        "Codex usage limit reached; manual continuation required",
+                    )
+                    in client.calls,
+                )
+                check(
+                    "usage limit is not ordinary failure",
+                    not any(
+                        isinstance(item, tuple) and item[0] == "failed"
+                        for item in client.calls
+                    ),
+                )
+                check(
+                    "usage limit skips offline tests",
+                    not retry_tests,
+                )
             if scenario == "test":
                 check("test failure feedback", "python-syntax=1: invalid syntax at line 3" in prompts[1])
             if scenario.startswith("exhaust_"):
