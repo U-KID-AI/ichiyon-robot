@@ -39,6 +39,8 @@ jobs:
           python scripts/check_ai_task_auto_merge.py
           python scripts/check_ai_task_local_runner.py
           python scripts/check_ai_task_linux.py
+          python scripts/check_ai_task_minecraft_deploy.py
+          python scripts/check_ai_task_minecraft_runtime.py
 
       - name: Run static checks
         run: |

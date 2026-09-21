@@ -23,7 +23,13 @@ from ai_task_codex import CodexAdapter, CodexSafetyError, build_prompt
 from ai_task_git import EXPECTED_ORIGIN, GitAdapter, GitSafetyError, GitSnapshot, GitDiffCheckError, repairable_paths
 from ai_task_process import ProcessTerminationError, terminate_process_tree
 from ai_task_process import communicate_bounded
-from ai_task_runner import LeaseHeartbeat, LocalRunner, RunOutcome, outcome_exit_code
+from ai_task_runner import (
+    LeaseHeartbeat,
+    LocalRunner,
+    RunOutcome,
+    outcome_exit_code,
+    run_idle_maintenance,
+)
 from ai_task_runner_config import RunnerConfig, validate_api_base_url, validate_runner_id
 from ai_task_safety import (SafetyError, expected_branch, expected_worktree_name, is_protected_path,
                              task_worktree_path, validate_changed_paths, validate_claim_names,
@@ -1530,6 +1536,27 @@ def orchestration_checks():
         )
 
         check("runner exit codes distinguish outcomes", outcome_exit_code(RunOutcome.NO_TASK) == 0 and outcome_exit_code(RunOutcome.SUCCESS) == 0 and outcome_exit_code(RunOutcome.FAILED) != 0 and outcome_exit_code(RunOutcome.CLAIM_FAILED) != 0)
+
+        class MaintenanceProbe:
+            def __init__(self):
+                self.calls = 0
+
+            def catch_up(self):
+                self.calls += 1
+
+        for maintenance_outcome, expected_calls in (
+            (RunOutcome.NO_TASK, 1),
+            (RunOutcome.SUCCESS, 0),
+            (RunOutcome.FAILED, 0),
+            (RunOutcome.CLAIM_FAILED, 0),
+        ):
+            probe = MaintenanceProbe()
+            run_idle_maintenance(probe, maintenance_outcome)
+            check(
+                "minecraft catch-up only on idle: "
+                + maintenance_outcome.name,
+                probe.calls == expected_calls,
+            )
         check(
             "normal orchestration completes exactly once",
             len(
