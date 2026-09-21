@@ -160,6 +160,80 @@ class MinecraftChecks(unittest.TestCase):
         bds.deploy.assert_not_called()
 
 
+    def test_remote_atomic_paths_reject_dangling_symlinks(self):
+        remote_path = Path(__file__).with_name(
+            "ai_task_minecraft_deploy_remote.py"
+        )
+
+        import ast
+
+        tree = ast.parse(
+            remote_path.read_text(encoding="utf-8"),
+            filename=str(remote_path),
+        )
+
+        wanted = {
+            "fail",
+            "read_state",
+            "write_atomic",
+        }
+
+        functions = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name in wanted
+        ]
+
+        self.assertEqual(
+            {node.name for node in functions},
+            wanted,
+        )
+
+        namespace = {"os": os}
+
+        exec(
+            compile(
+                ast.Module(
+                    body=functions,
+                    type_ignores=[],
+                ),
+                str(remote_path),
+                "exec",
+            ),
+            namespace,
+        )
+
+        write_atomic = namespace["write_atomic"]
+        read_state = namespace["read_state"]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            outside = root / "outside.json"
+            state = root / ".ichiyon-ai-managed-packs.json"
+            atomic_tmp = root / (
+                ".ichiyon-ai-managed-packs.json.ichiyon-tmp"
+            )
+
+            atomic_tmp.symlink_to(outside)
+
+            with self.assertRaises(RuntimeError):
+                write_atomic(state, b"{}\n")
+
+            self.assertFalse(outside.exists())
+            self.assertTrue(atomic_tmp.is_symlink())
+            self.assertFalse(state.exists())
+
+            atomic_tmp.unlink()
+            state.symlink_to(outside)
+
+            with self.assertRaises(RuntimeError):
+                read_state(state)
+
+            self.assertFalse(outside.exists())
+            self.assertTrue(state.is_symlink())
+
+
     def test_remote_rollback_failure_preserves_backup(self):
         """A failed rollback must retain the original pack backup for recovery."""
         with tempfile.TemporaryDirectory() as tmp:
