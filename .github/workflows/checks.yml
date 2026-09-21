@@ -38,6 +38,7 @@ jobs:
           python scripts/check_ai_task_code_review.py
           python scripts/check_ai_task_auto_merge.py
           python scripts/check_ai_task_local_runner.py
+          python scripts/check_ai_task_linux.py
 
       - name: Run static checks
         run: |

@@ -1,4 +1,4 @@
-"""Phase 3C-1D Windows local AI task runner.
+"""Phase 3C-1D Windows/Linux local AI task runner.
 
 The default mode processes at most one task. This module never connects directly
 to the database. After fixed offline validation it may create a deterministic
@@ -11,6 +11,7 @@ The durable deploying state precedes the fixed-operation deployer.
 import argparse
 import logging
 import re
+import sys
 import threading
 import time
 from enum import Enum
@@ -198,11 +199,13 @@ class LocalRunner:
         self.publisher = publisher
         if (
             self.publisher is None
-            and config.gcm_path is not None
+            and (config.gcm_path is not None
+                 or (sys.platform == "linux" and config.gh_path is not None))
         ):
             self.publisher = GitPublisher(
                 config.git_path,
                 gcm_path=config.gcm_path,
+                gh_path=config.gh_path,
             )
 
         self.github = github

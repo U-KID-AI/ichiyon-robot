@@ -168,8 +168,10 @@ def run_with(
             temp_root=Path(temp),
         )
 
+        worktree = Path(temp) / "worktree"
+        worktree.mkdir()
         result = adapter.run(
-            ROOT,
+            worktree,
             task_id=TASK_ID,
             task_description="Add the requested feature.",
             base_sha=BASE_SHA,

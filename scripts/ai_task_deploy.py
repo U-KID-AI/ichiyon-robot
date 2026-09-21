@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ai_task_deploy_config import DeployConfig, DeploymentSafetyError, normal_file
-from ai_task_process import communicate_bounded
+from ai_task_process import communicate_bounded, managed_process_options
 
 
 SUMMARY = "Immutable app deployment verified."
@@ -51,7 +51,7 @@ class ProductionDeployAdapter:
                     "-o", "ClearAllForwardings=yes", "-o", "PermitLocalCommand=no",
                     "-i", str(c.ssh_key_path), c.ssh_user + "@" + c.ssh_host,
                     "bash", "-s", "--", merge_sha]
-            process = subprocess.Popen(argv, shell=False, stdin=subprocess.PIPE,
+            process = subprocess.Popen(argv, **managed_process_options(), shell=False, stdin=subprocess.PIPE,
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             # Once the fixed production transaction has started, transient Control
             # Plane lease loss must not kill SSH mid-backup/migration/cutover.

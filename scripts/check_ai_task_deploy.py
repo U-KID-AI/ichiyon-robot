@@ -34,6 +34,12 @@ class DeploymentTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         base = Path(self.temp.name)
+        # Model a separate trusted installation even when TMPDIR is inside the
+        # checkout. Fixtures must stay outside that modeled installation.
+        installation = base / 'runner-install' / 'scripts' / 'ai_task_deploy_config.py'
+        installation_patch = patch('ai_task_deploy_config.__file__', str(installation))
+        installation_patch.start()
+        self.addCleanup(installation_patch.stop)
         files = [base / ('ssh.exe' if os.name == 'nt' else 'ssh'),
                  base / 'fake-key', base / 'fake-known-hosts']
         for p in files:
@@ -162,7 +168,7 @@ class DeploymentTests(unittest.TestCase):
                       SSH_KEY_PATH=str(self.config.ssh_key_path), KNOWN_HOSTS_PATH=str(self.config.known_hosts_path))
         env = {'AI_TASK_RUNNER_DEPLOY_' + k: v for k, v in values.items()}
         with patch.dict(os.environ, env, clear=True), patch.object(Path, 'read_text', side_effect=AssertionError('no reads')):
-            config = DeployConfig.from_environment(repo_root=ROOT, worktree_root=Path(self.temp.name) / 'worktrees')
+            config = DeployConfig.from_environment(repo_root=Path(self.temp.name) / 'repo', worktree_root=Path(self.temp.name) / 'worktrees')
             self.assertEqual(config.ssh_host, 'example.invalid')
         with patch.dict(os.environ, {}, clear=True), self.assertRaises(DeploymentSafetyError):
             DeployConfig.from_environment(repo_root=ROOT, worktree_root=ROOT)

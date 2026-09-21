@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Callable, Sequence
 from uuid import UUID
 
-from ai_task_process import communicate_bounded
+from ai_task_process import communicate_bounded, managed_process_options
 from ai_task_safety import (
     expected_branch,
     is_reparse_point,
@@ -305,6 +305,7 @@ class ReviewMergeGate:
 
         process = self._popen(
             argv,
+            **managed_process_options(),
             cwd=str(cwd.resolve()),
             shell=False,
             stdin=subprocess.DEVNULL,

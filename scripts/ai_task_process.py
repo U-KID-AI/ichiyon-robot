@@ -1,6 +1,7 @@
-"""Bounded-output process helpers with Windows process-tree termination."""
+"""Bounded-output process helpers with Windows/POSIX process-tree termination."""
 
 import os
+import signal
 import subprocess
 import threading
 import time
@@ -45,6 +46,55 @@ def _drain(stream, budget: _SharedBudget, target: bytearray) -> None:
         if isinstance(chunk, str):
             chunk = chunk.encode("utf-8", errors="replace")
         target.extend(budget.take(chunk))
+
+
+def managed_process_options() -> dict[str, bool]:
+    """Every caller of the shared terminator must launch a dedicated session."""
+    return {"start_new_session": True} if os.name == "posix" else {}
+
+
+def _terminate_posix_group(process) -> None:
+    pid = getattr(process, "pid", None)
+    if type(pid) is not int or pid <= 1 or pid == os.getpgrp():
+        raise ProcessTerminationError("invalid managed process group")
+    try:
+        if os.getpgid(pid) != pid:
+            raise ProcessTerminationError("process is not a dedicated group leader")
+    except ProcessLookupError:
+        # The leader may have exited while descendants still hold its pipes.
+        pass
+    except OSError as exc:
+        raise ProcessTerminationError("process group inspection failed") from exc
+
+    def group_exists() -> bool:
+        process.poll()  # Reap the leader before probing the whole group.
+        try:
+            os.killpg(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except OSError as exc:
+            raise ProcessTerminationError("process group verification failed") from exc
+
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(pid, sig)
+        except ProcessLookupError:
+            if process.poll() is not None:
+                return
+            raise ProcessTerminationError("managed process escaped its group")
+        except OSError as exc:
+            raise ProcessTerminationError("process group termination failed") from exc
+        deadline = time.monotonic() + 5
+        while group_exists():
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.05)
+        else:
+            if process.poll() is not None:
+                return
+            raise ProcessTerminationError("parent termination could not be verified")
+    raise ProcessTerminationError("process group termination could not be verified")
 
 
 def terminate_process_tree(process, *, runner: Callable[..., object] | None = None,
@@ -101,6 +151,9 @@ def terminate_process_tree(process, *, runner: Callable[..., object] | None = No
             raise ProcessTerminationError("Windows process tree termination failed")
         bounded_parent_cleanup()
         raise ProcessTerminationError("Windows taskkill executable is unavailable")
+    if os.name == "posix":
+        _terminate_posix_group(process)
+        return
     bounded_parent_cleanup()
 
 
@@ -169,6 +222,14 @@ def communicate_bounded(process, *, input_text: str | None, timeout: float, max_
             stdin_cleanup_failed = True
     for thread in readers:
         thread.join(timeout=2)
+    if any(thread.is_alive() for thread in readers) or stdin_cleanup_failed:
+        # A successful parent exit does not prove descendants released the pipes.
+        if not termination_requested:
+            (terminator or terminate_process_tree)(process)
+        for thread in readers:
+            thread.join(timeout=2)
+        if any(thread.is_alive() for thread in readers):
+            raise ProcessTerminationError("process output cleanup could not be verified")
     return ProcessResult(
         (getattr(process, "returncode", None) if getattr(process, "returncode", None) is not None else -1),
         bytes(stdout_buffer).decode("utf-8", errors="replace"),
