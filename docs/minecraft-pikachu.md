@@ -30,16 +30,15 @@ nether_brick_fence 2。赤い頬はX=6・Y=11–12、白い目の光はX=6・Y=1
 - 回転時は移動・注視・睡眠追尾AIを含むmobile groupを外し、速度0、重力なし、
   knockback resistance 1にする。0.7秒timerで復帰し、インタラクトのcooldownは1.2秒。
   spin中の再イベントもproperty条件で拒否する。空中での開始は受け付けない。
-- 視認・到達可能な同dimension内12ブロックの睡眠中playerを標準target selectorで探す。
-  attack component/攻撃goalは追加しない。targetの条件を再評価し、起床後は追尾を停止。
-  move_around_targetで2.2–3.2ブロックの周囲360度にランダムな行き先を選ぶ。
-  高低差の探索は1ブロック。固定座標へのteleportやベッド上への直接移動は行わない。
+- 同dimension内12ブロックの睡眠中playerだけを非戦闘のfollow_mobで追従する。
+  明示的なplayer＋is_sleeping filterを使い、攻撃target選別には依存しないため、
+  Creative/無敵playerも睡眠中なら候補になる。stop_distanceは2.5ブロックとし、
+  player/ベッド位置への直接重なりを避ける。起床するとfilterが成立しなくなり通常行動へ戻る。
 
 公式仕様:
 [睡眠フィルター](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/filters/is_sleeping?view=minecraft-bedrock-stable)、
-[targetの継続再評価](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/entitygoals/minecraftbehavior_nearest_attackable_target?view=minecraft-bedrock-stable)、
-[周囲への移動](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/entitygoals/minecraftbehavior_move_around_target?view=minecraft-bedrock-stable)。
-Entity formatは1.26.10で、周回距離にはこのformatのlegacy min/max objectを使う。
+[Mob追従](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/entitygoals/minecraftbehavior_follow_mob?view=minecraft-bedrock-stable)。
+Entity formatは1.26.10を使用する。
 
 ## 検証と未完了事項
 
@@ -59,11 +58,11 @@ Avatar Bridge checkはNode.js不足で起動できなかった。Lead Anchor che
 Python 3.8非互換でエラー。これらの回帰checkは対応環境で再実行が必要。
 
 本番反映前には別途、ローカルBedrockでContent Log、Creativeでのエッグ、
-睡眠targetの取得（特にCreative/無敵プレイヤーと平和難易度）、複数ベッド・
+睡眠中player追従（特にCreative/無敵プレイヤーと平和難易度）、複数ベッド・
 障害物・狭い場所での経路、起床/離脱/チャンク再読込、回転開始時の残留速度・
 水流/接触による位置変化、通信遅延時の一回転を確認する必要がある。
-周回AIは候補地点を分散させるが、個体別の予約枠を設けていないため、
-群れの重なりやベッドを横切る経路がないことはオフラインでは保証していない。
+follow_mobはplayerから2.5ブロックで停止するが、複数個体同士の配置予約はないため、
+群れ同士の重なりや経路上でベッドを横切らないことはオフラインでは保証していない。
 見た目、歩き方、時計回りの向きと回転の感触、自然な群がり方も実機で要確認。
 
 この作業はRunnerの許可範囲での編集とoffline検証のみ。

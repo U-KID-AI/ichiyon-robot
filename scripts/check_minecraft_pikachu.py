@@ -170,24 +170,51 @@ class PikachuChecks(unittest.TestCase):
 
     def test_sleep_range_wakeup_and_noncombat(self):
         mobile = self.entity["component_groups"]["ichiyon:mobile"]
-        targeting = mobile["minecraft:behavior.nearest_attackable_target"]
-        self.assertTrue(targeting["reevaluate_description"])
-        self.assertTrue(targeting["must_see"])
-        self.assertTrue(targeting["must_reach"])
-        self.assertEqual(targeting["within_radius"], 12)
-        target = targeting["entity_types"][0]
-        self.assertEqual(target["max_dist"], 12)
-        filters = target["filters"]["all_of"]
-        self.assertIn({"test": "is_sleeping", "subject": "other", "value": True}, filters)
-        self.assertIn({"test": "is_family", "subject": "other", "value": "player"}, filters)
-        around = mobile["minecraft:behavior.move_around_target"]
-        self.assertGreaterEqual(around["destination_position_range"]["min"], 2.2)
-        self.assertEqual(around["destination_pos_spread_degrees"], 360)
-        self.assertGreater(around["height_difference_limit"], 0)
-        self.assertIn({"test": "is_sleeping", "subject": "target", "value": True}, around["filters"]["all_of"])
-        for components in [self.entity["components"], *self.entity["component_groups"].values()]:
+
+        # Sleeping-player gathering must be noncombat so Creative/invulnerable
+        # players are not rejected by attack-target acquisition.
+        self.assertNotIn("minecraft:behavior.nearest_attackable_target", mobile)
+        self.assertNotIn("minecraft:behavior.move_around_target", mobile)
+
+        follow = mobile["minecraft:behavior.follow_mob"]
+        self.assertEqual(follow["priority"], 1)
+        self.assertEqual(follow["search_range"], 12)
+        self.assertEqual(follow["speed_multiplier"], 1.0)
+        self.assertEqual(follow["stop_distance"], 2.5)
+        self.assertFalse(follow["use_home_position_restriction"])
+
+        filters = follow["filters"]["all_of"]
+        self.assertIn(
+            {"test": "is_family", "subject": "other", "value": "player"},
+            filters,
+        )
+        self.assertIn(
+            {"test": "is_sleeping", "subject": "other", "value": True},
+            filters,
+        )
+
+        # No game-mode restriction: Creative sleepers are intentionally eligible.
+        serialized = json.dumps(follow).lower()
+        self.assertNotIn("game_mode", serialized)
+        self.assertNotIn("gamemode", serialized)
+
+        # stop_distance keeps the mob away from the player's exact position.
+        self.assertGreater(follow["stop_distance"], 2.0)
+        self.assertLess(follow["stop_distance"], follow["search_range"])
+
+        for components in [
+            self.entity["components"],
+            *self.entity["component_groups"].values(),
+        ]:
             self.assertNotIn("minecraft:attack", components)
-            self.assertFalse(any("melee_attack" in k or "ranged_attack" in k for k in components))
+            self.assertFalse(
+                any(
+                    "melee_attack" in key
+                    or "ranged_attack" in key
+                    or "nearest_attackable_target" in key
+                    for key in components
+                )
+            )
 
 
 if __name__ == "__main__":
