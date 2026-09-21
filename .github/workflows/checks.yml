@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -41,6 +43,15 @@ jobs:
           python scripts/check_ai_task_linux.py
           python scripts/check_ai_task_minecraft_deploy.py
           python scripts/check_ai_task_minecraft_runtime.py
+          python scripts/check_resource_pack_versions_test.py
+
+      - name: Enforce resource pack version bumps
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python scripts/check_resource_pack_versions.py "$BASE_SHA" "$HEAD_SHA"
 
       - name: Run static checks
         run: |
