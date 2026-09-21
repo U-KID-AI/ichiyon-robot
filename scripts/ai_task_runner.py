@@ -28,7 +28,13 @@ from ai_task_process import ProcessTerminationError
 from ai_task_publish import GitPublisher, PublishSafetyError
 from ai_task_review_merge import ReviewMergeGate, ReviewMergeSafetyError
 from ai_task_deploy import ProductionDeployAdapter
-from ai_task_deploy_config import DeployConfig
+from ai_task_deploy_config import DeployConfig, DeploymentSafetyError
+from ai_task_minecraft_deploy import TargetDeployAdapter
+from ai_task_minecraft_runtime import (
+    ExactMergeSource,
+    MinecraftDeployConfig,
+    ProductionMinecraftDeployAdapter,
+)
 from ai_task_runner_config import RunnerConfig
 from ai_task_safety import (SafetyError, is_reparse_point, task_worktree_path,
                              validate_changed_paths, validate_claim_names, validate_project_codex_layer)
@@ -55,6 +61,7 @@ def failure_reason(exc):
         return str(exc)
     reasons = {
         GitSafetyError: "Git integrity or recovery operation failed; ownership, origin, base or worktree could not be verified",
+        DeploymentSafetyError: "Production deployment verification failed; completion withheld",
         SafetyError: "Repository filesystem or policy boundary validation failed",
         CodexSafetyError: "Codex adapter safety or process handling failed",
         ProcessTerminationError: "Process cleanup could not be verified; human inspection required",
@@ -111,6 +118,12 @@ class RunOutcome(Enum):
 
 def outcome_exit_code(outcome: RunOutcome) -> int:
     return 0 if outcome in (RunOutcome.NO_TASK, RunOutcome.SUCCESS) else 1
+
+
+def run_idle_maintenance(deployer, outcome: RunOutcome) -> None:
+    """Run BDS catch-up only when this invocation claimed no task."""
+    if outcome is RunOutcome.NO_TASK:
+        deployer.catch_up()
 
 
 def read_rules(worktree: Path) -> dict[str, str]:
@@ -926,12 +939,42 @@ def main() -> int:
             repo_root=config.repo_root,
             worktree_root=config.worktree_root,
         )
+
+        app_deployer = ProductionDeployAdapter(deploy_config)
+        minecraft_source = ExactMergeSource(
+            config.repo_root,
+            config.git_path,
+        )
+
+        def minecraft_factory():
+            minecraft_config = MinecraftDeployConfig.from_environment(
+                repo_root=config.repo_root,
+                worktree_root=config.worktree_root,
+            )
+            return ProductionMinecraftDeployAdapter(
+                minecraft_config,
+                minecraft_source,
+            )
+
+        deployer = TargetDeployAdapter(
+            app_deployer,
+            minecraft_source,
+            minecraft_factory,
+        )
+
         runner = LocalRunner(
             config,
-            deployer=ProductionDeployAdapter(deploy_config),
+            deployer=deployer,
         )
+
         # --once remains the only supported execution mode.
+        # Minecraft catch-up runs only on an idle invocation. A run that claims
+        # any ordinary task must never contact BDS unless that task's reviewed
+        # deployment itself requires the Minecraft target.
         outcome = runner.run_once()
+
+        run_idle_maintenance(deployer, outcome)
+
         return outcome_exit_code(outcome)
     except (ValueError, OSError, SafetyError) as exc:
         logger.error("Runner configuration failed: %s", type(exc).__name__)
