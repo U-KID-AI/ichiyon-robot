@@ -12,6 +12,9 @@
       "geometry": {
         "default": "geometry.gonta"
       },
+      "locators": {
+        "lead": { "body": [0.0, 4.0, -4.0] }
+      },
       "animations": {
         "walk": "animation.gonta.walk"
       },
