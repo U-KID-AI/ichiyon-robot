@@ -1,10 +1,11 @@
-"""Configuration for the Windows local AI task runner.
+"""Configuration for the Windows/Linux local AI task runner.
 
 This module intentionally reads only process environment variables. It does not
 load dotenv files or import the Bot configuration.
 """
 
 import os
+import sys
 import re
 import math
 from dataclasses import dataclass
@@ -141,12 +142,14 @@ class RunnerConfig:
         codex_path = _validate_executable(Path(_required("AI_TASK_RUNNER_CODEX_PATH")), "Codex path", repo_root, worktree_root)
         git_path = _validate_executable(Path(_required("AI_TASK_RUNNER_GIT_PATH")), "Git path", repo_root, worktree_root)
         gh_path = _validate_executable(Path(_required("AI_TASK_RUNNER_GH_PATH")), "GitHub CLI path", repo_root, worktree_root)
-        gcm_path = _validate_gcm_executable(
-            Path(_required("AI_TASK_RUNNER_GCM_PATH")),
-            git_path,
-            repo_root,
-            worktree_root,
-        )
+        gcm_path = None
+        if sys.platform == "win32":
+            gcm_path = _validate_gcm_executable(
+                Path(_required("AI_TASK_RUNNER_GCM_PATH")),
+                git_path, repo_root, worktree_root,
+            )
+        elif sys.platform != "linux":
+            raise ValueError("runner supports Windows and Linux only")
         codex_home_candidate = Path(codex_home_value)
         if (not codex_home_candidate.is_absolute() or not codex_home_candidate.is_dir()
                 or codex_home_candidate.is_symlink() or is_reparse_point(codex_home_candidate)):

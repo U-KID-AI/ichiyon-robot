@@ -1,13 +1,16 @@
 """Non-interactive Codex adapter. Tests inject a fake Popen; this module never runs it on import."""
 
 import os
+import sys
 import json
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
 
-from ai_task_process import ProcessResult, communicate_bounded, terminate_process_tree
+from ai_task_process import (
+    ProcessResult, communicate_bounded, managed_process_options, terminate_process_tree,
+)
 
 
 class CodexSafetyError(RuntimeError):
@@ -81,8 +84,9 @@ class CodexAdapter:
         argv = [str(self.codex_path), "exec", "--sandbox", "workspace-write",
                 "-c", 'approval_policy="never"',
                 "-c", "sandbox_workspace_write.network_access=false",
-                "-c", 'windows.sandbox="elevated"',
-                "-c", 'windows.allowed_sandbox_implementations=["elevated"]',
+                *(["-c", 'windows.sandbox="elevated"',
+                   "-c", 'windows.allowed_sandbox_implementations=["elevated"]']
+                  if sys.platform == "win32" else []),
                 "-c", 'shell_environment_policy.inherit="core"',
                 "-c", "shell_environment_policy.ignore_default_excludes=false",
                 "-c", "allow_login_shell=false",
@@ -94,7 +98,7 @@ class CodexAdapter:
         output_file = output_file.resolve()
         if output_file.exists() or output_file.is_symlink() or not output_file.parent.is_dir():
             raise CodexSafetyError("Codex output path is unsafe")
-        self._process = self._popen(argv, cwd=str(worktree.resolve()), stdin=subprocess.PIPE,
+        self._process = self._popen(argv, **managed_process_options(), cwd=str(worktree.resolve()), stdin=subprocess.PIPE,
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False,
                                     shell=False, env=self._environment(codex_home))
         try:

@@ -50,7 +50,7 @@ productionに関するLevel 3操作は、人間の承認を得てもAI Runner自
 AI Task Control Planeは専用Bearer tokenと固定endpointで保護し、任意SQL、任意status、任意column、任意shellを公開しない。claim tokenとleaseを全Runner更新で検証し、期限切れtaskをqueuedへ戻さない。Phase 2AではCodex、Git、GitHub、worktree、production/staging操作を実行しない。IP制限はX-Forwarded-Forをアプリケーションで信頼せず、将来reverse proxyまたはfirewallで行う。
 ## Phase 2B Local Runner
 
-Windows Local Runnerは専用API tokenだけを使い、DBへ直接接続しない。Codex argvは固定し、任意flag、任意shell、任意Git操作、task本文由来のpath・command・flagを許可しない。`--dangerously-bypass-approvals-and-sandbox`、danger-full-access、add-dir、worktree、skip-git-repo-checkは禁止する。commit、push、PR、merge、staging、production操作はPhase 2Bで実行しない。
+Windows/Linux Local Runnerは専用API tokenだけを使い、DBへ直接接続しない。Codex argvは固定し、任意flag、任意shell、任意Git操作、task本文由来のpath・command・flagを許可しない。`--dangerously-bypass-approvals-and-sandbox`、danger-full-access、add-dir、worktree、skip-git-repo-checkは禁止する。commit、push、PR、merge、staging、production操作はPhase 2Bで実行しない。
 RunnerはPATH上の`git`や`python`を実行せず、検証済み絶対pathと`sys.executable`を使用する。Git argv、test argv、process tree停止argvは固定allowlistとし、Codex childだけcredential helperを無効化する。
 
 ## Phase 3C-1D: durable deployment lifecycle

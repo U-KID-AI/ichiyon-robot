@@ -77,15 +77,15 @@ Draft PRには目的、変更範囲、テスト結果、既知の制約、Level 
 
 Runner APIは`/internal/ai-tasks/claim`、`/{task_id}/heartbeat`、`/{task_id}/progress`、`/{task_id}/testing`、`/{task_id}/fail`、`/{task_id}/needs-human`、`/{task_id}/ready-for-review`の固定operationで構成する。`Authorization: Bearer`には専用の`AI_TASK_RUNNER_API_TOKEN`を使い、未設定・不一致は拒否する。claimはqueuedを古い順にatomic取得し、180秒leaseとUUID claim tokenを発行する。lease期限切れは再queueせずneeds_humanへ移す。
 
-Phase 2AではAPIのDB状態更新だけを行う。Windows RunnerのCodex/Git/GitHub処理、worktree管理、Draft PR、Discord報告はPhase 2B/2Cの対象であり、APIはtask descriptionと固定された状態情報だけを返す。
+Phase 2AではAPIのDB状態更新だけを行う。Windows/Linux RunnerのCodex/Git/GitHub処理、worktree管理、Draft PR、Discord報告はPhase 2B/2Cの対象であり、APIはtask descriptionと固定された状態情報だけを返す。
 ## Phase 2B Local Runner
 
 Phase 2Bのruntime test registryはuntrustedなrepository Pythonをホスト上でimport・実行しない。Python変更はメモリ上で構文compileのみを行い、`__pycache__`や`.pyc`を生成せず、repository由来のcheck scriptも実行しない。
 
-Windows Runnerは`--once`で1 taskだけ処理する。Control Planeからclaimした後、source repositoryのclean状態と固定originを確認し、`origin/main`をfetchしてUUID由来のbranch/worktreeを作成する。Codex実行中とtest中はheartbeatを送り、lease維持に失敗した場合は処理を止めてworktreeを保持する。CodexのcommitやGitHub操作は許可しない。
+Windows/Linux Runnerは`--once`で1 taskだけ処理する。Control Planeからclaimした後、source repositoryのclean状態と固定originを確認し、`origin/main`をfetchしてUUID由来のbranch/worktreeを作成する。Codex実行中とtest中はheartbeatを送り、lease維持に失敗した場合は処理を止めてworktreeを保持する。CodexのcommitやGitHub操作は許可しない。
 
 Phase 2Bは固定test registryと`git diff --check`を実行し、結果をprogressへ保存してtaskをtestingのまま終了する。Codex実行、Git、filesystem、API通信はfakeで検証し、実機Codex子プロセスやproduction/staging接続はこのPhaseのcheckで行わない。
-RunnerのGit executableは`AI_TASK_RUNNER_GIT_PATH`で絶対path指定し、source repo/worktree配下の実行ファイルを拒否する。Codex childはGit credential helperを無効化した環境で起動し、stdout/stderrはbounded drainで上限を設ける。test registryも同じprocess tree停止と出力上限を使う。
+RunnerのGit executableは`AI_TASK_RUNNER_GIT_PATH`で絶対path指定し、source repo/worktree配下の実行ファイルを拒否する。Codex childはGit credential helperを無効化した環境で起動し、stdout/stderrはbounded drainで上限を設ける。test registryはsubprocessを起動せず、メモリ上で構文compileを行う。
 ## Phase 2C Safe Publishing
 
 Phase 2Cは、Phase 2BのCodex実行・静的テスト・差分検証に成功し、Control Planeのleaseを維持できているtaskだけをレビュー可能なGitHub状態へ進める。
@@ -96,8 +96,39 @@ push先は固定repositoryの `ai/task/<UUID>` branchだけとし、force push�
 
 branch publish後は `main` をbaseとするDraft Pull Requestを1件だけ作成または採用する。PR number、URL、Draft状態、base branch、head branch、head SHAを再検証し、すべて期待値と一致した場合だけControl Planeを `ready_for_review` へ遷移させる。
 
-Git/GitHub subprocessはshellを使わず、出力上限と停止処理を持つ。Git network操作はinteractive authenticationを無効化し、検証済みのGit Credential Managerだけを使用する。task由来の秘密情報やrunner API tokenをGit/Codex/GitHub child environmentへ渡さない。
+Git/GitHub subprocessはshellを使わず、出力上限と停止処理を持つ。Git network操作はinteractive authenticationを無効化し、Windowsでは検証済みのGit Credential Manager、Linuxでは検証済み絶対pathのGitHub CLI (`gh auth git-credential`) を使用する。task由来の秘密情報やrunner API tokenをGit/Codex/GitHub child environmentへ渡さない。
 
 pushまたはPR作成の応答が不明確な状態でprocessが終了した場合、retry時は固定UUID branchとPRを再照合する。期待SHA・base・head・Draft metadataが完全一致する場合だけ既存成果物を採用し、それ以外はfail closedとする。
 
 Phase 2Cでもmerge、production deploy、restart、DB migration、secrets変更、network変更その他Level 3操作は自動実行しない。Draft PRから先は人間レビューへ引き渡す。
+
+## Linux runner runtime
+
+Supported Linux target: Ubuntu 20.04 x86_64 with Python 3.12. Configure trusted
+process settings `AI_TASK_RUNNER_CODEX_PATH=/home/ubuntu/.local/bin/codex`,
+`AI_TASK_RUNNER_GIT_PATH=/usr/bin/git`, and `AI_TASK_RUNNER_GH_PATH=/usr/bin/gh`.
+Executables must be normal files outside the source and task worktree roots;
+those roots must be separate normal directories, never the production repository.
+Linux does not require `AI_TASK_RUNNER_GCM_PATH`; Windows still requires it.
+An operator provisions Codex authentication and GitHub CLI authentication as
+U-KID-AI beforehand. Do not export GitHub tokens or read credential files for
+validation. The runner does not load dotenv or run `gh auth setup-git`.
+
+Publishing disables system/global Git configuration, audits local network
+configuration, resets credential helpers, and pins the trusted GitHub CLI helper
+for github.com. Linux also supplies fixed `-c` options for Git 2.25 compatibility,
+sets Git's HOME/XDG_CONFIG_HOME to `/dev/null`, and pins GH_CONFIG_DIR to the
+trusted runner HOME's `.config/gh` path. No credential contents are copied into
+the environment. Operator-supplied GH_CONFIG_DIR/XDG overrides are not inherited.
+Missing helpers or unsafe configuration fail closed. Repository
+and UUID branch restrictions are unchanged. Windows-only Codex sandbox options
+are emitted only on Windows; Linux retains the fixed sandbox and network denial.
+Managed POSIX children start a new session. Cleanup signals the entire group,
+waits boundedly after SIGTERM and SIGKILL, and fails closed if group disappearance
+cannot be verified (including unreaped descendants). Windows retains taskkill /T /F.
+The static test registry performs in-memory compilation without subprocesses.
+Local process-group cleanup does not prove cancellation of remote SSH operations.
+
+Offline regression: `python3.12 scripts/check_ai_task_linux.py`, plus the existing
+local runner, publish, GitHub, code review, review merge, auto merge and deployment
+checks. These checks must not invoke authenticated CLIs or activate deployment.

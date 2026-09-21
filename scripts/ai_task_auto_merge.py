@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Callable, Sequence
 from uuid import UUID
 
-from ai_task_process import communicate_bounded
+from ai_task_process import communicate_bounded, managed_process_options
 from ai_task_review_merge import (
     EXPECTED_BASE,
     EXPECTED_REPOSITORY,
@@ -255,6 +255,7 @@ class AutoMergeAdapter:
 
         process = self._popen(
             argv,
+            **managed_process_options(),
             cwd=str(cwd.resolve()),
             shell=False,
             stdin=subprocess.DEVNULL,

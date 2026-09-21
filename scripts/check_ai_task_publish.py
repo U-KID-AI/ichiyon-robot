@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path, PureWindowsPath
+from unittest.mock import patch
 from types import SimpleNamespace
 from uuid import UUID
 
@@ -46,6 +47,7 @@ def rejects(call):
     return False
 
 
+@patch("ai_task_publish.sys", SimpleNamespace(platform="win32"))
 def main():
     git_value = shutil.which("git")
     if not git_value:
@@ -105,12 +107,16 @@ def main():
         check(
             "temporary git init",
             run(
-                [str(git_path), "init", "-q", "-b", "main"],
+                [str(git_path), "init", "-q"],
                 root,
             ).returncode
             == 0,
         )
 
+        check(
+            "temporary main branch",
+            run([str(git_path), "symbolic-ref", "HEAD", "refs/heads/main"], root).returncode == 0,
+        )
         run(
             [str(git_path), "config", "user.name", "Phase2C Check"],
             root,
@@ -396,9 +402,7 @@ def main():
     fake_path = Path(sys.executable).resolve()
 
     # The constructor still validates a real local file.
-    # Network helper formatting is deliberately Windows-only
-    # in production, so simulate that trusted Windows path
-    # when this offline test runs on Linux CI.
+    # Explicitly exercise the preserved Windows helper on Linux CI.
     fake_windows_gcm = PureWindowsPath(
         "C:/Program Files/Git/mingw64/bin/"
         "git-credential-manager.exe"

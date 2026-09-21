@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 import shutil
 import subprocess
 import tempfile
@@ -11,6 +12,7 @@ from typing import Callable, Sequence
 from uuid import UUID
 
 from ai_task_process import (
+    managed_process_options,
     communicate_bounded,
     terminate_process_tree,
 )
@@ -570,13 +572,9 @@ class CodeReviewAdapter:
             'approval_policy="never"',
             "-c",
             "sandbox_workspace_write.network_access=false",
-            "-c",
-            'windows.sandbox="elevated"',
-            "-c",
-            (
-                'windows.allowed_sandbox_implementations='
-                '["elevated"]'
-            ),
+            *(["-c", 'windows.sandbox="elevated"',
+               "-c", 'windows.allowed_sandbox_implementations=["elevated"]']
+              if sys.platform == "win32" else []),
             "-c",
             'shell_environment_policy.inherit="core"',
             "-c",
@@ -620,6 +618,7 @@ class CodeReviewAdapter:
         try:
             process = self._popen(
                 argv,
+                **managed_process_options(),
                 cwd=str(resolved_worktree),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,

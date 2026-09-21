@@ -6,6 +6,7 @@ without moving a local ref, and only the UUID task ref may be pushed.
 """
 
 import os
+import sys
 import re
 import subprocess
 import tempfile
@@ -16,7 +17,7 @@ from typing import Callable, Mapping, Sequence
 from uuid import UUID
 
 from ai_task_git import EXPECTED_ORIGIN, GitResult, SHA_PATTERN
-from ai_task_process import communicate_bounded
+from ai_task_process import communicate_bounded, managed_process_options
 from ai_task_safety import (
     expected_branch,
     is_reparse_point,
@@ -95,6 +96,7 @@ class GitPublisher:
         git_path: Path,
         *,
         gcm_path: Path | None = None,
+        gh_path: Path | None = None,
         runner: Callable[..., object] | None = None,
         popen: Callable[..., object] | None = None,
     ) -> None:
@@ -121,6 +123,13 @@ class GitPublisher:
                     "Git Credential Manager executable is unsafe"
                 )
             self.gcm_path = gcm_resolved
+
+        self.gh_path = None
+        if gh_path is not None:
+            if (not gh_path.is_absolute() or not gh_path.is_file()
+                    or gh_path.is_symlink() or is_reparse_point(gh_path)):
+                raise PublishSafetyError("GitHub CLI executable is unsafe")
+            self.gh_path = gh_path.resolve()
 
         self._runner = runner or subprocess.run
         self._popen = popen or subprocess.Popen
@@ -318,6 +327,15 @@ class GitPublisher:
         stop_event=None,
     ) -> dict[str, str]:
         environment = self._base_environment()
+        if sys.platform == "linux":
+            # Git 2.25 ignores GIT_CONFIG_GLOBAL. Hide both global config
+            # locations, while gh retains only its trusted default auth location.
+            home = environment.get("HOME", "")
+            if not home or not Path(home).is_absolute():
+                raise PublishSafetyError("trusted HOME is required for GitHub authentication")
+            environment["GH_CONFIG_DIR"] = str(Path(home) / ".config" / "gh")
+            environment["HOME"] = os.devnull
+            environment["XDG_CONFIG_HOME"] = os.devnull
         environment["GIT_CONFIG_NOSYSTEM"] = "1"
         environment["GIT_CONFIG_SYSTEM"] = os.devnull
         environment["GIT_CONFIG_GLOBAL"] = os.devnull
@@ -351,6 +369,7 @@ class GitPublisher:
         forbidden_exact = {
             "core.askpass",
             "core.gitproxy",
+            "extensions.worktreeconfig",
         }
 
         for raw_key in result.stdout.splitlines():
@@ -358,6 +377,8 @@ class GitPublisher:
             if (
                 key.startswith(forbidden_prefixes)
                 or key in forbidden_exact
+                or (key.startswith("remote.")
+                    and key not in {"remote.origin.url", "remote.origin.fetch"})
             ):
                 raise PublishSafetyError(
                     "local Git network configuration is unsafe"
@@ -376,37 +397,7 @@ class GitPublisher:
             stop_event=stop_event,
         )
 
-        if self.gcm_path is None:
-            raise PublishSafetyError(
-                "Git Credential Manager path is required for network publishing"
-            )
-
-        helper = str(self.gcm_path).replace("\\", "/")
-
-        if re.fullmatch(
-            r"[A-Za-z]:/[A-Za-z0-9._/ -]+",
-            helper,
-        ) is None:
-            raise PublishSafetyError(
-                "Git Credential Manager path cannot be safely quoted"
-            )
-
-        helper = helper.replace(" ", r"\ ")
-
-        config = (
-            ("credential.helper", ""),
-            (
-                "credential.https://github.com.helper",
-                "",
-            ),
-            (
-                "credential.https://github.com.helper",
-                helper,
-            ),
-            ("http.extraheader", ""),
-            ("http.sslverify", "true"),
-            ("http.followredirects", "initial"),
-        )
+        config = self._network_config()
 
         environment["GIT_CONFIG_COUNT"] = str(
             len(config)
@@ -421,6 +412,41 @@ class GitPublisher:
             ] = value
 
         return environment
+
+    def _network_config(self) -> tuple[tuple[str, str], ...]:
+        if sys.platform == "linux":
+            if self.gh_path is None:
+                raise PublishSafetyError("GitHub CLI path is required for network publishing")
+            helper = str(self.gh_path)
+            # Git interprets helper values through its own shell. Accept only a
+            # conservative absolute path, then escape spaces; no task input.
+            if re.fullmatch(r"/[A-Za-z0-9._/ -]+", helper) is None:
+                raise PublishSafetyError("GitHub CLI path cannot be safely quoted")
+            helper = helper.replace(" ", r"\ ") + " auth git-credential"
+        elif sys.platform == "win32":
+            if self.gcm_path is None:
+                raise PublishSafetyError("Git Credential Manager path is required for network publishing")
+            helper = str(self.gcm_path).replace("\\", "/")
+            if re.fullmatch(r"[A-Za-z]:/[A-Za-z0-9._/ -]+", helper) is None:
+                raise PublishSafetyError("Git Credential Manager path cannot be safely quoted")
+            helper = helper.replace(" ", r"\ ")
+        else:
+            raise PublishSafetyError("unsupported publishing platform")
+
+        return (
+            ("credential.helper", ""),
+            (
+                "credential.https://github.com.helper",
+                "",
+            ),
+            (
+                "credential.https://github.com.helper",
+                helper,
+            ),
+            ("http.extraheader", ""),
+            ("http.sslverify", "true"),
+            ("http.followredirects", "initial"),
+        )
 
     def _run(
         self,
@@ -444,7 +470,13 @@ class GitPublisher:
             else self._base_environment()
         )
 
-        argv = [str(self.git_path), *values]
+        config_args = []
+        if sys.platform == "linux" and values[0] in ("push", "ls-remote"):
+            # Command-line configuration works on Ubuntu 20.04's Git 2.25.
+            # Values come only from reviewed code and the trusted CLI path.
+            for key, value in self._network_config():
+                config_args.extend(("-c", key + "=" + value))
+        argv = [str(self.git_path), *config_args, *values]
 
         if stop_event is None:
             result = self._runner(
@@ -485,6 +517,7 @@ class GitPublisher:
 
         process = self._popen(
             argv,
+            **managed_process_options(),
             cwd=str(cwd.resolve()),
             shell=False,
             stdin=subprocess.DEVNULL,
