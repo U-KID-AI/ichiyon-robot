@@ -43,7 +43,7 @@ class PosterChecks(unittest.TestCase):
         }
 
     def test_versions(self):
-        for pack, version in ((BP, [1, 0, 27]), (RP, [1, 0, 29]), (IMPORT, [1, 0, 27])):
+        for pack, version in ((BP, [1, 0, 28]), (RP, [1, 0, 30]), (IMPORT, [1, 0, 27])):
             with self.subTest(pack=pack.name):
                 manifest = read_json(pack / "manifest.json")
                 self.assertEqual(manifest["header"]["version"], version)

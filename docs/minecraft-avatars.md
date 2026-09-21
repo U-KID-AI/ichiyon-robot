@@ -7,7 +7,7 @@ Entityを複製せず `minecraft:variant` とテクスチャ配列で切り替�
 
 ## パックと対応範囲
 
-- BP **1.0.26**、RP **1.0.28**、Imported Structures **1.0.27**。既存UUIDを維持する。
+- BP **1.0.28**、RP **1.0.30**、Imported Structures **1.0.27**。既存UUIDを維持する。
 - 最低エンジンバージョンは既存の **1.26.45** を維持する。
 - 両パックを同じ検証用ワールドで有効にする。既存ワールドから更新する場合は
   ワールド側のパック参照バージョンも合わせる。RPの受信・適用が必要。
@@ -19,14 +19,35 @@ Entityを複製せず `minecraft:variant` とテクスチャ配列で切り替�
 ## 生成と選択
 
 チートが有効なローカル検証ワールドで、権限のあるプレイヤーが実行する。
-単純な `/summon ichiyon:avatar` とクリエイティブの共通スポーンエッグは
-variant 0（キアナ）になる。ランダム選択はしない。
+単純な `/summon ichiyon:avatar` はvariant 0（キアナ）になる。
+共通Entityは `is_spawnable: false` とし、Creativeには専用エッグ4種だけを公開する。
+ランダム選択はしない。
 
-Creativeには4種の名前付きエッグ `ichiyon:avatar_<skin>_placer` も表示される。
-`<skin>` は `kiana` / `mei` / `bronya` / `albert`。配置用proxyは無重力・無敵・
-移動不能で、delay 0のtransformationにより `ichiyon:avatar` に変換される。
-変換時に既存variant groupを追加する。変換前後で同じgeometry・texture配列・idleを使う。
+Creativeには4種の名前付きエッグ `ichiyon:avatar_<skin>_placer` が表示される。
+`<skin>` は `kiana` / `mei` / `bronya` / `albert`。配置用proxyは
+delay 0のtransformationにより `ichiyon:avatar<ichiyon:<skin>>` へ変換される。
+変換先の既存選択イベントを明示してvariantを設定する。
+変換前後で同じgeometry・texture配列・アニメーションを使う。
 この選択はBP/RPだけで動作し、Bridgeや新規Script API依存を必要としない。
+
+### スポーンエッグ修正の調査結果
+
+共通Entityとキアナproxyの両方が `is_spawnable: true` だったため、
+キアナになるエッグが2種類公開されていた。共通Entityのエッグ公開だけを停止し、
+既存identifier、共通Entityのsummon、保存済み個体、翻訳名は維持する。
+
+従来のproxyは全てイベント指定なしの `ichiyon:avatar` に変換し、
+スキン選択を `transformation.add` のみに委ねていた。変換先のデフォルトは
+キアナであり、選択が反映されなければ全種キアナになる経路だった。
+`add` の形式自体は公式仕様に記載されているため、JSON構文違反とは断定しない。
+報告された症状に対応するため、[Mojang公式husk定義](https://github.com/Mojang/bedrock-samples/blob/main/behavior_pack/entities/husk.json)
+で使われる `entity<event>` 形式に変更し、変換先で各選択イベントを明示的に実行する。
+実際のエンジンで旧 `add` が反映されなかった原因の確定と修正後の動作確認は、
+Content Logを含むローカル検証ワールドで要確認。
+
+offline checkは全BP/RPのentity identifier重複、公開エッグが正確に4種であること、
+itemの追加エッグとの競合、名前の一意性、および変換先イベントからvariant・textureまでの
+対応を検証する。既存のPNGハッシュ、geometry、移動・体力・アニメーションのチェックも維持する。
 
 | キャラクター | variant | イベント |
 | --- | --- | --- |
