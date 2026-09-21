@@ -80,15 +80,8 @@
         "y_dist": 1
       },
       "minecraft:transformation": {
-        "into": "ichiyon:avatar",
-        "delay": 0,
-        "add": [
-          {
-            "component_groups": [
-              "ichiyon:avatar_bronya"
-            ]
-          }
-        ]
+        "into": "ichiyon:avatar<ichiyon:bronya>",
+        "delay": 0
       }
     }
   }

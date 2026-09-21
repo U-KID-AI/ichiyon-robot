@@ -46,7 +46,7 @@ class AvatarChecks(unittest.TestCase):
         description = self.entity["description"]
         self.assertEqual(description["identifier"], "ichiyon:avatar")
         self.assertTrue(description["is_summonable"])
-        self.assertTrue(description["is_spawnable"])
+        self.assertFalse(description["is_spawnable"])
         self.assertFalse(description["is_experimental"])
         self.assertNotIn("runtime_identifier", description)
         self.assertEqual(self.entity["components"]["minecraft:variant"]["value"], 0)
@@ -221,12 +221,12 @@ class AvatarChecks(unittest.TestCase):
             self.assertEqual(proxy["format_version"], self.document["format_version"])
             self.assertEqual(entity["description"], {
                 **self.entity["description"], "identifier": f"ichiyon:avatar_{skin}_placer",
+                "is_spawnable": True,
             })
             self.assertEqual(entity["components"], {
                 **self.entity["components"], "minecraft:variant": {"value": index},
                 "minecraft:transformation": {
-                    "into": "ichiyon:avatar", "delay": 0,
-                    "add": [{"component_groups": [f"ichiyon:avatar_{skin}"]}],
+                    "into": f"ichiyon:avatar<ichiyon:{skin}>", "delay": 0,
                 },
             })
             self.assertNotIn("events", entity)
@@ -244,6 +244,61 @@ class AvatarChecks(unittest.TestCase):
                     self.assertNotIn("?", value)
                     self.assertTrue(value.strip())
 
+
+    def test_egg_identifiers_and_resolved_skin(self):
+        # Follow egg -> BP transformation -> target event -> variant -> RP texture.
+        # This is a static contract, not a simulation of Bedrock transformation.
+        entities = {}
+        clients = {}
+        for directory in (ROOT / "minecraft/behavior_packs").iterdir():
+            for path in (directory / "entities").glob("*.json"):
+                entity = read_json(path)["minecraft:entity"]
+                identifier = entity["description"]["identifier"]
+                self.assertNotIn(identifier, entities, str(path))
+                entities[identifier] = entity
+        for directory in (ROOT / "minecraft/resource_packs").iterdir():
+            for path in (directory / "entity").glob("*.json"):
+                client = read_json(path)["minecraft:client_entity"]["description"]
+                identifier = client["identifier"]
+                self.assertNotIn(identifier, clients, str(path))
+                clients[identifier] = client
+        eggs = {identifier for identifier, entity in entities.items()
+                if identifier.startswith("ichiyon:avatar")
+                and entity["description"].get("is_spawnable", False)}
+        self.assertEqual(eggs, {f"ichiyon:avatar_{skin}_placer" for skin in SKINS})
+        for directory in (ROOT / "minecraft/behavior_packs").iterdir():
+            for path in (directory / "items").glob("*.json"):
+                item = read_json(path)["minecraft:item"]
+                self.assertNotIn(item["description"]["identifier"],
+                                 {f"{identifier}_spawn_egg" for identifier in eggs})
+                placer = item.get("components", {}).get("minecraft:entity_placer", {})
+                self.assertFalse(placer.get("entity", "").startswith("ichiyon:avatar"))
+        controller = read_json(RP / "render_controllers/avatar.render_controllers.json")
+        textures = controller["render_controllers"]["controller.render.ichiyon.avatar"]["arrays"]["textures"]["Array.skins"]
+        for index, skin in enumerate(SKINS):
+            identifier = f"ichiyon:avatar_{skin}_placer"
+            self.assertIn("spawn_egg", clients[identifier])
+            transform = entities[identifier]["components"]["minecraft:transformation"]
+            self.assertTrue(transform["into"].endswith(">"))
+            target_id, event_id = transform["into"][:-1].split("<")
+            self.assertEqual(target_id, "ichiyon:avatar")
+            target = entities[target_id]
+            event = target["events"][event_id]
+            components = dict(target["components"])
+            for group in event["add"]["component_groups"]:
+                components.update(target["component_groups"][group])
+            variant = components["minecraft:variant"]["value"]
+            self.assertEqual(variant, index)
+            self.assertTrue(textures[variant].startswith("Texture."))
+            texture_key = textures[variant][len("Texture."):]
+            self.assertEqual(clients[target_id]["textures"][texture_key],
+                             f"textures/entity/avatar/{skin}")
+        for locale in ("ja_JP", "en_US"):
+            lines = (RP / f"texts/{locale}.lang").read_text(encoding="utf-8").splitlines()
+            names = [next(line.split("=", 1)[1] for line in lines
+                          if line.startswith(f"item.spawn_egg.entity.{identifier}.name="))
+                     for identifier in eggs]
+            self.assertEqual(len(set(names)), 4)
 
     def test_idle_walk_and_look_animation_contract(self):
         self.assertEqual(
@@ -478,7 +533,7 @@ class AvatarChecks(unittest.TestCase):
                 self.assertLessEqual(v + y + z, 64)
 
     def test_pack_versions_and_localized_names(self):
-        for pack, version in ((BP, [1, 0, 27]), (RP, [1, 0, 29])):
+        for pack, version in ((BP, [1, 0, 28]), (RP, [1, 0, 30])):
             manifest = read_json(pack / "manifest.json")
             self.assertEqual(manifest["header"]["version"], version)
             self.assertTrue(all(m["version"] == version for m in manifest["modules"]))

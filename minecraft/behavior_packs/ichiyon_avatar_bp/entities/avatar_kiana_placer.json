@@ -80,15 +80,8 @@
         "y_dist": 1
       },
       "minecraft:transformation": {
-        "into": "ichiyon:avatar",
-        "delay": 0,
-        "add": [
-          {
-            "component_groups": [
-              "ichiyon:avatar_kiana"
-            ]
-          }
-        ]
+        "into": "ichiyon:avatar<ichiyon:kiana>",
+        "delay": 0
       }
     }
   }
