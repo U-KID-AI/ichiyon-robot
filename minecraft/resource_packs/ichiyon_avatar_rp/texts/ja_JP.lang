@@ -35,3 +35,7 @@ entity.ichiyon:avatar_bronya_placer.name=ブローニャ マネキン
 item.spawn_egg.entity.ichiyon:avatar_bronya_placer.name=ブローニャ マネキン
 entity.ichiyon:avatar_albert_placer.name=アルベール マネキン
 item.spawn_egg.entity.ichiyon:avatar_albert_placer.name=アルベール マネキン
+
+entity.ichiyon:pikachu.name=ピカチュウ
+item.spawn_egg.entity.ichiyon:pikachu.name=ピカチュウのスポーンエッグ
+action.interact.ichiyon_pikachu_spin=くるっと回る

@@ -1,0 +1,240 @@
+{
+  "format_version": "1.26.10",
+  "minecraft:entity": {
+    "description": {
+      "identifier": "ichiyon:pikachu",
+      "is_spawnable": true,
+      "is_summonable": true,
+      "is_experimental": false,
+      "properties": {
+        "ichiyon:spin": {
+          "type": "int",
+          "range": [
+            -1,
+            1
+          ],
+          "default": 0,
+          "client_sync": true
+        }
+      }
+    },
+    "component_groups": {
+      "ichiyon:mobile": {
+        "minecraft:movement": {
+          "value": 0.16
+        },
+        "minecraft:physics": {
+          "has_gravity": true,
+          "has_collision": true
+        },
+        "minecraft:behavior.float": {
+          "priority": 0
+        },
+        "minecraft:behavior.nearest_attackable_target": {
+          "priority": 1,
+          "within_radius": 12,
+          "must_see": true,
+          "must_reach": true,
+          "reselect_targets": true,
+          "reevaluate_description": true,
+          "entity_types": [
+            {
+              "filters": {
+                "all_of": [
+                  {
+                    "test": "is_family",
+                    "subject": "other",
+                    "value": "player"
+                  },
+                  {
+                    "test": "is_sleeping",
+                    "subject": "other",
+                    "value": true
+                  }
+                ]
+              },
+              "max_dist": 12
+            }
+          ]
+        },
+        "minecraft:behavior.move_around_target": {
+          "priority": 2,
+          "destination_position_range": {
+            "min": 2.2,
+            "max": 3.2
+          },
+          "destination_pos_spread_degrees": 360,
+          "height_difference_limit": 2,
+          "horizontal_search_distance": 4,
+          "vertical_search_distance": 1,
+          "movement_speed": 0.16,
+          "filters": {
+            "all_of": [
+              {
+                "test": "is_sleeping",
+                "subject": "target",
+                "value": true
+              },
+              {
+                "test": "target_distance",
+                "value": 12,
+                "operator": "<="
+              }
+            ]
+          }
+        },
+        "minecraft:behavior.random_stroll": {
+          "priority": 6,
+          "speed_multiplier": 0.8,
+          "xz_dist": 6,
+          "y_dist": 1
+        },
+        "minecraft:behavior.random_look_around": {
+          "priority": 8
+        },
+        "minecraft:movement.basic": {
+          "max_turn": 30
+        }
+      },
+      "ichiyon:spinning": {
+        "minecraft:movement": {
+          "value": 0
+        },
+        "minecraft:physics": {
+          "has_gravity": false,
+          "has_collision": true,
+          "push_towards_closest_space": false
+        },
+        "minecraft:knockback_resistance": {
+          "value": 1
+        },
+        "minecraft:timer": {
+          "time": 0.7,
+          "looping": false,
+          "time_down_event": {
+            "event": "ichiyon:spin_end",
+            "target": "self"
+          }
+        },
+        "minecraft:movement.basic": {
+          "max_turn": 0
+        }
+      }
+    },
+    "components": {
+      "minecraft:type_family": {
+        "family": [
+          "pikachu",
+          "mob"
+        ]
+      },
+      "minecraft:health": {
+        "value": 20,
+        "max": 20
+      },
+      "minecraft:collision_box": {
+        "width": 0.6,
+        "height": 1.0
+      },
+      "minecraft:navigation.walk": {
+        "avoid_water": true,
+        "can_path_over_water": false,
+        "can_pass_doors": true,
+        "can_open_doors": false,
+        "can_jump": true
+      },
+      "minecraft:jump.static": {},
+      "minecraft:nameable": {},
+      "minecraft:persistent": {},
+      "minecraft:interact": {
+        "interactions": [
+          {
+            "on_interact": {
+              "filters": {
+                "all_of": [
+                  {
+                    "test": "int_property",
+                    "domain": "ichiyon:spin",
+                    "value": 0
+                  },
+                  {
+                    "test": "is_family",
+                    "subject": "other",
+                    "value": "player"
+                  },
+                  {
+                    "test": "on_ground",
+                    "value": true
+                  }
+                ]
+              },
+              "event": "ichiyon:spin_start",
+              "target": "self"
+            },
+            "cooldown": 1.2,
+            "interact_text": "action.interact.ichiyon_pikachu_spin"
+          }
+        ]
+      }
+    },
+    "events": {
+      "minecraft:entity_spawned": {
+        "add": {
+          "component_groups": [
+            "ichiyon:mobile"
+          ]
+        }
+      },
+      "ichiyon:spin_start": {
+        "sequence": [
+          {
+            "filters": {
+              "test": "int_property",
+              "domain": "ichiyon:spin",
+              "value": 0
+            },
+            "remove": {
+              "component_groups": [
+                "ichiyon:mobile"
+              ]
+            },
+            "add": {
+              "component_groups": [
+                "ichiyon:spinning"
+              ]
+            },
+            "randomize": [
+              {
+                "weight": 99,
+                "set_property": {
+                  "ichiyon:spin": 1
+                }
+              },
+              {
+                "weight": 1,
+                "set_property": {
+                  "ichiyon:spin": -1
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "ichiyon:spin_end": {
+        "remove": {
+          "component_groups": [
+            "ichiyon:spinning"
+          ]
+        },
+        "add": {
+          "component_groups": [
+            "ichiyon:mobile"
+          ]
+        },
+        "set_property": {
+          "ichiyon:spin": 0
+        }
+      }
+    }
+  }
+}
