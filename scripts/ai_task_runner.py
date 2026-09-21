@@ -85,6 +85,22 @@ def test_feedback(item, changed=()):
             + (f" ({filename[:300]})" if filename else ""))
 
 
+CODEX_USAGE_LIMIT_MARKERS = (
+    "usage limit",
+    "usage_limit_reached",
+    "insufficient_quota",
+    "quota exceeded",
+    "exceeded your current quota",
+)
+
+
+def codex_usage_limit_reached(result: CodexResult) -> bool:
+    stdout = getattr(result, "stdout", "")
+    stderr = getattr(result, "stderr", "")
+    output = f"{stdout}\n{stderr}".lower()
+    return any(marker in output for marker in CODEX_USAGE_LIMIT_MARKERS)
+
+
 class RunOutcome(Enum):
     NO_TASK = "no_task"
     SUCCESS = "success"
@@ -323,6 +339,29 @@ class LocalRunner:
                 if getattr(result, "stdin_cleanup_failed", False):
                     self.codex.stop()
                     raise ProcessTerminationError("Codex input cleanup did not complete")
+                if result.returncode != 0 and codex_usage_limit_reached(result):
+                    self.codex.stop()
+                    protected, changed = self._repair_changes(
+                        task, worktree_path, base_sha, before
+                    )
+                    changed_summary = (
+                        ("\n".join(changed) + "\n" + self.git.diff_stat(worktree_path))[:8000]
+                        if changed
+                        else "No repository changes before handoff"
+                    )
+                    self.client.progress(
+                        task.task_id,
+                        task.claim_token,
+                        current_step="needs_human",
+                        progress_summary="Codex usage limit reached; manual handoff required",
+                        changed_files_summary=changed_summary,
+                    )
+                    self.client.mark_needs_human(
+                        task.task_id,
+                        task.claim_token,
+                        "Codex usage limit reached; manual continuation required",
+                    )
+                    return False
                 feedback = ""
                 if result.timed_out or result.returncode != 0 or getattr(result, "stopped", False):
                     self.codex.stop()
