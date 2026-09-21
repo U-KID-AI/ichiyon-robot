@@ -1,80 +1,76 @@
-# モルカー・ゴン太のリード接続点再調査
+# リード表示回帰修正 — RP 1.0.32
 
-## PR #42と反映漏れ
+## 履歴と実装方式
 
-ローカル履歴の84dd167（PR #42）はclient entity 2件、静的check、文書のみを
-変更し、RP manifestは1.0.30のままだった。今回header/modulesを1.0.31に更新する。
-UUID、entityの座標、geometry、モデル位置・サイズ、collision、AI、速度、animation、
-texture、名前は変更しない。
+PR #42 (84dd167) はmolcar/gontaのclient entityにlocatorsを追加したが、
+molcar2/molcar3は対象外で、version更新もなかった。PR #44 (66e3c8e) は
+1.0.31への更新と検証・version-policy CIを追加したが、locator方式は変更しなかった。
+以前の検証はJSON構文と座標を検証するだけで、エンジンの描画成功を証明していない。
+本番1.0.31でのmolcar・卵の透明化は依頼者の実機報告であり、こちらで再現していない。
 
-[公式manifest仕様](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/addonsreference/examples/addonmanifest)
-は同一以下のversionのインポートを無視し、高いversionで置換すると説明する。
-旧キャッシュは反映されない原因の候補だが、BDSの配置内容とクライアントキャッシュを
-確認していないため実際の原因とは断定しない。未配置・world参照不一致も未確認。
+[公式client entity文書](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/cliententitydocumentation/cliententitydocumentationintroduction?view=minecraft-bedrock-stable#locators)
+にもclient側の旧形式は掲載されている。したがって「公式に無効なJSONだった」とは断定しない。
+今回、回帰報告のあるclient側指定を除去し、
+[公式geometry仕様](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/visualreference/geometry.v1.12.0?view=minecraft-bedrock-stable)
+のboneに属するモデル空間locatorへ統一する。locatorはboneのanimationに追従する。
+[Mojang vanilla pig](https://github.com/Mojang/bedrock-samples/blob/main/resource_pack/models/entity/pig.geo.json)
+および[cow](https://github.com/Mojang/bedrock-samples/blob/main/resource_pack/models/entity/cow_v1.0.geo.json)
+でもbone内の `locators: {"lead": [x,y,z]}` を使用している。
+client entityにはboneマッピングを残さず、geometryのbodyにleadを1件だけ置く。
+公式仕様に基づく修正だが、本番Content Logがないため透明化の根本原因と解消は実機で要確認。
 
-## 座標の再計算
+## 個別モデルの確認
 
-[公式client entity仕様](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/cliententitydocumentation/cliententitydocumentationintroduction?view=minecraft-bedrock-stable#locators)
-のleadはボーンに紐付くモデル座標で、pivotからの差分ではない。
-[公式animation仕様](https://learn.microsoft.com/en-us/minecraft/creator/documents/animations/animationsoverview?view=minecraft-bedrock-stable)
-のX→Y→Z回転を使い、各親へ順に `pivot + R(point - pivot) + translation` を適用する。
-以下はentityの向きが適用される前のモデル座標計算で、エンジン実測ではない。
+座標はpivot差分ではなく、回転前のモデル空間。モデル位置・scale・cube・pivot・
+rotation・animation・texture・identifier・BP（collision/AI/速度/騎乗）を変更しない。
+spawn_eggは全4体の既存色をそのまま維持する。
 
-| 対象 | 入力 | 親変換後 | ブロック換算 |
+| entity | body→親 / pivot / 親回転 | leadと接続面 | animation・別枝 |
 | --- | --- | --- | --- |
-| モルカー | [-8.5, 7.5, 0] | [0, 7.5, -8.5] | [0, 0.46875, -0.53125] |
-| ゴン太 | [0, 4, -4] | [0, 4, -4] | [0, 0.25, -0.25] |
+| molcar | body→root / [0,6,0] / [0,-90,0] | [-8.5,7.5,0]、cube origin [-8.5,6,-1], size [2,3,2] の−X面中央 | body上下動・Z回転、djはbodyの子、車輪はrootの子 |
+| molcar2 | body→root / [0,6,0] / [0,-90,0] | [-8.5,7.5,0]、独立に確認した同じorigin/sizeのcube面 | body上下動・Z回転、djなし、車輪はrootの子 |
+| molcar3 | body→root / [0,6,0] / [0,-90,0] | [-8.5,7.5,0]、独立に確認した同じorigin/sizeのcube面 | body上下動・Z回転、hatと車輪はrootの子。車輪pivotは他2体と異なる |
+| gonta | body→gonta_body / 両方原点 / 回転なし | [0,4,-4]、origin [-4,0,-4], size [8,8,8] の−Z面中央 | 動くbone〜bone4はlegの子でbodyの祖先ではない |
 
-モルカーはbody pivot [0,6,0]、root pivot [0,0,0]、root回転 [0,-90,0]。
-Y回転は `x'=cos(a)x+sin(a)z, z'=-sin(a)x+cos(a)z` なので、元の−X側は
-回転後の−Z（モデル前方）側になる。bodyの接続cubeはorigin [-8.5,6,-1]、size [2,3,2]。
-body walkのZ回転θではroot適用後の接続点は
-`[0, 6-8.5*sin(θ)+1.5*cos(θ)+dy, -8.5*cos(θ)-1.5*sin(θ)]`。
-θは±1.8度、dyは0〜0.24。全組合せを含む保守的な包絡は
-高さ7.23〜8.01（0.4519〜0.5007ブロック）、Zは−8.55〜−8.44。
-idleは高さ7.5〜7.6。djと車輪は祖先ではないので接続点を変換しない。
-ゴン太はbody→gonta_bodyともpivot原点・回転なし。脚のanimationは別の枝なので
-接続点は動かない。body cubeの−Z面中央、高さ0.25ブロックを維持する。
-entityの旋回はこの前方向をワールド上の向きへ回す。実際の方角・描画は実機確認が必要。
+3台のbody接続面、pivot、root回転、body animationを個別照合した結果が同じ座標である。
+モルカー3体のroot適用後は概算 [0,7.5,-8.5]、高さ0.46875ブロック。
+idle上下動は0〜0.1、walk上下動は0〜0.24、Z回転は±1.8度。
+保守的な計算包絡は高さ7.23〜8.01、Z −8.55〜−8.44モデル単位。
+ゴン太は高さ0.25ブロックで脚animationの影響を受けない。
+これらは静的計算で、エンジンや旋回時の見た目の保証ではない。
 
-## 自動検証
+## オフライン検証
 
-- `python3 scripts/check_minecraft_lead_anchors.py`: cube表面、親階層、pivot、
-  回転・animation包絡、JSON、実manifestを使うworld参照1.0.30→1.0.31同期を検証。
-- `python3 scripts/check_resource_pack_versions_test.py`: version更新漏れ、module不一致、
-  asset追加・変更・削除・renameを検証。
-- `python3 scripts/check_resource_pack_versions.py <base SHA> <head SHA>` で
-  PR base/headのコミットを比較し、RP内の変更（バイナリを含む）に対して
-  header versionの増加と全moduleの一致を要求する。新規packも検証し、完全削除は除外。
-  PR #42のような変更を拒否する。比較対象コミットが取得できない場合も失敗する。
-- CIへの組み込みは未完了。保護対象 `.github/workflows/checks.yml` の変更が
-  Runnerにより差し戻されたため、このタスクでは変更しない。権限のある担当者が
-  比較対象の両コミットを取得し、上記コマンドと回帰テストをPRチェックへ追加する必要がある。
+- `python3.12 scripts/check_minecraft_lead_anchors.py`: 全4体のJSON、geometry/PNG参照、
+  spawn_egg色、描画参照、animation参照、locator所有bodyの存在・一意性・有限座標・
+  cube表面、全boneの親存在・重複・循環、親変換・animation包絡、pack JSONを確認。
+  manifest header/modules 1.0.32と、ダミーworld参照1.0.31→1.0.32同期を確認。
+- `python3.12 scripts/check_resource_pack_versions_test.py`: 既存version-policy回帰検証。
+  未コミット差分には同じvalidate関数でHEAD manifestからのversion増加を確認する。
+- CIの `.github/workflows/checks.yml` は既にPR base/headのversionチェックを実行する。
+  GitHub CI成功はPR未作成のため未確認。lead検査のCI組み込みはまだない。
 
-## 配備引き継ぎ（未実施）
+## 人間への引き継ぎ（needs_human）
 
-world_resource_packs.jsonはリポジトリの管理ファイルではなく実world内にある。
-既存の固定配備処理 `scripts/ai_task_minecraft_deploy_remote.py` のsync_worldが
-manifestのUUID/versionから参照を更新するため、固定のworld JSONは新設しない。
-本番の参照・配置状況は権限外で未確認。ローカルテストは実worldに触れない。
+Runner指示によりcommit/push/PR/merge/本番操作は行わない。
+人間側でPR、CI、review、merge、承認済みBDS配備を実施する。
+world_resource_packs.jsonのRP UUID `3e1bcf76-b5e3-465a-a184-d2d90cfa0d74` を
+[1,0,32]へ同期し、必要な再起動、health、配置packとmerge済みmainの一致を確認する。
+本番world JSONはリポジトリに新設しない。復旧は承認されたpack/参照の復元手順を使う。
 
-Runner指示によりcommit、push、PR作成、merge、本番接続・操作は実施しない。
-人間側で次を完了する必要がある。
+各4entityについて人間が以下を確認するまで表示回帰の解消を確定しない。
 
-1. PR作成、CI、review、merge。
-2. 承認された運用でmerge済みRPを本番BDSに再配置し、world_resource_packs.jsonの
-   pack_id 3e1bcf76-b5e3-465a-a184-d2d90cfa0d74をversion [1,0,31]へ同期。
-3. BDS再起動、health正常確認。配置済みmanifestのheader/modulesが1.0.31であること、
-   molcar.entity.json / gonta.entity.jsonがmerge済み内容と一致することを照合。
-4. クライアントで新RPの再取得を確認し、静止・歩行・旋回、プレイヤー／フェンス接続で
-   リードの方向・高さ・追従、Content Logを確認する。
+- 既存個体の表示、召喚、新規スポーン。
+- インベントリ内スポーンエッグの表示と使用によるスポーン。
+- 静止・歩行・旋回時の胴体からのリード位置、プレイヤー/フェンス接続。
+- RP再取得とContent Log（client entity、geometry、texture、locatorエラーなし）。
+- モデル位置・大きさ・collision・AI・速度・texture・騎乗に回帰がないこと。
 
-復旧は人間が承認済み手順で整合するpackとworld参照を戻す。worldデータの破壊的復旧は行わない。
+## 検証結果
 
-## 今回の検証結果
-
-Python 3.12でlead 4件、version policy 2件、既存のoffline配備検査12件が成功。
-変更したPythonのcompileとgit diff --checkも成功。新しい比較チェックが実際のPR #42
-のbase/headをversion更新漏れとして拒否することを確認した。
-標準python3は古く既存配備モジュールをimportできないため、検証には3.12を使用した。
-avatar検査はPillow未導入で起動できず、依存を備えた環境での再実行が必要。
+Python 3.12でlead検証5件と既存version-policy回帰2件が成功。
+HEAD→worktree manifestを既存validate関数で検証して成功。
+client/geometryをHEADと比較し、locator以外の内容が同一であることを確認した。
+Python compile、git diff --checkも成功。
+標準Python 3.8では既存配備モジュールの型注釈を読み込めず、3.12で再検証した。
+既存avatar総合検査はPillow未導入で起動できないため、依存を備えた環境で要再実行。
