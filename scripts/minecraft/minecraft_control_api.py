@@ -148,16 +148,30 @@ def parse_started_at(value: str) -> Optional[datetime]:
         return None
 
 
-def bds_version(inspect_data: Optional[Dict[str, Any]]) -> Optional[str]:
-    if inspect_data:
-        for entry in inspect_data.get("Config", {}).get("Env", []) or []:
-            if entry.startswith("VERSION="):
-                return entry.split("=", 1)[1]
-    for path in sorted(DATA_DIR.glob("bedrock_server-*")):
-        match = re.search(r"bedrock_server-(.+)$", path.name)
-        if match:
-            return match.group(1)
-    return None
+def parse_bedrock_probe(output: str, returncode: int) -> Dict[str, Any]:
+    """Parse only mc-monitor's successful loopback response, never configuration.
+
+    A RakNet status reply is not proof of client login or NetherNet connectivity.
+    Unknown output formats deliberately leave the runtime version unknown.
+    """
+    result: Dict[str, Any] = {
+        "responding": False,
+        "player_count": None,
+        "player_names": [],
+        "version": None,
+        "probe_scope": "container_loopback",
+    }
+    if returncode != 0:
+        return result
+    match = re.fullmatch(
+        r"127\.0\.0\.1:" + re.escape(BEDROCK_PORT)
+        + r" : version=([0-9]{1,5}(?:\.[0-9]{1,5}){2,3})"
+        + r" online=([0-9]{1,9}) max=([0-9]{1,9})",
+        output.strip(),
+    )
+    if match and 0 <= int(match[2]) <= int(match[3]) and int(match[3]) > 0:
+        result.update(responding=True, version=match[1], player_count=int(match[2]))
+    return result
 
 
 def bridge_status_from_mc_monitor() -> Dict[str, Any]:
@@ -165,16 +179,7 @@ def bridge_status_from_mc_monitor() -> Dict[str, Any]:
         ["docker", "exec", CONTAINER_NAME, "mc-monitor", "status-bedrock", "--host", "127.0.0.1", "--port", BEDROCK_PORT],
         timeout=10,
     )
-    if result.returncode != 0:
-        return {"responding": False, "player_count": None, "player_names": []}
-    output = (result.stdout + "\n" + result.stderr).strip()
-    match = re.search(r"online=(\d+)\s+max=(\d+)", output)
-    return {
-        "responding": True,
-        "player_count": int(match.group(1)) if match else None,
-        "player_names": [],
-        "raw_status": output[:300],
-    }
+    return parse_bedrock_probe(result.stdout, result.returncode)
 
 
 def status_payload() -> Dict[str, Any]:
@@ -186,11 +191,7 @@ def status_payload() -> Dict[str, Any]:
     uptime_seconds = None
     if started and state.get("Status") == "running":
         uptime_seconds = int((datetime.now(timezone.utc) - started).total_seconds())
-    bridge = bridge_status_from_mc_monitor() if state.get("Status") == "running" else {
-        "responding": False,
-        "player_count": None,
-        "player_names": [],
-    }
+    bridge = bridge_status_from_mc_monitor() if state.get("Status") == "running" else parse_bedrock_probe("", 1)
     if state.get("Status") != "running":
         server_status = "OFFLINE"
     elif bridge.get("responding"):
@@ -216,7 +217,13 @@ def status_payload() -> Dict[str, Any]:
             "memory": host_memory(),
         },
         "bds": {
-            "version": bds_version(inspect_data),
+            "version": bridge.get("version"),
+            "version_source": "loopback_status" if bridge.get("version") else None,
+        },
+        "connectivity": {
+            "container_loopback": bridge.get("responding", False),
+            "direct_ip_login": "not_tested",
+            "friend_join": "not_tested",
         },
         "bridge": bridge,
     }
