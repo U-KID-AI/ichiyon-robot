@@ -311,10 +311,13 @@ def parse_archive(raw):
 
 
 def read_state(path):
+    if path.is_symlink():
+        fail()
+
     if not path.exists():
         return {"version": 1, "packs": {kind: {} for kind in KINDS}}
 
-    if not path.is_file() or path.is_symlink():
+    if not path.is_file():
         fail()
 
     value = strict_json_bytes(path.read_bytes())
@@ -380,21 +383,40 @@ def current_tree_matches(root, expected):
 
 def write_atomic(path, raw):
     tmp = path.with_name(path.name + ".ichiyon-tmp")
-    if tmp.exists():
-        if tmp.is_dir():
+
+    if os.path.lexists(tmp):
+        if tmp.is_symlink() or not tmp.is_file():
             fail()
         tmp.unlink()
-    with open(tmp, "wb") as stream:
-        stream.write(raw)
-        stream.flush()
-        os.fsync(stream.fileno())
-    os.replace(tmp, path)
+
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+
+    try:
+        fd = os.open(tmp, flags, 0o600)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            if (
+                os.path.lexists(tmp)
+                and not tmp.is_symlink()
+                and tmp.is_file()
+            ):
+                tmp.unlink()
+        except OSError:
+            pass
+        fail()
 
 
 def restore_file(path, existed, raw):
     if existed:
         write_atomic(path, raw)
-    elif path.exists():
+    elif os.path.lexists(path):
         if path.is_dir() or path.is_symlink():
             fail()
         path.unlink()
@@ -513,8 +535,13 @@ def main():
         stage = Path(tempfile.mkdtemp(prefix=".ichiyon-ai-stage-", dir=data_root))
         backup = Path(tempfile.mkdtemp(prefix=".ichiyon-ai-backup-", dir=data_root))
         moved = []
-        state_existed = state_path.exists()
-        state_before = state_path.read_bytes() if state_existed else b""
+        state_existed = os.path.lexists(state_path)
+        if state_existed:
+            if state_path.is_symlink() or not state_path.is_file():
+                fail()
+            state_before = state_path.read_bytes()
+        else:
+            state_before = b""
         rollback_failed = False
 
         try:
@@ -540,7 +567,7 @@ def main():
                     old = backup / kind / name
                     old.parent.mkdir(parents=True, exist_ok=True)
 
-                    if destination.exists():
+                    if os.path.lexists(destination):
                         if not destination.is_dir() or destination.is_symlink():
                             fail()
                         os.replace(destination, old)
@@ -585,7 +612,7 @@ def main():
                     docker(["stop", "--time", "60", container])
 
                 for destination, old, existed in reversed(moved):
-                    if destination.exists():
+                    if os.path.lexists(destination):
                         if destination.is_symlink() or not destination.is_dir():
                             fail()
                         shutil.rmtree(destination)
