@@ -19,6 +19,7 @@ AI_UNAUTHORIZED = "AI開発taskを利用する権限がありません。"
 AI_DB_ERROR = "AI taskを処理できませんでした。"
 AI_DB_REQUIRED = "AI task機能はDB構成時のみ利用できます。"
 AI_COMMAND_RE = re.compile(r"^AI(?:[\s\u3000]+|$)")
+LEADING_ROLE_MENTIONS_RE = re.compile(r"^\s*(?:<@&[0-9]+>\s*)+")
 TERMINAL_STATUSES = frozenset(("completed", "failed", "needs_human", "cancelled"))
 
 
@@ -45,6 +46,12 @@ async def handle_ai_task_channel_message(
         return True
     # The mention parser supplies text with only the leading Ichiyon mention removed.
     text = message.content if command_text is None else command_text
+    # Role mentions are only addressing syntax for read-only management commands.
+    # Preserve freeform development prompts, including their role mentions.
+    management_text = LEADING_ROLE_MENTIONS_RE.sub("", text, count=1)
+    management_action, _, _ = parse_ai_command(management_text)
+    if management_action in ("状態", "一覧"):
+        text = management_text
     action, _argument, _owned = parse_ai_command(text)
     if action is not None:
         return await handle_ai_task_command(message, text)

@@ -146,6 +146,41 @@ class ChannelChecks(unittest.IsolatedAsyncioTestCase):
             message = self.message("keep <@88> private prompt")
             self.assertIsNone(messages.get_mention_command_text(message))
 
+    async def test_role_mentioned_management_does_not_create_tasks(self):
+        task_id = "703f4750-9e05-4eeb-a9e8-004813baaeef"
+        with patch.object(messages, "_bot", SimpleNamespace(user=SimpleNamespace(id=88))):
+            for prefix in ("<@&1538852669488107583> ", "  <@&77>\u3000<@&99> ",
+                           "<@88> <@&77> ", "<@!88> <@&77> "):
+                for command, expected in (("AI 状態 " + task_id, task_id),
+                                          ("AI 一覧", "AI taskはありません。"),
+                                          ("AI 状態 invalid", "task IDが不正です。"),
+                                          ("AI 一覧 extra", ai_tasks.AI_USAGE)):
+                    message = self.message(prefix + command)
+                    text = messages.get_mention_command_text(message)
+                    self.assertTrue(await ai_tasks.handle_ai_task_channel_message(message, text))
+                    self.assertIn(expected, self.channel.sent[-1][0])
+                    self.assert_mentions_disabled(self.channel.sent[-1][1])
+        self.assertEqual(self.connection.created, [])
+
+    async def test_role_mentions_preserve_development_prompts(self):
+        for text in ("<@&77> この機能を修正して", "<@&77> AI 開発 本文",
+                     "<@&77> AI unknown", "本文 <@&77> AI 状態",
+                     "<@77> AI 一覧", "<@&invalid> AI 一覧"):
+            await ai_tasks.handle_ai_task_channel_message(self.message(text))
+            self.assertEqual(self.connection.created[-1]["description"], text)
+
+    async def test_role_mentioned_status_requires_authorization_and_location(self):
+        message = self.message("<@&77> AI 状態 " + str(uuid.uuid4()))
+        with patch.object(config, "AI_TASK_ALLOWED_USER_IDS", ()):
+            self.assertTrue(await ai_tasks.handle_ai_task_channel_message(message))
+            self.assertEqual(self.channel.sent[-1][0], ai_tasks.AI_UNAUTHORIZED)
+        with patch.object(config, "BOT_INSTANCE_ID", "irsia"):
+            self.assertFalse(await ai_tasks.handle_ai_task_channel_message(message))
+        message.guild.id = GUILD + 1
+        self.assertFalse(await ai_tasks.handle_ai_task_channel_message(message))
+        self.get_connection.assert_not_called()
+        self.assertEqual(self.connection.created, [])
+
     async def test_main_dispatch_and_redaction_without_starting_bot(self):
         source = (ROOT_DIR / "main.py").read_text(encoding="utf-8")
         node = next(n for n in ast.parse(source).body if isinstance(n, ast.AsyncFunctionDef) and n.name == "on_message")
