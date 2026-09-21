@@ -30,6 +30,7 @@
         },
         {
           "name": "body",
+          "locators": { "lead": [-8.5, 7.5, 0.0] },
           "parent": "root",
           "pivot": [
             0,

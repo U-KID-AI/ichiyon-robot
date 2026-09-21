@@ -12,9 +12,6 @@
       "geometry": {
         "default": "geometry.molcar"
       },
-      "locators": {
-        "lead": { "body": [-8.5, 7.5, 0.0] }
-      },
       "render_controllers": [
         "controller.render.default"
       ],

@@ -10,22 +10,73 @@ RP = ROOT / "minecraft/resource_packs/ichiyon_avatar_rp"
 
 
 def read_json(path):
-    return json.loads(path.read_text(encoding="utf-8"))
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError(f"duplicate JSON key: {key}")
+            result[key] = value
+        return result
+
+    def reject_constant(value):
+        raise ValueError(f"non-finite JSON number: {value}")
+
+    return json.loads(path.read_text(encoding="utf-8"),
+                      object_pairs_hook=pairs, parse_constant=reject_constant)
 
 
 class LeadAnchorChecks(unittest.TestCase):
+    def test_client_resources_and_complete_hierarchy(self):
+        eggs = {
+            "molcar": ("#642287", "#243184"),
+            "molcar2": ("#E0E0D0", "#B0B0B0"),
+            "molcar3": ("#967219", "#781814"),
+            "gonta": ("#F1D900", "#111111"),
+        }
+        for name, (base, overlay) in eggs.items():
+            with self.subTest(entity=name):
+                data = read_json(RP / f"entity/{name}.entity.json")
+                self.assertEqual(data["format_version"], "1.10.0")
+                client = data["minecraft:client_entity"]["description"]
+                self.assertEqual(client["identifier"], f"ichiyon:{name}")
+                self.assertEqual(client["spawn_egg"], {
+                    "base_color": base, "overlay_color": overlay})
+                self.assertEqual(client["materials"], {"default": "entity_alphatest"})
+                self.assertEqual(client["render_controllers"], ["controller.render.default"])
+                for texture in client["textures"].values():
+                    path = RP / (texture + ".png")
+                    self.assertTrue(path.is_file())
+                    self.assertEqual(path.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
+                geometry = read_json(RP / f"models/entity/{name}.geo.json")["minecraft:geometry"][0]
+                self.assertEqual(client["geometry"], {"default": geometry["description"]["identifier"]})
+                bones = {b["name"]: b for b in geometry["bones"]}
+                self.assertEqual(len(bones), len(geometry["bones"]))
+                for start in bones:
+                    seen = set()
+                    current = start
+                    while current is not None:
+                        self.assertIn(current, bones)
+                        self.assertNotIn(current, seen)
+                        seen.add(current)
+                        current = bones[current].get("parent")
+                animations = read_json(RP / f"animations/{name}.animation.json")["animations"]
+                for ref in client["animations"].values():
+                    self.assertIn(ref, animations)
+                    self.assertLessEqual(set(animations[ref]["bones"]), set(bones))
+
     def test_parent_transforms_and_animation_envelope(self):
-        for name, expected in (("molcar", (0, 7.5, -8.5)), ("gonta", (0, 4, -4))):
+        for name, expected in (("molcar", (0, 7.5, -8.5)), ("molcar2", (0, 7.5, -8.5)),
+                               ("molcar3", (0, 7.5, -8.5)), ("gonta", (0, 4, -4))):
             client = read_json(RP / f"entity/{name}.entity.json")["minecraft:client_entity"]["description"]
             bones = {b["name"]: b for b in read_json(RP / f"models/entity/{name}.geo.json")["minecraft:geometry"][0]["bones"]}
-            point = client["locators"]["lead"]["body"]
+            point = bones["body"]["locators"]["lead"]
             chain = []
             bone = "body"
             while bone:
                 self.assertNotIn(bone, chain)
                 chain.append(bone)
                 bone = bones[bone].get("parent")
-            self.assertEqual(chain, ["body", "root" if name == "molcar" else "gonta_body"])
+            self.assertEqual(chain, ["body", "root" if name != "gonta" else "gonta_body"])
 
             def transform(position, rotation):
                 result = list(point)
@@ -70,25 +121,26 @@ class LeadAnchorChecks(unittest.TestCase):
         from ai_task_minecraft_deploy import sync_world_json
         manifest = read_json(RP / "manifest.json")
         version = manifest["header"]["version"]
-        self.assertEqual(version, [1, 0, 31])
+        self.assertEqual(version, [1, 0, 32])
         self.assertTrue(all(m["version"] == version for m in manifest["modules"]))
-        old = [{"pack_id": manifest["header"]["uuid"], "version": [1, 0, 30]}]
+        old = [{"pack_id": manifest["header"]["uuid"], "version": [1, 0, 31]}]
         result = json.loads(sync_world_json(json.dumps(old), [json.dumps(manifest)]))
         self.assertEqual(result, [{**old[0], "version": version}])
 
     def test_lead_locators_attach_to_body_surface(self):
         # Model-space points must be on actual body cubes, not collision bounds
         # or animated wheels/legs. Inherit body/root transforms through the bone.
-        for name in ("molcar", "gonta"):
+        for name in ("molcar", "molcar2", "molcar3", "gonta"):
             with self.subTest(entity=name):
                 client = read_json(RP / f"entity/{name}.entity.json")["minecraft:client_entity"]["description"]
                 geometry = read_json(RP / f"models/entity/{name}.geo.json")["minecraft:geometry"][0]
                 self.assertEqual(client["geometry"]["default"], geometry["description"]["identifier"])
-                lead = client["locators"]["lead"]
-                self.assertEqual(set(lead), {"body"})
-                point = lead["body"]
+                self.assertNotIn("locators", client)
+                owners = [b for b in geometry["bones"] if "lead" in b.get("locators", {})]
+                self.assertEqual([b["name"] for b in owners], ["body"])
+                point = owners[0]["locators"]["lead"]
                 self.assertEqual(len(point), 3)
-                self.assertTrue(all(isinstance(v, (int, float)) and math.isfinite(v) for v in point))
+                self.assertTrue(all(type(v) in (int, float) and math.isfinite(v) for v in point))
                 body = next(b for b in geometry["bones"] if b["name"] == "body")
                 def on_surface(cube):
                     low = cube["origin"]
