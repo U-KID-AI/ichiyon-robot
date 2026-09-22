@@ -21,4 +21,5 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 RUN python -c "import cv2, numpy; print('cv2 import ok', cv2.__version__)"
 
+# Read-only scripts/inspect_ai_task_worktree.py requires Git and a checkout; this image does not install Git.
 COPY . .
