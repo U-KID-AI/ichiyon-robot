@@ -5,6 +5,8 @@ const ATTACH = "ichiyon:mokuro_attach";
 const DETACH = "ichiyon:mokuro_detach";
 const GLIDE = "ichiyon:gliding";
 const CARRIED = "ichiyon:carried";
+const BOOST = "ichiyon:boosting";
+export const JUMP_ASSIST = 1.15;
 
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 const point = (v) => ({ x: v.x, y: v.y, z: v.z });
@@ -58,6 +60,7 @@ export function createMokuro({ world, system, ActionFormData, report = console.w
     // Restore physics first; persistent ownership survives a failed event for load-time recovery.
     entity.triggerEvent(DETACH);
     entity.setProperty(GLIDE, false);
+    entity.setProperty(BOOST, false);
     const raw = entity.getDynamicProperty(RETURN);
     if (typeof raw === "string") {
       try {
@@ -96,6 +99,7 @@ export function createMokuro({ world, system, ActionFormData, report = console.w
       return false;
     }
     const state = { player, playerId: player.id, entity, mode, gliding: false, landingUntil: -1,
+      boosted: false, leftGround: false, launchTick: -100,
       last: point(player.location), dimension: player.dimension.id, groundTick: -100,
       saved: point(entity.location), savedDimension: entity.dimension.id };
     // Save before disabling AI so even a Script reload mid-attach can recover the same entity.
@@ -108,7 +112,7 @@ export function createMokuro({ world, system, ActionFormData, report = console.w
       const pose = attachmentPose(player, mode);
       entity.teleport(pose.location, { rotation: pose.rotation, keepVelocity: false });
       player.sendMessage(mode === "head"
-        ? "モクローを頭に乗せました。落下中にジャンプで滑空、しゃがむと滑空解除。地上で素手のまま、しゃがみ＋ジャンプで降ろせます。"
+        ? "モクローを頭に乗せました。地上でジャンプすると大ジャンプ→回転→自動滑空。落下中のジャンプでも滑空、しゃがむと解除。地上で素手のまま、しゃがみ＋ジャンプで降ろせます。"
         : "モクローを背中に乗せました。地上で素手のまま、しゃがみ＋ジャンプで降ろせます。背中では滑空できません。");
       return true;
     } catch (e) {
@@ -155,6 +159,16 @@ export function createMokuro({ world, system, ActionFormData, report = console.w
     if (!state || !alive(player)) return;
     if (player.isSneaking && emptyHand(player) && (player.isOnGround || system.currentTick - state.groundTick <= 4)) {
       void menu(player, state.entity);
+    } else if (!player.isSneaking && flightAllowed(state) && !state.boosted
+        && system.currentTick - state.launchTick >= 20
+        && (player.isOnGround || system.currentTick - state.groundTick <= 4)) {
+      player.applyImpulse({ x: 0, y: JUMP_ASSIST, z: 0 });
+      state.gliding = false;
+      state.entity.setProperty(GLIDE, false);
+      state.boosted = true;
+      state.leftGround = false;
+      state.launchTick = system.currentTick;
+      state.entity.setProperty(BOOST, true);
     } else if (!player.isOnGround && !player.isSneaking && player.getVelocity().y < -0.03 && flightAllowed(state)) {
       state.gliding = true;
       state.entity.setProperty(GLIDE, true);
@@ -173,7 +187,7 @@ export function createMokuro({ world, system, ActionFormData, report = console.w
   function fall(event) {
     const state = owners.get(event.hurtEntity?.id);
     if (event.damageSource?.cause === "fall" && state && flightAllowed(state)
-        && (state.gliding || state.landingUntil >= system.currentTick)) event.cancel = true;
+        && (state.boosted || state.gliding || state.landingUntil >= system.currentTick)) event.cancel = true;
   }
   function tick() {
     for (const state of owners.values()) {
@@ -184,6 +198,24 @@ export function createMokuro({ world, system, ActionFormData, report = console.w
           detach(state); continue;
         }
         state.last = point(p.location);
+        if (state.boosted) {
+          if (!flightAllowed(state) || p.isSneaking) {
+            state.boosted = false;
+            entity.setProperty(BOOST, false);
+          } else if (!p.isOnGround) {
+            state.leftGround = true;
+            if (p.getVelocity().y <= 0.03) {
+              state.boosted = false;
+              entity.setProperty(BOOST, false);
+              state.gliding = true;
+              entity.setProperty(GLIDE, true);
+            }
+          } else if (state.leftGround || system.currentTick - state.launchTick > 4) {
+            state.boosted = false;
+            state.landingUntil = system.currentTick + 2;
+            entity.setProperty(BOOST, false);
+          }
+        }
         if (p.isOnGround) {
           state.groundTick = system.currentTick;
           if (distance(state.saved, p.location) > 1 || state.savedDimension !== p.dimension.id) {

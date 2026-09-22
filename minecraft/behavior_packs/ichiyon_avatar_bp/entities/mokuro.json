@@ -7,6 +7,7 @@
       "is_summonable": true,
       "is_experimental": false,
       "properties": {
+        "ichiyon:boosting": {"type": "bool", "default": false, "client_sync": true},
         "ichiyon:carried": {"type": "bool", "default": false, "client_sync": true},
         "ichiyon:gliding": {"type": "bool", "default": false, "client_sync": true}
       }
@@ -52,12 +53,12 @@
       "ichiyon:mokuro_attach": {
         "remove": {"component_groups": ["ichiyon:mokuro_mobile"]},
         "add": {"component_groups": ["ichiyon:mokuro_carried"]},
-        "set_property": {"ichiyon:carried": true, "ichiyon:gliding": false}
+        "set_property": {"ichiyon:carried": true, "ichiyon:gliding": false, "ichiyon:boosting": false}
       },
       "ichiyon:mokuro_detach": {
         "remove": {"component_groups": ["ichiyon:mokuro_carried"]},
         "add": {"component_groups": ["ichiyon:mokuro_mobile"]},
-        "set_property": {"ichiyon:carried": false, "ichiyon:gliding": false}
+        "set_property": {"ichiyon:carried": false, "ichiyon:gliding": false, "ichiyon:boosting": false}
       }
     }
   }

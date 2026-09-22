@@ -253,4 +253,27 @@ await test("attachment overrides idle/walk/flap, glide overrides carried, detach
     a.query.ground_speed = 1; assert.equal(a.step(), "walk");
   }
 });
+await test("ground head jump boosts once, rolls up, auto glides at apex", () => {
+  const {core,p,mob,system}=fixture();core.attach(p,mob,"head");core.tick();core.jump(p);
+  assert.equal(p.impulses.at(-1).y,1.15);assert(mob.props["ichiyon:boosting"]);
+  core.jump(p);assert.equal(p.impulses.length,1);
+  p.isOnGround=false;p.velocity.y=.8;system.currentTick++;core.tick();assert(mob.props["ichiyon:boosting"]);
+  p.velocity.y=-.01;core.tick();assert(!mob.props["ichiyon:boosting"]);assert(mob.props["ichiyon:gliding"]);
+  p.isOnGround=true;core.tick();assert(!mob.props["ichiyon:gliding"]);
+});
+await test("back/Elytra/water never boost; release clears roll", () => {
+  for(const condition of ['back','elytra','water']){
+    const {core,p,mob}=fixture();core.attach(p,mob,condition==='back'?'back':'head');
+    if(condition==='elytra')p.chest={typeId:'minecraft:elytra'};
+    if(condition==='water')p.isInWater=true;
+    core.jump(p);assert.equal(p.impulses.length,0);
+  }
+  const {core,p,mob}=fixture();core.attach(p,mob,'head');core.jump(p);core.releasePlayer(p.id);
+  assert.equal(mob.props['ichiyon:boosting'],false);
+});
+await test("roll uses original clip then blends into open wings", () => {
+  const a=animationFixture();a.props['ichiyon:carried']=true;a.step();
+  a.props['ichiyon:boosting']=true;assert.equal(a.step(),'roll');
+  a.props['ichiyon:boosting']=false;a.props['ichiyon:gliding']=true;assert.equal(a.step(),'glide');
+});
 console.log(`${count} Mokuro runtime checks passed`);

@@ -32,7 +32,8 @@ No new animation is required. Idle uses the original resting pose and random-loo
 AI yaw. After 4-8 seconds of continuous grounded idle, the controller plays the
 original flap for 1 second (two untouched 0.5-second loops), then waits again.
 Ground speed above 0.05 selects walk and interrupts flap. Carried/glide states
-override both; glide retains open-wings. Roll remains preserved but unused.
+override both; head-jump ascent uses the unchanged roll clip, then glide uses
+open-wings. No original animation data is edited.
 
 ## Gameplay
 
@@ -41,14 +42,16 @@ override both; glide retains open-wings. Roll remains preserved but unused.
 - Empty-hand interaction opens head / back / cancel. Release a leash first.
 - To put down: on the ground, empty hand, sneak + jump; choose 降ろす.
   The owner can also interact directly with the carried Mob to open that menu.
-- Head glide: while falling, press jump again. Sneak cancels glide; landing ends
-  it. Back carrying never grants glide.
+- Head jump: jump from the ground for a strong upward assist and roll while
+  rising; glide begins automatically at the apex. While already falling, jump
+  also starts glide. Sneak cancels; landing ends it. Back carrying grants neither.
 - Wearing an Elytra, actual Elytra gliding, Creative flying, water, climbing,
   sleeping, and riding another entity disable the approximation.
 
 This is not native Elytra flight. It uses bounded impulses with horizontal
-inertia, view-directed steering and a downward target speed (no powered ascent).
-Fall damage cancellation applies only to the owner's active head glide and its
+inertia, view-directed steering and a downward target speed. Ground jumps get
+one upward impulse, never repeated midair. Fall protection covers head ascent,
+active head glide and its
 two-tick landing window. Other damage, including damage to Mokuro, is unchanged.
 Detaching immediately revokes glide and fall protection.
 
