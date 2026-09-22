@@ -1,4 +1,6 @@
 """Catalog blobs survive immutable app releases in the existing database."""
+import re
+
 from bot.repositories.base import fetch_all, fetch_one
 from bot.services.minecraft_cosmetics import asset, MAX_ID
 

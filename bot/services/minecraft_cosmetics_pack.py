@@ -218,7 +218,7 @@ def compile_files(root, records, *, revision=None):
         lines.extend(f"action.interact.ichiyon_cosmetic_{key}={value}" for key, value in translations.items())
         files[path] = ("\n".join(lines) + "\n").encode("utf-8")
     put(RP + "render_controllers/cosmetics_accessories.render_controllers.json", {"format_version": "1.8.0", "render_controllers": accessory_controllers})
-    for pack, patch in ((BP, 31), (RP, 35), (BRIDGE, 28)):
+    for pack, patch in ((BP, 31), (RP, 36), (BRIDGE, 29)):
         manifest = read(pack + "manifest.json")
         version = [1, 0, patch] if revision is None else [1, 1, revision]
         manifest["header"]["version"] = version
