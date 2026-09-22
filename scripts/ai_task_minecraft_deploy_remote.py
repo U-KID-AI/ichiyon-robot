@@ -422,6 +422,16 @@ def restore_file(path, existed, raw):
         path.unlink()
 
 
+def require_git_pack_ownership(data_root):
+    # The Web compiler includes DB-only assets absent from a Git archive. Once
+    # it owns the packs, exact-Git catch-up would erase those assets on every
+    # idle runner tick. Reject before any pack/state/health/restart operations;
+    # never issue an exact-Git deployment proof for Web-generated content.
+    managed = data_root.parent / "cosmetics-applications"
+    if managed.is_symlink() or os.path.lexists(managed / "active.json"):
+        fail()
+
+
 def main():
     if len(sys.argv) != 5:
         fail()
@@ -462,6 +472,7 @@ def main():
     lock_path.touch(mode=0o600, exist_ok=True)
     with open(lock_path, "r+b") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        require_git_pack_ownership(data_root)
 
         previous_state = read_state(state_path)
         next_state = desired_state(packs, tree_hash)
