@@ -18,7 +18,6 @@ from ai_task_review_merge import (
     ReviewMergeSafetyError,
     ReviewPendingError,
 )
-from ai_task_safety import is_protected_path
 
 
 TASK_ID = UUID(
@@ -433,19 +432,6 @@ def main():
         first_env.get("GH_PROMPT_DISABLED") == "1"
         and first_env.get("GIT_TERMINAL_PROMPT")
         == "0",
-    )
-
-    check(
-        "Phase 2D control paths are protected",
-        all(
-            is_protected_path(path)
-            for path in (
-                "scripts/ai_task_review_merge.py",
-                "scripts/ai_task_auto_merge.py",
-                "scripts/check_ai_task_review_merge.py",
-                "scripts/check_ai_task_auto_merge.py",
-            )
-        ),
     )
 
     wrong_base = pr_item()

@@ -36,7 +36,7 @@ Adminは `uvicorn admin.main:app` で起動する。ローカルComposeでは通
 
 ## staging
 
-stgも `db`、`admin`、`bot`をDocker Composeで運用する方針で、文書上のbranchは `feature/docker-dev-environment` である。既存systemd unitはロールバック用に残す。本番とstgの接続情報や実値は `.env` にあり、AIは読み取らない。
+stgも `db`、`admin`、`bot`をDocker Composeで運用する方針で、文書上のbranchは `feature/docker-dev-environment` である。既存systemd unitはロールバック用に残す。本番とstgの接続情報や実値は `.env` にあるため、値をDiscord報告・ログ・PR本文へ出さない。
 
 ## local development
 

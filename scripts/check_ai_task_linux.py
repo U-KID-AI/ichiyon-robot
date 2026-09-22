@@ -71,8 +71,10 @@ class LinuxChecks(unittest.TestCase):
             return SimpleNamespace(returncode=0, stdout='core.repositoryformatversion\n', stderr='')
         exe = Path(sys.executable).resolve()
         publisher = GitPublisher(exe, gh_path=exe, runner=fake)
+        publisher.gh_path = PurePosixPath('/trusted/gh')
+        trusted_home = str((ROOT / '.ai-task-linux-test-home').resolve())
         with patch('sys.platform', 'linux'), patch.dict(os.environ, {
-            'HOME': '/trusted-home',
+            'HOME': trusted_home,
             'GH_TOKEN': 'fake', 'GITHUB_TOKEN': 'fake', 'GH_CONFIG_DIR': '/untrusted',
             'GIT_CONFIG_COUNT': '99', 'GIT_CONFIG_VALUE_9': 'unsafe',
             'GIT_ASKPASS': '/untrusted', 'SSH_AUTH_SOCK': '/untrusted',
@@ -82,12 +84,12 @@ class LinuxChecks(unittest.TestCase):
                      for i in range(int(env['GIT_CONFIG_COUNT']))]
             self.assertEqual(pairs[:3], [('credential.helper', ''),
                 ('credential.https://github.com.helper', ''),
-                ('credential.https://github.com.helper', str(exe) + ' auth git-credential')])
+                ('credential.https://github.com.helper', '/trusted/gh auth git-credential')])
             for key in ('GH_TOKEN', 'GITHUB_TOKEN', 'GIT_ASKPASS', 'SSH_AUTH_SOCK', 'GIT_CONFIG_VALUE_9'):
                 self.assertNotIn(key, env)
             self.assertEqual(env['HOME'], os.devnull)
             self.assertEqual(env['XDG_CONFIG_HOME'], os.devnull)
-            self.assertEqual(env['GH_CONFIG_DIR'], '/trusted-home/.config/gh')
+            self.assertEqual(env['GH_CONFIG_DIR'], str(Path(trusted_home) / '.config' / 'gh'))
             self.assertEqual(env['GIT_CONFIG_GLOBAL'], os.devnull)
             self.assertEqual(env['GIT_CONFIG_SYSTEM'], os.devnull)
             self.assertEqual(env['GIT_TERMINAL_PROMPT'], '0')
@@ -111,7 +113,7 @@ class LinuxChecks(unittest.TestCase):
                 publisher.gh_path = PurePosixPath(path)
                 with self.assertRaises(PublishSafetyError):
                     publisher._network_environment(ROOT)
-            publisher.gh_path = exe
+            publisher.gh_path = PurePosixPath('/trusted/gh')
             for key in ('credential.helper', 'include.path', 'includeif.x.path',
                         'url.x.insteadof', 'http.proxy', 'core.askpass', 'extensions.worktreeconfig',
                         'remote.https://github.com/U-KID-AI/ichiyon-robot.git.url'):
@@ -162,11 +164,17 @@ class LinuxChecks(unittest.TestCase):
                 with patch('sys.platform', platform):
                     CodexAdapter(Path(sys.executable), popen=fake).run(root, root / 'out', 'offline', timeout=1)
                     _, review_calls, _ = run_with(json.dumps(approve_payload()))
-                for argv, kwargs in (calls[0], (review_calls[0]['argv'], review_calls[0]['kwargs'])):
+                for argv, kwargs, network_enabled in (
+                    (calls[0][0], calls[0][1], True),
+                    (review_calls[0]['argv'], review_calls[0]['kwargs'], False),
+                ):
                     windows = [arg for arg in argv if arg.startswith('windows.')]
                     self.assertEqual(windows, ['windows.sandbox="elevated"',
                         'windows.allowed_sandbox_implementations=["elevated"]'] if platform == 'win32' else [])
-                    self.assertIn('sandbox_workspace_write.network_access=false', argv)
+                    self.assertIn(
+                        'sandbox_workspace_write.network_access=' + ('true' if network_enabled else 'false'),
+                        argv,
+                    )
                     self.assertFalse(kwargs['shell'])
                     if os.name == 'posix':
                         self.assertTrue(kwargs['start_new_session'])

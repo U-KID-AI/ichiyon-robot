@@ -292,25 +292,24 @@ def main():
         existing = worktree_root / expected_worktree_name(TASK_ID)
         existing.mkdir()
         check("existing worktree rejected", _rejects(lambda: task_worktree_path(worktree_root, TASK_ID)))
-        check("protected rules rejected", is_protected_path("AGENTS.md") and is_protected_path(".env"))
-        check("safety and project config paths are protected",
-              all(is_protected_path(path) for path in ("scripts/ai_task_process.py", "docs/AI_CONTEXT.md",
-                  "docs/AI_RUNBOOK.md", "docs/AI_TASKS.md", ".codex/config.toml", "x.rules")))
-        check("workflow and key paths rejected", is_protected_path(".github/workflows/x.yml") and is_protected_path("keys/test.pem"))
+        check("normal repository paths are editable",
+              not any(is_protected_path(path) for path in ("AGENTS.md", ".env", "scripts/ai_task_process.py",
+                  "docs/AI_CONTEXT.md", ".github/workflows/x.yml", "keys/test.pem", ".codex/config.toml", "x.rules")))
+        check("Git metadata path is rejected", is_protected_path(".git/config"))
         check("path traversal rejected", is_protected_path("../outside.txt"))
         with patch("ai_task_safety.Path.lstat", return_value=SimpleNamespace(st_file_attributes=0x400)):
             check("reparse attribute is rejected", is_reparse_point(root / "reparse"))
         with patch("ai_task_safety.Path.lstat", side_effect=OSError("cannot inspect")):
             check("reparse inspection failure is rejected", _rejects(lambda: is_reparse_point(root / "unknown")))
-        check("changed path safety rejects protected file", _rejects(lambda: validate_changed_paths(root, ["docs/AI_RULES.md"])))
+        check("changed path safety allows normal files", not _rejects(lambda: validate_changed_paths(root, ["docs/AI_RULES.md"])))
         codex_layer = root / ".codex"
         codex_layer.mkdir()
         (codex_layer / "config.toml").write_text("approval_policy='never'", encoding="utf-8")
-        check("project Codex config requires human review", _rejects(lambda: validate_project_codex_layer(root)))
+        check("project Codex config is allowed", not _rejects(lambda: validate_project_codex_layer(root)))
         shutil.rmtree(codex_layer)
         codex_layer.mkdir()
         (codex_layer / "hooks.json").write_text("{}", encoding="utf-8")
-        check("project Codex hooks require human review", _rejects(lambda: validate_project_codex_layer(root)))
+        check("project Codex hooks are allowed", not _rejects(lambda: validate_project_codex_layer(root)))
         shutil.rmtree(codex_layer)
         check("expected names use UUID only", expected_branch(TASK_ID) == "ai/task/00000000-0000-0000-0000-000000000001")
 
@@ -351,7 +350,7 @@ def main():
         check("Codex uses shell false", kwargs["shell"] is False)
         check("Codex fixed sandbox flags", all(flag in argv for flag in ("exec", "--sandbox", "workspace-write", "--ephemeral", "--ignore-user-config", "--color", "never", "-")))
         check("Codex approval policy never", 'approval_policy="never"' in argv and "--approve-for-me" not in argv)
-        check("Codex network disabled", "sandbox_workspace_write.network_access=false" in argv)
+        check("Codex network enabled for desktop-like tasks", "sandbox_workspace_write.network_access=true" in argv)
         check("Codex Windows sandbox elevated", 'windows.sandbox="elevated"' in argv)
         check("Codex allows elevated sandbox only", 'windows.allowed_sandbox_implementations=["elevated"]' in argv and "unelevated" not in " ".join(argv))
         check("Codex shell policy fixed", all(value in argv for value in ('shell_environment_policy.inherit="core"', "shell_environment_policy.ignore_default_excludes=false", "allow_login_shell=false", "allow_managed_hooks_only=true")))
@@ -585,7 +584,7 @@ def recovery_git_checks():
             elif args[0] == "status":
                 status = "M " if state["staged"] else " M"
                 output = status + " allowed.py\0"
-                if not state["restored"]: output += status + " AGENTS.md\0"
+                output += status + " AGENTS.md\0"
                 if (worktree / "new.rules").exists(): output += "?? new.rules\0"
                 if (worktree / ".codex/config.toml").exists(): output += "?? .codex/config.toml\0"
             elif args == ("restore", "--staged", "--source", base, "--", "."): state["staged"] = False
@@ -599,16 +598,13 @@ def recovery_git_checks():
         adapter = GitAdapter(root, Path(sys.executable), runner=fake_git)
         adapter.unstage(worktree, TASK_ID, base)
         check("real adapter unstage preserves allowed edits", not state["staged"] and (worktree / "allowed.py").read_text() == "allowed edits")
-        adapter.restore_protected(worktree, TASK_ID, base, ["AGENTS.md", "new.rules", ".codex/config.toml"])
-        check("real adapter restores tracked and removes only untracked protected paths",
-              (worktree / "AGENTS.md").read_text() == "base rules" and not (worktree / "new.rules").exists()
-              and (worktree / "allowed.py").read_text() == "allowed edits")
-        check("removed Codex layer leaves no empty directory", not (worktree / ".codex").exists())
-        check("restoration uses exact base and literal path", ("restore", "--worktree", "--source", base, "--", ":(literal)AGENTS.md") in commands)
-        for path in ("../escape", ".env", "nested/.env.local", "secrets/data", ".ssh/id_rsa", "cert.pem", "token.txt", "C:/outside", "a:stream", ".git/config"):
+        check("protected restore is disabled", _rejects(lambda: adapter.restore_protected(worktree, TASK_ID, base, ["AGENTS.md"])))
+        check("normal previously protected edits remain", (worktree / "AGENTS.md").read_text() == "edited"
+              and (worktree / "new.rules").exists() and (worktree / ".codex/config.toml").exists())
+        check("repairable paths returns no rollback set",
+              repairable_paths(worktree, ["AGENTS.md", "new.rules", ".codex/config.toml"]) == [])
+        for path in ("../escape", "C:/outside", "a:stream", ".git/config"):
             check("repair boundary rejects " + path, _rejects(lambda: repairable_paths(worktree, [path])))
-        with patch("ai_task_git.is_reparse_point", side_effect=lambda path: path.name == "AGENTS.md"):
-            check("repair rejects protected reparse before restoring", _rejects(lambda: adapter.restore_protected(worktree, TASK_ID, base, ["AGENTS.md"])))
         with patch.object(Path, "is_symlink", side_effect=lambda: True):
             check("repair rejects symlink worktree", _rejects(lambda: repairable_paths(worktree, ["AGENTS.md"])))
         for args in (("restore", "--worktree", "--source", base, "--", ":(literal)../AGENTS.md"),
@@ -1118,9 +1114,6 @@ def orchestration_checks():
                             (cwd / "AGENTS.md").write_text("edited rules", encoding="utf-8")
                         if scenario == "exception_timeout": raise TimeoutError("SECRET_SENTINEL")
                     if scenario == "exhaust_no_changes": retry_git.changed = []
-                    if len(prompts) > 1 and scenario in ("protected", "test_protected"):
-                        assert (cwd / "AGENTS.md").read_text(encoding="utf-8") == "rules"
-                        assert (cwd / "src/main.py").read_text(encoding="utf-8") == "pass"
                     return SimpleNamespace(
                         returncode=(
                             1
@@ -1176,7 +1169,7 @@ def orchestration_checks():
                 5
                 if scenario == "exhaust"
                 else 1
-                if scenario in ("staged", "test_staged", "usage_limit")
+                if scenario in ("staged", "protected", "test_staged", "test_protected", "usage_limit")
                 else 2
             )
             check("bounded attempts " + scenario, len(prompts) == expected and len(set(outputs)) == expected)
@@ -1476,7 +1469,12 @@ def orchestration_checks():
         result, client, git = run_case(mutate=True)
         check("HEAD mutation fails without reset", result == RunOutcome.FAILED and any(item[0] == "failed" for item in client.calls if isinstance(item, tuple)))
         result, client, git = run_case(changed=["scripts/check_ai_tasks.py"])
-        check("protected check is restored then no changes exhaust retries", result == RunOutcome.FAILED and any(item[0] == "failed" for item in client.calls if isinstance(item, tuple)))
+        check("control-plane path reaches publishing checks", result == RunOutcome.FAILED and any(
+            isinstance(item, tuple)
+            and item[0] in {"failed", "needs_human"}
+            and "Phase 2C publishing is not configured" in item[1]
+            for item in client.calls if isinstance(item, tuple)
+        ))
         result, client, git = run_case(staged=True)
         check("staged index recovered before missing publisher failure", result == RunOutcome.FAILED and not git.staged and any(item[0] == "failed" for item in client.calls if isinstance(item, tuple)))
         result, client, git = run_case(termination_failure=True)

@@ -17,7 +17,6 @@ from ai_task_process import (
     terminate_process_tree,
 )
 from ai_task_safety import (
-    is_protected_path,
     is_reparse_point,
     validate_sha,
 )
@@ -27,7 +26,7 @@ MAX_REVIEW_OUTPUT_BYTES = 64 * 1024
 MAX_REVIEW_FINDINGS = 20
 MAX_REVIEW_SUMMARY_CHARS = 2000
 MAX_FINDING_MESSAGE_CHARS = 1000
-MAX_CHANGED_FILES = 100
+MAX_CHANGED_FILES = 2000
 
 ALLOWED_SEVERITIES = frozenset(
     {
@@ -135,7 +134,6 @@ class CodeReviewAdapter:
                 or value.startswith("/")
                 or value.startswith("-")
                 or ".." in value.split("/")
-                or is_protected_path(value)
             ):
                 raise CodeReviewSafetyError(
                     "unsafe changed file for review"

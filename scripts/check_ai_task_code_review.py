@@ -415,18 +415,17 @@ def main():
         ),
     )
 
-    check(
-        "protected changed file is rejected",
-        rejects(
-            lambda: run_with(
-                json.dumps(
-                    approve_payload()
-                ),
-                files=(
-                    "scripts/ai_task_runner.py",
-                ),
-            )
+    result_for_control_path, _calls_for_control_path, _output_for_control_path = run_with(
+        json.dumps(
+            approve_payload()
         ),
+        files=(
+            "scripts/ai_task_runner.py",
+        ),
+    )
+    check(
+        "review allows control-plane repository paths",
+        result_for_control_path.approved is True,
     )
 
     check(

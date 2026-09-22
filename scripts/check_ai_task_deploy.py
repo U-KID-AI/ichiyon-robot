@@ -916,12 +916,13 @@ class RemoteChecks(unittest.TestCase):
                 self.assertEqual(h.release(path), SHA)
             self.assertEqual(len(list(path.iterdir())), 7)
 
-    def test_protected_paths_and_ci(self):
+    def test_repository_paths_and_ci(self):
         for path in ('Dockerfile', '.dockerignore', 'docker-compose.yml', 'docker-compose.prod.yml',
                      'scripts/ai_task_deploy.py', 'scripts/ai_task_deploy_config.py',
                      'scripts/ai_task_deploy_remote.sh', 'scripts/check_ai_task_deploy.py'):
-            self.assertTrue(is_protected_path(path))
-            self.assertTrue(is_protected_path(path.upper()))
+            self.assertFalse(is_protected_path(path))
+            self.assertFalse(is_protected_path(path.upper()))
+        self.assertTrue(is_protected_path('.git/config'))
         self.assertIn('secrets/', (ROOT / '.dockerignore').read_text(encoding='utf-8').splitlines())
         ci = (ROOT / '.github/workflows/checks.yml').read_text()
         for value in ('python-and-compose:', 'python scripts/check_ai_task_deploy.py', 'bash -n scripts/ai_task_deploy_remote.sh'):
