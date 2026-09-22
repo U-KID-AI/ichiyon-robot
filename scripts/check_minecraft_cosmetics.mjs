@@ -65,9 +65,9 @@ test("wear, restart/rejoin, respawn and restore preserve per-player selection", 
   assert.equal(player.getProperty("ichiyon:skin_id"), 2); assert.equal(other.getProperty("ichiyon:skin_id"), 0);
   core.changeSkin(player, 0); core.restoreSkin(player); await advance(); assert.equal(player.getProperty("ichiyon:skin_id"), 0);
 });
-test("missing catalog skin displays default while retaining saved choice", async () => {
+test("deleted catalog skin resets saved choice to vanilla", async () => {
   const { core, makePlayer, advance } = setup(); const player = makePlayer(); player.dynamic["ichiyon:selected_skin"] = 126;
-  core.restoreSkin(player); await advance(); assert.equal(player.getProperty("ichiyon:skin_id"), 0); assert.equal(player.dynamic["ichiyon:selected_skin"], 126);
+  core.restoreSkin(player); await advance(); assert.equal(player.getProperty("ichiyon:skin_id"), 0); assert.equal(player.dynamic["ichiyon:selected_skin"], 0);
   assert.throws(() => core.changeSkin(player, 126));
 });
 test("property failure rolls back saved clothing selection", () => {
@@ -153,14 +153,11 @@ test("stale accessory removal form cannot remove a replacement", async () => {
   answers.push(() => { target.properties["ichiyon:hat"] = 3; return { selection: 0 }; }); await core.accessoryMenu(player, target); await advance();
   assert.equal(target.getProperty("ichiyon:hat"), 3); assert.equal(player.items[0], undefined);
 });
-test("web placement rejects unknown catalog and offline player; known catalog spawns", async () => {
+test("web placement bridge command is no longer handled by cosmetics", async () => {
   const { core, makePlayer, catalog, spawned } = setup(); const player = makePlayer(); const results = [];
   const helpers = { isValidPlayerName: name => name === "Steve", findOnlinePlayer: () => player, playerForwardSpawnLocation: () => ({ x: 0, y: 64, z: 2 }), postResult: async (...args) => results.push(args) };
   const command = { type: "cosmetic_avatar_spawn", request_id: "request", minecraft_player: "Steve", skin_id: 2, catalog_digest: "wrong" };
-  await core.handleCommand(command, helpers); assert.equal(spawned.length, 0); assert.equal(results.at(-1)[2], "catalog_not_loaded");
-  command.catalog_digest = catalog.digest; helpers.findOnlinePlayer = () => undefined;
-  await core.handleCommand(command, helpers); assert.equal(results.at(-1)[2], "player_offline");
-  helpers.findOnlinePlayer = () => player; await core.handleCommand(command, helpers); assert.equal(spawned.length, 1); assert.equal(results.at(-1)[1], "succeeded");
+  assert.equal(await core.handleCommand(command, helpers), false); assert.equal(spawned.length, 0); assert.equal(results.length, 0);
   assert.equal(await core.handleCommand({ type: "legacy" }, helpers), false);
 });
 test("startup registers reconnect and death-respawn restoration", async () => {

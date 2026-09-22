@@ -49,31 +49,16 @@
     <p>アクセサリーを持ってモルカーを使うと装着、空の手でしゃがんで使うと取り外せます。違う部位は同時に装着できます。</p>
   </section>
 </div>
-<section class="cosmetic-card" style="margin:1rem 0">
-  <h2>マネキンを配置</h2>
-  <p>オンラインのプレイヤーの前に置きます。足元と頭上が空いた場所で待機してください。</p>
-  <form action="/minecraft/cosmetics/place" method="post">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <label>接続先 <select name="server" required>
-      <option value="">選択してください</option>
-      {% for server in servers %}<option value="{{ server.bot_id }}/{{ server.guild_id }}" {% if not server.online or server.catalog_digest != digest %}disabled{% endif %}>{{ server.bot_id }} / {{ server.guild_id }} — {% if not server.online %}未接続{% elif server.catalog_digest == digest %}素材一覧を読み込み済み{% else %}パックの反映待ち{% endif %}</option>{% endfor %}
-    </select></label>
-    <label>キャラクター <select name="skin_id" required>{% for asset in assets if asset.kind == 'skin' %}<option value="{{ asset.id }}">{{ asset.name }}</option>{% endfor %}</select></label>
-    <label>プレイヤー名 <input name="player" pattern="[A-Za-z0-9_]{1,16}" maxlength="16" required></label>
-    <button type="submit">プレイヤーの前に配置</button>
-  </form>
-  {% if not servers %}<p>対応パックからの接続を待っています。</p>{% endif %}
-  <p><a href="/minecraft/cosmetics">接続・配置結果を更新</a></p>
-  <div class="cosmetic-table"><table><thead><tr><th>プレイヤー</th><th>スキン番号</th><th>結果</th></tr></thead><tbody>
-    {% set statuses = {'pending':'待機中','claimed':'配置中','succeeded':'配置完了','failed':'配置できませんでした'} %}
-    {% set reasons = {'timeout':'応答がありません。ゲーム側で配置済みか確認してください。','catalog_not_loaded':'最新パックを反映してください。','player_offline':'プレイヤーがオフラインです。','placement_failed':'配置場所の空きとパックを確認してください。','invalid_player_name':'プレイヤー名を確認してください。'} %}
-    {% for job in recent %}<tr><td>{{ job.minecraft_player }}</td><td>{{ job.skin_id }}</td><td>{{ statuses[job.status] }} {{ reasons.get(job.reason,'') }}</td></tr>{% endfor %}
-  </tbody></table></div>
-</section>
 <h2>登録済みの素材</h2>
 <div class="cosmetic-grid">{% for asset in assets %}<article class="cosmetic-card">
   <img src="/minecraft/cosmetics/preview/{{ asset.kind }}/{{ asset.id }}" alt="{{ asset.name }}の画像">
   <h3>{{ asset.name }}</h3><p>{{ 'スキン' if asset.kind == 'skin' else 'アクセサリー' }} #{{ asset.id }}{% if asset.model is defined %} ・ {{ 'スリム' if asset.model == 'slim' else '通常' }}{% endif %}{% if asset.slot is defined %} ・ {{ {'hat':'頭','face':'顔','neck':'首','back':'背中'}[asset.slot] }}{% endif %}</p>
+  {% if asset.kind == 'skin' %}
+    <form action="/minecraft/cosmetics/assets/{{ asset.kind }}/{{ asset.id }}/delete" method="post" onsubmit="return confirm('{{ asset.name }} を削除します。このIDは再利用されず、ゲーム反映後は一覧から消えます。よろしいですか？');">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit">スキンを削除</button>
+    </form>
+  {% endif %}
 </article>{% endfor %}</div>
 <script>
 (() => {

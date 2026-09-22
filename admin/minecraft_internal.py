@@ -39,16 +39,12 @@ async def next_minecraft_command(
         repository = MinecraftBridgeRepository(connection, bot_id=bot_id)
         repository.fail_expired()
         command = repository.claim_next_pending(bot_id=bot_id, guild_id=guild_id)
-        cosmetic_command = None
         if cosmetics_digest is not None:
             cosmetics = MinecraftCosmeticsRepository(connection)
             cosmetics.heartbeat(bot_id, guild_id, cosmetics_digest)
-            cosmetics.expire()
-            if command is None:
-                cosmetic_command = cosmetics.claim(bot_id, guild_id)
         connection.commit()
     if command is None:
-        return {"command": cosmetic_command}
+        return {"command": None}
     return {
         "command": {
             "request_id": str(command["request_id"]),
@@ -76,8 +72,6 @@ async def post_minecraft_command_result(
             reason=result.reason,
             message=result.message,
         )
-        if row is None:
-            row = MinecraftCosmeticsRepository(connection).result(request_id, status_value, result.reason)
         connection.commit()
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="command not found")

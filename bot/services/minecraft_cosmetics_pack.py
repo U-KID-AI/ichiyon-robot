@@ -4,6 +4,8 @@ from io import BytesIO
 import json
 from zipfile import ZipFile, ZIP_DEFLATED, ZipInfo
 
+from PIL import Image
+
 from bot.services.minecraft_cosmetics import (
     MOLCARS, SLOTS, MAX_ID, asset, json_bytes, public_asset,
 )
@@ -13,11 +15,21 @@ RP = "resource_packs/ichiyon_avatar_rp/"
 BRIDGE = "behavior_packs/import_structures/"
 PACKS = (BP, RP, BRIDGE)
 BUILTINS = (("kiana", "キアナ"), ("mei", "芽衣"), ("bronya", "ブローニャ"), ("albert", "アルベール"))
+_DELETED_SKIN_TEXTURE = None
 
 
 def builtin_assets(root):
     return [asset("skin", i + 1, key, name, (root / RP / f"textures/entity/avatar/{key}.png").read_bytes())
             for i, (key, name) in enumerate(BUILTINS)]
+
+
+def deleted_skin_texture():
+    global _DELETED_SKIN_TEXTURE
+    if _DELETED_SKIN_TEXTURE is None:
+        output = BytesIO()
+        Image.new("RGBA", (64, 64), (0, 0, 0, 0)).save(output, format="PNG")
+        _DELETED_SKIN_TEXTURE = output.getvalue()
+    return _DELETED_SKIN_TEXTURE
 
 
 def catalog_digest(records):
@@ -50,8 +62,6 @@ def compile_files(root, records, *, revision=None):
         if asset(record["kind"], record["id"], record["key"], record["name"], record["texture"], **{k: record[k] for k in ("model", "slot", "geometry", "icon") if k in record}) != record:
             raise ValueError("未検証の素材です。")
     skins = {a["id"]: a for a in records if a["kind"] == "skin"}
-    if any(i not in skins or skins[i]["key"] != key for i, (key, _) in enumerate(BUILTINS, 1)):
-        raise ValueError("既存の4種類のスキンは保持してください。")
     files = {}
     files[RP + "COPYING-Mojang.txt"] = (root / "cosmetics/vendor/LICENSE.md").read_bytes().replace(b"\r\n", b"\n")
 
@@ -87,16 +97,18 @@ def compile_files(root, records, *, revision=None):
     mannequin = read(RP + "entity/avatar.entity.json")
     desc = mannequin["minecraft:client_entity"]["description"]
     desc["textures"] = {key: f"textures/entity/avatar/{key}" for key, _ in BUILTINS}
+    desc["textures"]["deleted_skin"] = "textures/entity/cosmetics/deleted_skin"
     desc["geometry"].update(classic="geometry.ichiyon.avatar.classic", slim="geometry.ichiyon.avatar.slim")
     textures, geometries = [], []
     for skin_id in range(1, MAX_ID + 1):
-        skin = skins.get(skin_id, skins[1])
-        textures.append(f"Texture.skin_{skin['id']}")
-        geometries.append("Geometry." + skin["model"])
+        skin = skins.get(skin_id)
+        textures.append(f"Texture.skin_{skin['id']}" if skin else "Texture.deleted_skin")
+        geometries.append("Geometry." + skin["model"] if skin else "Geometry.classic")
     for skin in skins.values():
         path = f"textures/entity/cosmetics/skin_{skin['id']}"
         desc["textures"][f"skin_{skin['id']}"] = path
         files[RP + path + ".png"] = skin["texture"]
+    files[RP + "textures/entity/cosmetics/deleted_skin.png"] = deleted_skin_texture()
     put(RP + "entity/avatar.entity.json", mannequin)
     put(RP + "render_controllers/avatar.render_controllers.json", {
         "format_version": "1.8.0", "render_controllers": {"controller.render.ichiyon.avatar": {

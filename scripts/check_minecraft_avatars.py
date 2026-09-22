@@ -486,6 +486,8 @@ class AvatarChecks(unittest.TestCase):
         self.assertEqual(controller["arrays"]["textures"]["Array.skins"][:4],
                          [f"Texture.skin_{i}" for i in range(1, 5)])
         self.assertEqual(len(controller["arrays"]["textures"]["Array.skins"]), 127)
+        self.assertEqual(set(controller["arrays"]["textures"]["Array.skins"][4:]), {"Texture.deleted_skin"})
+        self.assertEqual(self.client["textures"]["deleted_skin"], "textures/entity/cosmetics/deleted_skin")
         self.assertEqual(controller["textures"], ["Array.skins[query.variant]"])
         self.assertEqual(controller["materials"], [{"*": "Material.default"}])
         self.assertEqual(self.client["materials"]["default"], "entity_alphatest")

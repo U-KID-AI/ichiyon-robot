@@ -54,22 +54,21 @@ async def bounded_form(request):
 
 
 def records(repository):
-    return builtin_assets(ROOT) + repository.assets()
+    deleted = repository.deleted_assets()
+    builtins = [entry for entry in builtin_assets(ROOT) if (entry["kind"], entry["id"]) not in deleted]
+    return builtins + repository.assets()
 
 
 def register_minecraft_cosmetics_routes(templates):
     def page(request, *, error=None, code=200):
         with get_connection() as connection:
             repository = MinecraftCosmeticsRepository(connection)
-            repository.expire()
             assets = records(repository)
-            servers = repository.servers()
-            recent = repository.recent()
             connection.commit()
         csrf = request.session.setdefault("cosmetics_csrf", secrets.token_urlsafe(32))
         return templates.TemplateResponse(request, "minecraft_cosmetics.html", {
             "assets": [public_asset(a) for a in assets], "digest": catalog_digest(assets),
-            "servers": servers, "recent": recent, "csrf": csrf, "error": error, "operation_id": str(uuid.uuid4()),
+            "csrf": csrf, "error": error, "operation_id": str(uuid.uuid4()),
             "current_bot_instance": {"display_name": "Minecraft", "bot_id": "共有素材"},
         }, status_code=code, headers={"Cache-Control": "no-store"})
 
@@ -88,6 +87,20 @@ def register_minecraft_cosmetics_routes(templates):
                 repository.add(kind=form.get("kind"), name=form.get("name"), texture=form.get("texture", b""),
                                model=form.get("model", "classic"), slot=form.get("slot", "hat"),
                                geometry=form.get("geometry"), icon=form.get("icon"), created_by=str(user["user_id"]))
+                connection.commit()
+        except ValueError as exc:
+            return page(request, error=str(exc), code=400)
+        return RedirectResponse("/minecraft/cosmetics", status_code=303)
+
+    @router.post("/assets/{kind}/{asset_id}/delete")
+    async def delete_asset(request: Request, kind: str, asset_id: int):
+        user = require_admin(request)
+        try:
+            await bounded_form(request)
+            if kind != "skin":
+                raise ValueError("削除できるのはスキンだけです。")
+            with get_connection() as connection:
+                MinecraftCosmeticsRepository(connection).delete_skin(asset_id, str(user["user_id"]))
                 connection.commit()
         except ValueError as exc:
             return page(request, error=str(exc), code=400)
@@ -151,24 +164,3 @@ def register_minecraft_cosmetics_routes(templates):
         except (ValueError, MinecraftControlError) as exc:
             return page(request, error=str(exc), code=400)
         return RedirectResponse('/minecraft/cosmetics', status_code=303)
-
-    @router.post("/place")
-    async def place(request: Request):
-        user = require_admin(request)
-        try:
-            form = await bounded_form(request)
-            skin_id = int(form.get("skin_id", "0"))
-            scope = str(form.get("server", "")).split("/", 1)
-            if len(scope) != 2:
-                raise ValueError("接続先を選んでください。")
-            with get_connection() as connection:
-                repository = MinecraftCosmeticsRepository(connection)
-                assets = records(repository)
-                if skin_id not in {a["id"] for a in assets if a["kind"] == "skin"}:
-                    raise ValueError("スキンを選んでください。")
-                repository.place(scope[0], scope[1], catalog_digest(assets), skin_id,
-                                 str(form.get("player", "")).strip(), str(user["user_id"]))
-                connection.commit()
-        except ValueError as exc:
-            return page(request, error=str(exc), code=400)
-        return RedirectResponse("/minecraft/cosmetics", status_code=303)

@@ -24,19 +24,21 @@ from bot.services.minecraft_cosmetics import asset, json_bytes, MAX_UPLOAD
 
 class FakeRepository:
     added = []
-    placed = []
+    deleted = set()
     def __init__(self, connection): pass
     def assets(self): return list(self.added)
+    def deleted_assets(self): return set(self.deleted)
     def servers(self): return []
-    def recent(self): return []
-    def expire(self): pass
     def revision(self): return 1
     def add(self, **kwargs):
         kind = kwargs.pop("kind"); kwargs.pop("created_by")
         entry = asset(kind, 5 if kind == "skin" else 1, "test_asset", **kwargs)
         self.added.append(entry)
         return entry
-    def place(self, *args): self.placed.append(args)
+    def delete_skin(self, asset_id, deleted_by):
+        self.deleted.add(("skin", asset_id))
+        self.added = [entry for entry in self.added if not (entry["kind"] == "skin" and entry["id"] == asset_id)]
+        return True
 
 
 class Connection:
@@ -79,7 +81,7 @@ app.mount("/static", StaticFiles(directory=str(ROOT / "admin/static")), name="st
 
 class AdminChecks(unittest.TestCase):
     def setUp(self):
-        FakeRepository.added = []; FakeRepository.placed = []
+        FakeRepository.added = []; FakeRepository.deleted = set()
         self.patches = [patch.object(admin, "get_connection", fake_connection), patch.object(admin, "PermissionRepository", FakePermission),
                         patch.object(admin, "MinecraftCosmeticsRepository", FakeRepository), patch.object(admin, "require_login", require_login)]
         for item in self.patches: item.start(); self.addCleanup(item.stop)
@@ -92,12 +94,12 @@ class AdminChecks(unittest.TestCase):
     def test_anonymous_and_non_admin_cannot_read_or_mutate(self):
         for user, expected in ((None, 401), ("viewer", 403)):
             if user: self.sign_in(user)
-            for method, path in (("get", ""), ("get", "/preview/skin/1"), ("get", "/application"), ("post", "/apply"), ("post", "/assets"), ("post", "/export"), ("post", "/place")):
+            for method, path in (("get", ""), ("get", "/preview/skin/1"), ("get", "/application"), ("post", "/apply"), ("post", "/assets"), ("post", "/export"), ("post", "/assets/skin/1/delete")):
                 with self.subTest(user=user, path=path): self.assertEqual(getattr(self.client, method)("/minecraft/cosmetics" + path).status_code, expected)
 
     def test_csrf_required_for_every_mutation(self):
         self.sign_in()
-        for path in ("/assets", "/export", "/place", "/apply"):
+        for path in ("/assets", "/export", "/assets/skin/1/delete", "/apply"):
             for token in ("", "wrong"):
                 response = self.client.post("/minecraft/cosmetics" + path, data={"csrf": token})
                 self.assertEqual(response.status_code, 403)
@@ -138,7 +140,7 @@ class AdminChecks(unittest.TestCase):
     def test_export_contains_complete_packs_and_is_not_a_deploy(self):
         self.sign_in(); response = self.client.post("/minecraft/cosmetics/export", data={"csrf": "test-csrf"})
         self.assertEqual(response.status_code, 200); self.assertEqual(response.headers["content-type"], "application/zip")
-        self.assertTrue(response.content.startswith(b"PK")); self.assertFalse(FakeRepository.placed)
+        self.assertTrue(response.content.startswith(b"PK"))
 
     def test_apply_generates_archive_and_retry_observes_same_operation(self):
         import uuid
@@ -160,13 +162,22 @@ class AdminChecks(unittest.TestCase):
             response = self.client.post('/minecraft/cosmetics/apply', data={'csrf':'test-csrf', 'operation_id':str(uuid.uuid4())})
             self.assertEqual(response.status_code, 400); self.assertIn('接続できません。', response.text)
 
-    def test_placement_rejects_unknown_skin_and_passes_fixed_fields(self):
+    def test_web_placement_route_and_form_are_removed(self):
         self.sign_in()
-        fields = {"csrf": "test-csrf", "server": "ichiyon/123", "player": "Steve", "skin_id": "127"}
-        self.assertEqual(self.client.post("/minecraft/cosmetics/place", data=fields).status_code, 400)
-        fields["skin_id"] = "1"
-        self.assertEqual(self.client.post("/minecraft/cosmetics/place", data=fields, follow_redirects=False).status_code, 303)
-        self.assertEqual(FakeRepository.placed[0][:2], ("ichiyon", "123")); self.assertEqual(FakeRepository.placed[0][3:], (1, "Steve", "admin"))
+        page = self.client.get("/minecraft/cosmetics")
+        self.assertEqual(page.status_code, 200)
+        self.assertNotIn("マネキンを配置", page.text)
+        self.assertNotIn('/minecraft/cosmetics/place', page.text)
+        self.assertEqual(self.client.post("/minecraft/cosmetics/place", data={"csrf": "test-csrf"}).status_code, 404)
+
+    def test_skin_delete_requires_admin_csrf_and_hides_builtin(self):
+        self.sign_in()
+        response = self.client.post("/minecraft/cosmetics/assets/skin/1/delete", data={"csrf": "test-csrf"}, follow_redirects=False)
+        self.assertEqual(response.status_code, 303)
+        self.assertIn(("skin", 1), FakeRepository.deleted)
+        page = self.client.get("/minecraft/cosmetics")
+        self.assertNotIn("キアナ", page.text)
+        self.assertIn("スキンを削除", page.text)
 
 
 if __name__ == "__main__": unittest.main()
