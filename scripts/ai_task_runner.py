@@ -25,7 +25,11 @@ from ai_task_codex import CodexAdapter, CodexResult, CodexSafetyError, build_pro
 from ai_task_git import GitAdapter, GitSafetyError, GitDiffCheckError, repairable_paths
 from ai_task_github import GitHubAdapter, GitHubSafetyError
 from ai_task_process import ProcessTerminationError
-from ai_task_publish import GitPublisher, PublishSafetyError
+from ai_task_publish import (
+    GitPublisher,
+    PublishDiffCheckError,
+    PublishSafetyError,
+)
 from ai_task_review_merge import ReviewMergeGate, ReviewMergeSafetyError
 from ai_task_deploy import ProductionDeployAdapter
 from ai_task_deploy_config import DeployConfig, DeploymentSafetyError
@@ -396,6 +400,28 @@ class LocalRunner:
                 except GitDiffCheckError:
                     feedback = "git diff --check failed; repair whitespace errors"
                     continue
+                if self.publisher is not None:
+                    try:
+                        self.publisher.validate_candidate_diff_check(
+                            worktree_path,
+                            base_sha,
+                            changed_after_tests,
+                        )
+                    except PublishDiffCheckError as exc:
+                        feedback = (
+                            "Publish candidate diff check failed for tracked "
+                            "and new files; repair whitespace errors before "
+                            "the next attempt:\n"
+                            + _redact_failure_text(exc.diagnostics)
+                        )
+                        self.client.progress(
+                            task.task_id,
+                            task.claim_token,
+                            test_summary=summary,
+                            changed_files_summary=files_summary,
+                            progress_summary=feedback[:800],
+                        )
+                        continue
                 break
             else:
                 self.client.mark_failed(task.task_id, task.claim_token,

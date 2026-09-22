@@ -83,6 +83,19 @@ class PublishSafetyError(RuntimeError):
     pass
 
 
+class PublishDiffCheckError(PublishSafetyError):
+    def __init__(self, stdout: str, stderr: str) -> None:
+        diagnostics = "\n".join(
+            part for part in (stdout.strip(), stderr.strip()) if part
+        )
+        if not diagnostics:
+            diagnostics = "git diff --cached --check failed without diagnostics"
+        super().__init__("publish diff check failed: " + diagnostics)
+        self.stdout = stdout
+        self.stderr = stderr
+        self.diagnostics = diagnostics
+
+
 @dataclass(frozen=True)
 class PublishResult:
     commit_sha: str
@@ -735,17 +748,13 @@ class GitPublisher:
 
         return fields[0]
 
-    def safe_commit_object(
+    def _build_candidate_index(
         self,
         cwd: Path,
-        task_id: UUID,
         base_sha: str,
         changed_files: list[str],
-    ) -> PublishResult:
+    ) -> tuple[Path, dict[str, str], tuple[str, ...]]:
         validate_sha(base_sha)
-
-        if not isinstance(task_id, UUID):
-            raise PublishSafetyError("task ID must be UUID")
 
         if (
             not changed_files
@@ -902,13 +911,79 @@ class GitPublisher:
                 if indexed.returncode != 0:
                     raise PublishSafetyError("temporary index update failed")
 
+            return index_path, environment, paths
+        except Exception:
+            try:
+                index_path.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                raise PublishSafetyError(
+                    "temporary index cleanup failed"
+                ) from exc
+            raise
+
+    def validate_candidate_diff_check(
+        self,
+        cwd: Path,
+        base_sha: str,
+        changed_files: list[str],
+    ) -> None:
+        index_path, environment, _paths = self._build_candidate_index(
+            cwd,
+            base_sha,
+            changed_files,
+        )
+        try:
             checked = self._run(
                 ("diff", "--cached", "--check", "--no-ext-diff"),
                 cwd=cwd,
                 environment=environment,
             )
             if checked.returncode != 0:
-                raise PublishSafetyError("publish diff check failed")
+                raise PublishDiffCheckError(
+                    checked.stdout,
+                    checked.stderr,
+                )
+        finally:
+            try:
+                index_path.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                raise PublishSafetyError(
+                    "temporary index cleanup failed"
+                ) from exc
+
+    def safe_commit_object(
+        self,
+        cwd: Path,
+        task_id: UUID,
+        base_sha: str,
+        changed_files: list[str],
+    ) -> PublishResult:
+        validate_sha(base_sha)
+
+        if not isinstance(task_id, UUID):
+            raise PublishSafetyError("task ID must be UUID")
+
+        index_path, environment, paths = self._build_candidate_index(
+            cwd,
+            base_sha,
+            changed_files,
+        )
+
+        try:
+            checked = self._run(
+                ("diff", "--cached", "--check", "--no-ext-diff"),
+                cwd=cwd,
+                environment=environment,
+            )
+            if checked.returncode != 0:
+                raise PublishDiffCheckError(
+                    checked.stdout,
+                    checked.stderr,
+                )
 
             tree_result = self._run(
                 ("write-tree",),

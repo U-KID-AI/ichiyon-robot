@@ -14,7 +14,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from ai_task_git import EXPECTED_ORIGIN
-from ai_task_publish import GitPublisher, PublishSafetyError
+from ai_task_publish import (
+    GitPublisher,
+    PublishDiffCheckError,
+    PublishSafetyError,
+)
 from ai_task_safety import is_protected_path
 
 
@@ -219,6 +223,28 @@ def main():
                 )
             ),
         )
+
+        (root / "bad_new.txt").write_text(
+            "trailing whitespace   \n",
+            encoding="utf-8",
+        )
+        try:
+            publisher.validate_candidate_diff_check(
+                root,
+                base_sha,
+                ["bad_new.txt"],
+            )
+        except PublishDiffCheckError as exc:
+            check(
+                "publish candidate diff check reports new file",
+                "bad_new.txt" in exc.diagnostics
+                and "trailing whitespace" in exc.diagnostics,
+            )
+        else:
+            raise AssertionError(
+                "publish candidate diff check reports new file"
+            )
+        (root / "bad_new.txt").unlink()
 
         result = publisher.safe_commit_object(
             root,

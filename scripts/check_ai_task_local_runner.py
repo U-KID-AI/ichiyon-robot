@@ -31,6 +31,7 @@ from ai_task_runner import (
     run_idle_maintenance,
 )
 from ai_task_runner_config import RunnerConfig, validate_api_base_url, validate_runner_id
+from ai_task_publish import PublishDiffCheckError
 from ai_task_safety import (SafetyError, expected_branch, expected_worktree_name, is_protected_path,
                              task_worktree_path, validate_changed_paths, validate_claim_names,
                              is_reparse_point,
@@ -749,7 +750,22 @@ def orchestration_checks():
             def __init__(self, events=None):
                 self.events = events
                 self.safe_calls = []
+                self.validate_calls = []
                 self.push_calls = []
+
+            def validate_candidate_diff_check(
+                self,
+                cwd,
+                base_sha,
+                changed,
+            ):
+                self.validate_calls.append(
+                    (
+                        cwd,
+                        base_sha,
+                        tuple(changed),
+                    )
+                )
 
             def safe_commit_object(
                 self,
@@ -1039,6 +1055,17 @@ def orchestration_checks():
         )
 
         check(
+            "publish candidate diff check runs before commit",
+            len(normal_publisher.validate_calls) == 1
+            and normal_publisher.validate_calls[0]
+            == (
+                normal_publisher.safe_calls[0][0],
+                normal_publisher.safe_calls[0][2],
+                normal_publisher.safe_calls[0][3],
+            ),
+        )
+
+        check(
             "push uses verified deterministic commit",
             len(normal_publisher.push_calls) == 1
             and normal_publisher.push_calls[0][2]
@@ -1093,7 +1120,7 @@ def orchestration_checks():
         check("completion contains only deployment proof", normal_client.calls[-1] == (
             "completed", {"deployed_commit_sha": "e" * 40, "deployment_summary": "Deployment verified."}))
 
-        for scenario in ("timeout", "nonzero", "usage_limit", "no_changes", "staged", "protected", "test", "test_staged", "diff", "exhaust", "exhaust_nonzero", "exhaust_no_changes", "exhaust_test", "test_protected", "exception_timeout"):
+        for scenario in ("timeout", "nonzero", "usage_limit", "no_changes", "staged", "protected", "test", "test_staged", "diff", "publish_diff", "exhaust", "exhaust_nonzero", "exhaust_no_changes", "exhaust_test", "test_protected", "exception_timeout"):
             if task_path.exists():
                 shutil.rmtree(task_path)
             retry_git = FakeGit()
@@ -1150,9 +1177,29 @@ def orchestration_checks():
                 if scenario == "diff" and len(diff_calls) == 1:
                     raise GitDiffCheckError("SECRET_SENTINEL")
             retry_git.diff_check = retry_diff
+            class RetryPublisher(FakePublisher):
+                def validate_candidate_diff_check(
+                    self,
+                    cwd,
+                    base_sha,
+                    changed,
+                ):
+                    super().validate_candidate_diff_check(
+                        cwd,
+                        base_sha,
+                        changed,
+                    )
+                    if (
+                        scenario == "publish_diff"
+                        and len(self.validate_calls) == 1
+                    ):
+                        raise PublishDiffCheckError(
+                            "new_file.md:1: trailing whitespace.\n",
+                            "",
+                        )
             client = FakeClient()
             runner = LocalRunner(replace(config, max_attempts=2) if scenario.startswith("exhaust_") else config, client=client, git=retry_git, codex=RetryCodex(),
-                                 publisher=FakePublisher(), github=FakeGitHub(), reviewer=FakeReviewer([]),
+                                 publisher=RetryPublisher(), github=FakeGitHub(), reviewer=FakeReviewer([]),
                                  review_gate=FakeReviewGate([]), auto_merger=FakeAutoMerger([]), deployer=FakeDeployer([]),
                                  test_runner=retry_test, heartbeat_factory=ActiveHeartbeat)
             outcome = runner.run_once()
@@ -1201,6 +1248,11 @@ def orchestration_checks():
                 )
             if scenario == "test":
                 check("test failure feedback", "python-syntax=1: invalid syntax at line 3" in prompts[1])
+            if scenario == "publish_diff":
+                check(
+                    "publish diff feedback reaches Codex",
+                    "new_file.md:1: trailing whitespace" in prompts[1],
+                )
             if scenario.startswith("exhaust_"):
                 reason = next(item[1] for item in client.calls if isinstance(item, tuple) and item[0] == "failed")
                 expected_reason = {"exhaust_nonzero": "Codex nonzero exit", "exhaust_no_changes": "implementation changes are required",
