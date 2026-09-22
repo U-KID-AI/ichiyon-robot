@@ -67,10 +67,24 @@ class PackChecks(unittest.TestCase):
 
     def test_stable_ids_duplicate_rejection_and_digest(self):
         with self.assertRaises(ValueError): compile_files(self.minecraft, self.records + [self.records[-1]])
-        with self.assertRaises(ValueError): compile_files(self.minecraft, self.records[1:])
+        self.assertIn(BRIDGE + "scripts/cosmetics_catalog.js", compile_files(self.minecraft, self.records[1:]))
         self.assertEqual(catalog_digest(self.records), catalog_digest(list(reversed(self.records))))
         changed = deepcopy(self.records); changed[-1]["name"] = "another name"
         self.assertNotEqual(catalog_digest(changed), catalog_digest(self.records))
+
+    def test_pack_generation_survives_deleted_initial_skins(self):
+        without_initial = fixture_assets()
+        files = compile_files(self.minecraft, without_initial)
+        catalog = json.loads(files["cosmetics/catalog.lock.json"])
+        self.assertEqual([skin["id"] for skin in catalog["skins"]], [5])
+        controller = json.loads(files[RP + "render_controllers/avatar.render_controllers.json"])["render_controllers"]["controller.render.ichiyon.avatar"]
+        textures = controller["arrays"]["textures"]["Array.skins"]
+        self.assertEqual(textures[:4], ["Texture.deleted_skin"] * 4)
+        self.assertEqual(textures[4], "Texture.skin_5")
+        avatar = json.loads(files[BP + "entities/avatar.json"])["minecraft:entity"]
+        self.assertNotIn("ichiyon:cosmetic_1", avatar["component_groups"])
+        self.assertIn("ichiyon:cosmetic_5", avatar["component_groups"])
+        self.assertIn(RP + "textures/entity/cosmetics/deleted_skin.png", files)
 
     def test_vanilla_player_behavior_and_animation_retained(self):
         vanilla = json.loads((self.minecraft / "cosmetics/vendor/player.behavior.json").read_bytes())

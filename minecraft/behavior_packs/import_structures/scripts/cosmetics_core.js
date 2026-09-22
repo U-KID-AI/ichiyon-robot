@@ -57,8 +57,13 @@ export function createCosmetics({ catalog, world, system, ItemStack, ActionFormD
 
   function restoreSkin(player) {
     const id = player.getDynamicProperty("ichiyon:selected_skin");
-    // Keep the saved ID if a catalog is temporarily rolled back, show vanilla meanwhile.
-    player.setProperty("ichiyon:skin_id", skins.has(id) ? id : 0);
+    if (skins.has(id)) {
+      player.setProperty("ichiyon:skin_id", id);
+      return;
+    }
+    // Deleted or otherwise unavailable skin IDs are normalized to vanilla.
+    player.setDynamicProperty("ichiyon:selected_skin", 0);
+    player.setProperty("ichiyon:skin_id", 0);
   }
 
   function safePlacement(player, location) {
@@ -88,6 +93,7 @@ export function createCosmetics({ catalog, world, system, ItemStack, ActionFormD
   async function selectSkin(player, target, location) {
     if (!creative(player)) { say(player, "マネキンの配置・変更はクリエイティブで行ってください。"); return; }
     const dimension = player.dimension.id;
+    if (!catalog.skins.length) { say(player, "配置できるスキンが登録されていません。"); return; }
     const id = await choose(player, "マネキンを選択", catalog.skins.map(skin => ({ value: skin.id, text: skin.name })), "配置するキャラクターを選んでください。");
     if (id === undefined || !valid(player) || !creative(player) || player.dimension.id !== dimension) return;
     if (target) {
@@ -201,21 +207,7 @@ export function createCosmetics({ catalog, world, system, ItemStack, ActionFormD
   }
 
   async function handleCommand(command, helpers) {
-    if (command.type !== "cosmetic_avatar_spawn") return false;
-    if (!command.request_id) return true;
-    let reason = "ok";
-    try {
-      const skin = skins.get(command.skin_id);
-      if (!skin || command.catalog_digest !== catalog.digest) throw new Error("catalog_not_loaded");
-      if (!helpers.isValidPlayerName(command.minecraft_player)) throw new Error("invalid_player_name");
-      const player = helpers.findOnlinePlayer(command.minecraft_player);
-      if (!player) throw new Error("player_offline");
-      spawn(player, skin.id, helpers.playerForwardSpawnLocation(player));
-    } catch (error) {
-      reason = ["catalog_not_loaded", "invalid_player_name", "player_offline"].includes(error.message) ? error.message : "placement_failed";
-    }
-    await helpers.postResult(command.request_id, reason === "ok" ? "succeeded" : "failed", reason, "");
-    return true;
+    return false;
   }
 
   function start() {

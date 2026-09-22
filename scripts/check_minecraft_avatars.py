@@ -486,6 +486,8 @@ class AvatarChecks(unittest.TestCase):
         self.assertEqual(controller["arrays"]["textures"]["Array.skins"][:4],
                          [f"Texture.skin_{i}" for i in range(1, 5)])
         self.assertEqual(len(controller["arrays"]["textures"]["Array.skins"]), 127)
+        self.assertEqual(set(controller["arrays"]["textures"]["Array.skins"][4:]), {"Texture.deleted_skin"})
+        self.assertEqual(self.client["textures"]["deleted_skin"], "textures/entity/cosmetics/deleted_skin")
         self.assertEqual(controller["textures"], ["Array.skins[query.variant]"])
         self.assertEqual(controller["materials"], [{"*": "Material.default"}])
         self.assertEqual(self.client["materials"]["default"], "entity_alphatest")
@@ -535,7 +537,7 @@ class AvatarChecks(unittest.TestCase):
                 self.assertLessEqual(v + y + z, 64)
 
     def test_pack_versions_and_localized_names(self):
-        for pack, version in ((BP, [1, 0, 31]), (RP, [1, 0, 35])):
+        for pack, version in ((BP, [1, 0, 31]), (RP, [1, 0, 36])):
             manifest = read_json(pack / "manifest.json")
             self.assertEqual(manifest["header"]["version"], version)
             self.assertTrue(all(m["version"] == version for m in manifest["modules"]))
