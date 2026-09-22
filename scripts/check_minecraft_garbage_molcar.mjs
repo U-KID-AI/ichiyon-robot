@@ -140,4 +140,17 @@ test('compact integrated cab, low lead and no headphone protrusions',()=>{
   assert(body.cubes.some(c=>c.size[0]>2&&c.origin[1]===6&&c.uv.west.uv[0]===36));
   assert(geo.bones.reduce((n,b)=>n+(b.cubes?.length??0),0)<100);
 });
+
+test('pre-upgrade owner and storage survive load-time following goal repair',()=>{
+  const m=entity(),p=entity('minecraft:player','owner');m.setDynamicProperty(OWNER,p.id);
+  m.container.setItem(0,new Stack('diamond',7,'saved'));m.getProperty=()=>false;m.getVelocity=()=>({x:0,z:0});
+  let loaded=true;m.dimension.getEntities=q=>q.type===GARBAGE&&loaded?[m]:[];
+  const world={getDimension:n=>n==='overworld'?m.dimension:{getEntities:()=>[]},getAllPlayers:()=>[p]};
+  const core=createGarbageMolcar({world,system:{currentTick:0},ActionFormData:class{}});
+  core.scan();assert.deepEqual(m.events,['ichiyon:garbage_pickup_off']);
+  core.scan();assert.equal(m.events.length,1);
+  loaded=false;core.scan();loaded=true;core.scan();assert.equal(m.events.length,2);
+  assert.equal(m.getDynamicProperty(OWNER),p.id);assert.equal(m.container.getItem(0).amount,7);
+  assert.equal(m.container.getItem(0).nameTag,'saved');
+});
 console.log(`${passed} garbage/paw checks passed`);
