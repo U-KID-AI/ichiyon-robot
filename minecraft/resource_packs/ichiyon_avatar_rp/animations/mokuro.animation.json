@@ -1,7 +1,7 @@
 {
   "format_version": "1.8.0",
   "animations": {
-    "mocro_walk": {
+    "animation.mokuro.walk": {
       "loop": true,
       "animation_length": 0.5,
       "bones": {
@@ -65,7 +65,7 @@
         }
       }
     },
-    "mocro_flap": {
+    "animation.mokuro.flap": {
       "loop": true,
       "animation_length": 0.5,
       "bones": {
@@ -115,7 +115,7 @@
         }
       }
     },
-    "mocro_open_wings": {
+    "animation.mokuro.open_wings": {
       "loop": "hold_on_last_frame",
       "animation_length": 0.5,
       "bones": {
@@ -155,7 +155,7 @@
         }
       }
     },
-    "mocro_roll": {
+    "animation.mokuro.roll": {
       "loop": true,
       "animation_length": 0.25,
       "bones": {

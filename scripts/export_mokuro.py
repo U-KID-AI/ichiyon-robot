@@ -16,6 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "minecraft/source_assets/mokuro/mocro.bbmodel"
 SOURCE_SHA = "eb0c2ab7afc70ad625bd87fd7ed63fe6a7d90c41e10b2e9635fba8703a0f2def"
 RP = ROOT / "minecraft/resource_packs/ichiyon_avatar_rp"
+ANIMATION_IDS = {f"mocro_{name}": f"animation.mokuro.{name}"
+                 for name in ("walk", "flap", "open_wings", "roll")}
 
 
 def position(v):
@@ -114,7 +116,7 @@ def export():
                     target[channel] = {}
                 target[channel][str(float(key["time"]))] = vector
             anim["bones"][groups[uuid]["name"]] = target
-        animations[src["name"]] = anim
+        animations[ANIMATION_IDS[src["name"]]] = anim
     assert len(source["textures"]) == 1
     uri = source["textures"][0]["source"]
     assert uri.startswith("data:image/png;base64,")
