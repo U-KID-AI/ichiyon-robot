@@ -43,7 +43,7 @@ class PosterChecks(unittest.TestCase):
         }
 
     def test_versions(self):
-        for pack, version in ((BP, [1, 0, 32]), (RP, [1, 0, 37]), (IMPORT, [1, 0, 29])):
+        for pack, version in ((BP, [1, 0, 33]), (RP, [1, 0, 37]), (IMPORT, [1, 0, 29])):
             with self.subTest(pack=pack.name):
                 manifest = read_json(pack / "manifest.json")
                 self.assertEqual(manifest["header"]["version"], version)
@@ -76,7 +76,7 @@ class PosterChecks(unittest.TestCase):
                     self.assertEqual(block["description"]["identifier"], f"ichiyon:{name}")
                     if name == base:
                         self.assertEqual(block["description"]["menu_category"],
-                                         {"category": "construction", "group": "ichiyon:itemGroup.posters"})
+                                         {"category": "construction"})
                     else:
                         self.assertNotIn("menu_category", block["description"])
                     components = block["components"]
@@ -108,8 +108,9 @@ class PosterChecks(unittest.TestCase):
             description = read_json(path)["minecraft:block"]["description"]
             if "menu_category" in description:
                 visible.add(description["identifier"])
-                self.assertEqual(description["menu_category"],
-                                 {"category": "construction", "group": "ichiyon:itemGroup.posters"})
+                # Legacy block formats prefix group names with minecraft:.
+                # The 1.21.60 crafting catalog owns grouping instead.
+                self.assertEqual(description["menu_category"], {"category": "construction"})
         self.assertEqual(visible, expected)
         for locale, label in (("ja_JP", "ポスター"), ("en_US", "Posters")):
             self.assertEqual([line for line in self.lang[locale] if line.startswith("ichiyon:itemGroup.posters=")],
