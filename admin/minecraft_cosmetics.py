@@ -1,5 +1,6 @@
 from pathlib import Path
 import secrets
+import uuid
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
@@ -12,6 +13,7 @@ from bot.repositories import PermissionRepository
 from bot.repositories.minecraft_cosmetics import MinecraftCosmeticsRepository
 from bot.services.minecraft_cosmetics import MAX_UPLOAD, public_asset
 from bot.services.minecraft_cosmetics_pack import builtin_assets, catalog_digest, pack_zip
+from bot.services.minecraft_control import cosmetics_control, MinecraftControlError
 
 router = APIRouter(prefix="/minecraft/cosmetics", tags=["minecraft-cosmetics"])
 ROOT = Path(__file__).resolve().parent.parent / "minecraft"
@@ -67,7 +69,7 @@ def register_minecraft_cosmetics_routes(templates):
         csrf = request.session.setdefault("cosmetics_csrf", secrets.token_urlsafe(32))
         return templates.TemplateResponse(request, "minecraft_cosmetics.html", {
             "assets": [public_asset(a) for a in assets], "digest": catalog_digest(assets),
-            "servers": servers, "recent": recent, "csrf": csrf, "error": error,
+            "servers": servers, "recent": recent, "csrf": csrf, "error": error, "operation_id": str(uuid.uuid4()),
             "current_bot_instance": {"display_name": "Minecraft", "bot_id": "共有素材"},
         }, status_code=code, headers={"Cache-Control": "no-store"})
 
@@ -114,6 +116,41 @@ def register_minecraft_cosmetics_routes(templates):
             "Content-Disposition": f'attachment; filename="ichiyon-cosmetics-{revision}.zip"',
             "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
         })
+
+    @router.get('/application')
+    async def application(request: Request):
+        require_admin(request)
+        try:
+            result = await cosmetics_control()
+            with get_connection() as connection:
+                repository = MinecraftCosmeticsRepository(connection)
+                digest = catalog_digest(records(repository))
+                servers = repository.servers()
+            result['current'] = result.get('installed') and result.get('active_digest') == digest
+            result['game_connected'] = any(s['online'] and s['catalog_digest'] == digest for s in servers)
+            return result
+        except MinecraftControlError as exc:
+            raise HTTPException(503, str(exc)) from None
+
+    @router.post('/apply')
+    async def apply(request: Request):
+        require_admin(request)
+        try:
+            form = await bounded_form(request)
+            operation_id = str(uuid.UUID(str(form.get('operation_id', ''))))
+            # A browser retry uses the same ID and only observes the original job.
+            previous = await cosmetics_control()
+            if previous.get('operation_id') != operation_id:
+                with get_connection() as connection:
+                    repository = MinecraftCosmeticsRepository(connection)
+                    assets = records(repository)
+                    revision = repository.revision()
+                    connection.commit()
+                archive = await run_in_threadpool(pack_zip, ROOT, assets, revision)
+                await cosmetics_control(operation_id, archive)
+        except (ValueError, MinecraftControlError) as exc:
+            return page(request, error=str(exc), code=400)
+        return RedirectResponse('/minecraft/cosmetics', status_code=303)
 
     @router.post("/place")
     async def place(request: Request):

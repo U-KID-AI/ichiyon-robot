@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from pathlib import Path
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -92,12 +92,12 @@ class AdminChecks(unittest.TestCase):
     def test_anonymous_and_non_admin_cannot_read_or_mutate(self):
         for user, expected in ((None, 401), ("viewer", 403)):
             if user: self.sign_in(user)
-            for method, path in (("get", ""), ("get", "/preview/skin/1"), ("post", "/assets"), ("post", "/export"), ("post", "/place")):
+            for method, path in (("get", ""), ("get", "/preview/skin/1"), ("get", "/application"), ("post", "/apply"), ("post", "/assets"), ("post", "/export"), ("post", "/place")):
                 with self.subTest(user=user, path=path): self.assertEqual(getattr(self.client, method)("/minecraft/cosmetics" + path).status_code, expected)
 
     def test_csrf_required_for_every_mutation(self):
         self.sign_in()
-        for path in ("/assets", "/export", "/place"):
+        for path in ("/assets", "/export", "/place", "/apply"):
             for token in ("", "wrong"):
                 response = self.client.post("/minecraft/cosmetics" + path, data={"csrf": token})
                 self.assertEqual(response.status_code, 403)
@@ -139,6 +139,26 @@ class AdminChecks(unittest.TestCase):
         self.sign_in(); response = self.client.post("/minecraft/cosmetics/export", data={"csrf": "test-csrf"})
         self.assertEqual(response.status_code, 200); self.assertEqual(response.headers["content-type"], "application/zip")
         self.assertTrue(response.content.startswith(b"PK")); self.assertFalse(FakeRepository.placed)
+
+    def test_apply_generates_archive_and_retry_observes_same_operation(self):
+        import uuid
+        self.sign_in(); identifier = str(uuid.uuid4())
+        fields = {'csrf':'test-csrf', 'operation_id':identifier}
+        with patch.object(admin, 'cosmetics_control', AsyncMock(return_value={'status':'idle'})) as api:
+            response = self.client.post('/minecraft/cosmetics/apply', data=fields, follow_redirects=False)
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(api.call_args.args[0], identifier)
+            self.assertTrue(api.call_args.args[1].startswith(b'PK'))
+        with patch.object(admin, 'cosmetics_control', AsyncMock(return_value={'operation_id':identifier})) as api:
+            self.assertEqual(self.client.post('/minecraft/cosmetics/apply', data=fields, follow_redirects=False).status_code, 303)
+            self.assertEqual(api.call_count, 1)
+
+    def test_apply_remote_failure_is_displayed_without_transport_details(self):
+        import uuid
+        self.sign_in()
+        with patch.object(admin, 'cosmetics_control', AsyncMock(side_effect=admin.MinecraftControlError('接続できません。'))):
+            response = self.client.post('/minecraft/cosmetics/apply', data={'csrf':'test-csrf', 'operation_id':str(uuid.uuid4())})
+            self.assertEqual(response.status_code, 400); self.assertIn('接続できません。', response.text)
 
     def test_placement_rejects_unknown_skin_and_passes_fixed_fields(self):
         self.sign_in()

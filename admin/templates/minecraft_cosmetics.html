@@ -13,7 +13,7 @@
   .cosmetic-table { overflow-x:auto; } .cosmetic-table table { width:100%; }
 </style>
 {% if error %}<p class="cosmetic-notice cosmetic-error" role="alert">{{ error }}</p>{% endif %}
-<p class="cosmetic-notice">① 素材を登録 → ② 反映用パックをダウンロード → ③ 管理者がサーバーに反映。登録だけではゲーム内の見た目は変わりません。既存のスキン・装備を保つため、登録済みの番号は再利用しません。</p>
+<p class="cosmetic-notice">① 素材をアップロード → ②「ゲームに反映」を押す → ③ Minecraftに入り直して確認。反映中はサーバーが短時間再起動します。</p>
 <div class="cosmetic-grid">
   <section class="cosmetic-card">
     <h2>スキンを追加</h2>
@@ -41,8 +41,9 @@
   </section>
   <section class="cosmetic-card">
     <h2>ゲームへの反映</h2>
-    <p>既存の内容を含む3つのパックをまとめて生成します。反映するとプレイヤーは再接続が必要です。</p>
-    <form action="/minecraft/cosmetics/export" method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit">反映用パックをダウンロード</button></form>
+    <p>登録した素材をまとめて反映します。バックアップ、反映、再起動、起動確認は自動で行います。</p>
+    <p id="apply-status" role="status" aria-live="polite">反映状況を確認しています…</p>
+    <form id="apply-form" action="/minecraft/cosmetics/apply" method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="operation_id" value="{{ operation_id }}"><button id="apply-button" type="submit">ゲームに反映</button></form>
     <h3>ゲーム内の使い方</h3>
     <p>共通エッグを地面に使うとマネキンを選べます。マネキンを使うと着替え・解除、クリエイティブでしゃがんで使うと変更・撤去ができます。</p>
     <p>アクセサリーを持ってモルカーを使うと装着、空の手でしゃがんで使うと取り外せます。違う部位は同時に装着できます。</p>
@@ -74,4 +75,28 @@
   <img src="/minecraft/cosmetics/preview/{{ asset.kind }}/{{ asset.id }}" alt="{{ asset.name }}の画像">
   <h3>{{ asset.name }}</h3><p>{{ 'スキン' if asset.kind == 'skin' else 'アクセサリー' }} #{{ asset.id }}{% if asset.model is defined %} ・ {{ 'スリム' if asset.model == 'slim' else '通常' }}{% endif %}{% if asset.slot is defined %} ・ {{ {'hat':'頭','face':'顔','neck':'首','back':'背中'}[asset.slot] }}{% endif %}</p>
 </article>{% endfor %}</div>
+<script>
+(() => {
+  const output = document.getElementById('apply-status');
+  const button = document.getElementById('apply-button');
+  let submitting = false;
+  document.getElementById('apply-form').addEventListener('submit', () => {
+    submitting = true; button.disabled = true; output.textContent = '反映を開始しています…';
+  });
+  async function refresh() {
+    try {
+      const response = await fetch('/minecraft/cosmetics/application', {cache:'no-store'});
+      if (!response.ok) throw new Error();
+      const state = await response.json();
+      const busy = ['queued','stopping','installing','starting'].includes(state.status);
+      button.disabled = busy || submitting;
+      output.textContent = busy ? state.message : state.status === 'failed' || state.status === 'recovery_failed' ? state.message
+        : state.current ? (state.game_connected ? '反映済み・ゲームとの接続も確認できました。Minecraftに入り直して確認できます。' : '反映済みです。ゲームからの接続確認を待っています。')
+        : '未反映の素材があります。「ゲームに反映」を押してください。';
+    } catch (_) { output.textContent = '反映状況を取得できません。自動で再確認します。'; }
+    if (!submitting) setTimeout(refresh, 4000);
+  }
+  refresh();
+})();
+</script>
 {% endblock %}

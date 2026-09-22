@@ -2,7 +2,7 @@
 
 ## 実装範囲
 
-- 管理画面 `/minecraft/cosmetics`：全体管理者限定の素材登録、プレビュー、3パック一括生成、プレイヤー前方へのマネキン配置、結果一覧。
+- 管理画面 `/minecraft/cosmetics`：全体管理者限定の素材登録、プレビュー、ゲームへの自動反映、プレイヤー前方へのマネキン配置、結果一覧。
 - 登録画像・モデルはPostgreSQLのBYTEAで保存。リリースの差し替えで消えるローカルフォルダーへ保存しない。
 - スキンPNGは64×64のclassic/slim。既存4人のPNG原本とvariant 0〜3は保持する。
 - 共通エッグ、ページ付き選択UI、マネキンを使った着替え／解除、クリエイティブでの変更／撤去。
@@ -29,23 +29,19 @@ claimは `FOR UPDATE SKIP LOCKED` で一度だけ行う。期限切れを再実�
 管理画面の「読み込み済み」は**サーバースクリプトの素材一覧**の一致であり、各スマホのRPダウンロード完了まで検証するものではない。
 追加画像はBDSのパック配信を通るため、HTTPアップロード直後の動的な画像差し替えは行わない。
 
-## 初回反映の引き継ぎ
+## 利用者の操作
 
-コード・migration・パックはレビュー用変更。テストで本番へ接続せず、DB更新・サーバー再起動・ワールド変更は実行しない。
+既存管理画面の「マネキンとモルカー」から素材をアップロードし、「ゲームに反映」を押す。進行状況は自動更新される。完了後はMinecraftに入り直す。ZIPの移動やSSH操作は不要。
 
-1. Draft PRのコードとテストを確認し、人間がマージする。
-2. 既存の承認済み手順でDBをバックアップし、migration `065_add_minecraft_cosmetics.sql` を適用してWebアプリを反映する。
-3. ワールドとパックをバックアップし、3パック（avatar BP、avatar RP、import_structures）を同時に反映する。
-4. ワールドのpack UUIDは維持し、参照versionを実際のmanifestに合わせる。既存のScript API実験設定・HTTP権限・Bridge設定は維持する。BDSの `config/2fbc1c02-0c4d-4e98-a851-c1e41337c7a8/permissions.json` の `allowed_modules` に `@minecraft/server-ui` を追加する（リポジトリの同名テンプレートを参照）。既存の許可先・secret設定を上書きしない。
-5. サーバー再起動後、再接続してパックを取得する。Content Logにスクリプト・描画・プロパティのエラーがないことを確認する。
-6. 下記の実機確認を終えてから利用開始する。
+## 自動反映と運用
 
-初期版はBP 1.0.31 / RP 1.0.35 / import 1.0.28。Web生成版はすべて1.1.<DB採番番号>とし、再生成ごとに番号が増える。
-固定パック反映アダプターとWebのZIPはBP/RPを扱うため、上記のBDSモジュール許可は初回に別途反映する必要がある。許可がないままではUIのimportが拒否され、Bridgeスクリプトも起動しない。
-Web登録済み素材を含むパックを使い始めたら、以降のコード更新時にも**更新後のアプリから同じDBカタログで再生成**して反映する。
-Gitにある初期4人のみのパックで上書きすると追加素材が見えなくなる。DBの素材と番号は残るため、再生成・再反映で戻せる。
-古いZIPを新しいコードへ上書きしない。ZIPにはそのアプリ版のBridgeスクリプトも含まれる。
-DBバックアップの復元時は既配布パックより高いexport sequenceへ合わせ、パックversionを巻き戻さない。
+WebがDBの全素材と現在のアプリ版から3パックを生成し、既存の認証付きControl APIへ送る。利用者は送信先・保存先・実行コマンドを指定できない。APIは展開容量、パス、リンク、重複、既存pack UUIDとカタログを検証してから処理を受け付ける。
+
+処理は固定のBDS専用ロックで直列化し、受付IDによる再送重複を防ぐ。停止→パック・参照・モジュール許可のバックアップ→3パック反映→起動→Docker healthとUDP応答確認の順で実行する。ワールドDBには手を加えず、他パック参照・既存HTTP許可を維持し、server-ui許可のみ追加する。失敗・サービス中断後は保存済み原本から復旧する。処理記録とバックアップはBDS側の `cosmetics-applications` に保存する。
+
+反映用versionはDB採番と現行manifestの双方より古くならないように決め、相互依存とワールド参照も合わせる。通常の再起動時には古い配布元パックで上書きしない。画面では稼働Bridgeからのカタログheartbeatも確認する。
+
+初回インストールはアプリのmigration 065とControl APIの2ファイル（`minecraft_control_api.py`, `minecraft_cosmetics_apply.py`）を同時期に更新する。利用者へこの初期設定を要求しない。今後Minecraftコードを更新する運用でも、DB素材を含む最新アプリの生成パックを同APIから適用する。固定アダプターから初期4人だけのGitパックで上書きして完了扱いにしない。
 
 ## 実機で残る確認
 
@@ -67,6 +63,7 @@ DBバックアップの復元時は既配布パックより高いexport sequence
 python scripts/build_minecraft_cosmetics.py --check
 python scripts/check_minecraft_cosmetics.py
 python scripts/check_minecraft_cosmetics_admin.py
+python scripts/check_minecraft_cosmetics_apply.py
 node scripts/check_minecraft_cosmetics.mjs
 python scripts/check_minecraft_avatars.py
 node scripts/check_minecraft_avatar_bridge.mjs

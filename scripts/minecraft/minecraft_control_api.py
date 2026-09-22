@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import time
@@ -14,7 +15,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import FastAPI, Header, HTTPException, status
+from fastapi import FastAPI, Header, HTTPException, Request, status
+from starlette.concurrency import run_in_threadpool
+from minecraft_cosmetics_apply import PackApplications, MAX_ARCHIVE, deployment_lock
 
 
 PROJECT_DIR = Path(os.getenv("MINECRAFT_CONTROL_PROJECT_DIR", "/home/ubuntu/minecraft-bedrock-creative"))
@@ -53,6 +56,34 @@ PACK_SPECS = (
 )
 
 app = FastAPI(title="Ichiyon Minecraft Control API")
+cosmetic_applications = PackApplications(sys.modules[__name__])
+
+
+@app.on_event('startup')
+def recover_cosmetic_application():
+    cosmetic_applications.recover()
+
+
+@app.get('/cosmetics')
+def cosmetics_status(x_minecraft_control_secret: Optional[str] = Header(default=None)):
+    require_secret(x_minecraft_control_secret)
+    return cosmetic_applications.status()
+
+
+@app.post('/cosmetics/{operation_id}', status_code=202)
+async def apply_cosmetics(operation_id: str, request: Request, x_minecraft_control_secret: Optional[str] = Header(default=None)):
+    require_secret(x_minecraft_control_secret)
+    data = bytearray()
+    async for chunk in request.stream():
+        if len(data) + len(chunk) > MAX_ARCHIVE:
+            raise HTTPException(413, 'archive too large')
+        data.extend(chunk)
+    try:
+        return await run_in_threadpool(cosmetic_applications.submit, operation_id, bytes(data))
+    except ValueError:
+        raise HTTPException(400, 'invalid pack archive') from None
+    except RuntimeError:
+        raise HTTPException(409, 'application already active') from None
 
 
 def require_secret(x_minecraft_control_secret: Optional[str]) -> None:
@@ -294,6 +325,8 @@ def update_world_pack_reference(world_pack_file: Path, pack_uuid: str, version: 
 
 
 def sync_packs() -> Dict[str, Any]:
+    if cosmetic_applications.managed():
+        return {"status": "managed_by_cosmetics", "changed_packs": []}
     if PACK_SOURCE_DIR is None or not PACK_SOURCE_DIR.exists():
         return {"status": "skipped", "reason": "pack_source_missing", "changed_packs": []}
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
@@ -390,9 +423,9 @@ def wait_for_ready(timeout_seconds: int) -> Dict[str, Any]:
     while time.time() < deadline:
         latest = status_payload()
         container = latest.get("container") or {}
-        if container.get("state") == "running" and container.get("health") in ("healthy", None):
-            if latest.get("bridge", {}).get("responding") or container.get("health") == "healthy":
-                return latest
+        # Preserve the production readiness check: actual UDP Bedrock response.
+        if container.get("state") == "running" and latest.get("bridge", {}).get("responding"):
+            return latest
         time.sleep(2)
     return latest
 
@@ -406,6 +439,11 @@ def get_status(x_minecraft_control_secret: Optional[str] = Header(default=None))
 @app.post("/restart")
 def restart_server(x_minecraft_control_secret: Optional[str] = Header(default=None)) -> Dict[str, Any]:
     require_secret(x_minecraft_control_secret)
+    with deployment_lock():
+        return restart_server_locked()
+
+
+def restart_server_locked() -> Dict[str, Any]:
     before = status_payload()
     save_results = []
     stop_result = None

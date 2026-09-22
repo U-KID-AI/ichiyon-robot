@@ -18,6 +18,7 @@
 | --- | --- | --- | --- | --- |
 | `ADMIN_BASE_URL` | yes | no | no | 管理画面のみ |
 | `ADMIN_SESSION_SECRET` | yes | no | no | 管理画面のみ |
+| `MINECRAFT_CONTROL_API_BASE`, `MINECRAFT_CONTROL_API_SECRET` | yes | yes | yes | 管理画面の固定素材反映・既存状態確認／再起動 |
 | `DISCORD_OAUTH_CLIENT_ID` | yes | no | no | 管理画面OAuth |
 | `DISCORD_OAUTH_CLIENT_SECRET` | yes | no | no | 管理画面OAuth |
 | `DISCORD_OAUTH_REDIRECT_URI` | yes | no | no | 管理画面OAuth |
