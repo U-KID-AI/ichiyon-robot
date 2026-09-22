@@ -32,7 +32,7 @@ class InspectionChecks(unittest.TestCase):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,
                               capture_output=True, check=True).stdout.decode("utf-8").strip()
 
-    def cli(self, repo=None, expected=0, extra_env=None, args=None):
+    def cli(self, repo=None, expected=0, extra_env=None, args=None, raw=False):
         result = subprocess.run(
             [sys.executable, str(CLI), *(args if args is not None else ["--repo", str(repo or self.repo)])],
             env={**self.env, **(extra_env or {})}, capture_output=True, text=True, encoding="utf-8",
@@ -41,7 +41,7 @@ class InspectionChecks(unittest.TestCase):
         self.assertEqual(result.returncode, expected, result.stderr)
         if expected == 0:
             self.assertEqual(result.stderr, "")
-            return json.loads(result.stdout)
+            return result.stdout if raw else json.loads(result.stdout)
         self.assertEqual(result.stdout, "")
         return result.stderr
 
@@ -51,6 +51,23 @@ class InspectionChecks(unittest.TestCase):
         self.run_git("add", ".")
         self.run_git("commit", "-m", "fixture")
         return self.run_git("rev-parse", "HEAD")
+
+    def assert_formats(self, repo):
+        compact = self.cli(repo, raw=True)
+        pretty = self.cli(args=["--repo", str(repo), "--pretty"], raw=True)
+        report = json.loads(compact)
+        self.assertEqual(json.loads(pretty), report)
+        self.assertEqual(compact, json.dumps(report, ensure_ascii=True) + "\n")
+        self.assertEqual(len(compact.splitlines()), 1)
+        self.assertEqual(pretty, json.dumps(report, ensure_ascii=True, indent=2) + "\n")
+        self.assertIn('\n  "branch":', pretty)
+        return report
+
+    def test_help(self):
+        help_text = " ".join(self.cli(args=["--help"], raw=True).split())
+        self.assertIn("--pretty", help_text)
+        self.assertIn("two-space indentation", help_text)
+        self.assertIn("default: compact", help_text)
 
     def test_unborn_clean_and_detached(self):
         self.assertEqual(self.cli(), {"branch": "fixture", "head": None, "changes": []})
@@ -76,7 +93,7 @@ class InspectionChecks(unittest.TestCase):
             return {str(p.relative_to(self.repo)): (p.read_bytes(), p.stat().st_mtime_ns)
                     for p in self.repo.rglob("*") if p.is_file()}
         before = snapshot()
-        report = self.cli(self.repo / "nested")
+        report = self.assert_formats(self.repo / "nested")
         self.assertEqual(snapshot(), before)
         self.assertEqual(report["branch"], "fixture")
         self.assertEqual(report["head"], head)
@@ -92,7 +109,7 @@ class InspectionChecks(unittest.TestCase):
         target = self.root / "linked checkout"
         self.run_git("worktree", "add", "-b", "ai/task/fixture", str(target))
         self.assertTrue((target / ".git").is_file())
-        self.assertEqual(self.cli(target), {"branch": "ai/task/fixture", "head": head, "changes": []})
+        self.assertEqual(self.assert_formats(target), {"branch": "ai/task/fixture", "head": head, "changes": []})
 
     def test_errors_and_redaction(self):
         secret = 'synthetic-inspection-credential'

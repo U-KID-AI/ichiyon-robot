@@ -5,18 +5,40 @@ Python 3.11以上とPATH上のGitがあるローカル環境で実行する。ru
 ```text
 python scripts/inspect_ai_task_worktree.py --repo "C:\path\to\ai-task-<UUID>"
 python scripts/inspect_ai_task_worktree.py --repo /path/to/checkout
+python scripts/inspect_ai_task_worktree.py --repo /path/to/checkout --pretty
+python scripts/inspect_ai_task_worktree.py --help
 ```
 
 通常のcheckoutとlinked worktree（`.git`がファイルの構成）を扱う。`--repo`は必須で、checkout内のサブディレクトリも指定できる。成功時は終了コード0で標準出力へJSONを返す。
+
+既定の出力は改行を末尾に付けた1行のコンパクトなJSON。`--pretty`を指定すると、同じデータを2スペースのインデントで整形する。キー、値、秘密値のredactionはどちらも同じで、変わるのは空白と改行だけ。`--help`はrepositoryを指定せずに利用できる。
+
+コンパクト形式の例:
+
+```json
+{"branch": "ai/task/<UUID>", "head": "0123456789abcdef0123456789abcdef01234567", "changes": []}
+```
+
+`--pretty`形式では、変更一覧も以下のように読みやすく表示する:
 
 ```json
 {
   "branch": "ai/task/<UUID>",
   "head": "0123456789abcdef0123456789abcdef01234567",
   "changes": [
-    {"status": "??", "path": "new.txt"},
-    {"status": " D", "path": "deleted.txt"},
-    {"status": "R ", "path": "renamed.txt", "original_path": "old.txt"}
+    {
+      "status": "??",
+      "path": "new.txt"
+    },
+    {
+      "status": " D",
+      "path": "deleted.txt"
+    },
+    {
+      "status": "R ",
+      "path": "renamed.txt",
+      "original_path": "old.txt"
+    }
   ]
 }
 ```
@@ -35,4 +57,4 @@ CLIは`git --no-optional-locks`で参照とstatusのみを読み、indexの任�
 python scripts/check_ai_task_worktree_inspection.py
 ```
 
-このcheckerは`.github/workflows/checks.yml`のAI task execution checksでも実行する。
+このcheckerは両形式のデータ一致、出力の整形、`--help`でのオプション説明も検証する。`.github/workflows/checks.yml`のAI task execution checksではcheckerとCLIの`--help` smoke checkを実行する。

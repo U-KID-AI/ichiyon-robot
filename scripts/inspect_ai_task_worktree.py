@@ -76,13 +76,14 @@ def redacted(value):
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=Path, required=True, help="Git checkout directory (or a directory within it)")
+    parser.add_argument("--pretty", action="store_true", help="Format JSON output with two-space indentation (default: compact)")
     args = parser.parse_args(argv)
     try:
         report = inspect(args.repo)
     except InspectionError as exc:
         print(json.dumps({"error": redact_secrets(exc)}, ensure_ascii=True), file=sys.stderr)
         return 1
-    print(json.dumps(redacted(report), ensure_ascii=True, indent=2))
+    print(json.dumps(redacted(report), ensure_ascii=True, indent=2 if args.pretty else None))
     return 0
 
 
