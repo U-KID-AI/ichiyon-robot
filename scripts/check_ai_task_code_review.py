@@ -305,6 +305,20 @@ def main():
     )
 
     check(
+        "review prompt respects pre-merge phase boundary",
+        "This review runs before merge and production deployment."
+        in prompt
+        and "Do not reject solely because later pipeline stages"
+        in prompt
+        and "deterministic automated tests"
+        in prompt
+        and "safe fixed later-stage verifier"
+        in prompt
+        and "does not implement a safe verification mechanism"
+        in prompt,
+    )
+
+    check(
         "temporary review output is cleaned",
         output_path is not None
         and not output_path.exists(),
