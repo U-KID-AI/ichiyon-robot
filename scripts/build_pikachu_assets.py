@@ -1,6 +1,6 @@
-"""Build the hand-authored Bedrock model and its flat-colour UV atlas, offline.
+"""Build the reference-faithful Bedrock model and flat-colour atlas, offline.
 
-This is a small articulated model, not a voxel conversion of the reference.
+Voxel geometry is derived directly from the checked-in structure.
 Uses only the standard library; never opens world or environment files.
 """
 import json
@@ -11,55 +11,140 @@ import zlib
 ROOT = Path(__file__).resolve().parent.parent
 RP = ROOT / "minecraft/resource_packs/ichiyon_avatar_rp"
 COLORS = [(250, 210, 40), (37, 29, 24), (231, 57, 48),
-          (126, 76, 37), (255, 251, 231), (229, 173, 25)]
+          (126, 76, 37), (255, 251, 231), (44, 21, 26)]
+
+
+REFERENCE = ROOT / "minecraft/behavior_packs/import_structures/structures/pikachu_reference.mcstructure"
+SCALE = 0.7
+BLOCK_COLORS = {"yellow_wool": 0, "black_wool": 1, "red_wool": 2,
+                "brown_wool": 3, "white_wool": 4, "nether_brick_fence": 5}
+
+
+def reference_blocks():
+    """Read the checked-in little-endian NBT asset, never a live world."""
+    data = REFERENCE.read_bytes()
+    offset = 0
+
+    def number(fmt):
+        nonlocal offset
+        value = struct.unpack_from("<" + fmt, data, offset)[0]
+        offset += struct.calcsize(fmt)
+        return value
+
+    def string():
+        nonlocal offset
+        length = number("H")
+        value = data[offset:offset + length].decode("utf-8")
+        offset += length
+        return value
+
+    def payload(kind):
+        if kind in (1, 2, 3, 4, 5, 6):
+            return number({1: "b", 2: "h", 3: "i", 4: "q", 5: "f", 6: "d"}[kind])
+        if kind == 8:
+            return string()
+        if kind == 9:
+            child = number("B")
+            return [payload(child) for _ in range(number("i"))]
+        if kind == 10:
+            result = {}
+            while True:
+                child = number("B")
+                if child == 0:
+                    return result
+                name = string()
+                result[name] = payload(child)
+        if kind in (7, 11, 12):
+            return [number({7: "b", 11: "i", 12: "q"}[kind])
+                    for _ in range(number("i"))]
+        raise ValueError("Unsupported reference NBT tag")
+
+    if number("B") != 10:
+        raise ValueError("Expected compound reference")
+    string()
+    document = payload(10)
+    if offset != len(data) or document["size"] != [8, 23, 20]:
+        raise ValueError("Unexpected reference layout")
+    structure = document["structure"]
+    palette = structure["palette"]["default"]["block_palette"]
+    indices = structure["block_indices"][0]
+    if len(indices) != 8 * 23 * 20:
+        raise ValueError("Unexpected block layer size")
+    blocks = {}
+    for x in range(8):
+        for y in range(23):
+            for z in range(20):
+                index = indices[x * 23 * 20 + y * 20 + z]
+                if index == -1:
+                    continue
+                name = palette[index]["name"].split(":", 1)[1]
+                if name != "air":
+                    if name not in BLOCK_COLORS:
+                        raise ValueError("Unexpected reference block")
+                    blocks[x, y, z] = name
+    return blocks
 
 
 def geometry():
+    # Reference +X faces model -Z. Preserve all asymmetry, hollow sections,
+    # ear/face/arm/back silhouettes; only the two rigid legs are articulated.
     bones = [{"name": "root", "pivot": [0, 0, 0]},
-             {"name": "body_root", "parent": "root", "pivot": [0, 5, 0]}]
+             {"name": "body_root", "parent": "root", "pivot": [0, 4 * SCALE, 0]}]
+    for name, z in (("body", 10), ("left_foot", 14), ("right_foot", 5)):
+        bones.append({"name": name, "parent": "body_root",
+                      "pivot": [(z - 10) * SCALE, 4 * SCALE, 0], "cubes": []})
+    by_name = {bone["name"]: bone for bone in bones}
 
-    def bone(name, origin, size, color=0, parent="body_root", pivot=None, rotation=None):
-        # Each face samples a solid swatch with a one-pixel bleed margin.
+    def cube(bone, x, y, z, dx, dy, dz, color):
         uv = {face: {"uv": [color * 8 + 1, 1], "uv_size": [6, 6]}
               for face in ("north", "south", "east", "west", "up", "down")}
-        item = {"name": name, "parent": parent, "pivot": pivot or origin,
-                "cubes": [{"origin": origin, "size": size, "uv": uv}]}
-        if rotation:
-            item["rotation"] = rotation
-        bones.append(item)
+        by_name[bone]["cubes"].append({
+            "origin": [round((z - 10) * SCALE, 6), round(y * SCALE, 6),
+                       round((4 - x - dx) * SCALE, 6)],
+            "size": [round(dz * SCALE, 6), round(dy * SCALE, 6), round(dx * SCALE, 6)],
+            "uv": uv})
 
-    bone("body", [-3.5, 2, -2.5], [7, 7, 5])
-    bone("chest", [-3, 8, -2.25], [6, 2, 4.5])
-    bone("head", [-4.5, 9, -3.5], [9, 6.5, 6])
-    bone("muzzle", [-2.8, 9.5, -3.9], [5.6, 2.8, 0.7])
-    for side, sign in (("left", 1), ("right", -1)):
-        x = sign * 2.6
-        bone(side + "_ear", [x-0.85, 14.5, -0.8], [1.7, 5, 1.4],
-             pivot=[x, 14.5, 0], rotation=[-5, 0, -sign*19])
-        bone(side + "_ear_tip", [x-0.85, 19.5, -0.8], [1.7, 2, 1.4], 1,
-             parent=side + "_ear")
-        bone(side + "_arm", [sign*3.6-0.9, 4.8, -2.5], [1.8, 4, 2],
-             pivot=[sign*3.6, 8.5, -1.5], rotation=[-12, 0, sign*12])
-        bone(side + "_foot", [sign*2-1.25, 0, -3.2], [2.5, 2, 4.2],
-             pivot=[sign*2, 1, 0])
-        bone(side + "_eye", [sign*2-0.65, 12.3, -3.57], [1.3, 1.65, 0.1], 1)
-        bone(side + "_eye_light", [sign*2-0.3, 13.2, -3.64], [0.5, 0.55, 0.1], 4)
-        bone(side + "_cheek", [sign*3.3-0.8, 10.3, -3.62], [1.6, 1.5, 0.15], 2)
-    bone("nose", [-0.35, 11.8, -4], [0.7, 0.4, 0.2], 1)
-    bone("mouth_left", [-1, 10.6, -4], [1, 0.18, 0.12], 1, rotation=[0, 0, -8])
-    bone("mouth_right", [0, 10.6, -4], [1, 0.18, 0.12], 1, rotation=[0, 0, 8])
-    for y in (4.5, 6.6):
-        bone("back_stripe_" + str(y), [-2.8, y, 2.48], [5.6, 0.9, 0.12], 3)
-    # Broad lightning silhouette extends behind the body; narrow brown root.
-    bone("tail_base", [-0.65, 2.8, 2], [1.3, 3.5, 1.2], 3,
-         pivot=[0, 3, 2.5], rotation=[35, 0, -25])
-    bone("tail_lower", [-0.6, 5, 3.4], [3.8, 1.8, 1], 5, rotation=[0, 0, 25])
-    bone("tail_middle", [1.7, 5.9, 3.4], [1.8, 4, 1], rotation=[0, 0, -25])
-    bone("tail_lightning", [0.4, 9, 3.4], [5.8, 3.2, 1], rotation=[0, 0, 18])
+    blocks = reference_blocks()
+    consumed = set()
+    for (x, y, z), name in sorted(blocks.items()):
+        if (x, y, z) in consumed:
+            continue
+        bone = "body" if y >= 4 else ("left_foot" if z >= 10 else "right_foot")
+        color = BLOCK_COLORS[name]
+        if name == "nether_brick_fence":
+            cube(bone, x + .375, y, z + .375, .25, 1, .25, color)
+            # The reference's two neighbouring fence posts form the mouth.
+            for neighbour in (-1, 1):
+                if blocks.get((x, y, z + neighbour)) == name:
+                    for height in (.375, .75):
+                        cube(bone, x + .4375, y + height,
+                             z + (.625 if neighbour == 1 else 0),
+                             .125, .1875, .375, color)
+            continue
+        def available(xx, yy, zz):
+            target_bone = "body" if yy >= 4 else ("left_foot" if zz >= 10 else "right_foot")
+            return (blocks.get((xx, yy, zz)) == name and
+                    (xx, yy, zz) not in consumed and target_bone == bone)
+
+        # Greedy cuboids reduce draw geometry without filling holes or changing
+        # a single coloured voxel. The check expands them back to source cells.
+        dz = 1
+        while available(x, y, z + dz):
+            dz += 1
+        dy = 1
+        while all(available(x, y + dy, zz) for zz in range(z, z + dz)):
+            dy += 1
+        dx = 1
+        while all(available(x + dx, yy, zz)
+                  for yy in range(y, y + dy) for zz in range(z, z + dz)):
+            dx += 1
+        consumed.update((xx, yy, zz) for xx in range(x, x + dx)
+                        for yy in range(y, y + dy) for zz in range(z, z + dz))
+        cube(bone, x, y, z, dx, dy, dz, color)
     return {"format_version": "1.12.0", "minecraft:geometry": [{
         "description": {"identifier": "geometry.pikachu", "texture_width": 64,
                         "texture_height": 16, "visible_bounds_width": 2,
-                        "visible_bounds_height": 2, "visible_bounds_offset": [0, 0.7, 0]},
+                        "visible_bounds_height": 2, "visible_bounds_offset": [0, 0.5, 0]},
         "bones": bones}]}
 
 

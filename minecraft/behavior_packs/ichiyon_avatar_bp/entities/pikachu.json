@@ -15,7 +15,19 @@
           ],
           "default": 0,
           "client_sync": true
+        },
+        "ichiyon:spin_busy": {
+          "type": "bool",
+          "default": false
         }
+      },
+      "animations": {
+        "spin_lifecycle": "controller.animation.pikachu.spin_lifecycle"
+      },
+      "scripts": {
+        "animate": [
+          "spin_lifecycle"
+        ]
       }
     },
     "component_groups": {
@@ -33,7 +45,7 @@
         "minecraft:behavior.follow_mob": {
           "priority": 1,
           "search_range": 12,
-          "speed_multiplier": 1.0,
+          "speed_multiplier": 1.8,
           "stop_distance": 2.5,
           "use_home_position_restriction": false,
           "filters": {
@@ -76,16 +88,45 @@
         "minecraft:knockback_resistance": {
           "value": 1
         },
-        "minecraft:timer": {
-          "time": 0.7,
-          "looping": false,
-          "time_down_event": {
-            "event": "ichiyon:spin_end",
-            "target": "self"
-          }
-        },
         "minecraft:movement.basic": {
           "max_turn": 0
+        }
+      },
+      "ichiyon:ready": {
+        "minecraft:interact": {
+          "interactions": [
+            {
+              "on_interact": {
+                "filters": {
+                  "all_of": [
+                    {
+                      "test": "int_property",
+                      "domain": "ichiyon:spin",
+                      "value": 0
+                    },
+                    {
+                      "test": "is_family",
+                      "subject": "other",
+                      "value": "player"
+                    },
+                    {
+                      "test": "on_ground",
+                      "value": true
+                    },
+                    {
+                      "test": "bool_property",
+                      "domain": "ichiyon:spin_busy",
+                      "value": false
+                    }
+                  ]
+                },
+                "event": "ichiyon:spin_start",
+                "target": "self"
+              },
+              "cooldown": 1.2,
+              "interact_text": "action.interact.ichiyon_pikachu_spin"
+            }
+          ]
         }
       }
     },
@@ -113,37 +154,7 @@
       },
       "minecraft:jump.static": {},
       "minecraft:nameable": {},
-      "minecraft:persistent": {},
-      "minecraft:interact": {
-        "interactions": [
-          {
-            "on_interact": {
-              "filters": {
-                "all_of": [
-                  {
-                    "test": "int_property",
-                    "domain": "ichiyon:spin",
-                    "value": 0
-                  },
-                  {
-                    "test": "is_family",
-                    "subject": "other",
-                    "value": "player"
-                  },
-                  {
-                    "test": "on_ground",
-                    "value": true
-                  }
-                ]
-              },
-              "event": "ichiyon:spin_start",
-              "target": "self"
-            },
-            "cooldown": 1.2,
-            "interact_text": "action.interact.ichiyon_pikachu_spin"
-          }
-        ]
-      }
+      "minecraft:persistent": {}
     },
     "events": {
       "minecraft:entity_spawned": {
@@ -157,13 +168,23 @@
         "sequence": [
           {
             "filters": {
-              "test": "int_property",
-              "domain": "ichiyon:spin",
-              "value": 0
+              "all_of": [
+                {
+                  "test": "int_property",
+                  "domain": "ichiyon:spin",
+                  "value": 0
+                },
+                {
+                  "test": "bool_property",
+                  "domain": "ichiyon:spin_busy",
+                  "value": false
+                }
+              ]
             },
             "remove": {
               "component_groups": [
-                "ichiyon:mobile"
+                "ichiyon:mobile",
+                "ichiyon:ready"
               ]
             },
             "add": {
@@ -175,13 +196,15 @@
               {
                 "weight": 99,
                 "set_property": {
-                  "ichiyon:spin": 1
+                  "ichiyon:spin": 1,
+                  "ichiyon:spin_busy": true
                 }
               },
               {
                 "weight": 1,
                 "set_property": {
-                  "ichiyon:spin": -1
+                  "ichiyon:spin": -1,
+                  "ichiyon:spin_busy": true
                 }
               }
             ]
@@ -191,7 +214,8 @@
       "ichiyon:spin_end": {
         "remove": {
           "component_groups": [
-            "ichiyon:spinning"
+            "ichiyon:spinning",
+            "ichiyon:ready"
           ]
         },
         "add": {
@@ -200,7 +224,25 @@
           ]
         },
         "set_property": {
-          "ichiyon:spin": 0
+          "ichiyon:spin": 0,
+          "ichiyon:spin_busy": true
+        }
+      },
+      "ichiyon:spin_ready": {
+        "remove": {
+          "component_groups": [
+            "ichiyon:spinning"
+          ]
+        },
+        "add": {
+          "component_groups": [
+            "ichiyon:mobile",
+            "ichiyon:ready"
+          ]
+        },
+        "set_property": {
+          "ichiyon:spin": 0,
+          "ichiyon:spin_busy": false
         }
       }
     }

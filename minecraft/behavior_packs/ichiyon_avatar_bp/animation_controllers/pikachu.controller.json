@@ -1,0 +1,37 @@
+{
+  "format_version": "1.10.0",
+  "animation_controllers": {
+    "controller.animation.pikachu.spin_lifecycle": {
+      "initial_state": "cooldown",
+      "states": {
+        "idle": {
+          "on_entry": [
+            "@s ichiyon:spin_ready"
+          ],
+          "transitions": [
+            {
+              "spinning": "query.property('ichiyon:spin_busy') || query.property('ichiyon:spin') != 0"
+            }
+          ]
+        },
+        "spinning": {
+          "transitions": [
+            {
+              "cooldown": "query.state_time >= 0.7"
+            }
+          ]
+        },
+        "cooldown": {
+          "on_entry": [
+            "@s ichiyon:spin_end"
+          ],
+          "transitions": [
+            {
+              "idle": "query.state_time >= 0.5"
+            }
+          ]
+        }
+      }
+    }
+  }
+}
