@@ -11,7 +11,7 @@ import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from ai_task_deploy import DeploymentResult as AppDeploymentResult
 from ai_task_deploy_config import DeploymentSafetyError
@@ -41,6 +41,44 @@ def archive(extra=(), manifest=MANIFEST):
 
 
 class MinecraftChecks(unittest.TestCase):
+    def test_git_catch_up_never_touches_web_managed_packs(self):
+        import ast
+        source = Path(__file__).with_name('ai_task_minecraft_deploy_remote.py')
+        tree = ast.parse(source.read_text(encoding='utf-8'))
+        # Load the actual transaction without its entrypoint or OS-specific lock
+        # import, then execute main against a temporary filesystem and no Docker.
+        tree.body = [node for node in tree.body if not isinstance(node, ast.Try)
+                     and not (isinstance(node, ast.Import) and any(a.name == 'fcntl' for a in node.names))]
+        namespace = {'fcntl':SimpleNamespace(flock=Mock(), LOCK_EX=2)}
+        exec(compile(tree, str(source), 'exec'), namespace)
+        namespace['ARCHIVE_B64'] = base64.b64encode(archive()).decode()
+        read_state = namespace['read_state'] = Mock(side_effect=AssertionError('legacy path reached'))
+        docker = namespace['docker'] = Mock()
+        health = namespace['wait_stable'] = Mock()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data = root / 'data'
+            for path in (data/'behavior_packs',data/'resource_packs',data/'worlds/world',root/'home',root/'cosmetics-applications'):
+                path.mkdir(parents=True, exist_ok=True)
+            texture = data/'resource_packs/user-skin.png'
+            texture.write_bytes(b'keep uploaded image')
+            marker = root/'cosmetics-applications/active.json'
+            with patch.object(sys, 'argv', ['remote',SHA,str(data),'world','container']), patch.object(Path, 'home', return_value=root/'home'):
+                marker.write_text('{}', encoding='utf-8')
+                with self.assertRaisesRegex(RuntimeError, 'deployment rejected'):
+                    namespace['main']()
+                read_state.assert_not_called(); docker.assert_not_called(); health.assert_not_called()
+                self.assertEqual(texture.read_bytes(), b'keep uploaded image')
+                marker.unlink()
+                marker.mkdir()  # A damaged marker also fails closed.
+                with self.assertRaisesRegex(RuntimeError, 'deployment rejected'):
+                    namespace['main']()
+                read_state.assert_not_called(); docker.assert_not_called()
+                marker.rmdir()
+                with self.assertRaisesRegex(AssertionError, 'legacy path reached'):
+                    namespace['main']()
+                read_state.assert_called_once()
+
     def test_world_sync(self):
         existing = [{"pack_id": UUID, "version": [1, 0, 29], "extra": True},
                     {"pack_id": OTHER_UUID, "version": [2, 3, 4]}]
