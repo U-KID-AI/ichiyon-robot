@@ -5,6 +5,8 @@ import logging
 import threading
 import time
 import traceback
+from dataclasses import replace
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from threading import Event
@@ -85,27 +87,65 @@ def read_rules(worktree: Path) -> dict[str, str]:
 
 class LeaseHeartbeat:
     def __init__(self, client, task, *, interval=30, on_lost=None,
-                 sleep=time.sleep, wait=None):
+                 sleep=time.sleep, wait=None, now=None):
         self.client, self.task, self.interval = client, task, interval
         self.on_lost, self.sleep = on_lost, sleep
         self.stop_event, self.lost = Event(), Event()
+        self._lease_lock = threading.Lock()
+        self._lease_expires_at = self._parse_lease(task.lease_expires_at)
+        self.now = now or (lambda: datetime.now(timezone.utc))
         self.wait = wait or self.stop_event.wait
         self.thread = threading.Thread(target=self._run, name="ai-task-heartbeat", daemon=True)
 
+    @staticmethod
+    def _parse_lease(value):
+        try:
+            lease = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise RunnerAPIError("Control Plane returned an invalid lease_expires_at") from exc
+        if lease.tzinfo is None:
+            raise RunnerAPIError("Control Plane lease_expires_at must include a timezone")
+        return lease
+
+    def update_lease(self, lease_expires_at):
+        lease = self._parse_lease(lease_expires_at)
+        with self._lease_lock:
+            # An older in-flight heartbeat must not shorten a deployment reservation.
+            if lease > self._lease_expires_at:
+                self._lease_expires_at = lease
+                self.task = replace(self.task, lease_expires_at=lease_expires_at)
+
+    def _lose_lease(self, *, expired=False):
+        with self._lease_lock:
+            if expired and self.now() < self._lease_expires_at:
+                return False
+            if self.lost.is_set():
+                return True
+            self.lost.set()
+        if self.on_lost:
+            self.on_lost()
+        return True
+
     def _run(self):
-        failures = 0
-        while not self.wait(self.interval):
+        while not self.stop_event.is_set():
+            if self._lose_lease(expired=True):
+                return
+            with self._lease_lock:
+                remaining = (self._lease_expires_at - self.now()).total_seconds()
+            if self.wait(max(0, min(self.interval, remaining))):
+                return
+            if self._lose_lease(expired=True):
+                return
             try:
-                self.client.heartbeat(self.task.task_id, self.task.claim_token)
-                failures = 0
+                response = self.client.heartbeat(self.task.task_id, self.task.claim_token)
+                self.update_lease(response.get("lease_expires_at"))
             except Exception as exc:
                 logger.warning("Heartbeat: %s", failure_reason(exc))
-                failures += 1
-                if failures >= 3:
-                    self.lost.set()
-                    if self.on_lost:
-                        self.on_lost()
+                if isinstance(exc, RunnerAPIError) and exc.status_code in (401, 403, 409):
+                    self._lose_lease()
                     return
+            if self._lose_lease(expired=True):
+                return
 
     def start(self):
         self.thread.start()
@@ -321,13 +361,17 @@ class LocalRunner:
                         commit.commit_sha, pr.number, pr.url, changed, stop_event=heartbeat.lost)
                     merged = True
                     step = "deploying"
-                    self._control_call("mark_deploying", task.task_id, task.claim_token,
+                    reservation = self._control_call("mark_deploying", task.task_id, task.claim_token,
                         commit_sha=commit.commit_sha, pr_number=pr.number, pr_url=pr.url,
                         test_summary=redact_secrets(summary)[:8000],
                         changed_files_summary=redact_secrets(files_summary)[:8000],
                         ci_workflow_run_id=merge.workflow_run_id or getattr(ci, "workflow_run_id", None) or None,
                         review_summary="Automated code review disabled; GitHub CI passed.",
                         merge_commit_sha=merge.merge_sha)
+                    try:
+                        heartbeat.update_lease(reservation.get("lease_expires_at"))
+                    except (AttributeError, RunnerAPIError) as exc:
+                        raise MetadataReportError(f"Deployment lease response is invalid: {exc}") from exc
                     self._require_lease(heartbeat)
                     if self.deployer is None:
                         raise RuntimeError("Production deployment adapter is not configured")

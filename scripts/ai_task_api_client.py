@@ -33,7 +33,9 @@ class ClaimedTask:
 
 
 class RunnerAPIError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class RunnerAPIClient:
@@ -66,12 +68,12 @@ class RunnerAPIClient:
             return data
 
     def _error(self, method: str, path: str, detail: str,
-               payload: Mapping[str, Any] | None) -> RunnerAPIError:
+               payload: Mapping[str, Any] | None, *, status_code: int | None = None) -> RunnerAPIError:
         claim_token = str(payload.get("claim_token", "")) if payload else ""
         return RunnerAPIError(redact_secrets(
             f"Control Plane {method} {path}: {detail}",
             secrets=(self.token, claim_token),
-        ))
+        ), status_code=status_code)
 
     def _json(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
         try:
@@ -87,9 +89,10 @@ class RunnerAPIClient:
             finally:
                 exc.close()
             detail = f"HTTP {exc.code} {exc.reason}; body: {body}"
-            raise self._error(method, path, detail, payload) from None
+            raise self._error(method, path, detail, payload, status_code=exc.code) from None
         except Exception as exc:
-            raise self._error(method, path, f"{type(exc).__name__}: {exc}", payload) from None
+            raise self._error(method, path, f"{type(exc).__name__}: {exc}", payload,
+                              status_code=getattr(exc, "status_code", None)) from None
         if not isinstance(raw, bytes):
             raise self._error(method, path, f"invalid response type: {type(raw).__name__}", payload)
         if len(raw) > self.max_response_bytes:
