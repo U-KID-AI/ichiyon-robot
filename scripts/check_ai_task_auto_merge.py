@@ -288,8 +288,15 @@ class AutoMergeChecks(unittest.TestCase):
         stop.clear()
         backend.pr["draft"] = True
         backend.stop_after_ready = stop
-        with self.assertRaises((AutoMergeError, CIMonitorError)):
-            self.merge(backend, stop_event=stop)
+        # The in-memory process has no OS process group to terminate.
+        with patch("ai_task_process.terminate_process_tree") as terminate:
+            with self.assertRaises((AutoMergeError, CIMonitorError)):
+                self.merge(backend, stop_event=stop)
+        terminate.assert_called_once()
+        stopped_process = terminate.call_args.args[0]
+        self.assertEqual(stopped_process.poll(), 0)
+        self.assertTrue(stopped_process.stdout.closed)
+        self.assertTrue(stopped_process.stderr.closed)
         self.assertFalse(any(args[:2] == ["pr", "merge"] for args in backend.calls))
 
 
