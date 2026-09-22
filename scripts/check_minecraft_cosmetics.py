@@ -147,6 +147,12 @@ class PackChecks(unittest.TestCase):
             if not name.endswith(".png"): actual = actual.replace(b"\r\n", b"\n")
             self.assertEqual(actual, data, name)
 
+    def test_bridge_dependency_modules_are_permitted(self):
+        manifest = json.loads((self.minecraft / BRIDGE / "manifest.json").read_bytes())
+        permissions = json.loads((self.minecraft / "config/2fbc1c02-0c4d-4e98-a851-c1e41337c7a8/permissions.json").read_bytes())
+        modules = {d["module_name"] for d in manifest["dependencies"] if "module_name" in d}
+        self.assertTrue(modules <= set(permissions["allowed_modules"]))
+
 
 if __name__ == "__main__":
     unittest.main()

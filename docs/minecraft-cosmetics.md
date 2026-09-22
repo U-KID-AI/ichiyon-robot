@@ -36,11 +36,12 @@ claimは `FOR UPDATE SKIP LOCKED` で一度だけ行う。期限切れを再実�
 1. Draft PRのコードとテストを確認し、人間がマージする。
 2. 既存の承認済み手順でDBをバックアップし、migration `065_add_minecraft_cosmetics.sql` を適用してWebアプリを反映する。
 3. ワールドとパックをバックアップし、3パック（avatar BP、avatar RP、import_structures）を同時に反映する。
-4. ワールドのpack UUIDは維持し、参照versionを実際のmanifestに合わせる。既存のScript API実験設定・HTTP権限・Bridge設定は維持する。server-ui 2.0.0を追加している。
+4. ワールドのpack UUIDは維持し、参照versionを実際のmanifestに合わせる。既存のScript API実験設定・HTTP権限・Bridge設定は維持する。BDSの `config/2fbc1c02-0c4d-4e98-a851-c1e41337c7a8/permissions.json` の `allowed_modules` に `@minecraft/server-ui` を追加する（リポジトリの同名テンプレートを参照）。既存の許可先・secret設定を上書きしない。
 5. サーバー再起動後、再接続してパックを取得する。Content Logにスクリプト・描画・プロパティのエラーがないことを確認する。
 6. 下記の実機確認を終えてから利用開始する。
 
 初期版はBP 1.0.31 / RP 1.0.35 / import 1.0.28。Web生成版はすべて1.1.<DB採番番号>とし、再生成ごとに番号が増える。
+固定パック反映アダプターとWebのZIPはBP/RPを扱うため、上記のBDSモジュール許可は初回に別途反映する必要がある。許可がないままではUIのimportが拒否され、Bridgeスクリプトも起動しない。
 Web登録済み素材を含むパックを使い始めたら、以降のコード更新時にも**更新後のアプリから同じDBカタログで再生成**して反映する。
 Gitにある初期4人のみのパックで上書きすると追加素材が見えなくなる。DBの素材と番号は残るため、再生成・再反映で戻せる。
 古いZIPを新しいコードへ上書きしない。ZIPにはそのアプリ版のBridgeスクリプトも含まれる。
