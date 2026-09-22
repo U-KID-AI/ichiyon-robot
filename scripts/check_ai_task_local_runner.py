@@ -18,7 +18,7 @@ from ai_task_codex import CodexResult
 from ai_task_diagnostics import redact_secrets
 from ai_task_git import GitAdapter
 from ai_task_publish import GitPublisher
-from ai_task_runner import LocalRunner, RunOutcome, test_feedback, run_idle_maintenance
+from ai_task_runner import LeaseHeartbeat, LocalRunner, RunOutcome, test_feedback, run_idle_maintenance
 from ai_task_runner_config import RunnerConfig
 from ai_task_test_registry import TestResult, run_tests
 
@@ -44,6 +44,8 @@ class Client:
 
     def mark_deploying(self, *args, **kwargs):
         self.calls.append(("deploying", kwargs))
+        return {"task_id": str(self.task.task_id), "status": "deploying",
+                "lease_expires_at": self.task.lease_expires_at}
 
     def mark_completed(self, *args, **kwargs):
         self.calls.append(("completed", kwargs))
@@ -54,6 +56,9 @@ class Heartbeat:
         self.lost = Event()
     def start(self): pass
     def stop(self): pass
+    def update_lease(self, value):
+        LeaseHeartbeat._parse_lease(value)
+        self.lease_expires_at = value
 
 
 class RunnerTests(unittest.TestCase):
@@ -297,6 +302,7 @@ class RunnerTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    from check_ai_task_heartbeat import HeartbeatTests, LeaseClientTests, DeploymentLeaseTests
     from check_ai_task_runner import InitialFetchTests, MainRefreshTests
 
     logging.disable(logging.CRITICAL)

@@ -203,6 +203,7 @@ def repository_runtime_checks():
         repo.heartbeat(task_id=task_id, runner_id="runner-1", claim_token=claim_token)
         heartbeat_params = cursor.calls[-1][1]
         check("heartbeat passes lease constant", repository.RUNNER_LEASE_SECONDS in heartbeat_params)
+        check("heartbeat passes deployment lease constant", repository.DEPLOYMENT_LEASE_SECONDS in heartbeat_params)
     finally:
         repository.fetch_one = old_fetch_one
 
@@ -349,11 +350,16 @@ def main():
     runtime_api_checks()
     repository_runtime_checks()
     idempotency_checks()
-    # This entry point is already run by CI; keep retry coverage in that path.
-    from scripts.check_ai_task_phase3c_control_plane import check_retry_repository, check_nullable_workflow_id, check_retry_api, check_client_diagnostics
+    # This entry point is already run by CI; keep retry/lease coverage in that path.
+    from scripts.check_ai_task_phase3c_control_plane import (
+        check_retry_repository, check_nullable_workflow_id, check_retry_api,
+        check_deployment_leases, check_lease_responses, check_client_diagnostics,
+    )
     check_retry_repository()
     check_nullable_workflow_id()
     check_retry_api()
+    check_deployment_leases()
+    check_lease_responses()
     check_client_diagnostics()
     print("AI task control plane checks passed")
 

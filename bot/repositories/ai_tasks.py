@@ -21,6 +21,7 @@ AI_TASK_STATUS_SET = frozenset(AI_TASK_STATUSES)
 MAX_DESCRIPTION_LENGTH = 4000
 MAX_PROGRESS_FIELD_LENGTH = 4000
 RUNNER_LEASE_SECONDS = 180
+DEPLOYMENT_LEASE_SECONDS = 900
 RUNNER_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 SHA1_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
 PR_URL_PATTERN = re.compile(r"^https://github\.com/U-KID-AI/ichiyon-robot/pull/([1-9][0-9]*)$")
@@ -338,14 +339,18 @@ class AITaskRepository:
                 """
                 UPDATE ai_tasks
                 SET heartbeat_at = NOW(),
-                    lease_expires_at = NOW() + (%s * INTERVAL '1 second'),
+                    lease_expires_at = GREATEST(lease_expires_at, CASE WHEN status = 'deploying'
+                        THEN NOW() + (%s * INTERVAL '1 second')
+                        ELSE NOW() + (%s * INTERVAL '1 second')
+                    END),
                     updated_at = NOW()
                 WHERE task_id = %s AND bot_id = %s AND runner_id = %s AND claim_token = %s
                   AND status IN ('running', 'testing', 'deploying')
                   AND lease_expires_at > NOW()
                 RETURNING task_id, status, heartbeat_at, lease_expires_at
                 """,
-                (RUNNER_LEASE_SECONDS, task_id, self.bot_id, runner_id, claim_token),
+                (DEPLOYMENT_LEASE_SECONDS, RUNNER_LEASE_SECONDS,
+                 task_id, self.bot_id, runner_id, claim_token),
             )
             return fetch_one(cursor)
 
@@ -362,19 +367,24 @@ class AITaskRepository:
             raise ValueError("task_id and claim_token must be UUIDs")
         if not isinstance(reason, str) or not 1 <= len(reason) <= MAX_PROGRESS_FIELD_LENGTH:
             raise ValueError("retry reason is invalid")
-        # Keep ownership, lease and previous merge evidence until the next deployment.
+        # Use the normal duration without shortening an existing deployment reservation.
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
                 UPDATE ai_tasks
                 SET status = 'testing', current_step = 'retrying',
-                    progress_summary = %s, error_message = %s, updated_at = NOW()
+                    progress_summary = %s, error_message = %s,
+                    lease_expires_at = GREATEST(lease_expires_at, CASE WHEN status = 'deploying'
+                        THEN NOW() + (%s * INTERVAL '1 second')
+                        ELSE lease_expires_at
+                    END),
+                    updated_at = NOW()
                 WHERE task_id = %s AND bot_id = %s AND runner_id = %s AND claim_token = %s
                   AND status IN ('running', 'testing', 'deploying')
                   AND lease_expires_at > NOW()
-                RETURNING task_id, status
+                RETURNING task_id, status, lease_expires_at
                 """,
-                (reason, reason, task_id, self.bot_id, runner_id, claim_token),
+                (reason, reason, RUNNER_LEASE_SECONDS, task_id, self.bot_id, runner_id, claim_token),
             )
             return fetch_one(cursor)
 
@@ -560,6 +570,7 @@ class AITaskRepository:
                     result_summary = %s,
                     error_message = NULL,
                     deployment_started_at = NOW(),
+                    lease_expires_at = GREATEST(lease_expires_at, NOW() + (%s * INTERVAL '1 second')),
                     updated_at = NOW()
                 WHERE task_id = %s
                   AND bot_id = %s
@@ -575,7 +586,8 @@ class AITaskRepository:
                     pr_url,
                     ci_workflow_run_id,
                     review_summary,
-                    merge_commit_sha
+                    merge_commit_sha,
+                    lease_expires_at
                 """,
                 (
                     commit_sha,
@@ -587,6 +599,7 @@ class AITaskRepository:
                     review_summary,
                     merge_commit_sha,
                     result_summary,
+                    DEPLOYMENT_LEASE_SECONDS,
                     task_id,
                     self.bot_id,
                     runner_id,
@@ -613,7 +626,8 @@ class AITaskRepository:
                     changed_files_summary,
                     ci_workflow_run_id,
                     review_summary,
-                    merge_commit_sha
+                    merge_commit_sha,
+                    lease_expires_at
                 FROM ai_tasks
                 WHERE task_id = %s
                   AND bot_id = %s

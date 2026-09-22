@@ -58,6 +58,8 @@ python scripts/check_ai_task_publish.py
 python scripts/check_ai_task_github.py
 python scripts/check_ai_task_auto_merge.py
 python scripts/check_ai_task_deploy.py
+python scripts/check_ai_task_control_plane.py
+python scripts/check_ai_task_phase3c_control_plane.py
 ```
 
 これらのcheckはfakeや一時fixtureで検証する。checkの実行と実際のrunner起動、認証済み外部操作、productionへの反映を区別する。
@@ -75,5 +77,17 @@ leaseを維持できない場合やキャンセル時はprocess treeを停止し
 ## deploymentと状態
 
 実運用への反映は構成された対象別adapterが担当し、merge SHAと実際に反映されたSHAを一致させる。Control Planeへの `deploying` 記録とdeploymentの完了記録を分け、完了証明を得てから `completed` にする。設定不足やhealth/migration失敗は実行エラーとして報告する。
+
+### deployment lease
+
+claimのleaseは180秒。`running` / `testing` のheartbeatは180秒、`deploying` のheartbeatは900秒で更新する。`mark_deploying` はmerge metadataの保存と同じDB更新で900秒のleaseを予約し、admin自身の再起動中にも有効な期限を確保する。期間はserverの固定値であり、requestから変更できない。
+
+同じclaimの期限は短縮しない。heartbeatとdeployment予約は既存の `lease_expires_at` と `NOW() + duration` の大きい方を保存する。同じmetadataでの `mark_deploying` 再送は更新せず、保存済みの期限を返す。`retry` で `deploying -> testing` に戻ると更新期間は180秒になるが、残っている900秒の予約期限は保持する。その後の通常heartbeatが予約期限に追いついてから180秒の更新が続く。
+
+`POST /internal/ai-tasks/{task_id}/heartbeat`、`/deploying`、`/retry` の成功応答はrootの `task_id`、`status`、`lease_expires_at` を返す。期限はtimezone付きISO timestampで、`task` envelopeはなく、claim tokenや認証情報は含めない。`/claim` の既存の `task` envelopeは変更しない。runnerは返された期限を保持し、遅れて届く短い期限で既存の期限を上書きしない。
+
+rolloutはserver-first。先にAPIを手動deploymentして期限付き応答を確認し、その後でtimestampを必須とするlive runnerへ更新する。旧APIに新runnerを先行接続しない。schema migrationは不要。両方の更新後に新しいtaskでE2Eを確認し、過去のfailed taskは書き換えない。
+
+延長・再送にもtask、bot、runner、claim tokenの一致と有効なleaseが必要。期限切れclaimを復活させず、既存の失効処理は `needs_human` にする。通信失敗だけではdeploymentの失敗や停止を証明できない。期限内の通信回復と実際のdeployment証明を照合し、既存のterminal taskを手動で成功扱いに書き換えない。
 
 状態は `queued`、`running`、`testing`、`ready_for_review`、`deploying`、`completed`、`failed`、`needs_human`、`cancelled`。`ready_for_review` はPR公開に関する既存の状態名であり、runnerに別の内容審査を追加する指示ではない。通常の操作失敗は診断を返して再試行し、設定回数を使い切った場合は `failed` とする。`needs_human` は人間の操作・判断を待つ既存の状態であり、編集ファイルの種別から自動判定しない。

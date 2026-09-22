@@ -12,9 +12,10 @@ import sqlite3
 import sys
 import traceback
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.error import HTTPError, URLError
 from uuid import UUID
 
@@ -59,6 +60,8 @@ class Connection:
         self.db = sqlite3.connect(":memory:")
         self.db.row_factory = sqlite3.Row
         self.commits = 0
+        self.calls = []
+        self.db.create_function("GREATEST", 2, lambda a, b: max(value for value in (a, b) if value is not None))
         self.db.create_function("regexp", 2, lambda pattern, value: value is not None and re.search(pattern, value) is not None)
         self.db.create_function("char_length", 1, lambda value: len(value) if value is not None else None)
         # Exercise the actual reviewed-merge/deployment CHECK expressions offline.
@@ -83,6 +86,7 @@ class Connection:
         self.reset()
 
     def reset(self, status="testing", lease=200):
+        self.now = 100
         self.db.execute("DELETE FROM ai_tasks")
         self.db.execute("INSERT INTO ai_tasks (task_id, bot_id, runner_id, claim_token, status, lease_expires_at) VALUES (?, ?, ?, ?, ?, ?)",
                         (str(TASK_ID), "bot", "runner-1", str(CLAIM_TOKEN), status, lease))
@@ -102,7 +106,8 @@ class Connection:
         connection = self
         class Cursor:
             def execute(self, sql, params):
-                sql = sql.replace("(%s * INTERVAL '1 second')", "%s").replace("NOW()", "100").replace("%s", "?")
+                connection.calls.append((sql, params))
+                sql = sql.replace("(%s * INTERVAL '1 second')", "%s").replace("NOW()", str(connection.now)).replace("%s", "?")
                 self.result = connection.db.execute(sql, tuple(str(p) if isinstance(p, UUID) else p for p in params))
                 self.description = [SimpleNamespace(name=c[0]) for c in self.result.description]
             def fetchone(self):
@@ -252,9 +257,12 @@ def check_retry_repository():
         after = connection.row()
         check("retry from " + state, result["status"] == "testing" and after["current_step"] == "retrying"
               and after["error_message"] == reason and after["progress_summary"] == reason)
-        changed_fields = {"status", "current_step", "progress_summary", "error_message", "updated_at"}
-        check("retry preserves lease, owner and all evidence from " + state,
+        changed_fields = {"status", "current_step", "progress_summary", "error_message", "updated_at", "lease_expires_at"}
+        check("retry preserves owner and all evidence from " + state,
               all(after[key] == value for key, value in before.items() if key not in changed_fields))
+        expected_lease = max(before["lease_expires_at"], 280) if state == "deploying" else before["lease_expires_at"]
+        check("retry returns appropriate lease from " + state, after["lease_expires_at"] == expected_lease
+              and result["lease_expires_at"] == expected_lease)
         check("retry repeat succeeds within lease", repo.retry(**OWNER, reason=reason) is not None and connection.row() == after)
         for changes in ({"runner_id": "other"}, {"claim_token": UUID(int=3)}, {"task_id": UUID(int=4)}):
             check("retry rejects wrong " + next(iter(changes)), repo.retry(**dict(OWNER, **changes), reason=reason) is None and connection.row() == after)
@@ -365,7 +373,7 @@ def check_retry_api():
         connection.db.commit()
         request = api.RetryRequest(**request_owner, reason=f"HTTP 502 runner-test-secret {CLAIM_TOKEN}")
         result = api.retry(TASK_ID, request, "Bearer runner-test-secret")
-        check("retry endpoint returns committed testing status", result == {"task_id": str(TASK_ID), "status": "testing"} and connection.commits == 1)
+        check("retry endpoint returns committed testing status and lease", result == {"task_id": str(TASK_ID), "status": "testing", "lease_expires_at": 1000} and connection.commits == 1)
         check("retry endpoint stores actual redacted reason", "HTTP 502" in connection.row()["error_message"]
               and "runner-test-secret" not in connection.row()["error_message"] and str(CLAIM_TOKEN) not in connection.row()["error_message"])
         for changes in ({"runner_id": "other"}, {"claim_token": UUID(int=3)}):
@@ -407,6 +415,143 @@ def check_retry_api():
                 check("retry HTTP rejects invalid reason", http.post(path, headers=headers, json=dict(body, reason=invalid)).status_code == 422)
             check("retry HTTP rejects arbitrary fields", http.post(path, headers=headers, json=dict(body, status="completed")).status_code == 422)
             check("retry HTTP accepts bounded reason", http.post(path, headers=headers, json=dict(body, reason="x" * 4000)).status_code == 200)
+
+
+def check_deployment_leases():
+    connection = Connection()
+    repo = repository.AITaskRepository(connection, bot_id="bot")
+    check("fixed normal and deployment durations", repository.RUNNER_LEASE_SECONDS == 180 and repository.DEPLOYMENT_LEASE_SECONDS == 900)
+    for state, duration in (("running", 180), ("testing", 180), ("deploying", 900)):
+        connection.reset(state)
+        result = repo.heartbeat(**OWNER)
+        check("heartbeat renews and returns lease for " + state, result["lease_expires_at"] == 100 + duration
+              and connection.row()["lease_expires_at"] == result["lease_expires_at"] and result["heartbeat_at"] == 100)
+        sql, params = connection.calls[-1]
+        check("heartbeat durations and ownership are parameterized", params == (900, 180, TASK_ID, "bot", "runner-1", CLAIM_TOKEN)
+              and sql.count("%s") == len(params) and "900" not in sql and "180" not in sql)
+        connection.now = 130
+        check("subsequent heartbeat uses current time for " + state, repo.heartbeat(**OWNER)["lease_expires_at"] == 130 + duration)
+        connection.reset(state, lease=2000)
+        check("heartbeat cannot shorten a later lease for " + state, repo.heartbeat(**OWNER)["lease_expires_at"] == 2000
+              and connection.row()["lease_expires_at"] == 2000)
+
+    connection.reset(lease=2000)
+    check("deployment reservation cannot shorten existing lease", repo.mark_deploying(**OWNER, **METADATA)["lease_expires_at"] == 2000)
+    check("retry preserves existing later deadline", repo.retry(**OWNER, reason="deployment failed")["lease_expires_at"] == 2000)
+    connection.reset("deploying", lease=101)
+    check("retry guarantees normal duration if reservation is nearly expired", repo.retry(**OWNER, reason="deployment failed")["lease_expires_at"] == 280)
+
+    connection.reset(lease=101)
+    start = len(connection.calls)
+    result = repo.mark_deploying(**OWNER, **METADATA)
+    first = connection.row()
+    sql, params = connection.calls[-1]
+    check("deploying reserves lease atomically with merge metadata", len(connection.calls) == start + 1
+          and result["lease_expires_at"] == first["lease_expires_at"] == 1000
+          and first["status"] == "deploying" and all(first[key] == value for key, value in METADATA.items()))
+    check("deploying lease duration is a bound SQL parameter", params[-5:] == (900, TASK_ID, "bot", "runner-1", CLAIM_TOKEN)
+          and sql.count("%s") == len(params) and "lease_expires_at = GREATEST(lease_expires_at, NOW() + (%s * INTERVAL '1 second'))" in sql)
+    connection.now = 145
+    repeated = repo.mark_deploying(**OWNER, **METADATA)
+    check("idempotent deploying returns original lease without renewing", repeated["lease_expires_at"] == 1000 and connection.row() == first)
+    check("idempotent deploying lookup retains lease guard", "lease_expires_at > NOW()" in connection.calls[-1][0])
+
+    connection.now = 400
+    check("deployment survives restart longer than normal lease", repo.expire_stale_leases() == []
+          and repo.heartbeat(**OWNER)["lease_expires_at"] == 1300)
+    renewed = connection.row()
+    connection.now = 410
+    check("deploying replay returns heartbeat-renewed lease unchanged", repo.mark_deploying(**OWNER, **METADATA)["lease_expires_at"] == 1300 and connection.row() == renewed)
+    connection.now = 430
+    result = repo.retry(**OWNER, reason="health endpoint failed")
+    check("deployment retry preserves the later reservation", result["status"] == "testing"
+          and result["lease_expires_at"] == connection.row()["lease_expires_at"] == 1300)
+    sql, params = connection.calls[-1]
+    check("retry lease duration is a bound SQL parameter", params[2] == 180 and sql.count("%s") == len(params))
+    check("deployment retry keeps ownership and merge evidence", all(connection.row()[key] == renewed[key] for key in
+          ("runner_id", "claim_token", "claimed_at", "attempt_count", *METADATA)))
+    connection.now = 440
+    check("retry replay does not extend reserved lease", repo.retry(**OWNER, reason="health endpoint failed")["lease_expires_at"] == 1300)
+    connection.now = 450
+    check("post-retry heartbeat cannot shorten the reservation", repo.heartbeat(**OWNER)["lease_expires_at"] == 1300)
+    connection.now = 1121
+    check("normal 180-second renewal catches up naturally", repo.heartbeat(**OWNER)["lease_expires_at"] == 1301)
+    connection.now = 1140
+    check("next deployment reserves a fresh 900 seconds", repo.mark_deploying(**OWNER, **METADATA)["lease_expires_at"] == 2040)
+    connection.now = 1600
+    check("valid deployment proof completes after normal lease window", repo.mark_completed(**OWNER, **PROOF)["status"] == "completed")
+
+    operations = ((repo.heartbeat, {}), (repo.mark_deploying, METADATA), (repo.retry, {"reason": "retry"}))
+    for state in ("running", "testing", "deploying"):
+        for deadline in (None, 99, 100):
+            connection.reset()
+            repo.mark_deploying(**OWNER, **METADATA)
+            connection.db.execute("UPDATE ai_tasks SET status=?, lease_expires_at=?", (state, deadline))
+            before = connection.row()
+            for operation, fields in operations:
+                check("expired claim cannot be resurrected by " + operation.__name__ + " from " + state,
+                      operation(**OWNER, **fields) is None and connection.row() == before)
+    for state in ("testing", "deploying"):
+        connection.reset()
+        repo.mark_deploying(**OWNER, **METADATA)
+        connection.db.execute("UPDATE ai_tasks SET status=?", (state,))
+        before = connection.row()
+        for changes in ({"runner_id": "other"}, {"claim_token": UUID(int=3)}, {"task_id": UUID(int=4)}):
+            for operation, fields in operations:
+                check("wrong owner cannot alter lease via " + operation.__name__, operation(**dict(OWNER, **changes), **fields) is None and connection.row() == before)
+        other_repo = repository.AITaskRepository(connection, bot_id="other")
+        for operation, fields in operations:
+            check("wrong bot cannot alter lease via " + operation.__name__, getattr(other_repo, operation.__name__)(**OWNER, **fields) is None and connection.row() == before)
+    for state in ("queued", "ready_for_review", "failed", "completed", "cancelled", "needs_human"):
+        connection.reset(state, lease=1000)
+        before = connection.row()
+        for operation, fields in operations:
+            check("lease operation leaves " + state + " unchanged", operation(**OWNER, **fields) is None and connection.row() == before)
+    connection.reset()
+    repo.mark_deploying(**OWNER, **METADATA)
+    connection.now = 1001
+    check("expired deployment still requires human inspection", repo.expire_stale_leases()[0]["status"] == "needs_human")
+    connection.db.close()
+
+
+def check_lease_responses():
+    app = FastAPI()
+    app.include_router(api.router)
+    connection = SimpleNamespace(commit=Mock(), rollback=Mock())
+    repo = Mock()
+    @contextmanager
+    def get_connection():
+        yield connection
+    owner = {"runner_id": "runner-1", "claim_token": str(CLAIM_TOKEN)}
+    deadline = datetime(2030, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+    headers = {"Authorization": "Bearer runner-test-secret"}
+    with patch.object(api.config, "AI_TASK_RUNNER_API_TOKEN", "runner-test-secret"), patch.object(api, "get_connection", get_connection), patch.object(api, "AITaskRepository", return_value=repo):
+        with TestClient(app) as http:
+            for endpoint, method, state, fields in (("deploying", "mark_deploying", "deploying", METADATA),
+                                                   ("heartbeat", "heartbeat", "deploying", {}),
+                                                   ("retry", "retry", "testing", {"reason": "deployment failed"})):
+                row = {"task_id": TASK_ID, "status": state, "lease_expires_at": deadline,
+                       "runner_id": "runner-1", "claim_token": CLAIM_TOKEN, "private": "runner-test-secret"}
+                getattr(repo, method).return_value = row
+                path = f"/internal/ai-tasks/{TASK_ID}/{endpoint}"
+                for _ in range(2):
+                    response = http.post(path, headers=headers, json=dict(owner, **fields))
+                    payload = response.json()
+                    check(endpoint + " initial/repeated response returns root timestamp", response.status_code == 200
+                          and set(payload) == {"task_id", "status", "lease_expires_at"}
+                          and payload["task_id"] == str(TASK_ID) and payload["status"] == state
+                          and datetime.fromisoformat(payload["lease_expires_at"].replace("Z", "+00:00")) == deadline)
+                    check(endpoint + " response does not expose tokens", str(CLAIM_TOKEN) not in response.text and "runner-test-secret" not in response.text)
+                calls = getattr(repo, method).call_count
+                check(endpoint + " lease response remains authenticated", http.post(path, json=dict(owner, **fields)).status_code == 401
+                      and getattr(repo, method).call_count == calls)
+                getattr(repo, method).return_value = None
+                response = http.post(path, headers=headers, json=dict(owner, **fields))
+                check(endpoint + " conflict does not report a lease", response.status_code == 409 and "lease_expires_at" not in response.json())
+            check("lease responses commit before acknowledgment", connection.commit.call_count == 6)
+            repo.heartbeat.return_value = {"task_id": TASK_ID, "status": "running"}
+            response = http.post(f"/internal/ai-tasks/{TASK_ID}/heartbeat", headers=headers, json=owner)
+            check("owned response omits absent lease field", response.json() == {"task_id": str(TASK_ID), "status": "running"})
 
 
 def check_client_diagnostics():
@@ -488,6 +633,8 @@ def main():
     check_retry_repository()
     check_nullable_workflow_id()
     check_retry_api()
+    check_deployment_leases()
+    check_lease_responses()
     check_client_diagnostics()
     print("AI task deployment and retry control-plane checks passed")
 

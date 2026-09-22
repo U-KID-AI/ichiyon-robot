@@ -182,7 +182,10 @@ def _run_owned_operation(task_id: UUID, request: HeartbeatRequest, operation):
                 if row is None:
                     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="AI task state is no longer available")
                 connection.commit()
-                return {"task_id": row["task_id"], "status": row.get("status")}
+                response = {"task_id": row["task_id"], "status": row.get("status")}
+                if "lease_expires_at" in row:
+                    response["lease_expires_at"] = row["lease_expires_at"]
+                return response
             except HTTPException:
                 _rollback_safely(connection)
                 raise
