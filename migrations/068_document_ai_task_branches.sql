@@ -1,0 +1,1 @@
+COMMENT ON COLUMN ai_tasks.branch_name IS 'Task-specific Git branch named ai/task/<UUID>, associated with the dedicated ai-task-<UUID> worktree; records the branch used for task development and runner-managed publication.';
