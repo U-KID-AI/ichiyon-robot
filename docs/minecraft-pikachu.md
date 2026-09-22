@@ -1,70 +1,91 @@
 # ピカチュウMob
 
-`ichiyon:pikachu` とCreativeスポーンエッグを既存Avatar BP/RPへ追加する。
-自然スポーンルール、既存Mob、Bridge、worldデータには変更を加えない。
-BPは1.0.29、RPは1.0.33。既存UUIDと最低エンジン版を維持する。
+既存 `ichiyon:pikachu` の改善。identifier、Creativeスポーンエッグ、翻訳、
+pack UUIDと最低エンジン版を維持する。BP 1.0.30、RP 1.0.34。
+他Mob、他pack、参照mcstructure、worldデータ、自然スポーンルールは変更しない。
 
 ## 参照構造物とモデル
 
-`minecraft/behavior_packs/import_structures/structures/pikachu_reference.mcstructure`
-をlittle-endian NBTとして解析した。サイズはX/Y/Z = 8/23/20、
-全15,607バイトを読み切り、第一block layerはair 3,035、yellow_wool 607、
-black_wool 14、brown_wool 12、red_wool 8、white_wool 2、
-nether_brick_fence 2。赤い頬はX=6・Y=11–12、白い目の光はX=6・Y=15、
-黒色はY=14–22にあり、顔は+X側、耳は上方へ伸びる構成。
-背面の茶色はX=0–1・Y=6–10。口元のfenceはX=7・Y=11。
+生成元は `scripts/build_pikachu_assets.py`。標準ライブラリだけを使い、
+チェックイン済み `minecraft/behavior_packs/import_structures/structures/pikachu_reference.mcstructure`
+をlittle-endian NBTとして解析する。サイズ8×23×20、15,607バイト。
+非airはyellow_wool 607、black_wool 14、brown_wool 12、red_wool 8、
+white_wool 2、nether_brick_fence 2。
 
-ブロックを縮小コピーせず、幅9モデル単位の頭、小さな胴、左右の耳と黒い先端、
-頬、目と光、口、背中の2本線、茶色い根元と稲妻形の尾を独立cube/boneで構成した。
-足には子関節を設けない。64×16 RGBAのUV atlasは6色の領域を使い、
-各faceを余白付きの色領域へ割り当てる。生成元は
-`scripts/build_pikachu_assets.py`。標準ライブラリだけでgeometry/PNGを再生成できる。
+旧モデルの独自の頭身、傾けた耳、鼻、口、尾などの造形を撤去し、構造物の
+全非airブロックの配置から直接geometryを生成する。+Xの顔をモデル-Zへ向け、
+1ブロックを0.7モデル単位に縮小する。左右非対称な輪郭、中空部分、顔、耳、
+手足、背面の形を維持し、参照にない尻尾や装飾は追加しない。
+同色ブロックは形を変えない直方体へ統合。口のfenceは支柱と隣接する横桟で表現する。
+64×16 RGBA atlasの6色は羊毛5色と暗いnether brick色の単色近似であり、
+元ブロックの表面テクスチャや照明の完全再現ではない。
 
-## 行動
+Y=0〜3の左右の脚を独立boneへ割り当て、Y=4を支点にX軸で±30度、
+逆位相に振る。脚全体は剛体で、膝関節や平行移動アニメーションはない。
+全身の左右の揺れは最大2度。回転中は歩行を抑止する。
 
-- 通常は速度0.16を基準にrandom stroll。歩行時の全身rollは最大2度、
-  足はZ方向に最大0.65モデル単位だけ交互に動く。膝・足の回転はない。
-- 接地中のインタラクトでserver同期property `ichiyon:spin` を更新。
-  99%で+360度、1%で−360度。client controllerが0.45秒の非ループ回転を再生し、
-  最終frameを保持する。rootの座標はアニメーションしない。
-- 回転時は移動・注視・睡眠追尾AIを含むmobile groupを外し、速度0、重力なし、
-  knockback resistance 1にする。0.7秒timerで復帰し、インタラクトのcooldownは1.2秒。
-  spin中の再イベントもproperty条件で拒否する。空中での開始は受け付けない。
-- 同dimension内12ブロックの睡眠中playerだけを非戦闘のfollow_mobで追従する。
-  明示的なplayer＋is_sleeping filterを使い、攻撃target選別には依存しないため、
-  Creative/無敵playerも睡眠中なら候補になる。stop_distanceは2.5ブロックとし、
-  player/ベッド位置への直接重なりを避ける。起床するとfilterが成立しなくなり通常行動へ戻る。
+## 回転・復帰
 
-公式仕様:
-[睡眠フィルター](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/filters/is_sleeping?view=minecraft-bedrock-stable)、
-[Mob追従](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/entitygoals/minecraftbehavior_follow_mob?view=minecraft-bedrock-stable)。
-Entity formatは1.26.10を使用する。
+旧実装には単発timerとpropertyのロックはあったが、timer経路以外の復帰や
+読み込み時のリセットがなかった。報告された再インタラクト不能の実機原因は未確定。
+本変更はtimer依存を廃止し、BPのサーバーanimation controllerを復帰の主体にする。
 
-## 検証と未完了事項
+- `idle`: `spin_ready`でspin=0、spin_busy=false、移動AI・物理・interactを再追加。
+- 接地したplayerのインタラクトでmobile/readyを外してspinningへ。
+  spin_busy=trueにし、99%で+360度、1%で−360度を選ぶ。
+- クライアントの0.45秒・その場で1回転するアニメーションと最終frame保持は維持。
+  サーバーの回転状態は移動速度0、注視AIなし、重力なし、knockback resistance 1。
+- サーバーの`spinning`はpropertyの変化に依存せず、state_time 0.7秒で必ず退出。
+- `cooldown`入口の`spin_end`でspin=0、通常移動・物理を戻す。
+  さらに0.5秒はspin_busy=trueかつinteractなしで再受付を拒否する。
+- 0.5秒後に`idle`へ入り、interactを再初期化する。interaction自体の1.2秒cooldownも維持。
+  イベント側もspinとspin_busyの両方で連打を拒否する。
+- 初期状態も`cooldown`。スポーン／controller再初期化時に残留回転を解除し、
+  0.5秒後に再受付する。古いspin propertyが残った個体も同じ復帰経路を通る。
 
-`python3 scripts/check_minecraft_pikachu.py` は全pack JSON、identifier重複、
-Entity/geometry/texture/animation参照、bone階層、UV、PNG CRC・展開サイズ、
-エッグ翻訳、1回転の端点・単調性・無移動、両random分岐、連打拒否、timer復帰、
-睡眠条件・距離制限・攻撃goal不在、client回転状態の開始・保持・復帰と歩行抑止を検証する。
-CIへの登録は未完了。保護対象の`.github/workflows/checks.yml`は変更せず、
-新規checkは上記コマンドでローカル実行する。
-JSONのイベント評価テストはBedrockエンジンの代替ではない。
+サーバーtickの遅延やチャンク停止中は実時間どおりには進まない。
+クライアント受信遅延や物理的な押し出しはオフライン検証では保証できない。
 
-今回のoffline結果: 新規6テスト、version-policy 2テスト、HEAD manifestと
-作業ツリーのBP/RPに対する既存`validate`、タケツミAI check、変更Pythonの
-compile、`git diff --check`は成功。Avatar/Poster checkはPillow不足、
-Avatar Bridge checkはNode.js不足で起動できなかった。Lead Anchor checkは
-4テスト成功、world-referenceの純粋関数テスト1件が既存module import時の
-Python 3.8非互換でエラー。これらの回帰checkは対応環境で再実行が必要。
+仕様参照:
+[controllerからのentity eventと読み込み時の初期状態](https://learn.microsoft.com/en-us/minecraft/creator/documents/introductiontoaddentity?view=minecraft-bedrock-stable)、
+[state_time](https://learn.microsoft.com/en-us/minecraft/creator/documents/update1.21.20?view=minecraft-bedrock-stable)、
+[componentの再追加・削除](https://learn.microsoft.com/en-us/minecraft/creator/documents/entitybehaviorintroduction?view=minecraft-bedrock-stable)。
 
-本番反映前には別途、ローカルBedrockでContent Log、Creativeでのエッグ、
-睡眠中player追従（特にCreative/無敵プレイヤーと平和難易度）、複数ベッド・
-障害物・狭い場所での経路、起床/離脱/チャンク再読込、回転開始時の残留速度・
-水流/接触による位置変化、通信遅延時の一回転を確認する必要がある。
-follow_mobはplayerから2.5ブロックで停止するが、複数個体同士の配置予約はないため、
-群れ同士の重なりや経路上でベッドを横切らないことはオフラインでは保証していない。
-見た目、歩き方、時計回りの向きと回転の感触、自然な群がり方も実機で要確認。
+## 睡眠プレイヤーへの集合
 
-この作業はRunnerの許可範囲での編集とoffline検証のみ。
-PR/remote CI/review/merge、本番BDS deploy、world pack参照同期、再起動、
-health、本番packとmainの一致確認は実施しない。
+基礎速度0.16、通常徘徊係数0.8は維持。睡眠追従係数を1.0から1.8へ変更し、
+従来追従の1.8倍・通常徘徊の2.25倍の設定速度にする。
+同dimension・12ブロック以内のplayer＋is_sleeping filter、非戦闘follow_mob、
+停止距離2.5ブロックを維持する。起床時は睡眠filterから外れ、通常AIへ戻る設計。
+Creative/無敵playerを除外するfilterや攻撃goalは追加しない。
+複数個体の配置予約はなく、群れの重なりや障害物を含む経路は実機で要確認。
+
+## 自動検証と残件
+
+`python3 scripts/check_minecraft_pikachu.py`: 7テスト成功。
+pack JSON、entity/geometry/texture/animation/controller参照、スポーンエッグ翻訳、
+bone階層、UV、PNG CRC・展開サイズ、geometry再生成一致、羊毛全643セルの
+位置・色の一致、脚の剛体回転、1回転の端点・単調性・無移動、両方向各100回の
+状態遷移・各tickで50回連打・cooldown拒否・通常AI/物理/interact復帰・
+旧ロック状態と回転中/cooldown中のcontroller再初期化、睡眠filterと速度比を検証。
+状態テストはJSONの限定的な実行モデルであり、Bedrockエンジンそのものではない。
+
+今回の追加検証:
+
+- version-policy: 2テスト成功。既存`validate`でHEADと作業ツリーの両manifestの
+  バージョン増加・header/modules一致を確認し、UUIDと最低エンジン版の維持も確認。
+- タケツミAI check成功。Lead Anchor checkは4テスト成功、world-referenceの1件は
+  既存moduleの`list[str]`注釈がPython 3.8非互換のためimportエラー。
+- Avatar/Poster checkはPillow不足、Avatar Bridge checkはNode.js不足で起動不可。
+- 変更Pythonのcompileと`git diff --check`成功。
+- 差分を確認し、他の追跡済みMinecraft assetsと参照構造物に変更がないことを検証。
+
+対応環境で未完了の回帰checkを再実行する必要がある。
+CI workflowとRunner test registryは保護対象のため変更しておらず、本checkのCI登録は残件。
+実機のContent Log、エッグ、連続インタラクト、同tick入力、チャンク再読込、
+Creativeを含む睡眠追従・起床/離脱・経路探索・同期は未検証。
+最終的な見た目・歩き方・回転の感触も未確認。
+
+Runner指示によりcommit/push/PR/remote CI/review/merge、本番BDS deploy、
+world pack参照同期、再起動、health、本番packとmain一致確認は実施しない。
+これらと実機検証は、権限を持つ外部の運用・検証工程へ引き継ぐ。
