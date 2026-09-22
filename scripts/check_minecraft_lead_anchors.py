@@ -121,7 +121,7 @@ class LeadAnchorChecks(unittest.TestCase):
         from ai_task_minecraft_deploy import sync_world_json
         manifest = read_json(RP / "manifest.json")
         version = manifest["header"]["version"]
-        self.assertEqual(version, [1, 0, 37])
+        self.assertEqual(version, [1, 0, 38])
         self.assertTrue(all(m["version"] == version for m in manifest["modules"]))
         old = [{"pack_id": manifest["header"]["uuid"], "version": [1, 0, 31]}]
         result = json.loads(sync_world_json(json.dumps(old), [json.dumps(manifest)]))

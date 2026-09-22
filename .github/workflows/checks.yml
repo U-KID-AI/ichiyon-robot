@@ -46,6 +46,7 @@ jobs:
           python scripts/check_minecraft_posters.py
           python scripts/check_minecraft_lead_anchors.py
           python scripts/check_minecraft_pikachu.py
+          python scripts/check_minecraft_mokuro.py
 
   python-and-compose:
     runs-on: ubuntu-latest
