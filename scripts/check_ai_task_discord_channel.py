@@ -257,6 +257,22 @@ class ChannelChecks(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(mentions.users)
         self.assertFalse(mentions.roles)
 
+    def test_terminal_diagnostic_survives_long_result_fields(self):
+        diagnostic = "check=changed_path; reason=changed path cannot be inspected; path=" + "a/" * 90 + "file.py"
+        self.assertGreater(len(diagnostic), 250)
+        text = ai_tasks.format_task_terminal(dict(task_id=uuid.uuid4(), status="failed",
+                                                error_message=diagnostic, result_summary="x" * 4000,
+                                                pr_url="p" * 4000, deployed_commit_sha="s" * 4000,
+                                                progress_summary="q" * 4000, deployment_summary="d" * 4000))
+        self.assertIn(diagnostic, text)
+        self.assertLess(text.index("error:"), text.index("result:"))
+        self.assertLessEqual(len(text), ai_tasks.MAX_DISCORD_RESPONSE_LENGTH)
+
+    def test_terminal_error_is_bounded(self):
+        text = ai_tasks.format_task_terminal(dict(status="failed", error_message="e" * 4000))
+        self.assertIn("error: " + "e" * 500, text)
+        self.assertNotIn("e" * 501, text)
+
     async def test_all_response_mentions_and_terminal_formats(self):
         await ai_tasks.handle_ai_task_channel_message(self.message("text"))
         self.assert_mentions_disabled(self.channel.sent[-1][1])

@@ -280,14 +280,16 @@ def format_task_terminal(row: Dict[str, Any]) -> str:
     # Only explicit result fields; never include description or transport settings.
     fields = (
         ("task ID", "task_id"), ("status", "status"), ("PR", "pr_url"),
+        ("error", "error_message"),
         ("deployed SHA", "deployed_commit_sha"), ("result", "result_summary"),
-        ("progress", "progress_summary"), ("error", "error_message"),
+        ("progress", "progress_summary"),
         ("deployment", "deployment_summary"),
     )
     lines = ["AI task結果"]
     for label, key in fields:
         if row.get(key):
-            lines.append("{0}: {1}".format(label, _safe_text(row[key])[:250]))
+            limit = 500 if key == "error_message" else 250
+            lines.append("{0}: {1}".format(label, _safe_text(row[key])[:limit]))
     return _response("\n".join(lines))
 
 
