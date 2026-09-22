@@ -1,0 +1,15 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "ichiyon:garbage_molcar",
+      "materials": {"default": "entity_alphatest"},
+      "textures": {"default": "textures/entity/garbage_molcar"},
+      "geometry": {"default": "geometry.garbage_molcar"},
+      "animations": {"idle": "animation.molcar.idle", "walk": "animation.molcar.walk"},
+      "scripts": {"animate": [{"idle": "!query.is_moving"}, {"walk": "query.is_moving"}]},
+      "render_controllers": ["controller.render.default"],
+      "spawn_egg": {"base_color": "#2167BD", "overlay_color": "#FFFFFF"}
+    }
+  }
+}

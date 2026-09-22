@@ -1,0 +1,12 @@
+{
+  "format_version": "1.20.50",
+  "minecraft:item": {
+    "description": {"identifier": "ichiyon:bartholomew_kuma_paw", "menu_category": {"category": "equipment"}},
+    "components": {
+      "minecraft:display_name": {"value": "item.ichiyon:bartholomew_kuma_paw.name"},
+      "minecraft:icon": "ichiyon:bartholomew_kuma_paw",
+      "minecraft:interact_button": "Mobを消す",
+      "minecraft:max_stack_size": 1
+    }
+  }
+}

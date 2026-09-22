@@ -4,6 +4,7 @@ import { secrets, variables } from "@minecraft/server-admin";
 import { handleAvatarCommand } from "./avatar_commands.js";
 import { cosmetics, cosmeticsDigest } from "./cosmetics.js";
 import "./mokuro.js";
+import "./garbage_molcar.js";
 
 console.warn("[NaritaBridge] main.js loaded");
 

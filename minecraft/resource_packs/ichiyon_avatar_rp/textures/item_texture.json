@@ -4,6 +4,9 @@
     "ichiyon:avatar_selector": {
       "textures": "textures/items/taketumi_spawn_egg"
     },
+    "ichiyon:bartholomew_kuma_paw": {
+      "textures": "textures/items/bartholomew_kuma_paw"
+    },
     "ichiyon:softshell_crab": {
       "textures": "textures/items/softshell_crab"
     },

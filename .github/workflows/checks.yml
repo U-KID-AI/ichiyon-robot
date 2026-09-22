@@ -47,6 +47,7 @@ jobs:
           python scripts/check_minecraft_lead_anchors.py
           python scripts/check_minecraft_pikachu.py
           python scripts/check_minecraft_mokuro.py
+          python scripts/check_minecraft_garbage_molcar.py
 
   python-and-compose:
     runs-on: ubuntu-latest
