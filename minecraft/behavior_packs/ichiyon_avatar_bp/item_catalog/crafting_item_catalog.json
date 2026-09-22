@@ -1,0 +1,33 @@
+{
+  "format_version": "1.21.60",
+  "minecraft:crafting_items_catalog": {
+    "categories": [
+      {
+        "category_name": "construction",
+        "groups": [
+          {
+            "group_identifier": {
+              "icon": "ichiyon:poster_irsia",
+              "name": "ichiyon:itemGroup.posters"
+            },
+            "items": [
+              "ichiyon:poster_irsia",
+              "ichiyon:poster_raio",
+              "ichiyon:poster_trent",
+              "ichiyon:poster_aurelia",
+              "ichiyon:poster_killzael",
+              "ichiyon:poster_caravan_mammoth",
+              "ichiyon:poster_itsutake",
+              "ichiyon:poster_cat_tuner",
+              "ichiyon:poster_wilbert",
+              "ichiyon:poster_miltio",
+              "ichiyon:poster_ace",
+              "ichiyon:poster_eyes_eden",
+              "ichiyon:poster_akuki"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
