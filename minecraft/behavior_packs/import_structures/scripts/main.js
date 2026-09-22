@@ -2,6 +2,7 @@ import { BlockPermutation, EntityComponentTypes, ItemStack, system, world } from
 import { HttpHeader, HttpRequest, HttpRequestMethod, http } from "@minecraft/server-net";
 import { secrets, variables } from "@minecraft/server-admin";
 import { handleAvatarCommand } from "./avatar_commands.js";
+import { cosmetics, cosmeticsDigest } from "./cosmetics.js";
 
 console.warn("[NaritaBridge] main.js loaded");
 
@@ -1077,7 +1078,7 @@ async function pollOnce() {
   if (!configuredGuildId) {
     return;
   }
-  const url = `${apiBase()}/commands/next?bot_id=${encodeURIComponent(botId())}&guild_id=${encodeURIComponent(configuredGuildId)}`;
+  const url = `${apiBase()}/commands/next?bot_id=${encodeURIComponent(botId())}&guild_id=${encodeURIComponent(configuredGuildId)}&cosmetics_digest=${encodeURIComponent(cosmeticsDigest)}`;
   const request = new HttpRequest(url);
   request.method = HttpRequestMethod.Get;
   request.headers = [secretHeader()];
@@ -1126,6 +1127,9 @@ async function pollOnce() {
   }
   httpDiagnostics.lastCommandType = String(command.type || "");
   httpDiagnostics.lastCommandReceivedMs = Date.now();
+  if (await cosmetics.handleCommand(command, {
+    isValidPlayerName, findOnlinePlayer, playerForwardSpawnLocation, postResult,
+  })) return;
   if (await handleAvatarCommand(command, {
     isValidPlayerName, findOnlinePlayer, playerForwardSpawnLocation, postResult,
   })) return;

@@ -1,0 +1,152 @@
+"""HTTP/auth/CSRF/multipart tests with a fake catalog; no production connections."""
+from contextlib import contextmanager
+from pathlib import Path
+import sys
+import unittest
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.testclient import TestClient
+from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
+
+# These modules normally load deployment settings; never read dotenv in offline tests.
+with patch("dotenv.load_dotenv", return_value=False):
+    from admin import minecraft_cosmetics as admin
+
+from check_minecraft_cosmetics import png, geometry
+from bot.services.minecraft_cosmetics import asset, json_bytes, MAX_UPLOAD
+
+
+class FakeRepository:
+    added = []
+    placed = []
+    def __init__(self, connection): pass
+    def assets(self): return list(self.added)
+    def servers(self): return []
+    def recent(self): return []
+    def expire(self): pass
+    def revision(self): return 1
+    def add(self, **kwargs):
+        kind = kwargs.pop("kind"); kwargs.pop("created_by")
+        entry = asset(kind, 5 if kind == "skin" else 1, "test_asset", **kwargs)
+        self.added.append(entry)
+        return entry
+    def place(self, *args): self.placed.append(args)
+
+
+class Connection:
+    def commit(self): pass
+
+
+@contextmanager
+def fake_connection():
+    yield Connection()
+
+
+def require_login(request):
+    user = request.session.get("discord_user")
+    if not user: raise HTTPException(401)
+    return user
+
+
+class FakePermission:
+    def __init__(self, connection): pass
+    def has_global_admin(self, user_id): return user_id == "admin"
+
+
+app = FastAPI()
+app.add_middleware(SessionMiddleware, secret_key="offline-test-session-only")
+
+
+@app.get("/test-login/{user}")
+def login(request: Request, user: str):
+    request.session["discord_user"] = {"user_id": user}
+    request.session["cosmetics_csrf"] = "test-csrf"
+    return {"ok": True}
+
+
+admin.register_minecraft_cosmetics_routes(Jinja2Templates(directory=str(ROOT / "admin/templates")))
+app.include_router(admin.router)
+# layout.html uses the named static route.
+from starlette.staticfiles import StaticFiles
+app.mount("/static", StaticFiles(directory=str(ROOT / "admin/static")), name="static")
+
+
+class AdminChecks(unittest.TestCase):
+    def setUp(self):
+        FakeRepository.added = []; FakeRepository.placed = []
+        self.patches = [patch.object(admin, "get_connection", fake_connection), patch.object(admin, "PermissionRepository", FakePermission),
+                        patch.object(admin, "MinecraftCosmeticsRepository", FakeRepository), patch.object(admin, "require_login", require_login)]
+        for item in self.patches: item.start(); self.addCleanup(item.stop)
+        self.client = TestClient(app)
+        self.addCleanup(self.client.close)
+
+    def sign_in(self, user="admin"):
+        self.client.get("/test-login/" + user)
+
+    def test_anonymous_and_non_admin_cannot_read_or_mutate(self):
+        for user, expected in ((None, 401), ("viewer", 403)):
+            if user: self.sign_in(user)
+            for method, path in (("get", ""), ("get", "/preview/skin/1"), ("post", "/assets"), ("post", "/export"), ("post", "/place")):
+                with self.subTest(user=user, path=path): self.assertEqual(getattr(self.client, method)("/minecraft/cosmetics" + path).status_code, expected)
+
+    def test_csrf_required_for_every_mutation(self):
+        self.sign_in()
+        for path in ("/assets", "/export", "/place"):
+            for token in ("", "wrong"):
+                response = self.client.post("/minecraft/cosmetics" + path, data={"csrf": token})
+                self.assertEqual(response.status_code, 403)
+        self.assertFalse(FakeRepository.added)
+
+    def test_registration_skin_and_preview(self):
+        self.sign_in()
+        response = self.client.post("/minecraft/cosmetics/assets", data={"csrf": "test-csrf", "kind": "skin", "name": "追加スキン", "model": "slim"},
+                                    files={"texture": ("../../anything.png", png(), "image/png")}, follow_redirects=False)
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(FakeRepository.added[0]["model"], "slim")
+        preview = self.client.get("/minecraft/cosmetics/preview/skin/5")
+        self.assertEqual(preview.status_code, 200); self.assertEqual(preview.headers["content-type"], "image/png")
+
+    def test_registration_accessory(self):
+        self.sign_in()
+        response = self.client.post("/minecraft/cosmetics/assets", data={"csrf": "test-csrf", "kind": "accessory", "name": "帽子", "slot": "hat"},
+            files={"texture": ("t.png", png()), "geometry": ("a.json", json_bytes(geometry())), "icon": ("i.png", png((16, 16)))}, follow_redirects=False)
+        self.assertEqual(response.status_code, 303); self.assertEqual(FakeRepository.added[0]["slot"], "hat")
+
+    def test_invalid_upload_returns_readable_error(self):
+        self.sign_in()
+        for files, data in (({"texture": ("x.png", b"not png")}, {}), ({}, {"texture": "string"}), ({"texture": ("x.png", png((32, 32)))}, {})):
+            response = self.client.post("/minecraft/cosmetics/assets", data={"csrf": "test-csrf", "kind": "skin", "name": "bad", **data}, files=files)
+            self.assertEqual(response.status_code, 400); self.assertIn('role="alert"', response.text)
+        self.assertFalse(FakeRepository.added)
+
+    def test_large_chunked_body_bounded(self):
+        self.sign_in()
+        response = self.client.post("/minecraft/cosmetics/assets", content=iter([b"x" * MAX_UPLOAD] * 4), headers={"Content-Type": "multipart/form-data; boundary=test"})
+        self.assertEqual(response.status_code, 413); self.assertFalse(FakeRepository.added)
+
+    def test_name_escaped_in_catalog(self):
+        self.sign_in(); FakeRepository.added.append(asset("skin", 5, "test_asset", "<script>alert(1)</script>", png()))
+        response = self.client.get("/minecraft/cosmetics")
+        self.assertEqual(response.status_code, 200); self.assertNotIn("<script>alert", response.text); self.assertIn("&lt;script&gt;", response.text)
+
+    def test_export_contains_complete_packs_and_is_not_a_deploy(self):
+        self.sign_in(); response = self.client.post("/minecraft/cosmetics/export", data={"csrf": "test-csrf"})
+        self.assertEqual(response.status_code, 200); self.assertEqual(response.headers["content-type"], "application/zip")
+        self.assertTrue(response.content.startswith(b"PK")); self.assertFalse(FakeRepository.placed)
+
+    def test_placement_rejects_unknown_skin_and_passes_fixed_fields(self):
+        self.sign_in()
+        fields = {"csrf": "test-csrf", "server": "ichiyon/123", "player": "Steve", "skin_id": "127"}
+        self.assertEqual(self.client.post("/minecraft/cosmetics/place", data=fields).status_code, 400)
+        fields["skin_id"] = "1"
+        self.assertEqual(self.client.post("/minecraft/cosmetics/place", data=fields, follow_redirects=False).status_code, 303)
+        self.assertEqual(FakeRepository.placed[0][:2], ("ichiyon", "123")); self.assertEqual(FakeRepository.placed[0][3:], (1, "Steve", "admin"))
+
+
+if __name__ == "__main__": unittest.main()

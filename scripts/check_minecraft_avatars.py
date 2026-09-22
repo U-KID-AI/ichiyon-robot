@@ -221,7 +221,7 @@ class AvatarChecks(unittest.TestCase):
             self.assertEqual(proxy["format_version"], self.document["format_version"])
             self.assertEqual(entity["description"], {
                 **self.entity["description"], "identifier": f"ichiyon:avatar_{skin}_placer",
-                "is_spawnable": True,
+                "is_spawnable": False,
             })
             self.assertEqual(entity["components"], {
                 **self.entity["components"], "minecraft:variant": {"value": index},
@@ -265,14 +265,15 @@ class AvatarChecks(unittest.TestCase):
         eggs = {identifier for identifier, entity in entities.items()
                 if identifier.startswith("ichiyon:avatar")
                 and entity["description"].get("is_spawnable", False)}
-        self.assertEqual(eggs, {f"ichiyon:avatar_{skin}_placer" for skin in SKINS})
+        self.assertEqual(eggs, set())  # Common selector replaces per-character creative eggs.
         for directory in (ROOT / "minecraft/behavior_packs").iterdir():
             for path in (directory / "items").glob("*.json"):
                 item = read_json(path)["minecraft:item"]
                 self.assertNotIn(item["description"]["identifier"],
                                  {f"{identifier}_spawn_egg" for identifier in eggs})
                 placer = item.get("components", {}).get("minecraft:entity_placer", {})
-                self.assertFalse(placer.get("entity", "").startswith("ichiyon:avatar"))
+                if placer.get("entity", "").startswith("ichiyon:avatar"):
+                    self.assertEqual(item["description"]["identifier"], "ichiyon:avatar_selector")
         controller = read_json(RP / "render_controllers/avatar.render_controllers.json")
         textures = controller["render_controllers"]["controller.render.ichiyon.avatar"]["arrays"]["textures"]["Array.skins"]
         for index, skin in enumerate(SKINS):
@@ -292,12 +293,12 @@ class AvatarChecks(unittest.TestCase):
             self.assertTrue(textures[variant].startswith("Texture."))
             texture_key = textures[variant][len("Texture."):]
             self.assertEqual(clients[target_id]["textures"][texture_key],
-                             f"textures/entity/avatar/{skin}")
+                             f"textures/entity/cosmetics/skin_{index + 1}")
         for locale in ("ja_JP", "en_US"):
             lines = (RP / f"texts/{locale}.lang").read_text(encoding="utf-8").splitlines()
             names = [next(line.split("=", 1)[1] for line in lines
                           if line.startswith(f"item.spawn_egg.entity.{identifier}.name="))
-                     for identifier in eggs]
+                     for identifier in (f"ichiyon:avatar_{skin}_placer" for skin in SKINS)]
             self.assertEqual(len(set(names)), 4)
 
     def test_idle_walk_and_look_animation_contract(self):
@@ -462,7 +463,7 @@ class AvatarChecks(unittest.TestCase):
 
     def test_all_variant_transitions_and_repeated_selection(self):
         groups = self.entity["component_groups"]
-        variant_groups = {f"ichiyon:avatar_{s}" for s in SKINS}
+        variant_groups = {f"ichiyon:avatar_{s}" for s in SKINS} | {f"ichiyon:cosmetic_{i}" for i in range(1, 5)}
         # Exercise all pairs and re-selection; each event must clear every old group.
         for first, second in itertools.product(SKINS, repeat=2):
             active = set()
@@ -482,12 +483,13 @@ class AvatarChecks(unittest.TestCase):
         controllers = read_json(RP / "render_controllers/avatar.render_controllers.json")["render_controllers"]
         self.assertEqual(self.client["identifier"], "ichiyon:avatar")
         controller = controllers[self.client["render_controllers"][0]]
-        self.assertEqual(controller["arrays"]["textures"]["Array.skins"],
-                         [f"Texture.{skin}" for skin in SKINS])
+        self.assertEqual(controller["arrays"]["textures"]["Array.skins"][:4],
+                         [f"Texture.skin_{i}" for i in range(1, 5)])
+        self.assertEqual(len(controller["arrays"]["textures"]["Array.skins"]), 127)
         self.assertEqual(controller["textures"], ["Array.skins[query.variant]"])
         self.assertEqual(controller["materials"], [{"*": "Material.default"}])
         self.assertEqual(self.client["materials"]["default"], "entity_alphatest")
-        self.assertEqual(controller["geometry"], "Geometry.default")
+        self.assertEqual(controller["geometry"], "Array.models[query.variant]")
         for skin in SKINS:
             source = ROOT / "minecraft/avatar_skins/source" / f"{skin}.png"
             texture = RP / (self.client["textures"][skin] + ".png")
@@ -533,7 +535,7 @@ class AvatarChecks(unittest.TestCase):
                 self.assertLessEqual(v + y + z, 64)
 
     def test_pack_versions_and_localized_names(self):
-        for pack, version in ((BP, [1, 0, 30]), (RP, [1, 0, 34])):
+        for pack, version in ((BP, [1, 0, 31]), (RP, [1, 0, 35])):
             manifest = read_json(pack / "manifest.json")
             self.assertEqual(manifest["header"]["version"], version)
             self.assertTrue(all(m["version"] == version for m in manifest["modules"]))

@@ -37,3 +37,6 @@ item.spawn_egg.entity.ichiyon:avatar_albert_placer.name=Albert Mannequin
 entity.ichiyon:pikachu.name=Pikachu
 item.spawn_egg.entity.ichiyon:pikachu.name=Pikachu Spawn Egg
 action.interact.ichiyon_pikachu_spin=Spin!
+action.interact.ichiyon_cosmetic_wardrobe=Change outfit
+action.interact.ichiyon_cosmetic_remove=Remove accessory
+action.interact.ichiyon_cosmetic_equip=Equip accessory

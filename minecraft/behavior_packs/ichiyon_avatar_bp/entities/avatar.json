@@ -1,13 +1,17 @@
 {
   "format_version": "1.26.10",
   "minecraft:entity": {
-    "description": {
-      "identifier": "ichiyon:avatar",
-      "is_spawnable": false,
-      "is_summonable": true,
-      "is_experimental": false
-    },
     "component_groups": {
+      "ichiyon:avatar_albert": {
+        "minecraft:variant": {
+          "value": 3
+        }
+      },
+      "ichiyon:avatar_bronya": {
+        "minecraft:variant": {
+          "value": 2
+        }
+      },
       "ichiyon:avatar_kiana": {
         "minecraft:variant": {
           "value": 0
@@ -18,21 +22,103 @@
           "value": 1
         }
       },
-      "ichiyon:avatar_bronya": {
+      "ichiyon:avatar_remove": {
+        "minecraft:instant_despawn": {}
+      },
+      "ichiyon:cosmetic_1": {
+        "minecraft:variant": {
+          "value": 0
+        }
+      },
+      "ichiyon:cosmetic_2": {
+        "minecraft:variant": {
+          "value": 1
+        }
+      },
+      "ichiyon:cosmetic_3": {
         "minecraft:variant": {
           "value": 2
         }
       },
-      "ichiyon:avatar_albert": {
+      "ichiyon:cosmetic_4": {
         "minecraft:variant": {
           "value": 3
         }
-      },
-      "ichiyon:avatar_remove": {
-        "minecraft:instant_despawn": {}
       }
     },
     "components": {
+      "minecraft:behavior.look_at_player": {
+        "angle_of_view_horizontal": 120,
+        "angle_of_view_vertical": 80,
+        "look_distance": 8,
+        "look_time": {
+          "max": 5,
+          "min": 2
+        },
+        "priority": 1,
+        "probability": 0.12
+      },
+      "minecraft:behavior.random_look_around": {
+        "look_time": {
+          "max": 4,
+          "min": 2
+        },
+        "max_angle_of_view_horizontal": 70,
+        "min_angle_of_view_horizontal": -70,
+        "priority": 2,
+        "probability": 0.08
+      },
+      "minecraft:behavior.random_stroll": {
+        "interval": 80,
+        "priority": 3,
+        "speed_multiplier": 0.65,
+        "xz_dist": 2,
+        "y_dist": 1
+      },
+      "minecraft:collision_box": {
+        "height": 1.8,
+        "width": 0.6
+      },
+      "minecraft:fire_immune": {},
+      "minecraft:health": {
+        "max": 20,
+        "value": 20
+      },
+      "minecraft:home": {
+        "restriction_radius": 2,
+        "restriction_type": "all_movement"
+      },
+      "minecraft:interact": {
+        "interactions": [
+          {
+            "interact_text": "action.interact.ichiyon_cosmetic_wardrobe",
+            "swing": false,
+            "use_item": false
+          }
+        ]
+      },
+      "minecraft:is_collidable": {},
+      "minecraft:knockback_resistance": {
+        "max": 1,
+        "value": 1
+      },
+      "minecraft:movement": {
+        "value": 0.12
+      },
+      "minecraft:movement.basic": {},
+      "minecraft:nameable": {},
+      "minecraft:navigation.walk": {
+        "avoid_water": true,
+        "can_open_doors": false,
+        "can_pass_doors": false,
+        "can_path_over_water": false
+      },
+      "minecraft:persistent": {},
+      "minecraft:physics": {
+        "has_collision": true,
+        "has_gravity": false,
+        "push_towards_closest_space": false
+      },
       "minecraft:type_family": {
         "family": [
           "ichiyon_mannequin"
@@ -40,129 +126,164 @@
       },
       "minecraft:variant": {
         "value": 0
-      },
-      "minecraft:health": {
-        "value": 20,
-        "max": 20
-      },
-      "minecraft:movement": {
-        "value": 0.12
-      },
-      "minecraft:physics": {
-        "has_gravity": false,
-        "has_collision": true,
-        "push_towards_closest_space": false
-      },
-      "minecraft:collision_box": {
-        "width": 0.6,
-        "height": 1.8
-      },
-      "minecraft:is_collidable": {},
-      "minecraft:knockback_resistance": {
-        "value": 1,
-        "max": 1
-      },
-      "minecraft:fire_immune": {},
-      "minecraft:persistent": {},
-      "minecraft:nameable": {},
-      "minecraft:movement.basic": {},
-      "minecraft:navigation.walk": {
-        "avoid_water": true,
-        "can_path_over_water": false,
-        "can_pass_doors": false,
-        "can_open_doors": false
-      },
-      "minecraft:home": {
-        "restriction_radius": 2,
-        "restriction_type": "all_movement"
-      },
-      "minecraft:behavior.look_at_player": {
-        "priority": 1,
-        "look_distance": 8,
-        "probability": 0.12,
-        "look_time": {
-          "min": 2,
-          "max": 5
-        },
-        "angle_of_view_horizontal": 120,
-        "angle_of_view_vertical": 80
-      },
-      "minecraft:behavior.random_look_around": {
-        "priority": 2,
-        "probability": 0.08,
-        "look_time": {
-          "min": 2,
-          "max": 4
-        },
-        "min_angle_of_view_horizontal": -70,
-        "max_angle_of_view_horizontal": 70
-      },
-      "minecraft:behavior.random_stroll": {
-        "priority": 3,
-        "speed_multiplier": 0.65,
-        "interval": 80,
-        "xz_dist": 2,
-        "y_dist": 1
       }
     },
+    "description": {
+      "identifier": "ichiyon:avatar",
+      "is_experimental": false,
+      "is_spawnable": false,
+      "is_summonable": true
+    },
     "events": {
-      "ichiyon:kiana": {
-        "remove": {
+      "ichiyon:albert": {
+        "add": {
           "component_groups": [
-            "ichiyon:avatar_kiana",
-            "ichiyon:avatar_mei",
-            "ichiyon:avatar_bronya",
             "ichiyon:avatar_albert"
           ]
         },
-        "add": {
-          "component_groups": [
-            "ichiyon:avatar_kiana"
-          ]
-        }
-      },
-      "ichiyon:mei": {
         "remove": {
           "component_groups": [
+            "ichiyon:avatar_albert",
+            "ichiyon:avatar_bronya",
             "ichiyon:avatar_kiana",
             "ichiyon:avatar_mei",
-            "ichiyon:avatar_bronya",
-            "ichiyon:avatar_albert"
-          ]
-        },
-        "add": {
-          "component_groups": [
-            "ichiyon:avatar_mei"
+            "ichiyon:cosmetic_1",
+            "ichiyon:cosmetic_2",
+            "ichiyon:cosmetic_3",
+            "ichiyon:cosmetic_4"
           ]
         }
       },
       "ichiyon:bronya": {
-        "remove": {
-          "component_groups": [
-            "ichiyon:avatar_kiana",
-            "ichiyon:avatar_mei",
-            "ichiyon:avatar_bronya",
-            "ichiyon:avatar_albert"
-          ]
-        },
         "add": {
           "component_groups": [
             "ichiyon:avatar_bronya"
           ]
-        }
-      },
-      "ichiyon:albert": {
+        },
         "remove": {
           "component_groups": [
+            "ichiyon:avatar_albert",
+            "ichiyon:avatar_bronya",
             "ichiyon:avatar_kiana",
             "ichiyon:avatar_mei",
-            "ichiyon:avatar_bronya",
-            "ichiyon:avatar_albert"
+            "ichiyon:cosmetic_1",
+            "ichiyon:cosmetic_2",
+            "ichiyon:cosmetic_3",
+            "ichiyon:cosmetic_4"
           ]
-        },
+        }
+      },
+      "ichiyon:cosmetic_1": {
         "add": {
           "component_groups": [
-            "ichiyon:avatar_albert"
+            "ichiyon:cosmetic_1"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "ichiyon:avatar_albert",
+            "ichiyon:avatar_bronya",
+            "ichiyon:avatar_kiana",
+            "ichiyon:avatar_mei",
+            "ichiyon:cosmetic_1",
+            "ichiyon:cosmetic_2",
+            "ichiyon:cosmetic_3",
+            "ichiyon:cosmetic_4"
+          ]
+        }
+      },
+      "ichiyon:cosmetic_2": {
+        "add": {
+          "component_groups": [
+            "ichiyon:cosmetic_2"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "ichiyon:avatar_albert",
+            "ichiyon:avatar_bronya",
+            "ichiyon:avatar_kiana",
+            "ichiyon:avatar_mei",
+            "ichiyon:cosmetic_1",
+            "ichiyon:cosmetic_2",
+            "ichiyon:cosmetic_3",
+            "ichiyon:cosmetic_4"
+          ]
+        }
+      },
+      "ichiyon:cosmetic_3": {
+        "add": {
+          "component_groups": [
+            "ichiyon:cosmetic_3"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "ichiyon:avatar_albert",
+            "ichiyon:avatar_bronya",
+            "ichiyon:avatar_kiana",
+            "ichiyon:avatar_mei",
+            "ichiyon:cosmetic_1",
+            "ichiyon:cosmetic_2",
+            "ichiyon:cosmetic_3",
+            "ichiyon:cosmetic_4"
+          ]
+        }
+      },
+      "ichiyon:cosmetic_4": {
+        "add": {
+          "component_groups": [
+            "ichiyon:cosmetic_4"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "ichiyon:avatar_albert",
+            "ichiyon:avatar_bronya",
+            "ichiyon:avatar_kiana",
+            "ichiyon:avatar_mei",
+            "ichiyon:cosmetic_1",
+            "ichiyon:cosmetic_2",
+            "ichiyon:cosmetic_3",
+            "ichiyon:cosmetic_4"
+          ]
+        }
+      },
+      "ichiyon:kiana": {
+        "add": {
+          "component_groups": [
+            "ichiyon:avatar_kiana"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "ichiyon:avatar_albert",
+            "ichiyon:avatar_bronya",
+            "ichiyon:avatar_kiana",
+            "ichiyon:avatar_mei",
+            "ichiyon:cosmetic_1",
+            "ichiyon:cosmetic_2",
+            "ichiyon:cosmetic_3",
+            "ichiyon:cosmetic_4"
+          ]
+        }
+      },
+      "ichiyon:mei": {
+        "add": {
+          "component_groups": [
+            "ichiyon:avatar_mei"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "ichiyon:avatar_albert",
+            "ichiyon:avatar_bronya",
+            "ichiyon:avatar_kiana",
+            "ichiyon:avatar_mei",
+            "ichiyon:cosmetic_1",
+            "ichiyon:cosmetic_2",
+            "ichiyon:cosmetic_3",
+            "ichiyon:cosmetic_4"
           ]
         }
       },

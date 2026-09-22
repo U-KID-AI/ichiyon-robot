@@ -1,12 +1,15 @@
 {
   "resource_pack_name": "ichiyon_avatar_rp",
-  "texture_name": "atlas.items",
   "texture_data": {
-    "ichiyon:taketumi_spawn_egg": {
+    "ichiyon:avatar_selector": {
       "textures": "textures/items/taketumi_spawn_egg"
     },
     "ichiyon:softshell_crab": {
       "textures": "textures/items/softshell_crab"
+    },
+    "ichiyon:taketumi_spawn_egg": {
+      "textures": "textures/items/taketumi_spawn_egg"
     }
-  }
+  },
+  "texture_name": "atlas.items"
 }

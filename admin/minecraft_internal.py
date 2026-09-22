@@ -1,5 +1,5 @@
 import hmac
-from typing import Optional
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query, status
 from pydantic import BaseModel
@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from bot import config
 from bot.db import get_connection
 from bot.repositories.minecraft_bridge import MinecraftBridgeRepository
+from bot.repositories.minecraft_cosmetics import MinecraftCosmeticsRepository
 
 
 router = APIRouter(prefix="/internal/minecraft", tags=["internal-minecraft"])
@@ -30,6 +31,7 @@ def require_minecraft_bridge_secret(secret: Optional[str]) -> None:
 async def next_minecraft_command(
     bot_id: str = Query(..., min_length=1, max_length=64),
     guild_id: str = Query(..., min_length=1, max_length=32),
+    cosmetics_digest: Annotated[Optional[str], Query(pattern=r"^[0-9a-f]{64}$")] = None,
     x_minecraft_bridge_secret: Optional[str] = Header(default=None),
 ):
     require_minecraft_bridge_secret(x_minecraft_bridge_secret)
@@ -37,9 +39,16 @@ async def next_minecraft_command(
         repository = MinecraftBridgeRepository(connection, bot_id=bot_id)
         repository.fail_expired()
         command = repository.claim_next_pending(bot_id=bot_id, guild_id=guild_id)
+        cosmetic_command = None
+        if cosmetics_digest is not None:
+            cosmetics = MinecraftCosmeticsRepository(connection)
+            cosmetics.heartbeat(bot_id, guild_id, cosmetics_digest)
+            cosmetics.expire()
+            if command is None:
+                cosmetic_command = cosmetics.claim(bot_id, guild_id)
         connection.commit()
     if command is None:
-        return {"command": None}
+        return {"command": cosmetic_command}
     return {
         "command": {
             "request_id": str(command["request_id"]),
@@ -67,6 +76,8 @@ async def post_minecraft_command_result(
             reason=result.reason,
             message=result.message,
         )
+        if row is None:
+            row = MinecraftCosmeticsRepository(connection).result(request_id, status_value, result.reason)
         connection.commit()
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="command not found")

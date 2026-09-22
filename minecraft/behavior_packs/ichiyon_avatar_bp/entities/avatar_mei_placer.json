@@ -1,13 +1,83 @@
 {
   "format_version": "1.26.10",
   "minecraft:entity": {
-    "description": {
-      "identifier": "ichiyon:avatar_mei_placer",
-      "is_spawnable": true,
-      "is_summonable": true,
-      "is_experimental": false
-    },
     "components": {
+      "minecraft:behavior.look_at_player": {
+        "angle_of_view_horizontal": 120,
+        "angle_of_view_vertical": 80,
+        "look_distance": 8,
+        "look_time": {
+          "max": 5,
+          "min": 2
+        },
+        "priority": 1,
+        "probability": 0.12
+      },
+      "minecraft:behavior.random_look_around": {
+        "look_time": {
+          "max": 4,
+          "min": 2
+        },
+        "max_angle_of_view_horizontal": 70,
+        "min_angle_of_view_horizontal": -70,
+        "priority": 2,
+        "probability": 0.08
+      },
+      "minecraft:behavior.random_stroll": {
+        "interval": 80,
+        "priority": 3,
+        "speed_multiplier": 0.65,
+        "xz_dist": 2,
+        "y_dist": 1
+      },
+      "minecraft:collision_box": {
+        "height": 1.8,
+        "width": 0.6
+      },
+      "minecraft:fire_immune": {},
+      "minecraft:health": {
+        "max": 20,
+        "value": 20
+      },
+      "minecraft:home": {
+        "restriction_radius": 2,
+        "restriction_type": "all_movement"
+      },
+      "minecraft:interact": {
+        "interactions": [
+          {
+            "interact_text": "action.interact.ichiyon_cosmetic_wardrobe",
+            "swing": false,
+            "use_item": false
+          }
+        ]
+      },
+      "minecraft:is_collidable": {},
+      "minecraft:knockback_resistance": {
+        "max": 1,
+        "value": 1
+      },
+      "minecraft:movement": {
+        "value": 0.12
+      },
+      "minecraft:movement.basic": {},
+      "minecraft:nameable": {},
+      "minecraft:navigation.walk": {
+        "avoid_water": true,
+        "can_open_doors": false,
+        "can_pass_doors": false,
+        "can_path_over_water": false
+      },
+      "minecraft:persistent": {},
+      "minecraft:physics": {
+        "has_collision": true,
+        "has_gravity": false,
+        "push_towards_closest_space": false
+      },
+      "minecraft:transformation": {
+        "delay": 0,
+        "into": "ichiyon:avatar<ichiyon:mei>"
+      },
       "minecraft:type_family": {
         "family": [
           "ichiyon_mannequin"
@@ -15,74 +85,13 @@
       },
       "minecraft:variant": {
         "value": 1
-      },
-      "minecraft:health": {
-        "value": 20,
-        "max": 20
-      },
-      "minecraft:movement": {
-        "value": 0.12
-      },
-      "minecraft:physics": {
-        "has_gravity": false,
-        "has_collision": true,
-        "push_towards_closest_space": false
-      },
-      "minecraft:collision_box": {
-        "width": 0.6,
-        "height": 1.8
-      },
-      "minecraft:is_collidable": {},
-      "minecraft:knockback_resistance": {
-        "value": 1,
-        "max": 1
-      },
-      "minecraft:fire_immune": {},
-      "minecraft:persistent": {},
-      "minecraft:nameable": {},
-      "minecraft:movement.basic": {},
-      "minecraft:navigation.walk": {
-        "avoid_water": true,
-        "can_path_over_water": false,
-        "can_pass_doors": false,
-        "can_open_doors": false
-      },
-      "minecraft:home": {
-        "restriction_radius": 2,
-        "restriction_type": "all_movement"
-      },
-      "minecraft:behavior.look_at_player": {
-        "priority": 1,
-        "look_distance": 8,
-        "probability": 0.12,
-        "look_time": {
-          "min": 2,
-          "max": 5
-        },
-        "angle_of_view_horizontal": 120,
-        "angle_of_view_vertical": 80
-      },
-      "minecraft:behavior.random_look_around": {
-        "priority": 2,
-        "probability": 0.08,
-        "look_time": {
-          "min": 2,
-          "max": 4
-        },
-        "min_angle_of_view_horizontal": -70,
-        "max_angle_of_view_horizontal": 70
-      },
-      "minecraft:behavior.random_stroll": {
-        "priority": 3,
-        "speed_multiplier": 0.65,
-        "interval": 80,
-        "xz_dist": 2,
-        "y_dist": 1
-      },
-      "minecraft:transformation": {
-        "into": "ichiyon:avatar<ichiyon:mei>",
-        "delay": 0
       }
+    },
+    "description": {
+      "identifier": "ichiyon:avatar_mei_placer",
+      "is_experimental": false,
+      "is_spawnable": false,
+      "is_summonable": true
     }
   }
 }

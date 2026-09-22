@@ -2,23 +2,20 @@
   "format_version": "1.10.0",
   "minecraft:client_entity": {
     "description": {
-      "identifier": "ichiyon:molcar3",
-      "materials": {
-        "default": "entity_alphatest"
-      },
-      "textures": {
-        "default": "textures/entity/molcar3"
-      },
-      "geometry": {
-        "default": "geometry.molcar3"
-      },
-      "render_controllers": [
-        "controller.render.default"
-      ],
       "animations": {
         "idle": "animation.molcar3.idle",
         "walk": "animation.molcar3.walk"
       },
+      "geometry": {
+        "default": "geometry.molcar3"
+      },
+      "identifier": "ichiyon:molcar3",
+      "materials": {
+        "default": "entity_alphatest"
+      },
+      "render_controllers": [
+        "controller.render.default"
+      ],
       "scripts": {
         "animate": [
           {
@@ -32,6 +29,9 @@
       "spawn_egg": {
         "base_color": "#967219",
         "overlay_color": "#781814"
+      },
+      "textures": {
+        "default": "textures/entity/molcar3"
       }
     }
   }
