@@ -28,9 +28,11 @@ The four original animation names, lengths, and keyframes remain:
 | mocro_open_wings | 0.5 s | hold_on_last_frame |
 | mocro_roll | 0.25 s | true |
 
-No new animation is required. Idle is the original resting pose with standard
-random-look AI yaw; walk and glide select the existing walk/open-wings clips.
-Flap and roll are retained and referenced but not automatically played.
+No new animation is required. Idle uses the original resting pose and random-look
+AI yaw. After 4-8 seconds of continuous grounded idle, the controller plays the
+original flap for 1 second (two untouched 0.5-second loops), then waits again.
+Ground speed above 0.05 selects walk and interrupts flap. Carried/glide states
+override both; glide retains open-wings. Roll remains preserved but unused.
 
 ## Gameplay
 
@@ -72,6 +74,13 @@ silently reattaching to an offline player. Health and entity identity persist.
 
 Only attached entities run every tick. Every 100 ticks, a typed query of loaded
 Mokuro entities in the three dimensions catches orphaned attachment state.
+Spawn (deferred one tick), load and that existing scan also repair a normal
+individual only if navigation or positive movement is missing. This reapplies
+the detach/mobile event without moving it or resetting HP. Healthy navigation
+is never restarted by a scan; tracked attachments are excluded. The mobile
+group remains removable while carried. Random-stroll now explicitly uses
+interval 40 (previously the default 120, a 1/interval selection chance) and
+movement 0.22 with multiplier 1.0 (previously 0.16 with multiplier 0.8).
 Recovery events that fail retain their marker for another attempt. Failure to
 teleport to an unloaded/blocked recovery position leaves a normal, visible Mob
 with physics at its current position rather than leaving it attached.
@@ -95,6 +104,23 @@ HP18 retained, random ground movement, and death after lethal damage. The test
 instance needs Mojang's `server_library` and `server_ui_library` in addition to
 vanilla packs; neither library is a new dependency of the production install.
 
+The follow-up isolated BDS 1.26.51.1 run confirmed three freshly spawned
+individuals wandering 39.19 / 59.44 / 62.81 cumulative horizontal blocks in
+60 seconds, with both moving and idle samples. The same individual stopped
+navigation while head/back carried, retained HP18 and the expected yaw, then
+wandered 42.99 blocks in 45 seconds after detach. Missing normal AI was repaired
+without resetting HP; lethal damage still removed the entity. The six Python
+contracts and 24 executable lifecycle/controller checks pass. The controller
+expression harness does not substitute for client-side animation rendering.
+
+Confirmed defects were missing automatic flap transitions and missing recovery
+for normal entities lacking mobile components. The old spawn event does work
+in isolation; its failure on a particular live individual was not observed.
+The low stroll selection chance and speed explain infrequent movement but
+are not evidence of a universal spawn-event failure. NaritaBridge's existing
+five static Taketumi checks still inspect main.js rather than the extracted
+module; this change leaves both that checker and main.js untouched.
+
 Live release MUST start with fresh live packs, preserve registered cosmetics,
 overlay only Mokuro assets/scripts plus the main import/localization lines,
 and use the existing cosmetics archive proof and Control API apply process.
@@ -114,6 +140,8 @@ recovery. Mock tests and a headless BDS cannot certify client rendering or feel.
 - [Player button events](https://learn.microsoft.com/en-us/minecraft/creator/scriptapi/minecraft/server/playerbuttoninputafterevent)
 - [Entity API](https://learn.microsoft.com/en-us/minecraft/creator/scriptapi/minecraft/server/entity)
 - [Pushable component format change](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/entitycomponents/minecraftcomponent_pushable)
+- [Random stroll selection interval](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/entitygoals/minecraftbehavior_random_stroll)
+- [Animation controllers](https://learn.microsoft.com/en-us/minecraft/creator/documents/animations/animationcontroller)
 
 The deployment target uses BDS 1.26.51.1 and the already-installed Script module
 `@minecraft/server` 2.11.0-beta, with `@minecraft/server-ui` 2.0.0. Dependencies

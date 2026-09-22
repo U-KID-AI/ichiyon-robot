@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createMokuro, attachmentPose, glideImpulse, MOKURO, OWNER, RETURN } from "../minecraft/behavior_packs/import_structures/scripts/mokuro_core.js";
 
 let count = 0;
@@ -17,13 +18,15 @@ function fixture() {
     const props = {}, dynamic = {}, events = [], impulses = [];
     const e = { typeId, id: String(next++), isValid: true, health: 20, location: { ...loc }, dimension: dimensions.overworld,
       isOnGround: true, isSneaking: false, selectedSlotIndex: 0, messages: [], events, impulses, props, dynamic,
-      velocity: { x: 0, y: 0, z: 0 }, yaw: 0, leashed: false, held: undefined,
+      velocity: { x: 0, y: 0, z: 0 }, yaw: 0, leashed: false, held: undefined, mobile: true,
       getComponent(name) {
         if (name === "minecraft:health") return { currentValue: this.health };
         if (name === "minecraft:inventory") return { container: { getItem: () => this.held } };
         if (name === "minecraft:equippable") return { getEquipment: () => this.chest };
         if (name === "minecraft:leashable") return { isLeashed: this.leashed };
         if (name === "minecraft:riding") return this.riding;
+        if (name === "minecraft:navigation.walk") return this.mobile ? {} : undefined;
+        if (name === "minecraft:movement") return { currentValue: this.mobile ? 0.22 : 0 };
       },
       getDynamicProperty: k => dynamic[k], setDynamicProperty: (k, v) => { if (v === undefined) delete dynamic[k]; else dynamic[k] = v; },
       getProperty: k => props[k], setProperty: (k, v) => { props[k] = v; },
@@ -31,6 +34,7 @@ function fixture() {
         if (this.eventError) throw Error("event failure");
         events.push(name);
         props["ichiyon:carried"] = name.endsWith("_attach");
+        this.mobile = !props["ichiyon:carried"];
         props["ichiyon:gliding"] = false;
       },
       teleport(p, options) { if (this.teleportError) throw Error("teleport failed"); this.location = { ...p }; this.rotation = options.rotation; },
@@ -165,5 +169,88 @@ await test("grounded sneak jump offers detach, held items are left alone", async
 await test("scan is only loaded Mokuro, no mutation of unrelated Mobs", () => {
   const { core, entity, scans } = fixture(); const other = entity("minecraft:cow"); core.scan();
   assert.deepEqual(scans, [{ type: MOKURO }, { type: MOKURO }, { type: MOKURO }]); assert.equal(other.events.length, 0);
+});
+await test("missing spawn/load AI repaired without changing HP/position, once only", () => {
+  const { core, mob } = fixture(); mob.mobile = false; mob.health = 9;
+  const position = { ...mob.location };
+  core.recover(mob); core.scan(); core.recover(mob);
+  assert.equal(mob.mobile, true); assert.equal(mob.health, 9);
+  assert.deepEqual(mob.location, position);
+  assert.deepEqual(mob.events, ["ichiyon:mokuro_detach"]);
+});
+await test("healthy normal/leashed path never reset; attached never repaired into walking", () => {
+  const { core, p, mob } = fixture(); mob.leashed = true;
+  core.scan(); core.scan(); assert.equal(mob.events.length, 0);
+  mob.leashed = false;
+  for (const mode of ["head", "back"]) {
+    core.attach(p, mob, mode); core.scan(); core.recover(mob);
+    assert.equal(mob.mobile, false);
+    core.releasePlayer(p.id); assert.equal(mob.mobile, true);
+  }
+});
+await test("failed normal AI repair retries, unloaded/dead/unrelated are untouched", () => {
+  const { core, mob, entity } = fixture(); mob.mobile = false; mob.eventError = true;
+  core.scan(); assert.equal(mob.mobile, false);
+  mob.eventError = false; core.scan(); assert.equal(mob.mobile, true);
+  for (const attr of ["health", "isValid"]) {
+    const e = entity(MOKURO); e.mobile = false; e[attr] = 0; core.recover(e);
+    assert.equal(e.events.length, 0);
+  }
+  const other = entity("minecraft:cow"); other.mobile = false; core.recover(other);
+  assert.equal(other.events.length, 0);
+});
+
+// Execute the controller's actual expressions with deterministic query inputs.
+// This covers transitions/timers, not the client's rendering/Molang implementation.
+const controller = JSON.parse(readFileSync(new URL("../minecraft/resource_packs/ichiyon_avatar_rp/animation_controllers/mokuro.controller.json", import.meta.url)));
+function animationFixture() {
+  const { initial_state, states } = controller.animation_controllers["controller.animation.mokuro.state"];
+  const props = { "ichiyon:carried": false, "ichiyon:gliding": false };
+  const query = { state_time: 0, ground_speed: 0, is_on_ground: true, property: k => props[k] };
+  const variable = {};
+  const math = { random: (min, max) => { assert.equal(min, 4); assert.equal(max, 8); return 6; } };
+  let state;
+  const execute = (expression, statement = false) => Function("query", "variable", "math", statement ? expression : `return (${expression});`)(query, variable, math);
+  function enter(next) {
+    state = next; query.state_time = 0;
+    for (const expression of states[state].on_entry ?? []) execute(expression, true);
+  }
+  enter(initial_state);
+  return { props, query, get state() { return state; },
+    step(dt = 0) {
+      query.state_time += dt;
+      for (const transition of states[state].transitions ?? []) {
+        const [next, expression] = Object.entries(transition)[0];
+        if (execute(expression)) { enter(next); break; }
+      }
+      return state;
+    },
+  };
+}
+await test("idle waits 4-8 seconds, flap lasts two unmodified 0.5s cycles then cooldown", () => {
+  const a = animationFixture(); assert.equal(a.step(5.9), "idle");
+  assert.equal(a.step(.1), "flap"); assert.equal(a.step(.99), "flap");
+  assert.equal(a.step(.01), "idle"); assert.equal(a.step(5.9), "idle");
+  assert.equal(a.step(.1), "flap");
+});
+await test("actual ground movement starts walk and interrupts flap; airborne not walking", () => {
+  const a = animationFixture(); a.query.ground_speed = .2; assert.equal(a.step(), "walk");
+  a.query.ground_speed = 0; assert.equal(a.step(), "idle"); assert.equal(a.step(6), "flap");
+  a.query.ground_speed = .2; assert.equal(a.step(), "walk");
+  a.query.is_on_ground = false; assert.equal(a.step(), "idle"); assert.equal(a.step(20), "idle");
+});
+await test("attachment overrides idle/walk/flap, glide overrides carried, detach resumes", () => {
+  for (const initial of ["idle", "walk", "flap"]) {
+    const a = animationFixture();
+    if (initial === "walk") { a.query.ground_speed = 1; a.step(); }
+    if (initial === "flap") a.step(6);
+    assert.equal(a.state, initial);
+    a.props["ichiyon:carried"] = true; assert.equal(a.step(), "carried");
+    assert.equal(a.step(100), "carried");
+    a.props["ichiyon:gliding"] = true; assert.equal(a.step(), "glide");
+    a.props["ichiyon:gliding"] = false; assert.equal(a.step(), "idle"); assert.equal(a.step(), "carried");
+    a.props["ichiyon:carried"] = false; assert.equal(a.step(), "idle");
+    a.query.ground_speed = 1; assert.equal(a.step(), "walk");
+  }
 });
 console.log(`${count} Mokuro runtime checks passed`);

@@ -80,6 +80,9 @@ export function createMokuro({ world, system, ActionFormData, report = console.w
   function recover(entity) {
     if (entity?.typeId !== MOKURO || !alive(entity) || entities.has(entity.id)) return;
     if (entity.getDynamicProperty(OWNER) !== undefined || entity.getProperty(CARRIED)) restore(entity);
+    // Spawn/load repair only when mobile components are absent; never restart a healthy path.
+    else if (!entity.getComponent("minecraft:navigation.walk")
+        || !(entity.getComponent("minecraft:movement")?.currentValue > 0)) entity.triggerEvent(DETACH);
   }
   function usable(player, entity) {
     return alive(player) && alive(entity) && player.dimension.id === entity.dimension.id

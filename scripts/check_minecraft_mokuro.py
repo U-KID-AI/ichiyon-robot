@@ -63,6 +63,11 @@ class MokuroChecks(unittest.TestCase):
         mobile = entity["component_groups"]["ichiyon:mokuro_mobile"]
         carried = entity["component_groups"]["ichiyon:mokuro_carried"]
         self.assertIn("minecraft:behavior.random_stroll", mobile)
+        self.assertEqual(mobile["minecraft:behavior.random_stroll"]["interval"], 40)
+        self.assertEqual(mobile["minecraft:movement"]["value"], 0.22)
+        for event in ("minecraft:entity_spawned", "ichiyon:mokuro_detach"):
+            self.assertIn("ichiyon:mokuro_mobile", entity["events"][event]["add"]["component_groups"])
+        self.assertIn("ichiyon:mokuro_mobile", entity["events"]["ichiyon:mokuro_attach"]["remove"]["component_groups"])
         self.assertIn("minecraft:leashable", mobile)
         self.assertFalse(any(k.startswith("minecraft:behavior.") or k.startswith("minecraft:navigation.") for k in carried))
         self.assertEqual(carried["minecraft:physics"], {"has_gravity": False, "has_collision": False})
@@ -79,6 +84,9 @@ class MokuroChecks(unittest.TestCase):
         states = read(RP / "animation_controllers/mokuro.controller.json")["animation_controllers"]["controller.animation.mokuro.state"]["states"]
         self.assertEqual(states["glide"]["animations"], ["open_wings"])
         self.assertEqual(states["walk"]["animations"], ["walk"])
+        self.assertEqual(states["flap"]["animations"], ["flap"])
+        self.assertNotIn("animations", states["carried"])
+        self.assertNotIn("roll", [a for state in states.values() for a in state.get("animations", [])])
         for lang in ("ja_JP", "en_US"):
             text = (RP / f"texts/{lang}.lang").read_text(encoding="utf-8")
             for key in ("entity.ichiyon:mokuro.name", "item.spawn_egg.entity.ichiyon:mokuro.name", "action.interact.ichiyon_mokuro"):
