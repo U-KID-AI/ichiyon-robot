@@ -1,29 +1,49 @@
-"""Fixed-operation GitHub CLI adapter for Phase 2C."""
+"""GitHub CLI operations for task pull requests."""
 
 import json
 import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
 from uuid import UUID
 
+from ai_task_diagnostics import redact_secrets
 from ai_task_process import communicate_bounded, managed_process_options
-from ai_task_safety import expected_branch, is_reparse_point, validate_sha
+from ai_task_runtime import expected_branch, validate_sha
 
 
 EXPECTED_REPOSITORY = "U-KID-AI/ichiyon-robot"
 EXPECTED_BASE = "main"
-MAX_GH_OUTPUT_BYTES = 128 * 1024
-
 PR_URL_PATTERN = re.compile(
     r"^https://github\.com/U-KID-AI/ichiyon-robot/pull/([1-9][0-9]*)$"
 )
 
 
-class GitHubSafetyError(RuntimeError):
-    pass
+def output_text(value) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value or ""
+
+
+class GitHubError(RuntimeError):
+    """GitHub operation failure with complete, redacted diagnostics."""
+
+    repairable = False
+
+    def __init__(self, message: str, *, stdout="", stderr="", returncode=None):
+        self.stdout = redact_secrets(output_text(stdout))
+        self.stderr = redact_secrets(output_text(stderr))
+        self.returncode = returncode
+        details = redact_secrets(message)
+        if self.stdout:
+            details += f"\nstdout:\n{self.stdout}"
+        if self.stderr:
+            details += f"\nstderr:\n{self.stderr}"
+        super().__init__(details)
+        self.feedback = details
 
 
 @dataclass(frozen=True)
@@ -34,9 +54,8 @@ class DraftPullRequest:
 
 
 class GitHubAdapter:
-    JSON_FIELDS = (
-        "number,url,isDraft,baseRefName,headRefName,headRefOid,state"
-    )
+    JSON_FIELDS = "number,url,isDraft,baseRefName,headRefName,headRefOid,state"
+    error_type = GitHubError
 
     def __init__(
         self,
@@ -45,181 +64,41 @@ class GitHubAdapter:
         runner: Callable[..., object] | None = None,
         popen: Callable[..., object] | None = None,
     ) -> None:
-        resolved = gh_path.resolve()
-
-        if (
-            not resolved.is_absolute()
-            or not resolved.is_file()
-            or resolved.is_symlink()
-            or is_reparse_point(resolved)
-        ):
-            raise GitHubSafetyError(
-                "GitHub CLI executable is unsafe"
-            )
-
-        self.gh_path = resolved
+        self.gh_path = gh_path.resolve()
+        if not self.gh_path.is_file():
+            raise self.error_type(f"GitHub CLI executable not found: {self.gh_path}")
         self._runner = runner or subprocess.run
         self._popen = popen or subprocess.Popen
 
     @staticmethod
-    def _task_id_from_branch(
-        branch: str,
-    ) -> UUID | None:
-        prefix = "ai/task/"
-
-        if (
-            not isinstance(branch, str)
-            or not branch.startswith(prefix)
-        ):
-            return None
-
-        try:
-            task_id = UUID(branch[len(prefix):])
-        except (ValueError, TypeError):
-            return None
-
-        if branch != expected_branch(task_id):
-            return None
-
-        return task_id
-
-    @classmethod
-    def _expected_title(
-        cls,
-        task_id: UUID,
-    ) -> str:
+    def _expected_title(task_id: UUID) -> str:
         return f"chore(ai): task {task_id}"
 
-    @classmethod
-    def _expected_body(
-        cls,
-        task_id: UUID,
-        commit_sha: str,
-    ) -> str:
-        return (
-            f"Automated AI task `{task_id}`.\n\n"
-            f"Commit: `{commit_sha}`\n\n"
-            "Human review is required before merge."
-        )
-
-    @classmethod
-    def _is_allowed_argv(
-        cls,
-        args: tuple[str, ...],
-    ) -> bool:
-        if (
-            len(args) == 12
-            and args[:7]
-            == (
-                "pr",
-                "list",
-                "--repo",
-                EXPECTED_REPOSITORY,
-                "--state",
-                "open",
-                "--head",
-            )
-            and cls._task_id_from_branch(args[7])
-            is not None
-            and args[8:12]
-            == (
-                "--limit",
-                "2",
-                "--json",
-                cls.JSON_FIELDS,
-            )
-        ):
-            return True
-
-        if (
-            len(args) == 13
-            and args[:7]
-            == (
-                "pr",
-                "create",
-                "--repo",
-                EXPECTED_REPOSITORY,
-                "--base",
-                EXPECTED_BASE,
-                "--head",
-            )
-            and args[8] == "--title"
-            and args[10] == "--body"
-            and args[12] == "--draft"
-        ):
-            task_id = cls._task_id_from_branch(
-                args[7]
-            )
-
-            if task_id is None:
-                return False
-
-            if (
-                args[9]
-                != cls._expected_title(task_id)
-            ):
-                return False
-
-            match = re.search(
-                r"Commit: `([0-9a-fA-F]{40})`",
-                args[11],
-            )
-
-            if match is None:
-                return False
-
-            commit_sha = match.group(1)
-
-            return (
-                args[11]
-                == cls._expected_body(
-                    task_id,
-                    commit_sha,
-                )
-            )
-
-        return False
+    @staticmethod
+    def _expected_body(task_id: UUID, commit_sha: str) -> str:
+        return f"Automated AI task {task_id}.\n\nCommit: {commit_sha}\n"
 
     @staticmethod
     def _environment() -> dict[str, str]:
-        allowed = {
-            "APPDATA",
-            "COMSPEC",
-            "HOME",
-            "HOMEDRIVE",
-            "HOMEPATH",
-            "LOCALAPPDATA",
-            "PATH",
-            "PATHEXT",
-            "SYSTEMDRIVE",
-            "SYSTEMROOT",
-            "TEMP",
-            "TMP",
-            "USERDOMAIN",
-            "USERNAME",
-            "USERPROFILE",
-            "WINDIR",
-        }
-
-        environment = {
-            key: value
-            for key, value in os.environ.items()
-            if key.upper() in allowed
-        }
-
-        environment.update(
-            {
-                "GH_HOST": "github.com",
-                "GH_PROMPT_DISABLED": "1",
-                "GH_PAGER": "cat",
-                "PAGER": "cat",
-                "NO_COLOR": "1",
-                "GIT_TERMINAL_PROMPT": "0",
-                "GCM_INTERACTIVE": "Never",
-            }
-        )
-
+        environment = os.environ.copy()
+        environment.update({
+            "GH_HOST": "github.com",
+            "GH_PROMPT_DISABLED": "1",
+            "GH_PAGER": "cat",
+            "PAGER": "cat",
+            "NO_COLOR": "1",
+            "GIT_TERMINAL_PROMPT": "0",
+            "GCM_INTERACTIVE": "Never",
+        })
         return environment
+
+    def _command_error(self, message, result):
+        return self.error_type(
+            message,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            returncode=result.returncode,
+        )
 
     def _run(
         self,
@@ -229,289 +108,114 @@ class GitHubAdapter:
         timeout: float = 60,
         stop_event=None,
     ):
-        values = tuple(args)
-
-        if not self._is_allowed_argv(values):
-            raise GitHubSafetyError(
-                "GitHub operation is not allowlisted"
-            )
-
-        argv = [
-            str(self.gh_path),
-            *values,
-        ]
-        environment = self._environment()
-
-        if stop_event is None:
-            result = self._runner(
-                argv,
-                cwd=str(cwd.resolve()),
-                shell=False,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=timeout,
-                check=False,
-                env=environment,
-            )
-
-            stdout = result.stdout or ""
-            stderr = result.stderr or ""
-
-            output_size = (
-                len(
-                    stdout.encode(
-                        "utf-8",
-                        errors="replace",
-                    )
+        argv = [str(self.gh_path), *args]
+        operation = "gh " + " ".join(args)
+        if stop_event is not None and stop_event.is_set():
+            raise self.error_type(f"Stopped before {operation}")
+        options = dict(cwd=str(cwd.resolve()), shell=False, env=self._environment())
+        try:
+            if stop_event is None:
+                return self._runner(
+                    argv, **options, capture_output=True, text=True,
+                    encoding="utf-8", errors="replace", timeout=timeout, check=False,
                 )
-                + len(
-                    stderr.encode(
-                        "utf-8",
-                        errors="replace",
-                    )
-                )
+            process = self._popen(
+                argv, **options, **managed_process_options(),
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             )
-
-            if output_size > MAX_GH_OUTPUT_BYTES:
-                raise GitHubSafetyError(
-                    "GitHub CLI output is too large"
+            # Keep shared process-tree cancellation handling without clipping logs.
+            try:
+                result = communicate_bounded(
+                    process, input_text=None, timeout=timeout,
+                    max_output_bytes=sys.maxsize, stop_event=stop_event,
                 )
-
-            return result
-
-        if stop_event.is_set():
-            raise GitHubSafetyError(
-                "GitHub operation refused after lease loss"
-            )
-
-        process = self._popen(
-            argv,
-            **managed_process_options(),
-            cwd=str(cwd.resolve()),
-            shell=False,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=environment,
-        )
-
-        result = communicate_bounded(
-            process,
-            input_text=None,
-            timeout=timeout,
-            max_output_bytes=MAX_GH_OUTPUT_BYTES,
-            stop_event=stop_event,
-        )
-
+            finally:
+                for name in ("stdin", "stdout", "stderr"):
+                    stream = getattr(process, name, None)
+                    if stream is not None:
+                        stream.close()
+        except subprocess.TimeoutExpired as exc:
+            raise self.error_type(
+                f"Timed out after {timeout}s: {operation}",
+                stdout=exc.stdout, stderr=exc.stderr,
+            ) from exc
+        except OSError as exc:
+            raise self.error_type(f"Could not execute {operation}: {exc}") from exc
         if result.stopped:
-            raise GitHubSafetyError(
-                "GitHub operation stopped after lease loss"
-            )
-
+            raise self._command_error(f"Stopped: {operation}", result)
         if result.timed_out:
-            raise GitHubSafetyError(
-                "GitHub operation timed out"
-            )
-
+            raise self._command_error(f"Timed out after {timeout}s: {operation}", result)
         if result.stdin_cleanup_failed:
-            raise GitHubSafetyError(
-                "GitHub process cleanup failed"
-            )
-
+            raise self._command_error(f"Process cleanup failed: {operation}", result)
         return result
 
-    def _list_open(
-        self,
-        cwd: Path,
-        branch: str,
-        *,
-        stop_event=None,
-    ) -> list[dict]:
-        result = self._run(
-            (
-                "pr",
-                "list",
-                "--repo",
-                EXPECTED_REPOSITORY,
-                "--state",
-                "open",
-                "--head",
-                branch,
-                "--limit",
-                "2",
-                "--json",
-                self.JSON_FIELDS,
-            ),
-            cwd=cwd,
-            stop_event=stop_event,
-        )
-
+    def _run_json(self, args: Sequence[str], *, cwd: Path, stop_event=None):
+        result = self._run(args, cwd=cwd, stop_event=stop_event)
+        operation = "gh " + " ".join(args)
         if result.returncode != 0:
-            raise GitHubSafetyError(
-                "GitHub PR inspection failed"
+            raise self._command_error(
+                f"{operation} exited with status {result.returncode}", result,
             )
-
         try:
-            value = json.loads(result.stdout)
-        except (
-            TypeError,
-            json.JSONDecodeError,
-        ) as exc:
-            raise GitHubSafetyError(
-                "GitHub returned invalid JSON"
-            ) from exc
+            return json.loads(result.stdout)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise self._command_error(f"Invalid JSON from {operation}: {exc}", result) from exc
 
-        if (
-            not isinstance(value, list)
-            or len(value) > 2
-        ):
-            raise GitHubSafetyError(
-                "GitHub returned invalid PR data"
-            )
-
-        if any(
-            not isinstance(item, dict)
-            for item in value
-        ):
-            raise GitHubSafetyError(
-                "GitHub returned invalid PR entry"
-            )
-
+    def _list_open(self, cwd: Path, branch: str, *, stop_event=None) -> list[dict]:
+        value = self._run_json(
+            ("pr", "list", "--repo", EXPECTED_REPOSITORY, "--state", "open",
+             "--head", branch, "--limit", "2", "--json", self.JSON_FIELDS),
+            cwd=cwd, stop_event=stop_event,
+        )
+        if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+            raise self.error_type(f"Invalid PR list returned by GitHub: {value!r}")
         return value
 
     @staticmethod
-    def _validate_pr(
-        item: dict,
-        *,
-        task_id: UUID,
-        commit_sha: str,
-    ) -> DraftPullRequest:
+    def _validate_pr(item: dict, *, task_id: UUID, commit_sha: str) -> DraftPullRequest:
+        number, url = item.get("number"), item.get("url")
         branch = expected_branch(task_id)
-
-        number = item.get("number")
-        url = item.get("url")
-
         if (
-            not isinstance(number, int)
-            or isinstance(number, bool)
-            or number <= 0
-            or number > 2_147_483_647
-            or not isinstance(url, str)
-            or item.get("isDraft") is not True
-            or item.get("baseRefName")
-            != EXPECTED_BASE
-            or item.get("headRefName")
-            != branch
-            or item.get("headRefOid")
-            != commit_sha
+            type(number) is not int or number <= 0
+            or url != f"https://github.com/{EXPECTED_REPOSITORY}/pull/{number}"
+            or item.get("baseRefName") != EXPECTED_BASE
+            or item.get("headRefName") != branch
+            or item.get("headRefOid") != commit_sha
             or item.get("state") != "OPEN"
         ):
-            raise GitHubSafetyError(
-                "Draft PR metadata mismatch"
+            raise GitHubError(
+                f"Expected an open {branch}@{commit_sha} PR targeting {EXPECTED_BASE}; "
+                f"GitHub returned: {json.dumps(item, ensure_ascii=False)}"
             )
-
-        match = PR_URL_PATTERN.fullmatch(url)
-
-        if (
-            match is None
-            or int(match.group(1)) != number
-        ):
-            raise GitHubSafetyError(
-                "Draft PR URL mismatch"
-            )
-
-        return DraftPullRequest(
-            number,
-            url,
-            commit_sha,
-        )
+        return DraftPullRequest(number, url, commit_sha)
 
     def ensure_draft_pr(
-        self,
-        cwd: Path,
-        task_id: UUID,
-        commit_sha: str,
-        *,
-        stop_event=None,
+        self, cwd: Path, task_id: UUID, commit_sha: str, *, stop_event=None,
     ) -> DraftPullRequest:
+        """Create or reuse an ordinary open PR; keep the legacy method name."""
         if not isinstance(task_id, UUID):
-            raise GitHubSafetyError(
-                "task ID must be UUID"
-            )
-
+            raise GitHubError("task ID must be UUID")
         validate_sha(commit_sha)
-
         branch = expected_branch(task_id)
-
-        existing = self._list_open(
-            cwd,
-            branch,
-            stop_event=stop_event,
-        )
-
+        existing = self._list_open(cwd, branch, stop_event=stop_event)
         if existing:
             if len(existing) != 1:
-                raise GitHubSafetyError(
-                    "multiple open task PRs exist"
-                )
-
-            return self._validate_pr(
-                existing[0],
-                task_id=task_id,
-                commit_sha=commit_sha,
-            )
-
-        title = self._expected_title(task_id)
-        body = self._expected_body(
-            task_id,
-            commit_sha,
-        )
-
+                raise GitHubError(f"Multiple open PRs for {branch}: {existing!r}")
+            return self._validate_pr(existing[0], task_id=task_id, commit_sha=commit_sha)
         created = self._run(
-            (
-                "pr",
-                "create",
-                "--repo",
-                EXPECTED_REPOSITORY,
-                "--base",
-                EXPECTED_BASE,
-                "--head",
-                branch,
-                "--title",
-                title,
-                "--body",
-                body,
-                "--draft",
-            ),
-            cwd=cwd,
-            timeout=120,
-            stop_event=stop_event,
+            ("pr", "create", "--repo", EXPECTED_REPOSITORY, "--base", EXPECTED_BASE,
+             "--head", branch, "--title", self._expected_title(task_id),
+             "--body", self._expected_body(task_id, commit_sha)),
+            cwd=cwd, timeout=120, stop_event=stop_event,
         )
-
-        # Re-read GitHub state even after an
-        # ambiguous create failure. If the exact
-        # Draft PR exists, this is idempotently
-        # successful.
-        after = self._list_open(
-            cwd,
-            branch,
-            stop_event=stop_event,
-        )
-
-        if len(after) != 1:
-            if created.returncode != 0:
-                raise GitHubSafetyError(
-                    "Draft PR creation failed"
-                )
-
-            raise GitHubSafetyError(
-                "Draft PR creation was not verifiable"
-            )
-
-        return self._validate_pr(
-            after[0],
-            task_id=task_id,
-            commit_sha=commit_sha,
-        )
+        # A disconnected create may have succeeded; confirm the task PR before retrying.
+        try:
+            after = self._list_open(cwd, branch, stop_event=stop_event)
+            if len(after) != 1:
+                raise GitHubError(f"Expected one open PR for {branch}, got {after!r}")
+            return self._validate_pr(after[0], task_id=task_id, commit_sha=commit_sha)
+        except GitHubError as exc:
+            raise self._command_error(
+                f"PR creation could not be confirmed (exit {created.returncode}): {exc}",
+                created,
+            ) from exc

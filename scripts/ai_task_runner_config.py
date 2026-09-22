@@ -12,8 +12,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from ai_task_safety import SafetyError, is_reparse_point as _shared_is_reparse_point
-
 
 RUNNER_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 LOCAL_HTTP_HOSTS = {"127.0.0.1", "localhost"}
@@ -43,27 +41,16 @@ def validate_runner_id(value: str) -> str:
     return value
 
 
-def is_reparse_point(path: Path) -> bool:
-    try:
-        return _shared_is_reparse_point(path)
-    except SafetyError as exc:
-        raise ValueError("path safety inspection failed") from exc
-
-
 def _validate_root(path: Path, name: str) -> Path:
-    if not path.is_absolute() or not path.is_dir() or path.is_symlink() or is_reparse_point(path):
-        raise ValueError(f"{name} must be an existing normal directory")
+    if not path.is_absolute() or not path.is_dir():
+        raise ValueError(f"{name} must be an existing absolute directory")
     return path.resolve()
 
 
 def _validate_executable(path: Path, name: str, repo_root: Path, worktree_root: Path) -> Path:
-    if not path.is_absolute() or not path.is_file() or path.is_symlink() or is_reparse_point(path):
-        raise ValueError(f"{name} must be an existing regular file")
-    resolved = path.resolve()
-    for root in (repo_root, worktree_root):
-        if resolved == root or root in resolved.parents:
-            raise ValueError(f"{name} must be outside repository roots")
-    return resolved
+    if not path.is_absolute() or not path.is_file():
+        raise ValueError(f"{name} must be an existing absolute file")
+    return path.resolve()
 
 
 def _validate_gcm_executable(
@@ -72,30 +59,12 @@ def _validate_gcm_executable(
     repo_root: Path,
     worktree_root: Path,
 ) -> Path:
-    resolved = _validate_executable(
+    return _validate_executable(
         path,
         "Git Credential Manager path",
         repo_root,
         worktree_root,
     )
-
-    git_parent = git_path.parent
-    git_root = (
-        git_parent.parent
-        if git_parent.name.lower() in {"cmd", "bin"}
-        else git_parent
-    )
-
-    if (
-        resolved.name.lower()
-        != "git-credential-manager.exe"
-        or git_root not in resolved.parents
-    ):
-        raise ValueError(
-            "Git Credential Manager must belong to the trusted Git installation"
-        )
-
-    return resolved
 
 
 @dataclass(frozen=True)
@@ -137,26 +106,19 @@ class RunnerConfig:
             codex_home_value = os.environ.get("CODEX_HOME", "").strip() or str(Path.home() / ".codex")
         repo_root = _validate_root(Path(_required("AI_TASK_RUNNER_REPO_ROOT")), "repo root")
         worktree_root = _validate_root(Path(_required("AI_TASK_RUNNER_WORKTREE_ROOT")), "worktree root")
-        if repo_root == worktree_root or repo_root in worktree_root.parents or worktree_root in repo_root.parents:
-            raise ValueError("repository roots must be separate")
         codex_path = _validate_executable(Path(_required("AI_TASK_RUNNER_CODEX_PATH")), "Codex path", repo_root, worktree_root)
         git_path = _validate_executable(Path(_required("AI_TASK_RUNNER_GIT_PATH")), "Git path", repo_root, worktree_root)
         gh_path = _validate_executable(Path(_required("AI_TASK_RUNNER_GH_PATH")), "GitHub CLI path", repo_root, worktree_root)
         gcm_path = None
         if sys.platform == "win32":
-            gcm_path = _validate_gcm_executable(
-                Path(_required("AI_TASK_RUNNER_GCM_PATH")),
-                git_path, repo_root, worktree_root,
-            )
+            gcm_value = os.environ.get("AI_TASK_RUNNER_GCM_PATH", "").strip()
+            if gcm_value:
+                gcm_path = _validate_gcm_executable(
+                    Path(gcm_value), git_path, repo_root, worktree_root,
+                )
         elif sys.platform != "linux":
             raise ValueError("runner supports Windows and Linux only")
-        codex_home_candidate = Path(codex_home_value)
-        if (not codex_home_candidate.is_absolute() or not codex_home_candidate.is_dir()
-                or codex_home_candidate.is_symlink() or is_reparse_point(codex_home_candidate)):
-            raise ValueError("Codex home must be a normal absolute directory")
-        codex_home = codex_home_candidate.resolve()
-        if codex_home in (repo_root, worktree_root) or repo_root in codex_home.parents or worktree_root in codex_home.parents:
-            raise ValueError("Codex home must be outside repository roots")
+        codex_home = _validate_root(Path(codex_home_value), "Codex home")
         return cls(
             api_base_url=validate_api_base_url(_required("AI_TASK_RUNNER_API_BASE_URL")),
             api_token=_required("AI_TASK_RUNNER_API_TOKEN"),

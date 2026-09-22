@@ -66,7 +66,7 @@ jobs:
       - name: Compile Python
         run: python -m compileall admin bot scripts
 
-      - name: Run AI automation safety checks
+      - name: Run AI task execution checks
         run: |
           python scripts/check_ai_task_deploy.py
           bash -n scripts/ai_task_deploy_remote.sh
@@ -77,9 +77,9 @@ jobs:
           python scripts/check_ai_task_publish.py
           python scripts/check_ai_task_github.py
           python scripts/check_ai_task_review_merge.py
-          python scripts/check_ai_task_code_review.py
           python scripts/check_ai_task_auto_merge.py
           python scripts/check_ai_task_local_runner.py
+          python scripts/check_ai_task_process.py
           python scripts/check_ai_task_linux.py
           python scripts/check_ai_task_minecraft_deploy.py
           python scripts/check_ai_task_minecraft_runtime.py

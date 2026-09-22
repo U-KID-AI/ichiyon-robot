@@ -5,20 +5,25 @@ No SSH connection, Docker daemon, credentials, or production BDS is used.
 
 import io
 import json
+import shlex
+import subprocess
 import tarfile
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+from dataclasses import replace
 
-from ai_task_deploy_config import DeploymentSafetyError
+from ai_task_deploy_config import DeploymentError
 from ai_task_minecraft_runtime import (
     ExactMergeSource,
     MinecraftDeployConfig,
+    ProductionMinecraftDeployAdapter,
     parse_proof,
 )
 from ai_task_minecraft_deploy import prepare_pack_archive
+from ai_task_process import ProcessResult
 
 
 SHA = "a" * 40
@@ -75,6 +80,7 @@ class RuntimeChecks(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config = self.make_config(Path(tmp))
             config.validate()
+            replace(config, data_root="/srv/Minecraft data/\u65e5\u672c", world_name="World's \u65e5\u672c").validate()
 
     def test_config_rejects_unsafe_remote_values(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -107,7 +113,7 @@ class RuntimeChecks(unittest.TestCase):
                 values.update(override)
 
                 with self.subTest(override=override):
-                    with self.assertRaises(DeploymentSafetyError):
+                    with self.assertRaises(DeploymentError):
                         MinecraftDeployConfig(**values).validate()
 
     def test_current_main_sha_is_local_only(self):
@@ -159,11 +165,6 @@ class RuntimeChecks(unittest.TestCase):
                         stdout="https://github.com/U-KID-AI/ichiyon-robot.git\n",
                         stderr="",
                     ),
-                    SimpleNamespace(
-                        returncode=0,
-                        stdout="",
-                        stderr="",
-                    ),
                 ]
             )
 
@@ -175,9 +176,73 @@ class RuntimeChecks(unittest.TestCase):
                     ("rev-parse", "--git-dir"),
                     ("rev-parse", "--show-toplevel"),
                     ("remote", "get-url", "origin"),
-                    ("status", "--porcelain=v1"),
                 ],
             )
+
+    def test_git_failure_preserves_stderr(self):
+        source = ExactMergeSource(Path('/tmp/runtime-source'), Path('/usr/bin/git'))
+        with patch('ai_task_minecraft_runtime.subprocess.run', return_value=SimpleNamespace(
+                returncode=128, stdout='', stderr='remote unavailable; token=fixture-secret')):
+            with self.assertRaisesRegex(DeploymentError, 'exit=128.*remote unavailable') as error:
+                source._run(('fetch', 'origin', 'main'))
+        self.assertNotIn('fixture-secret', str(error.exception))
+
+    def test_transport_warnings_quoting_and_refresh_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = replace(self.make_config(Path(tmp)), data_root="/srv/Minecraft data",
+                             world_name="World's \u65e5\u672c")
+            source = Mock()
+            raw = pack_archive()
+            source.pack_archive.return_value = raw
+            digest = prepare_pack_archive(raw)[1]
+            proof = (f'MINECRAFT_DEPLOY_RESULT=SUCCESS\nDEPLOYED_COMMIT_SHA={SHA}\n'
+                     f'MINECRAFT_TREE_SHA256={digest}\nMINECRAFT_CHANGED=0\n')
+            adapter = ProductionMinecraftDeployAdapter(config, source)
+            with patch('ai_task_minecraft_runtime.subprocess.Popen') as popen, patch(
+                    'ai_task_minecraft_runtime.communicate_bounded', return_value=ProcessResult(0, proof, 'SSH warning')):
+                self.assertEqual(adapter.deploy(SHA, refresh_source=False).deployed_commit_sha, SHA)
+            source.pack_archive.assert_called_once_with(SHA, refresh_source=False)
+            argv = popen.call_args.args[0]
+            self.assertEqual(shlex.split(argv[-1]), ['/usr/bin/python3', '-', SHA,
+                                                   config.data_root, config.world_name, config.container])
+            for result in (ProcessResult(12, '', 'docker failed; password=fixture-secret'),
+                           ProcessResult(0, proof, '', timed_out=True),
+                           ProcessResult(0, proof, '', stopped=True),
+                           ProcessResult(0, proof, '', stdin_cleanup_failed=True)):
+                with patch('ai_task_minecraft_runtime.subprocess.Popen'), patch(
+                        'ai_task_minecraft_runtime.communicate_bounded', return_value=result):
+                    with self.assertRaisesRegex(DeploymentError, 'transport failed') as error:
+                        adapter.deploy(SHA)
+                self.assertNotIn('fixture-secret', str(error.exception))
+                if result.returncode:
+                    self.assertIn('docker failed', str(error.exception))
+
+    def test_full_transport_stderr_is_not_limited_by_proof_budget(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self.make_config(Path(tmp))
+            source = Mock()
+            source.pack_archive.return_value = pack_archive()
+            adapter = ProductionMinecraftDeployAdapter(config, source)
+            diagnostic = (f'BEGIN {config.ssh_host} {config.ssh_key_path}\n' +
+                          'Minecraft diagnostic\n' * 10000 + 'END token=fixture-secret\n')
+
+            def launch(*args, **kwargs):
+                kwargs['stderr'].write(diagnostic.encode('utf-8'))
+                kwargs['stderr'].flush()
+                kwargs['stdout'].write(b'full stdout diagnostic\n' * 10000)
+                kwargs['stdout'].flush()
+                return object()
+
+            with patch('ai_task_minecraft_runtime.subprocess.Popen', side_effect=launch), patch(
+                    'ai_task_minecraft_runtime.communicate_bounded', return_value=ProcessResult(1, '', '')):
+                with self.assertRaises(DeploymentError) as error:
+                    adapter.deploy(SHA)
+            detail = str(error.exception)
+            self.assertIn(f'BEGIN {config.ssh_host} {config.ssh_key_path}', detail)
+            self.assertIn('END token=[redacted]', detail)
+            self.assertNotIn('fixture-secret', detail)
+            self.assertEqual(detail.count('Minecraft diagnostic\n'), 10000)
+            self.assertEqual(detail.count('full stdout diagnostic\n'), 10000)
 
     def test_local_commit_validation_never_fetches(self):
         source = ExactMergeSource(
@@ -230,7 +295,7 @@ class RuntimeChecks(unittest.TestCase):
         )
         source.current_main_sha.return_value = SHA
 
-        with self.assertRaises(DeploymentSafetyError):
+        with self.assertRaises(DeploymentError):
             source._require_commit(
                 stale,
                 refresh_source=False,
@@ -292,7 +357,7 @@ class RuntimeChecks(unittest.TestCase):
             )
         )
 
-        with self.assertRaises(DeploymentSafetyError):
+        with self.assertRaises(DeploymentError):
             source.changed_files(SHA)
 
     def test_pack_archive_is_validated_before_transport(self):
@@ -308,7 +373,7 @@ class RuntimeChecks(unittest.TestCase):
             return_value=SimpleNamespace(
                 returncode=0,
                 stdout=raw,
-                stderr=b"",
+                stderr=b"archive warning",
             )
         )
 
@@ -319,7 +384,7 @@ class RuntimeChecks(unittest.TestCase):
         self.assertIn(PACK + "manifest.json", files)
         self.assertEqual(len(digest), 64)
 
-    def test_proof_requires_exact_sha_hash_and_changed_flag(self):
+    def test_proof_requires_success_exact_sha_and_hash(self):
         tree_hash = "b" * 64
 
         good = (
@@ -338,19 +403,27 @@ class RuntimeChecks(unittest.TestCase):
         )
 
         bad_values = (
+            '',
+            good.replace('SUCCESS', 'FAILED'),
             good.replace(SHA, "c" * 40),
             good.replace(tree_hash, "d" * 64),
-            good.replace(
-                "MINECRAFT_CHANGED=1",
-                "MINECRAFT_CHANGED=yes",
-            ),
-            good + "EXTRA=unexpected\n",
+            good.replace(f'MINECRAFT_TREE_SHA256={tree_hash}\n', ''),
+            good + 'MINECRAFT_DEPLOY_RESULT=FAILED\n',
         )
 
         for value in bad_values:
             with self.subTest(value=value):
-                with self.assertRaises(DeploymentSafetyError):
+                with self.assertRaises(DeploymentError):
                     parse_proof(value, SHA, tree_hash)
+        for value in (good + 'EXTRA=diagnostic\n', 'preflight ok\n' + good,
+                      good.rstrip('\n'), good * 2, good.replace('MINECRAFT_CHANGED=1', 'MINECRAFT_CHANGED=yes'),
+                      good.replace('MINECRAFT_CHANGED=1\n', '')):
+            self.assertEqual(parse_proof(value, SHA, tree_hash).deployed_commit_sha, SHA)
+        with self.assertRaises(DeploymentError) as error:
+            parse_proof('BDS did not start', SHA, tree_hash, stderr='container exited password=fixture-secret')
+        self.assertIn('BDS did not start', str(error.exception))
+        self.assertIn('container exited', str(error.exception))
+        self.assertNotIn('fixture-secret', str(error.exception))
 
 
 if __name__ == "__main__":

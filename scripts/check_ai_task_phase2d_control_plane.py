@@ -1,17 +1,19 @@
-"""Offline checks for Phase 2D reviewed merge metadata, now persisted at deploying."""
+"""Offline checks for reviewed merge metadata persisted at deploying."""
 
 import inspect
 import json
 import sys
 from pathlib import Path
+from unittest.mock import patch
 from uuid import UUID
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from admin import ai_tasks_internal as api
-from bot.repositories import ai_tasks as repository
+with patch("dotenv.load_dotenv"), patch("os.environ", {}):
+    from admin import ai_tasks_internal as api
+    from bot.repositories import ai_tasks as repository
 from ai_task_api_client import RunnerAPIClient
 
 
@@ -101,21 +103,22 @@ def main():
         "merge_commit_sha",
     ):
         check(
-            f"Phase 2D migration column {column}",
+            f"review metadata migration column {column}",
             column in migration,
         )
 
     check(
-        "Phase 2D migration validates merge SHA",
+        "review metadata migration validates merge SHA",
         "merge_commit_sha_format" in migration
         and "^[0-9a-fA-F]{40}$" in migration,
     )
 
     check(
-        "Phase 2D migration validates workflow ID",
+        "review metadata migration validates workflow ID",
         "ci_workflow_run_id > 0"
         in migration,
     )
+    check("review metadata migration permits absent workflow ID", "ci_workflow_run_id IS NULL" in migration)
 
     repo_source = inspect.getsource(
         repository.AITaskRepository
@@ -337,7 +340,7 @@ def main():
     )
 
     print(
-        "AI task Phase 2D control-plane checks passed"
+        "AI task reviewed-merge control-plane checks passed"
     )
 
 

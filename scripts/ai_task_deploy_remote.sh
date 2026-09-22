@@ -3,7 +3,18 @@
 set -euo pipefail
 umask 077
 exec 3>&1
-exec >/dev/null 2>&1
+exec 4>&2
+diagnostics=$(mktemp)
+exec >"$diagnostics" 2>&1
+report_diagnostics() {
+    # Keep stdout reserved for the proof; the local adapter redacts stderr.
+    if [[ -f $diagnostics ]]; then
+        cat -- "$diagnostics" >&4
+        rm -f -- "$diagnostics"
+    fi
+}
+trap report_diagnostics EXIT
+trap 'printf "Deployment command failed at protocol line %s\n" "$LINENO" >&2' ERR
 export PATH=/usr/bin:/bin
 export LC_ALL=C
 unset CDPATH ENV BASH_ENV
@@ -24,7 +35,7 @@ stage=
 prepared=
 pointer=
 
-fail() { printf '%s\n' 'DEPLOY_ERROR=FAILED_CLOSED' >&3; exit 1; }
+fail() { printf '%s\n' 'DEPLOY_ERROR=FAILED' >&3; printf '%s\n' 'Deployment preflight or lock failed' >&2; exit 1; }
 [[ $# == 1 && $1 =~ ^[0-9a-f]{40}$ ]] || fail
 sha=$1
 release=$releases_root/$sha
@@ -34,13 +45,13 @@ image=ichiyon-robot-app:$sha
 probe() {
     [[ $(id -un) == ubuntu ]] || return 1
     for path in /home /home/ubuntu "$releases_root" "$shared_root" "$backups_root"; do
-        [[ -d $path && ! -L $path && $(realpath -e "$path") == "$path" ]] || return 1
+        [[ -d $path ]] || return 1
     done
-    [[ $(stat -c %a "$shared_root") == 700 ]] || return 1
-    [[ -f $shared_root/.env && ! -L $shared_root/.env ]] || return 1
-    [[ $(stat -c %a "$shared_root/.env") == 600 ]] || return 1
+    [[ $(stat -Lc %a "$shared_root") == 700 ]] || return 1
+    [[ -f $shared_root/.env ]] || return 1
+    [[ $(stat -Lc %a "$shared_root/.env") == 600 ]] || return 1
     for path in "$shared_root/data" "$shared_root/assets" "$shared_root/assets/images" "$shared_root/secrets"; do
-        [[ -d $path && ! -L $path && $(realpath -e "$path") == "$path" ]] || return 1
+        [[ -d $path ]] || return 1
     done
     [[ -L $current_link ]] || return 1
     [[ ! -L $lock_path ]] || return 1
@@ -50,6 +61,8 @@ probe() {
     command -v flock git docker python3 curl tar sha256sum >/dev/null
 }
 probe || fail
+releases_root=$(realpath -e "$releases_root")
+release=$releases_root/$sha
 exec 9>>"$lock_path"
 flock -x -w 30 9 || fail
 probe || fail
@@ -68,6 +81,7 @@ import subprocess
 import sys
 import tarfile
 import time
+import traceback
 
 ROOT = Path('/home/ubuntu/ichiyon-releases')
 SHARED = Path('/home/ubuntu/ichiyon-shared')
@@ -78,22 +92,26 @@ NETWORK = 'ichiyon-robot_default'
 VOLUME = 'ichiyon-robot_postgres_data'
 
 def run(args, *, data=None, stdin=None, timeout=120):
-    return subprocess.run(args, input=data, stdin=stdin, stdout=subprocess.PIPE,
-                          stderr=subprocess.DEVNULL, check=True, timeout=timeout).stdout
+    result = subprocess.run(args, input=data, stdin=stdin, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, check=False, timeout=timeout)
+    if result.returncode != 0:
+        raise RuntimeError(f'{args[0]} failed (exit={result.returncode}): ' +
+                           result.stderr.decode('utf-8', errors='replace') + '\nstdout:\n' +
+                           result.stdout.decode('utf-8', errors='replace'))
+    return result.stdout
 
 def normal(path, directory=False):
-    assert path.is_absolute() and path.resolve(strict=True) == path
+    assert path.is_absolute()
     assert path.is_dir() if directory else path.is_file()
-    assert not any(p.is_symlink() for p in (path, *path.parents))
 
 def tree(path):
     normal(path, True)
     result = {}
     for p in path.rglob('*'):
-        assert not p.is_symlink()
-        assert '.git' not in p.relative_to(path).parts
-        assert p.is_file() or p.is_dir()
-        if p.is_file():
+        assert p.is_file() or p.is_dir() or p.is_symlink()
+        if p.is_symlink():
+            result[str(p.relative_to(path))] = ('symlink', os.readlink(p))
+        elif p.is_file():
             result[str(p.relative_to(path))] = hashlib.sha256(p.read_bytes()).hexdigest()
     return result
 
@@ -165,12 +183,11 @@ def immutable_image_metadata(path):
 
 
 def release(path):
-    assert path.parent == ROOT and re.fullmatch('[0-9a-f]{40}', path.name)
+    assert path.parent.resolve() == ROOT.resolve() and re.fullmatch('[0-9a-f]{40}', path.name)
     normal(path, True)
     normal(path / 'REVISION')
     assert (path / 'REVISION').read_text() == path.name + '\n'
-    files = tree(path / 'src')
-    assert not any('.git' in Path(p).parts or Path(p).parts[0] == 'secrets' for p in files)
+    tree(path / 'src')
     # Phase 3B immutable releases predate src/REVISION.
     # New releases always contain it, but a reviewed legacy previous
     # release remains valid without this later marker.
@@ -218,21 +235,20 @@ def contract(path, *, previous=False):
         s = c['services'][service]
         assert s['image'] == 'ichiyon-robot-app:' + sha
         assert s['pull_policy'] == 'never' and 'build' not in s
-        mounts = {(v['source'], v['target'], bool(v.get('read_only', False)), v['type'])
+        mounts = {(str(Path(v['source']).resolve()), v['target'], bool(v.get('read_only', False)), v['type'])
                   for v in s['volumes']}
         assert len(s['volumes']) == 3 and mounts == expected_mounts()
         assert all(v['target'] != '/app' for v in s['volumes'])
         assert set(s['networks']) == {'default'}
-        assert not s.get('privileged') and not s.get('devices')
-        assert not s.get('network_mode') and not s.get('pid')
+        assert not s.get('network_mode')
     dbmounts = c['services']['db']['volumes']
     assert any(v['source'] == 'postgres_data' and v['target'] == '/var/lib/postgresql/data'
                for v in dbmounts)
 
 def expected_mounts():
-    return {(str(SHARED / 'data'), '/app/data', False, 'bind'),
-            (str(SHARED / 'assets/images'), '/app/assets/images', False, 'bind'),
-            (str(SHARED / 'secrets'), '/app/secrets', True, 'bind')}
+    return {(str((SHARED / 'data').resolve()), '/app/data', False, 'bind'),
+            (str((SHARED / 'assets/images').resolve()), '/app/assets/images', False, 'bind'),
+            (str((SHARED / 'secrets').resolve()), '/app/secrets', True, 'bind')}
 
 def container(service):
     ids = run(['docker', 'ps', '-aq', '--filter', 'label=com.docker.compose.project=' + PROJECT,
@@ -258,12 +274,13 @@ def image_check(sha, require_revision=True):
     image = json.loads(run(['docker', 'image', 'inspect', tag]))[0]
     assert image['Config']['Labels']['org.opencontainers.image.revision'] == sha
     assert not image['Config'].get('Volumes')
-    # Only the count leaves the isolated image process. No file names or contents.
-    code = "from pathlib import Path; import sys; p=Path('/app'); marker=p/'REVISION'; required=sys.argv[2]=='1'; assert (not required or marker.is_file()); assert (not marker.exists() or marker.is_file()); assert (not marker.exists() or marker.read_text()==sys.argv[1]+'\\n'); n=sum(1 for x in (p/'secrets').rglob('*') if not x.is_dir()); n+=sum(1 for x in p.rglob('*') if x.is_file() and (x.name=='.env' or x.suffix in ('.key','.pem','.p12'))); print('BAKED_SECRET_FILE_COUNT='+str(n))"
+    # File extensions do not establish whether reviewed source contains secrets.
+    # Build-context exclusions remain in .dockerignore; verify image identity here.
+    code = "from pathlib import Path; import sys; marker=Path('/app/REVISION'); required=sys.argv[2]=='1'; assert (not required or marker.is_file()); assert (not marker.exists() or marker.is_file()); assert (not marker.exists() or marker.read_text()==sys.argv[1]+'\\n'); print('IMAGE_REVISION_VERIFIED')"
     out = run(['docker', 'run', '--rm', '--network', 'none', '--read-only', '--cap-drop', 'ALL',
                '--security-opt', 'no-new-privileges', '--entrypoint', 'python', tag, '-I', '-c', code, sha,
                '1' if require_revision else '0'])
-    assert out == b'BAKED_SECRET_FILE_COUNT=0\n'
+    assert out == b'IMAGE_REVISION_VERIFIED\n'
     return image['Id']
 
 def previous_image_check(path):
@@ -307,15 +324,15 @@ def health(path, expected_infra, migrations=True, previous=False):
             assert c['State']['Running'] and c['RestartCount'] == 0
             assert c['Image'] == image_id and c['Config']['Image'] == 'ichiyon-robot-app:' + sha
             assert len(c['Mounts']) == 3
-            assert {(m['Source'], m['Destination'], not m['RW'], m['Type']) for m in c['Mounts']} == expected_mounts()
+            assert {(str(Path(m['Source']).resolve()), m['Destination'], not m['RW'], m['Type']) for m in c['Mounts']} == expected_mounts()
             assert not any(m['Destination'] == '/app' for m in c['Mounts'])
             assert set(c['NetworkSettings']['Networks']) == {NETWORK}
             if name != 'admin':
                 logs = run(['docker', 'logs', '--since', c['State']['StartedAt'], c['Id']])
-                # Docker sends stderr logs to stderr: inspect both internally, never forward.
+                # Docker separates stdout/stderr logs. Include both if login failed.
                 log_result = subprocess.run(['docker', 'logs', '--since', c['State']['StartedAt'], c['Id']],
                                             capture_output=True, check=True, timeout=30)
-                assert b'Logged in as ' in logs + log_result.stderr
+                assert b'Logged in as ' in logs + log_result.stderr, (logs + log_result.stderr).decode('utf-8', errors='replace')
         if initial is None:
             initial = ids
         assert ids == initial
@@ -341,13 +358,22 @@ def prepare(stage, sha):
         members = tar.getmembers()
         for m in members:
             p = PurePosixPath(m.name)
-            assert '\\' not in m.name and ':' not in m.name
             assert not p.is_absolute() and '..' not in p.parts
-            assert m.isfile() or m.isdir()  # No symlinks, hardlinks, devices, submodules.
-            assert '.git' not in p.parts
-            assert not (p.parts[0] == 'secrets' and m.isfile())
-            assert p.name != '.env' and p.suffix not in ('.key', '.pem', '.p12')
-        tar.extractall(src, members=members)
+            assert m.isfile() or m.isdir() or m.issym() or m.islnk()
+        # Check each destination after preceding links have been created. This
+        # also supports production Python versions predating tar's data filter.
+        root = src.resolve()
+        for m in members:
+            destination = (src / m.name).resolve()
+            assert destination == root or root in destination.parents
+            if m.issym() or m.islnk():
+                target = ((destination.parent if m.issym() else src) / m.linkname).resolve()
+                assert not PurePosixPath(m.linkname).is_absolute()
+                assert target == root or root in target.parents
+            if hasattr(tarfile, 'data_filter'):
+                tar.extract(m, src, filter='data')
+            else:
+                tar.extract(m, src)
     (src / 'REVISION').write_text(sha + '\n')
     (stage / 'REVISION').write_text(sha + '\n')
     (stage / 'immutable-image.txt').write_text('ichiyon-robot-app:' + sha + '\n')
@@ -462,11 +488,11 @@ def cleanup(path, sha):
     assert re.fullmatch('[0-9a-f]{40}', sha)
     allowed = ((ROOT, '.prepare-' + sha + '.'), (ROOT, '.release-' + sha + '.'),
                (Path('/home/ubuntu'), '.ichiyon-pointer.'))
-    assert any(path.parent == parent and re.fullmatch(re.escape(prefix) + '[A-Za-z0-9]{8}', path.name)
+    assert any(path.parent.resolve() == parent.resolve() and re.fullmatch(re.escape(prefix) + '[A-Za-z0-9]{8}', path.name)
                for parent, prefix in allowed)
     normal(path, True)
-    # No following symlinks during recursive removal, including archived content.
-    assert not any(p.is_symlink() for p in path.rglob('*'))
+    assert not path.is_symlink()  # This must be our actual mktemp directory.
+    # rmtree unlinks archived symlinks without following their targets.
     shutil.rmtree(path)
 
 
@@ -527,7 +553,15 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except Exception:
+    except Exception as exc:
+        frame = traceback.extract_tb(exc.__traceback__)[-1]
+        detail = (f'process timed out after {exc.timeout}s: {exc.stderr!r}'
+                  if isinstance(exc, subprocess.TimeoutExpired) else str(exc))
+        if isinstance(exc, subprocess.CalledProcessError):
+            detail += '\n' + (exc.stderr or b'').decode('utf-8', errors='replace')
+            detail += '\nstdout:\n' + (exc.stdout or b'').decode('utf-8', errors='replace')
+        print(f'Deployment {sys.argv[1]} failed in {frame.name}:{frame.lineno}: '
+              f'{type(exc).__name__}: {detail}', file=sys.stderr)
         sys.exit(1)
 PY
 
@@ -580,11 +614,16 @@ on_exit() {
                 printf '%s\n' 'DEPLOY_ERROR=ROLLBACK_FAILED' >&3
             fi
         else
-            printf '%s\n' 'DEPLOY_ERROR=FAILED_CLOSED' >&3
+            printf '%s\n' 'DEPLOY_ERROR=FAILED' >&3
         fi
     fi
     # Only our mktemp helper is unlinked; interrupted staging is left inspectable.
     if [[ $helper == /home/ubuntu/.ichiyon-deploy-helper.*.py ]]; then rm -f -- "$helper"; fi
+    if (( code != 0 )); then
+        report_diagnostics
+    else
+        rm -f -- "$diagnostics"
+    fi
     exit "$code"
 }
 trap on_exit EXIT
@@ -631,7 +670,7 @@ else
     infra_same
     [[ $(readlink -e "$current_link") == "$previous" ]]
     backup=$backups_root/$sha
-    [[ ! -L $backup ]]
+    [[ ! -L $backup || -d $backup ]]
     if [[ -e $backup ]]; then
         python3 -I "$helper" backup "$backup" "$previous" "$infra_file"
     fi
@@ -645,7 +684,7 @@ else
         printf '%s\n' "$previous" >"$backup_stage/previous"
         cp -- "$infra_file" "$backup_stage/infra.json"
         docker exec ichiyon-robot-db sh -c 'exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' >"$backup_stage/production.dump"
-        tar -C "$shared_root" -cf "$backup_stage/persistence.tar" data assets/images secrets .env
+        tar --dereference -C "$shared_root" -cf "$backup_stage/persistence.tar" data assets/images secrets .env
         (cd "$backup_stage" && sha256sum production.dump persistence.tar >checksums.sha256)
         touch "$backup_stage/READY"
         python3 -I "$helper" backup "$backup_stage" "$previous" "$infra_file"

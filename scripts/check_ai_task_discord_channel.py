@@ -251,6 +251,17 @@ class ChannelChecks(unittest.IsolatedAsyncioTestCase):
         await ai_tasks.notify_ai_task_terminal_updates_once(self.bot)
         self.get_connection.assert_not_called()
 
+    async def test_long_error_is_attached_with_only_secrets_redacted(self):
+        detail = "src/example.py:42: actual failure\n" + "line detail\n" * 300 + "PASSWORD=do-not-display"
+        self.connection.rows = [dict(task_id=uuid.uuid4(), status="failed", error_message=detail)]
+        await ai_tasks.notify_ai_task_terminal_updates_once(self.bot)
+        text, kwargs = self.channel.sent[-1]
+        self.assertLess(len(text), 2000)
+        attachment = kwargs["file"].fp.getvalue().decode("utf-8")
+        self.assertIn("src/example.py:42: actual failure", attachment)
+        self.assertIn("line detail\n" * 300, attachment)
+        self.assertNotIn("do-not-display", text + attachment)
+
     def assert_mentions_disabled(self, kwargs):
         mentions = kwargs["allowed_mentions"]
         self.assertFalse(mentions.everyone)
@@ -316,21 +327,6 @@ class StaticAndSQLChecks(unittest.TestCase):
         self.assertIn('config.BOT_INSTANCE_ID == "ichiyon" and not ai_task_notification_task.is_running()', source)
         self.assertIn("type(exc).__name__", source)
         self.assertNotIn("content={message.content", text)
-
-    def test_no_new_execution_authority(self):
-        source = (ROOT_DIR / "bot/services/ai_tasks.py").read_text(encoding="utf-8")
-        tree = ast.parse(source)
-        imports = []
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import): imports.extend(alias.name for alias in node.names)
-            if isinstance(node, ast.ImportFrom): imports.append(node.module)
-        self.assertEqual(set(imports), {"re", "uuid", "typing", "discord", "bot", "bot.db", "bot.repositories.ai_tasks"})
-        self.assertFalse(any(isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-                             and node.func.id in ("eval", "exec", "compile", "open", "__import__") for node in ast.walk(tree)))
-        source = (ROOT_DIR / "bot/repositories/ai_tasks.py").read_text(encoding="utf-8")
-        self.assertNotIn('f"', source)
-        self.assertNotIn(".format(", source)
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

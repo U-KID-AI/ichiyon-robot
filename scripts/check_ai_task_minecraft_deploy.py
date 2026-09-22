@@ -1,5 +1,6 @@
 """Offline checks only: no SSH, credentials, Docker or live filesystem data."""
 import base64
+import ast
 import io
 import json
 import os
@@ -14,7 +15,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from ai_task_deploy import DeploymentResult as AppDeploymentResult
-from ai_task_deploy_config import DeploymentSafetyError
+from ai_task_deploy_config import DeploymentError
 from ai_task_minecraft_deploy import (
     DeploymentResult, required_targets, verify_deployment,
     TargetDeployAdapter, prepare_pack_archive, sync_world_json,
@@ -40,7 +41,94 @@ def archive(extra=(), manifest=MANIFEST):
     return stream.getvalue()
 
 
+def remote_namespace():
+    source = Path(__file__).with_name('ai_task_minecraft_deploy_remote.py')
+    tree = ast.parse(source.read_text(encoding='utf-8'))
+    tree.body = [node for node in tree.body if not isinstance(node, ast.Try)
+                 and not (isinstance(node, ast.Import) and any(a.name == 'fcntl' for a in node.names))]
+    namespace = {'fcntl': SimpleNamespace(flock=Mock(), LOCK_EX=2)}
+    exec(compile(tree, str(source), 'exec'), namespace)
+    return namespace
+
+
 class MinecraftChecks(unittest.TestCase):
+    def test_deployment_directory_links_are_allowed(self):
+        remote = remote_namespace()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp).resolve()
+            with patch.object(Path, 'is_symlink', return_value=True):
+                remote['validate_normal_dir'](path)
+            self.assertTrue(remote['current_tree_matches'](path, {}))
+
+    def test_remote_transaction_preserves_world_and_restores_failed_app(self):
+        for fail_start, fail_rollback in ((False, False), (True, False), (True, True)):
+            with self.subTest(fail_start=fail_start, fail_rollback=fail_rollback), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                data = root / 'data'
+                world = data / 'worlds/world'
+                live = data / 'resource_packs/arbitrary_pack'
+                for path in (data / 'behavior_packs', world, live, root / 'home'):
+                    path.mkdir(parents=True, exist_ok=True)
+                old_manifest = MANIFEST.replace(b'30', b'29')
+                (live / 'manifest.json').write_bytes(old_manifest)
+                (live / 'old.txt').write_bytes(b'old')
+                (world / 'level.dat').write_bytes(b'world data must survive')
+                (world / 'db').mkdir()
+                (world / 'db/000001.ldb').write_bytes(b'world database must survive')
+                unrelated = data / 'resource_packs/unmanaged'
+                unrelated.mkdir()
+                (unrelated / 'web.png').write_bytes(b'unmanaged asset')
+                for kind in ('behavior', 'resource'):
+                    (world / f'world_{kind}_packs.json').write_bytes(b'[]\n')
+                remote = remote_namespace()
+                remote['ARCHIVE_B64'] = base64.b64encode(archive()).decode()
+                remote['wait_stable'] = Mock()
+                remote['inspect_container'] = Mock(return_value={'State': {'Running': True}})
+                starts = 0
+
+                def docker(args):
+                    nonlocal starts
+                    if args[0] == 'start':
+                        starts += 1
+                        if fail_start and (starts == 1 or fail_rollback):
+                            raise RuntimeError('container start failed')
+                    return ''
+
+                remote['docker'] = Mock(side_effect=docker)
+                with patch.object(sys, 'argv', ['remote', SHA, str(data), 'world', 'container']), \
+                        patch.object(Path, 'home', return_value=root / 'home'), patch('sys.stdout', new_callable=io.StringIO) as output:
+                    if fail_start:
+                        with self.assertRaisesRegex(RuntimeError, 'container start failed'):
+                            remote['main']()
+                        self.assertEqual(output.getvalue(), '')
+                        if not fail_rollback:
+                            self.assertEqual((live / 'old.txt').read_bytes(), b'old')
+                            self.assertEqual((live / 'manifest.json').read_bytes(), old_manifest)
+                            self.assertEqual((world / 'world_resource_packs.json').read_bytes(), b'[]\n')
+                    else:
+                        remote['main']()
+                        self.assertIn('MINECRAFT_CHANGED=1', output.getvalue())
+                        self.assertEqual((live / 'manifest.json').read_bytes(), MANIFEST)
+                        remote['docker'].reset_mock()
+                        output.seek(0)
+                        output.truncate()
+                        remote['main']()
+                        self.assertIn('MINECRAFT_CHANGED=0', output.getvalue())
+                        remote['docker'].assert_not_called()
+                self.assertEqual((world / 'level.dat').read_bytes(), b'world data must survive')
+                self.assertEqual((world / 'db/000001.ldb').read_bytes(), b'world database must survive')
+                self.assertEqual((unrelated / 'web.png').read_bytes(), b'unmanaged asset')
+                self.assertEqual(list(data.glob('.ichiyon-ai-stage-*')), [])
+                self.assertEqual(len(list(data.glob('.ichiyon-ai-backup-*'))), int(fail_rollback))
+
+    def test_remote_docker_failure_keeps_stderr(self):
+        remote = remote_namespace()
+        with patch.object(subprocess, 'run', return_value=SimpleNamespace(
+                returncode=5, stdout='', stderr='daemon connection refused')) as run:
+            with self.assertRaisesRegex(RuntimeError, 'exit=5.*daemon connection refused'):
+                remote['docker'](['inspect', 'fixture'])
+        self.assertEqual(run.call_args.kwargs['stderr'], subprocess.PIPE)
+
     def test_git_catch_up_never_touches_web_managed_packs(self):
         import ast
         source = Path(__file__).with_name('ai_task_minecraft_deploy_remote.py')
@@ -92,12 +180,12 @@ class MinecraftChecks(unittest.TestCase):
     def test_malformed_json(self):
         for value in (b"{", b"{}", b"null", b"[NaN]", b"[1]", b'[{"pack_id":"x"}]',
                       b'[{"pack_id":1,"pack_id":2}]', b"\xff"):
-            with self.subTest(value=value), self.assertRaises(DeploymentSafetyError):
+            with self.subTest(value=value), self.assertRaises(DeploymentError):
                 sync_world_json(value, [MANIFEST])
         for version in ([True, 0, 0], [-1, 0, 0], [1, 2], "1.0.0"):
-            with self.assertRaises(DeploymentSafetyError):
+            with self.assertRaises(DeploymentError):
                 sync_world_json(b"[]", [json.dumps({"header": {"uuid": UUID, "version": version}})])
-        with self.assertRaises(DeploymentSafetyError):
+        with self.assertRaises(DeploymentError):
             sync_world_json(b"[]", [MANIFEST, MANIFEST])
 
     def test_archive_identity_and_path_rejections(self):
@@ -106,16 +194,43 @@ class MinecraftChecks(unittest.TestCase):
         self.assertEqual(digest, prepare_pack_archive(archive())[1])
         self.assertNotEqual(digest, prepare_pack_archive(archive([(PACK + "new.txt", b"x", tarfile.REGTYPE)]))[1])
         for name in ("../outside", "/absolute", PACK + "../escape", PACK + "x/../../escape",
-                     PACK + "a\\b", "minecraft/server.properties", PACK + "file:stream", PACK + "./a"):
-            with self.subTest(name=name), self.assertRaises(DeploymentSafetyError):
+                     "minecraft/server.properties", PACK + "./a"):
+            with self.subTest(name=name), self.assertRaises(DeploymentError):
                 prepare_pack_archive(archive([(name, b"x", tarfile.REGTYPE)]))
         for kind in (tarfile.SYMTYPE, tarfile.LNKTYPE, tarfile.FIFOTYPE, tarfile.CHRTYPE):
-            with self.assertRaises(DeploymentSafetyError):
+            with self.assertRaises(DeploymentError):
                 prepare_pack_archive(archive([(PACK + "link", b"", kind)]))
-        with self.assertRaises(DeploymentSafetyError):
+        with self.assertRaises(DeploymentError):
             prepare_pack_archive(archive(manifest=b"{}"))
-        with self.assertRaises(DeploymentSafetyError):
+        with self.assertRaises(DeploymentError):
             prepare_pack_archive(archive([(PACK + "manifest.json", MANIFEST, tarfile.REGTYPE)]))
+
+    def test_pack_paths_and_hashes_match_remote(self):
+        remote = remote_namespace()
+        names = ('textures/space name.png', 'textures/\u65e5\u672c\u8a9e.png', '.hidden',
+                 'file:stream', 'a\\b', "punctuation'$%.txt", 'trailing.', 'line\nbreak')
+        raw = archive([(PACK + name, b'asset', tarfile.REGTYPE) for name in names])
+        files, digest = prepare_pack_archive(raw)
+        remote_files, packs, remote_digest = remote['parse_archive'](raw)
+        self.assertEqual(files, remote_files)
+        self.assertEqual(digest, remote_digest)
+        state = remote['desired_state'](packs, digest)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'state.json'
+            path.write_bytes(remote['canonical_json'](state))
+            self.assertEqual(remote['read_state'](path), state)
+
+    def test_pack_archive_has_no_policy_size_or_count_limit(self):
+        remote = remote_namespace()
+        raw = archive([(PACK + 'large.bin', b'x' * (64 * 1024 * 1024 + 1), tarfile.REGTYPE)])
+        files, digest = prepare_pack_archive(raw)
+        remote_files, _, remote_digest = remote['parse_archive'](raw)
+        self.assertEqual(len(files[PACK + 'large.bin']), 64 * 1024 * 1024 + 1)
+        self.assertEqual(digest, remote_digest)
+        del raw, files, remote_files
+        raw = archive([(PACK + str(i), b'', tarfile.REGTYPE) for i in range(10001)])
+        self.assertEqual(len(prepare_pack_archive(raw)[0]), 10002)
+        self.assertEqual(len(remote['parse_archive'](raw)[0]), 10002)
 
     def adapter(self, changed):
         source = Mock()
@@ -130,7 +245,7 @@ class MinecraftChecks(unittest.TestCase):
 
     def test_non_minecraft_never_initializes_bds(self):
         adapter, apps, bds, factory = self.adapter(["bot/music.py", "admin/main.py", "docs/minecraft.md"])
-        factory.side_effect = DeploymentSafetyError("BDS configuration absent")
+        factory.side_effect = DeploymentError("BDS configuration absent")
         verify_deployment(adapter.deploy(SHA), SHA, frozenset({"apps"}))
         factory.assert_not_called()
         bds.deploy.assert_not_called()
@@ -142,35 +257,35 @@ class MinecraftChecks(unittest.TestCase):
         verify_deployment(proof, SHA, required_targets([PACK + "manifest.json"]))
         factory.assert_called_once_with()
         bds.deploy.assert_called_once_with(SHA, stop_event=None)
-        for failure in (DeploymentSafetyError("restart failed"), DeploymentSafetyError("health failed")):
+        for failure in (DeploymentError("restart failed"), DeploymentError("health failed")):
             bds.deploy.side_effect = failure
-            with self.assertRaises(DeploymentSafetyError):
+            with self.assertRaises(DeploymentError):
                 adapter.deploy(SHA)
 
     def test_proof_missing_wrong_sha_or_target(self):
         for proof in (SimpleNamespace(deployed_commit_sha=SHA),
                       DeploymentResult("b" * 40, "ok"), DeploymentResult(SHA, "manual work remains")):
-            with self.assertRaises(DeploymentSafetyError):
+            with self.assertRaises(DeploymentError):
                 verify_deployment(proof, SHA, frozenset({"apps", "minecraft"}))
 
     def test_existing_app_proof_cannot_prove_minecraft(self):
         proof = AppDeploymentResult(SHA, "apps verified")
         verify_deployment(proof, SHA, frozenset({"apps"}))
-        with self.assertRaises(DeploymentSafetyError):
+        with self.assertRaises(DeploymentError):
             verify_deployment(proof, SHA, frozenset({"apps", "minecraft"}))
 
     def test_invalid_changed_paths_fail_before_deployment(self):
         for paths in (None, "minecraft/a", ["/minecraft/a"], ["minecraft/../a"],
-                      ["minecraft\\a"], ["minecraft//a"], [None]):
+                      ["minecraft//a"], [None]):
             adapter, apps, bds, factory = self.adapter(paths)
-            with self.subTest(paths=paths), self.assertRaises(DeploymentSafetyError):
+            with self.subTest(paths=paths), self.assertRaises(DeploymentError):
                 adapter.deploy(SHA)
             apps.deploy.assert_not_called()
             factory.assert_not_called()
 
     def test_catch_up_failure_isolated_and_retried(self):
         adapter, apps, bds, _ = self.adapter(["bot/main.py"])
-        bds.deploy.side_effect = DeploymentSafetyError("offline")
+        bds.deploy.side_effect = DeploymentError("offline")
         self.assertFalse(adapter.catch_up())
         verify_deployment(adapter.deploy(SHA), SHA, frozenset({"apps"}))
         bds.deploy.side_effect = None
@@ -191,7 +306,7 @@ class MinecraftChecks(unittest.TestCase):
         adapter, apps, bds, _ = self.adapter([PACK + "manifest.json"])
         stop = threading.Event()
         stop.set()
-        with self.assertRaises(DeploymentSafetyError):
+        with self.assertRaises(DeploymentError):
             adapter.deploy(SHA, stop_event=stop)
         self.assertFalse(adapter.catch_up(stop_event=stop))
         apps.deploy.assert_not_called()
@@ -253,7 +368,12 @@ class MinecraftChecks(unittest.TestCase):
                 ".ichiyon-ai-managed-packs.json.ichiyon-tmp"
             )
 
-            atomic_tmp.symlink_to(outside)
+            try:
+                atomic_tmp.symlink_to(outside)
+            except OSError as exc:
+                if getattr(exc, 'winerror', None) == 1314:
+                    self.skipTest('Windows symlink privilege unavailable')
+                raise
 
             with self.assertRaises(RuntimeError):
                 write_atomic(state, b"{}\n")
@@ -272,6 +392,7 @@ class MinecraftChecks(unittest.TestCase):
             self.assertTrue(state.is_symlink())
 
 
+    @unittest.skipIf(os.name == 'nt', 'POSIX fake executable and fcntl integration')
     def test_remote_rollback_failure_preserves_backup(self):
         """A failed rollback must retain the original pack backup for recovery."""
         with tempfile.TemporaryDirectory() as tmp:

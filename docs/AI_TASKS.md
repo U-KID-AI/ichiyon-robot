@@ -1,67 +1,36 @@
-# AI開発タスク計画
+# AI開発タスクの責務と検証項目
 
-この文書はPhase 0からPhase 4までの計画を示す。現在実装済みの機能と将来タスクを混同しない。明示していない項目は未実装または要確認である。
+この文書は現在のrunnerの責務をまとめる。旧来の段階別計画を実行時の拒否ルールとして使用しない。運用手順は `AI_RUNBOOK.md`、作業範囲と秘密情報の扱いは `AI_RULES.md` を参照する。
 
-## Phase 0: 基盤
+## 現在の責務
 
-このタスクで文書化する範囲:
+| 担当 | 内容 |
+| --- | --- |
+| Discord Bot | 指定channelと許可ユーザーの受付、状態照会、完了通知 |
+| Admin / Control Plane | PostgreSQL保存、atomic claim、claim token、heartbeat、lease、状態更新 |
+| Local runner | task identity、worktree、Codex起動、検証結果、再試行、公開の進行管理 |
+| Codex | 承認済みスコープでの調査、編集、通常のローカルコマンドとproject test |
+| Git / GitHub adapters | commit、task branchのpush、PR、CIと候補SHAの照合、merge |
+| Deployment adapters | 対象環境への反映、healthと実際に反映されたSHAの確認 |
+| Runtime helpers | UUID由来の名前、SHA、worktree名の衝突などの操作前提 |
+| Diagnostics | 秘密値を除去しつつ失敗原因と検証結果を報告 |
 
-- AI専用git worktree
-- `AGENTS.md`
-- `docs/AI_CONTEXT.md`
-- `docs/AI_RULES.md`
-- `docs/AI_TASKS.md`
-- `docs/AI_RUNBOOK.md`
-- Codex CLIの利用方針（導入・設定は要確認）
-- GitHub CLIの利用方針（認証・権限は要確認）
+Codexは `danger-full-access`、`approval_policy="never"` で実行する。通常のユーザー・project設定とローカル環境を使用し、runner独自の編集パス制限、設定層検査、環境変数の除去、変更内容に対する自動reviewは行わない。
 
-このPhase 0では、Discordからの受付、task queue、Codexの非対話実行、commit、push、PR作成、Discord報告の自動化は実装しない。
+workflow、migration、Docker/Compose、scripts、Bot/Admin、Minecraft pack、設定、テストの変更は通常の開発である。symlink/junctionやrootの配置だけを理由に停止しない。commit/push/PR/merge/deploymentは実装用Codexではなくrunnerが担当する。
 
-## Phase 1: タスク受付基盤（実装済み）
+## 継続して確認する項目
 
-- DiscordからAI開発taskを受け付ける。
-- task IDを発行する。
-- `ai_tasks`へtaskとtask stateを保存する。
-- Discordからtaskの状態と一覧を確認する。
-- taskごとのbranch名とworktree名を記録する。実際のbranch/worktreeは作成しない。
+- task UUIDとbranch/worktree名の対応、入力設定の誤りを検出できること。
+- ユーザー・project設定、認証用環境、通常のファイル配置で開発ができること。
+- 変更の作成・削除・rename、symlink、encoding宣言を追加構文チェックが扱えること。
+- Codexが必要なテストを実行し、構文エラーやコマンド失敗を診断として扱うこと。
+- process timeout、子process停止、lease喪失時の中断が機能すること。
+- ログ、API、Discord、PRに秘密値を出さず、実際の失敗原因を報告すること。
+- task branch、commit SHA、PR、CI、merge、deployment結果が同じ候補を指すこと。
+- 失敗時に編集内容と他の作業者の変更を保持すること。
+- 再試行で公開や通知の重複を抑え、結果が不明な外部操作を確認できること。
 
-受付形式は`AI 開発 <依頼内容>`、`AI 状態 <task_id>`、`AI 一覧`とする。AI task権限は`AI_TASK_ALLOWED_USER_IDS`のallowlistだけで判定し、allowlist未設定時は拒否する。依頼本文はDiscord受付時1800文字、DBでは4000文字を上限とし、同じBotとDiscord messageの二重登録をDB制約で防止する。Codex実行、git操作、staging・production操作はPhase 2以降または人間の運用対象である。
+## 運用環境で確認する項目
 
-## Phase 2: 実行とDraft PR（将来）
-
-- Codexを非対話で実行する。
-- 変更内容に応じてtestを自動選択する。
-- 結果を確認してcommitする。
-- pushする。
-- Draft PRを作成する。
-- テスト結果と変更内容をDiscordへ報告する。
-
-Discord入力をshellとしてそのまま実行する受付、秘密情報の受け渡し、本番環境への直接接続は設計対象外または禁止対象である。Codex自身は専用worktree内で実装・検証に必要なローカルコマンドを実行できる。
-
-## Phase 3: レビュー支援（将来）
-
-- PRレビューを支援する。
-- 修正依頼を受け付ける。
-- 修正を再実行する。
-- 人間承認フローへ接続する。
-
-merge権限と承認の記録方式は要設計。AIが承認者を代行しない。
-
-## Phase 4: staging反映（将来）
-
-- 承認済み変更をstagingへ反映する。
-- staging反映後のcheckと報告を行う。
-- stagingの自動化範囲は、このPhaseで別途定義する。
-- productionの操作は人間承認必須とする。
-
-production deploy、production restart、production DB migration、production secrets変更、production firewall/network変更、Minecraft production world変更、production data deletion、production rollbackのAI Runnerによる実行は現在の計画対象外である。必要な場合は対象、影響、必要な操作、検証結果、復旧方法を整理して人間へ引き渡し、人間が外部で実行する。stagingの自動化とproductionの人間実行を混同しない。
-## Phase 2A Control Plane
-
-`migrations/060_add_ai_task_runner_fields.sql`でRunner識別、claim token、lease、試験結果、commit/PR情報を追加する。`queued` taskは固定APIのclaimで`running`になり、heartbeatとprogressを経て、`testing`、`needs_human`、`failed`、`ready_for_review`へ固定遷移する。lease期限切れは自動再queueせず`needs_human`へ遷移する。
-
-Phase 2AはControl Planeだけを提供し、Codex、Git、worktree、branch、PR作成、Discord通知は実行しない。
-## Phase 2B Local Runner
-
-Runnerの設定はprocess environmentからのみ読み取り、dotenvは読み込まない。API URL、Runner ID、source repo、専用worktree root、Codex実行ファイルを検証する。taskのbranch/worktree名はUUIDから再生成してAPI値と一致確認し、Codex終了後にHEAD、branch、worktree一覧、remoteを比較する。repo内のworkflow、migration、Docker、scripts、bot/admin、Minecraft pack、テスト等は通常の編集対象とし、パスだけを理由にrollbackやneeds_humanへ送らない。repo外path、`.git`内部、symlink/reparse等のworktree境界違反は停止する。
-
-Codexは固定argv、workspace-write、network有効、ephemeral、ignore-user-config、Bearer tokenを渡さないclean environmentで実行する。Codexの変更は保持し、runnerが検証後にcommit/push/Draft PRを管理する。
+Codex/GitHubの認証、runner設定、deployment対象、適用済みmigration、Botのchannel権限、実際のhealthは運用環境で確認する。offline checkの成功はlive deploymentや本番接続の成功を意味しない。コード変更の依頼を、外部操作や本番への反映を実行した報告と混同しない。

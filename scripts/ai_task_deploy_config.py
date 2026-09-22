@@ -4,46 +4,88 @@ import ipaddress
 import math
 import os
 import re
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ai_task_safety import SafetyError, is_reparse_point
+from ai_task_runtime import RuntimeOperationError
+from ai_task_diagnostics import redact_secrets
 
 
-class DeploymentSafetyError(SafetyError):
-    """Safe, fixed deployment failure; never includes transport output."""
+class DeploymentError(RuntimeOperationError):
+    """Deployment failure preserving diagnostics with credential values redacted."""
+
+    def __init__(self, message):
+        super().__init__(redact_secrets(message))
+
+
+def diagnostic_text(value):
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", errors="replace")
+    return redact_secrets(value)
+
+
+def process_failure(label, result):
+    details = [f"exit={result.returncode}"]
+    for flag in ("timed_out", "stopped", "stdin_cleanup_failed"):
+        if getattr(result, flag, False):
+            details.append(flag)
+    stderr = diagnostic_text(result.stderr).strip()
+    message = label + " (" + ", ".join(details) + ")" + (": " + stderr if stderr else "")
+    stdout = getattr(result, "stdout", None)
+    if stdout:
+        message += "\nstdout:\n" + diagnostic_text(stdout)
+    return message
+
+
+def proof_fields(stdout, keys, *, stderr=""):
+    fields = {}
+    for line in stdout.splitlines():
+        key, separator, value = line.partition("=")
+        key, value = key.strip(), value.strip()
+        if separator and key in keys:
+            if key in fields and fields[key] != value:
+                proof_error(f"deployment proof has conflicting {key}", stdout, stderr)
+            fields[key] = value
+    return fields
+
+
+def proof_error(reason, stdout, stderr=""):
+    raise DeploymentError(f"{reason}\nstdout:\n{diagnostic_text(stdout)}\nstderr:\n{diagnostic_text(stderr)}")
+
+
+def exception_detail(exc):
+    if isinstance(exc, DeploymentError):
+        return str(exc)
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return f"process timed out after {exc.timeout}s: " + diagnostic_text(exc.stderr)
+    if isinstance(exc, subprocess.CalledProcessError):
+        return process_failure("process failed", exc)
+    return f"{type(exc).__name__}: {exc}"
 
 
 def normal_file(path: Path, roots: tuple[Path, ...]) -> Path:
+    # Keep the argument for callers using the old configuration shape. Trusted
+    # transport files may be linked or installed alongside the source checkout.
     try:
-        if any(ord(c) < 32 or ord(c) == 127 or c in '\"\'%$' for c in str(path)):
-            raise ValueError
-        if ':' in path.as_posix()[len(path.drive):]:
-            raise ValueError
         if not path.is_absolute() or not path.is_file():
-            raise ValueError
-        for part in (path, *path.parents):
-            if part.is_symlink() or is_reparse_point(part):
-                raise ValueError
-        resolved = path.resolve(strict=True)
-        if any(resolved == root.resolve() or root.resolve() in resolved.parents for root in roots):
-            raise ValueError
-        return resolved
-    except (OSError, ValueError, SafetyError):
-        raise DeploymentSafetyError("deployment transport path rejected") from None
+            raise DeploymentError(f"deployment transport requires an existing absolute file: {path}")
+        return path.resolve(strict=True)
+    except (OSError, ValueError) as exc:
+        raise DeploymentError("deployment transport file unavailable: " + exception_detail(exc)) from None
 
 
 def validate_host(host: str) -> None:
     if not isinstance(host, str) or len(host) > 253:
-        raise DeploymentSafetyError("deployment host rejected")
+        raise DeploymentError("deployment host rejected")
     if not all(re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", p)
                for p in host.split(".")):
-        raise DeploymentSafetyError("deployment host rejected")
+        raise DeploymentError("deployment host rejected")
     if re.fullmatch(r"[0-9.]+", host):
         try:
             ipaddress.IPv4Address(host)
         except ValueError:
-            raise DeploymentSafetyError("deployment host rejected") from None
+            raise DeploymentError("deployment host rejected") from None
 
 
 @dataclass(frozen=True, repr=False)
@@ -59,17 +101,15 @@ class DeployConfig:
 
     def validate(self) -> None:
         validate_host(self.ssh_host)
-        if self.ssh_user != "ubuntu" or not self.excluded_roots:
-            raise DeploymentSafetyError("deployment configuration rejected")
+        if self.ssh_user != "ubuntu":
+            raise DeploymentError("deployment configuration rejected")
         roots = (*self.excluded_roots, Path(__file__).resolve().parent.parent)
         for path in (self.ssh_path, self.ssh_key_path, self.known_hosts_path):
             normal_file(path, roots)
-        if self.ssh_path.name != ("ssh.exe" if os.name == "nt" else "ssh"):
-            raise DeploymentSafetyError("deployment executable rejected")
         if not math.isfinite(self.timeout) or not 0 < self.timeout <= 7200:
-            raise DeploymentSafetyError("deployment timeout rejected")
+            raise DeploymentError("deployment timeout rejected")
         if type(self.max_output_bytes) is not int or not 8192 <= self.max_output_bytes <= 1048576:
-            raise DeploymentSafetyError("deployment output limit rejected")
+            raise DeploymentError("deployment output limit rejected")
 
     @classmethod
     def from_environment(cls, *, repo_root: Path, worktree_root: Path) -> "DeployConfig":
@@ -88,5 +128,5 @@ class DeployConfig:
             )
             config.validate()
             return config
-        except (KeyError, ValueError, TypeError, OSError):
-            raise DeploymentSafetyError("deployment configuration rejected") from None
+        except (KeyError, ValueError, TypeError, OSError) as exc:
+            raise DeploymentError("deployment configuration invalid: " + exception_detail(exc)) from None

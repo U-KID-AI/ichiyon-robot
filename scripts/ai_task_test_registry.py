@@ -1,15 +1,15 @@
-"""Static, non-executing test registry for the Phase 2B local runner.
+"""Lightweight syntax checks supplementing Codex's task-specific verification.
 
-Phase 2B must never execute repository Python code outside the Codex sandbox.
-Python changes are syntax-compiled in memory only.
+Codex may run local project tests and commands normally. This registry adds an
+in-memory Python syntax check; it is not an execution or edit-policy allowlist.
 """
 
+import math
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
-
-MAX_PYTHON_FILE_BYTES = 1024 * 1024
-MAX_PYTHON_FILES = 200
+from ai_task_diagnostics import redact_secrets
 
 
 @dataclass(frozen=True)
@@ -46,9 +46,13 @@ def run_tests(
     stop_event=None,
     process_terminator=None,
 ) -> list[TestResult]:
-    # runner/process_terminator are intentionally unused in production.
-    # They remain in the signature so LocalRunner has a stable interface.
-    del runner, timeout, process_terminator
+    # Kept for callers that also inject subprocess-based test implementations.
+    del runner, process_terminator
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("test timeout must be positive")
+    if type(max_output_bytes) is not int or max_output_bytes <= 0:
+        raise ValueError("test output limit must be a positive integer")
+    deadline = time.monotonic() + timeout
 
     selected = select_tests(changed_files)
     if not selected:
@@ -56,16 +60,8 @@ def run_tests(
 
     _, python_files = selected[0]
 
-    if len(python_files) > MAX_PYTHON_FILES:
-        return [
-            TestResult(
-                "python-syntax",
-                1,
-                f"too many Python files: {len(python_files)}",
-            )
-        ]
-
     root = repo_root.resolve()
+    checked = 0
 
     for relative in python_files:
         if stop_event is not None and stop_event.is_set():
@@ -78,35 +74,22 @@ def run_tests(
                 )
             ]
 
-        candidate = root / relative
-        resolved = candidate.resolve()
-
-        if root not in resolved.parents:
-            raise TestRegistryError("Python test path escapes repository")
+        if time.monotonic() >= deadline:
+            return [TestResult("python-syntax", -1, "syntax check timed out", timed_out=True)]
 
         try:
-            size = resolved.stat().st_size
-        except OSError as exc:
-            raise TestRegistryError("Python test file cannot be inspected") from exc
-
-        if size > MAX_PYTHON_FILE_BYTES:
-            return [
-                TestResult(
-                    "python-syntax",
-                    1,
-                    f"{relative}: file is too large",
-                )
-            ]
-
-        try:
-            source = resolved.read_text(encoding="utf-8")
+            source = (root / relative).read_bytes()
             compile(source, relative, "exec", dont_inherit=True)
+            checked += 1
+        except FileNotFoundError:
+            # Deleted files (including rename sources) have no source to check.
+            continue
         except (OSError, UnicodeError) as exc:
             return [
                 TestResult(
                     "python-syntax",
                     1,
-                    f"{relative}: cannot read UTF-8 source ({type(exc).__name__})",
+                    redact_secrets(f"{relative}: {type(exc).__name__}: {exc}")[:max_output_bytes],
                 )
             ]
         except SyntaxError as exc:
@@ -114,9 +97,13 @@ def run_tests(
                 TestResult(
                     "python-syntax",
                     1,
-                    f"{relative}:{exc.lineno or 0}: {exc.msg}",
+                    redact_secrets(f"{relative}:{exc.lineno or 0}: {exc.msg}")[:max_output_bytes],
                 )
             ]
 
-    message = f"syntax checked {len(python_files)} Python file(s)"
+    if stop_event is not None and stop_event.is_set():
+        return [TestResult("python-syntax", -1, "syntax check stopped", stopped=True)]
+    if time.monotonic() >= deadline:
+        return [TestResult("python-syntax", -1, "syntax check timed out", timed_out=True)]
+    message = f"syntax checked {checked} Python file(s)"
     return [TestResult("python-syntax", 0, message[:max_output_bytes])]

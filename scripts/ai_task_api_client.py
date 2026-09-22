@@ -1,4 +1,4 @@
-"""Fixed-operation client for the Phase 2A AI task Control Plane."""
+"""Client for the AI task control plane's owned runner operations."""
 
 import json
 import re
@@ -6,8 +6,13 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping
-from urllib.error import HTTPError, URLError
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+
+if __package__:
+    from .ai_task_diagnostics import redact_secrets
+else:
+    from ai_task_diagnostics import redact_secrets
 
 
 TASK_ID_PATTERN = re.compile(r"^[0-9a-fA-F-]{36}$")
@@ -54,25 +59,49 @@ class RunnerAPIClient:
                 "Accept": "application/json",
             },
         )
-        try:
-            with urlopen(request, timeout=self.timeout) as response:
-                data = response.read(self.max_response_bytes + 1)
-        except (HTTPError, URLError, TimeoutError, OSError) as exc:
-            raise RunnerAPIError("Control Plane request failed") from exc
-        if len(data) > self.max_response_bytes:
-            raise RunnerAPIError("Control Plane response is too large")
-        return data
+        with urlopen(request, timeout=self.timeout) as response:
+            data = response.read(self.max_response_bytes + 1)
+            if len(data) > self.max_response_bytes:
+                raise RunnerAPIError(f"HTTP {response.status}: response is too large")
+            return data
+
+    def _error(self, method: str, path: str, detail: str,
+               payload: Mapping[str, Any] | None) -> RunnerAPIError:
+        claim_token = str(payload.get("claim_token", "")) if payload else ""
+        return RunnerAPIError(redact_secrets(
+            f"Control Plane {method} {path}: {detail}",
+            secrets=(self.token, claim_token),
+        ))
 
     def _json(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
         try:
             raw = self._requester(method, path, payload)
-            if not isinstance(raw, bytes) or len(raw) > self.max_response_bytes:
-                raise RunnerAPIError("Control Plane response is too large or invalid")
+        except HTTPError as exc:
+            try:
+                data = exc.read(self.max_response_bytes + 1)
+                # A truncated body could end halfway through an unlabelled secret.
+                body = (f"<body exceeds {self.max_response_bytes} bytes>"
+                        if len(data) > self.max_response_bytes else data.decode("utf-8", errors="replace"))
+            except Exception as read_error:
+                body = f"<body unreadable: {type(read_error).__name__}: {read_error}>"
+            finally:
+                exc.close()
+            detail = f"HTTP {exc.code} {exc.reason}; body: {body}"
+            raise self._error(method, path, detail, payload) from None
+        except Exception as exc:
+            raise self._error(method, path, f"{type(exc).__name__}: {exc}", payload) from None
+        if not isinstance(raw, bytes):
+            raise self._error(method, path, f"invalid response type: {type(raw).__name__}", payload)
+        if len(raw) > self.max_response_bytes:
+            raise self._error(method, path, "response is too large", payload)
+        try:
             value = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
-            raise RunnerAPIError("Control Plane returned invalid JSON") from exc
+            raise self._error(method, path,
+                              f"{type(exc).__name__}: {exc}; body: {raw.decode('utf-8', errors='replace')}",
+                              payload) from None
         if not isinstance(value, dict):
-            raise RunnerAPIError("Control Plane returned an invalid response")
+            raise self._error(method, path, f"invalid response object; body: {raw.decode('utf-8')}", payload)
         return value
 
     def claim(self) -> ClaimedTask | None:
@@ -115,6 +144,12 @@ class RunnerAPIClient:
 
     def mark_testing(self, task_id: uuid.UUID, claim_token: uuid.UUID) -> dict[str, Any]:
         return self._owned("testing", task_id, claim_token)
+
+    def retry(self, task_id: uuid.UUID, claim_token: uuid.UUID, reason: str) -> dict[str, Any]:
+        if not isinstance(reason, str) or not 1 <= len(reason) <= 4000:
+            raise ValueError("invalid retry reason")
+        reason = redact_secrets(reason, secrets=(self.token, str(claim_token)))[:4000]
+        return self._owned("retry", task_id, claim_token, {"reason": reason})
 
     def mark_failed(self, task_id: uuid.UUID, claim_token: uuid.UUID, error_message: str) -> dict[str, Any]:
         return self._owned("fail", task_id, claim_token, {"error_message": error_message})
@@ -178,7 +213,7 @@ class RunnerAPIClient:
         pr_url: str,
         test_summary: str,
         changed_files_summary: str,
-        ci_workflow_run_id: int,
+        ci_workflow_run_id: int | None = None,
         review_summary: str,
         merge_commit_sha: str,
     ) -> dict[str, Any]:
@@ -208,17 +243,11 @@ class RunnerAPIClient:
             or pr_number > 2_147_483_647
             or match is None
             or int(match.group(1)) != pr_number
-            or not isinstance(
-                ci_workflow_run_id,
-                int,
-            )
-            or isinstance(
-                ci_workflow_run_id,
-                bool,
-            )
-            or ci_workflow_run_id <= 0
-            or ci_workflow_run_id
-            > 9_223_372_036_854_775_807
+            or (ci_workflow_run_id is not None and (
+                not isinstance(ci_workflow_run_id, int)
+                or isinstance(ci_workflow_run_id, bool)
+                or not 1 <= ci_workflow_run_id <= 9_223_372_036_854_775_807
+            ))
             or not isinstance(
                 test_summary,
                 str,
@@ -296,7 +325,7 @@ class RunnerAPIClient:
 
     def _owned(self, operation: str, task_id: uuid.UUID, claim_token: uuid.UUID,
                fields: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        if operation not in {"heartbeat", "progress", "testing", "fail", "needs-human", "ready-for-review", "deploying", "completed"}:
+        if operation not in {"heartbeat", "progress", "testing", "retry", "fail", "needs-human", "ready-for-review", "deploying", "completed"}:
             raise ValueError("operation is not allowlisted")
         if not isinstance(task_id, uuid.UUID) or not isinstance(claim_token, uuid.UUID):
             raise ValueError("task identifiers must be UUIDs")

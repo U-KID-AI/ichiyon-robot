@@ -1,5 +1,6 @@
-"""Allowlisted, non-shell Git operations for the local AI task runner."""
+"""Ordinary Git operations and task worktree integrity checks."""
 
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -7,52 +8,24 @@ from pathlib import Path
 from typing import Callable, Sequence
 from uuid import UUID
 
-from ai_task_safety import is_reparse_point, validate_changed_paths
-
-
 EXPECTED_ORIGIN = "https://github.com/U-KID-AI/ichiyon-robot.git"
-SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40}$")
+SHA_PATTERN = re.compile(r"^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$")
 
 
-class GitSafetyError(RuntimeError):
+class GitOperationError(RuntimeError):
+    """A Git failure or a task worktree integrity failure."""
+
+    def __init__(self, message: str, *, stdout: str = "", stderr: str = "",
+                 returncode: int | None = None) -> None:
+        self.stdout = stdout
+        self.stderr = stderr
+        self.returncode = returncode
+        self.diagnostics = "\n".join(part for part in (stdout, stderr) if part)
+        super().__init__(message + ("\n" + self.diagnostics if self.diagnostics else ""))
+
+
+class GitDiffCheckError(GitOperationError):
     pass
-
-
-class GitDiffCheckError(GitSafetyError):
-    pass
-
-
-def _safe_relative(value: str) -> bool:
-    if not isinstance(value, str) or not value or "\0" in value or "\\" in value or ":" in value:
-        return False
-    path = Path(value)
-    return (not path.is_absolute() and not value.startswith("-")
-            and all(part not in ("", ".", "..") for part in value.split("/")))
-
-
-def repairable_paths(cwd: Path, paths: list[str]) -> list[str]:
-    """Validate changed paths without classifying policy edits for rollback."""
-    root = cwd.resolve()
-    if cwd.is_symlink() or is_reparse_point(cwd):
-        raise GitSafetyError("worktree filesystem boundary violation")
-    for relative in paths:
-        if not _safe_relative(relative):
-            raise GitSafetyError("unsafe changed path")
-        candidate = root
-        for part in relative.split("/"):
-            candidate = candidate / part
-            if candidate.is_symlink():
-                raise GitSafetyError("changed path is a symlink")
-            try:
-                candidate.lstat()
-            except FileNotFoundError:
-                continue
-            if is_reparse_point(candidate):
-                raise GitSafetyError("changed path is a reparse point")
-        if root not in candidate.resolve().parents:
-            raise GitSafetyError("changed path escapes repository")
-        validate_changed_paths(cwd, [relative])
-    return []
 
 
 @dataclass(frozen=True)
@@ -77,65 +50,56 @@ class GitAdapter:
         self._runner = runner or subprocess.run
 
     def _run(self, args: Sequence[str], cwd: Path | None = None, timeout: float = 60) -> GitResult:
-        if not self._is_allowed_argv(tuple(args)):
-            raise GitSafetyError("Git operation is not allowlisted")
-        result = self._runner([str(self.git_path), *args], cwd=str((cwd or self.repo_root).resolve()), shell=False,
-                              capture_output=True, text=True, encoding="utf-8", errors="replace",
-                              timeout=timeout, check=False)
-        return GitResult(result.returncode, result.stdout, result.stderr)
+        try:
+            result = self._runner(
+                [str(self.git_path), *args], cwd=str((cwd or self.repo_root).resolve()), shell=False,
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=timeout, check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            def decode(value):
+                return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value or ""
+            raise GitOperationError(
+                f"git {' '.join(args)} timed out after {timeout}s",
+                stdout=decode(exc.stdout), stderr=decode(exc.stderr),
+            ) from exc
+        except OSError as exc:
+            raise GitOperationError(f"git {' '.join(args)} could not start: {exc}") from exc
+        return GitResult(result.returncode, result.stdout or "", result.stderr or "")
 
-    @staticmethod
-    def _is_allowed_argv(args: tuple[str, ...]) -> bool:
-        if args in (("status", "--porcelain=v1"), ("status", "--porcelain=v1", "-z", "--untracked-files=all"),
-                    ("rev-parse", "--show-toplevel"), ("rev-parse", "origin/main"), ("rev-parse", "HEAD"),
-                    ("rev-parse", "--abbrev-ref", "HEAD"), ("remote", "get-url", "origin"),
-                    ("fetch", "origin", "main"), ("worktree", "list", "--porcelain"),
-                    ("diff", "--check"), ("diff", "--stat")):
-            return True
-        if len(args) == 6 and args[0:3] == ("worktree", "add", "-b"):
-            return bool(re.fullmatch(r"ai/task/[0-9a-fA-F-]{36}", args[3]) and Path(args[4]).is_absolute() and SHA_PATTERN.fullmatch(args[5]) is not None)
-        if len(args) == 6 and args[:3] == ("restore", "--staged", "--source") and args[4:] == ("--", "."):
-            return bool(SHA_PATTERN.fullmatch(args[3]))
-        if len(args) == 6 and args[:3] == ("ls-tree", "-z", "--full-tree") and args[4] == "--":
-            return bool(SHA_PATTERN.fullmatch(args[3]) and _safe_relative(args[5]))
-        if len(args) == 6 and args[:2] == ("restore", "--worktree") and args[2] == "--source":
-            return False
-        return False
-
-    def unstage(self, cwd: Path, task_id: UUID, base_sha: str) -> None:
-        self.validate_worktree(task_id, cwd, base_sha)
-        self.snapshot(cwd)
-        repairable_paths(cwd, self.changed_files(cwd))
-        if self._run(("restore", "--staged", "--source", base_sha, "--", "."), cwd).returncode:
-            raise GitSafetyError("automatic unstage failed")
-        if self.staged_files(cwd):
-            raise GitSafetyError("Git index remains staged after automatic unstage")
-
-    def restore_protected(self, cwd: Path, task_id: UUID, base_sha: str, paths: list[str]) -> None:
-        raise GitSafetyError("protected path restoration is disabled; repository edits are preserved")
+    def _checked(self, args: Sequence[str], cwd: Path | None = None, timeout: float = 60) -> GitResult:
+        result = self._run(args, cwd, timeout)
+        if result.returncode != 0:
+            raise GitOperationError(
+                f"git {' '.join(args)} failed (exit {result.returncode})",
+                stdout=result.stdout, stderr=result.stderr, returncode=result.returncode,
+            )
+        return result
 
     def require_source_repo(self) -> None:
         if not self.repo_root.is_dir() or not (self.repo_root / ".git").exists():
-            raise GitSafetyError("source repository is invalid")
-        root = self._run(("rev-parse", "--show-toplevel"))
-        if root.returncode != 0 or Path(root.stdout.strip()).resolve() != self.repo_root:
-            raise GitSafetyError("source repository root mismatch")
-        remote = self._run(("remote", "get-url", "origin"))
-        if remote.returncode != 0 or remote.stdout.strip().rstrip("/") != EXPECTED_ORIGIN.rstrip("/"):
-            raise GitSafetyError("origin repository mismatch")
-        status = self._run(("status", "--porcelain=v1"))
-        if status.returncode != 0 or status.stdout:
-            raise GitSafetyError("source repository is not clean")
+            raise GitOperationError("source repository is invalid")
+        root = self._checked(("rev-parse", "--show-toplevel"))
+        if Path(root.stdout.strip()).resolve() != self.repo_root:
+            raise GitOperationError("source repository root mismatch")
+        remote = self._checked(("remote", "get-url", "origin"))
+        if not remote.stdout.strip():
+            raise GitOperationError("origin repository is missing")
 
     def fetch_main(self) -> str:
-        result = self._run(("fetch", "origin", "main"), timeout=120)
-        if result.returncode != 0:
-            raise GitSafetyError("origin fetch failed")
-        sha = self._run(("rev-parse", "origin/main"))
+        self._checked(("fetch", "origin", "main"), timeout=120)
+        sha = self._checked(("rev-parse", "origin/main"))
         value = sha.stdout.strip()
-        if sha.returncode != 0 or not SHA_PATTERN.fullmatch(value):
-            raise GitSafetyError("origin/main SHA is invalid")
+        if not SHA_PATTERN.fullmatch(value):
+            raise GitOperationError("origin/main SHA is invalid", stdout=sha.stdout, stderr=sha.stderr)
         return value
+
+    def integrate_main(self, cwd: Path) -> str:
+        """Merge the latest main into this worktree, leaving conflicts for repair."""
+        self.snapshot(cwd)
+        self._checked(("fetch", "origin", "main"), cwd, timeout=120)
+        self._checked(("merge", "--no-edit", "origin/main"), cwd, timeout=120)
+        return self._checked(("rev-parse", "HEAD"), cwd).stdout.strip()
 
     @staticmethod
     def expected_branch(task_id: UUID) -> str:
@@ -147,96 +111,93 @@ class GitAdapter:
 
     def add_worktree(self, task_id: UUID, worktree_root: Path, base_sha: str) -> Path:
         if not isinstance(task_id, UUID) or not SHA_PATTERN.fullmatch(base_sha):
-            raise GitSafetyError("invalid worktree input")
-        name = self.expected_worktree_name(task_id)
+            raise GitOperationError("invalid worktree input")
         worktree_root = worktree_root.resolve()
         worktree_root.mkdir(parents=True, exist_ok=True)
-        target = (worktree_root / name).resolve()
-        if target.parent != worktree_root or target.exists() or target.is_symlink():
-            raise GitSafetyError("worktree path already exists or escapes root")
-        result = self._run(("worktree", "add", "-b", self.expected_branch(task_id), str(target), base_sha))
-        if result.returncode != 0:
-            raise GitSafetyError("worktree creation failed")
+        target = worktree_root / self.expected_worktree_name(task_id)
+        if target.parent != worktree_root or target.exists():
+            raise GitOperationError("worktree path already exists or escapes root")
+        self._checked(("worktree", "add", "-b", self.expected_branch(task_id), str(target), base_sha))
         return target
 
+    def _common_dir(self, cwd: Path) -> Path:
+        result = self._checked(("rev-parse", "--git-common-dir"), cwd)
+        return (cwd / result.stdout.strip()).resolve()
+
     def snapshot(self, cwd: Path) -> GitSnapshot:
-        head_result = self._run(("rev-parse", "HEAD"), cwd)
-        branch_result = self._run(("rev-parse", "--abbrev-ref", "HEAD"), cwd)
-        worktree_result = self._run(("worktree", "list", "--porcelain"), self.repo_root)
-        origin_result = self._run(("remote", "get-url", "origin"), cwd)
+        root = self._checked(("rev-parse", "--show-toplevel"), cwd)
+        if Path(root.stdout.strip()).resolve() != cwd.resolve():
+            raise GitOperationError("worktree root mismatch")
+        if self._common_dir(cwd) != self._common_dir(self.repo_root):
+            raise GitOperationError("worktree belongs to a different repository")
+        head_result = self._checked(("rev-parse", "HEAD"), cwd)
+        branch_result = self._checked(("rev-parse", "--abbrev-ref", "HEAD"), cwd)
+        worktree_result = self._checked(("worktree", "list", "--porcelain", "-z"))
+        origin_result = self._checked(("remote", "get-url", "origin"), cwd)
         head = head_result.stdout.strip()
         branch = branch_result.stdout.strip()
         worktrees = worktree_result.stdout
         origin = origin_result.stdout.strip()
-        worktree_paths = self.parse_worktree_porcelain(worktrees) if worktree_result.returncode == 0 else set()
-        normalized_cwd = self._normalized_path(cwd.resolve())
-        normalized_repo = self._normalized_path(self.repo_root)
-        if (head_result.returncode != 0 or not SHA_PATTERN.fullmatch(head)
-                or branch_result.returncode != 0 or not branch
-                or worktree_result.returncode != 0 or not worktree_paths
-                or normalized_cwd not in worktree_paths or normalized_repo not in worktree_paths
-                or origin_result.returncode != 0 or origin.rstrip("/") != EXPECTED_ORIGIN.rstrip("/")):
-            raise GitSafetyError("Git snapshot validation failed")
+        worktree_paths = self.parse_worktree_porcelain(worktrees)
+        if (not SHA_PATTERN.fullmatch(head) or not branch or not origin
+                or self._normalized_path(cwd.resolve()) not in worktree_paths
+                or self._normalized_path(self.repo_root) not in worktree_paths):
+            raise GitOperationError("Git snapshot validation failed")
         return GitSnapshot(head, branch, worktrees, origin)
 
     @staticmethod
     def _normalized_path(path: Path) -> str:
-        return str(path).replace("\\", "/").rstrip("/").casefold()
+        return os.path.normcase(str(path)).replace(os.sep, "/").rstrip("/")
 
     @classmethod
     def parse_worktree_porcelain(cls, value: str) -> set[str]:
-        if not isinstance(value, str) or not value.strip():
-            raise GitSafetyError("Git worktree output is empty")
-        normalized = value.replace("\r\n", "\n")
-        if not normalized.endswith("\n\n"):
-            raise GitSafetyError("Git worktree output is missing its record terminator")
+        """Accept NUL-delimited output, plus the legacy newline format."""
+        if not isinstance(value, str) or not value:
+            raise GitOperationError("Git worktree output is empty")
+        separator = "\0" if "\0" in value else "\n"
+        normalized = value if separator == "\0" else value.replace("\r\n", "\n")
+        terminator = separator * 2
+        if not normalized.endswith(terminator):
+            raise GitOperationError("Git worktree output is missing its record terminator")
         paths = set()
-        for block in normalized[:-2].split("\n\n"):
-            lines = [line for line in block.split("\n") if line]
+        for block in normalized[:-2].split(terminator):
+            lines = block.split(separator)
             if not lines or not lines[0].startswith("worktree "):
-                raise GitSafetyError("Git worktree output is malformed")
+                raise GitOperationError("Git worktree output is malformed")
             raw_path = lines[0][len("worktree "):]
             if not raw_path or any(line.startswith("worktree ") for line in lines[1:]):
-                raise GitSafetyError("Git worktree output is malformed")
-            if not any(line.startswith("HEAD ") and SHA_PATTERN.fullmatch(line[5:]) for line in lines[1:]):
-                raise GitSafetyError("Git worktree output is malformed")
-            allowed = ("HEAD ", "branch refs/heads/", "detached", "bare", "locked", "prunable", "reason ")
-            if any(not line.startswith(allowed) for line in lines[1:]):
-                raise GitSafetyError("Git worktree output is malformed")
+                raise GitOperationError("Git worktree output is malformed")
+            if ("bare" not in lines and not any(
+                    line.startswith("HEAD ") and SHA_PATTERN.fullmatch(line[5:]) for line in lines[1:])):
+                raise GitOperationError("Git worktree output is malformed")
             paths.add(cls._normalized_path(Path(raw_path)))
         return paths
 
     def validate_worktree(self, task_id: UUID, path: Path, base_sha: str) -> None:
         if not isinstance(task_id, UUID) or not SHA_PATTERN.fullmatch(base_sha):
-            raise GitSafetyError("invalid worktree input")
+            raise GitOperationError("invalid worktree input")
         if path.name != self.expected_worktree_name(task_id):
-            raise GitSafetyError("worktree name mismatch")
-        for candidate in (path, *path.parents):
-            if candidate.is_symlink() or is_reparse_point(candidate):
-                raise GitSafetyError("worktree reparse point is not allowed")
-        expected = path.resolve()
-        root = self._run(("rev-parse", "--show-toplevel"), expected)
-        head = self._run(("rev-parse", "HEAD"), expected)
-        branch = self._run(("rev-parse", "--abbrev-ref", "HEAD"), expected)
-        if root.returncode != 0 or Path(root.stdout.strip()).resolve() != expected:
-            raise GitSafetyError("worktree root mismatch")
-        if head.returncode != 0 or head.stdout.strip() != base_sha:
-            raise GitSafetyError("worktree base mismatch")
-        if branch.returncode != 0 or branch.stdout.strip() != self.expected_branch(task_id):
-            raise GitSafetyError("worktree branch mismatch")
-        if path.is_symlink() or is_reparse_point(path):
-            raise GitSafetyError("worktree reparse point is not allowed")
+            raise GitOperationError("worktree name mismatch")
+        snapshot = self.snapshot(path)
+        if snapshot.branch != self.expected_branch(task_id):
+            raise GitOperationError("worktree branch mismatch")
+        # Ordinary task commits advance HEAD; the task base must remain an ancestor.
+        self._checked(("merge-base", "--is-ancestor", base_sha, snapshot.head), path)
 
-    def changed_files(self, cwd: Path) -> list[str]:
-        result = self._run(("status", "--porcelain=v1", "-z", "--untracked-files=all"), cwd)
-        if result.returncode != 0:
-            raise GitSafetyError("changed file inspection failed")
-        return self.parse_status_z(result.stdout)
+    def changed_files(self, cwd: Path, base_sha: str | None = None) -> list[str]:
+        """Return pending paths and, optionally, changes already committed since base."""
+        paths = []
+        if base_sha is not None:
+            if not SHA_PATTERN.fullmatch(base_sha):
+                raise GitOperationError("invalid base SHA")
+            committed = self._checked(("diff", "--name-only", "--no-renames", "-z", base_sha, "HEAD", "--"), cwd)
+            paths.extend(path for path in committed.stdout.split("\0") if path)
+        result = self._checked(("status", "--porcelain=v1", "-z", "--untracked-files=all"), cwd)
+        paths.extend(self.parse_status_z(result.stdout))
+        return list(dict.fromkeys(paths))
 
     def staged_files(self, cwd: Path) -> list[str]:
-        result = self._run(("status", "--porcelain=v1", "-z", "--untracked-files=all"), cwd)
-        if result.returncode != 0:
-            raise GitSafetyError("staged file inspection failed")
+        result = self._checked(("status", "--porcelain=v1", "-z", "--untracked-files=all"), cwd)
         return [path for status, path in self.parse_status_entries_z(result.stdout) if status[0] not in (" ", "?")]
 
     @staticmethod
@@ -253,13 +214,13 @@ class GitAdapter:
             index += 1
             if not record:
                 continue
-            if len(record) < 4:
-                raise GitSafetyError("invalid NUL status record")
+            if len(record) < 4 or record[2] != " ":
+                raise GitOperationError("invalid NUL status record")
             status = record[:2]
             entries.append((status, record[3:]))
             if status[0] in "RC" or status[1] in "RC":
                 if index >= len(records) or not records[index]:
-                    raise GitSafetyError("invalid rename status record")
+                    raise GitOperationError("invalid rename status record")
                 entries.append((status, records[index]))
                 index += 1
         return entries
@@ -267,11 +228,17 @@ class GitAdapter:
     def diff_check(self, cwd: Path) -> str:
         result = self._run(("diff", "--check"), cwd)
         if result.returncode != 0:
-            raise GitDiffCheckError("git diff --check failed")
+            raise GitDiffCheckError("git diff --check failed", stdout=result.stdout,
+                                    stderr=result.stderr, returncode=result.returncode)
         return result.stdout
 
-    def diff_stat(self, cwd: Path) -> str:
-        result = self._run(("diff", "--stat"), cwd)
-        if result.returncode != 0:
-            raise GitSafetyError("git diff stat failed")
-        return result.stdout[:4000]
+    def diff_stat(self, cwd: Path, base_sha: str | None = None) -> str:
+        if base_sha is not None and not SHA_PATTERN.fullmatch(base_sha):
+            raise GitOperationError("invalid base SHA")
+        return self._checked(("diff", "--stat", base_sha or "HEAD", "--"), cwd).stdout
+
+    def diff(self, cwd: Path, base_sha: str) -> str:
+        """Return the full committed task diff for the caller's redacted artifact."""
+        if not SHA_PATTERN.fullmatch(base_sha):
+            raise GitOperationError("invalid base SHA")
+        return self._checked(("diff", base_sha, "HEAD", "--"), cwd).stdout

@@ -137,7 +137,19 @@ async def run() -> int:
     check.add("all statuses are in current schema", all("'" + status + "'" in deployment_migration for status in AI_TASK_STATUSES))
 
     repository_source = (ROOT_DIR / "bot" / "repositories" / "ai_tasks.py").read_text(encoding="utf-8")
-    check.add("repository queries are parameterized", "%s" in repository_source and "f\"" not in repository_source and "format(" not in repository_source)
+    repository_tree = ast.parse(repository_source)
+    query_calls = [node for node in ast.walk(repository_tree)
+                   if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                   and node.func.attr == "execute"]
+    fixed_queries = {target.id for node in ast.walk(repository_tree)
+                     if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)
+                     and isinstance(node.value.value, str)
+                     for target in node.targets if isinstance(target, ast.Name)}
+    check.add("repository queries are parameterized", bool(query_calls)
+              and all(len(node.args) >= 2 and (
+                  isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)
+                  or isinstance(node.args[0], ast.Name) and node.args[0].id in fixed_queries)
+                  for node in query_calls))
     check.add("invalid task UUID is rejected", ai_tasks.parse_task_id("not-a-uuid") is None)
     check.add("list limit is capped at 20", "min(int(limit), 20)" in repository_source)
     check.add("progress fields are fixed", "current_step" in repository_source and "progress_summary" in repository_source and "SET {" not in repository_source)
