@@ -1,7 +1,8 @@
 {
   "format_version": "1.26.30",
   "minecraft:entity": {
-    "description": {"identifier": "ichiyon:garbage_molcar", "is_spawnable": true, "is_summonable": true, "is_experimental": false},
+    "description": {"identifier": "ichiyon:garbage_molcar", "is_spawnable": true, "is_summonable": true, "is_experimental": false,
+      "properties": {"ichiyon:pickup_enabled": {"type": "bool", "default": false}}},
     "component_groups": {
       "ichiyon:garbage_idle": {
         "minecraft:behavior.random_stroll": {"priority": 6, "speed_multiplier": 1, "interval": 40},
@@ -9,7 +10,9 @@
       },
       "ichiyon:garbage_follow": {
         "minecraft:tameable": {"probability": 0, "tame_items": []},
-        "minecraft:is_tamed": {},
+        "minecraft:is_tamed": {}
+      },
+      "ichiyon:garbage_following": {
         "minecraft:behavior.follow_owner": {"priority": 2, "speed_multiplier": 1.2, "start_distance": 3, "stop_distance": 2, "can_teleport": false}
       }
     },
@@ -39,8 +42,14 @@
     },
     "events": {
       "minecraft:entity_spawned": {"add": {"component_groups": ["ichiyon:garbage_idle"]}},
-      "ichiyon:garbage_start": {"remove": {"component_groups": ["ichiyon:garbage_idle"]}, "add": {"component_groups": ["ichiyon:garbage_follow"]}},
-      "ichiyon:garbage_stop": {"remove": {"component_groups": ["ichiyon:garbage_follow"]}, "add": {"component_groups": ["ichiyon:garbage_idle"]}}
+      "ichiyon:garbage_pickup_on": {"remove": {"component_groups": ["ichiyon:garbage_idle", "ichiyon:garbage_following"]}, "set_property": {"ichiyon:pickup_enabled": true}},
+      "ichiyon:garbage_pickup_off": {"sequence": [
+        {"set_property": {"ichiyon:pickup_enabled": false}},
+        {"filters": {"test": "is_tamed", "value": true}, "add": {"component_groups": ["ichiyon:garbage_following"]}},
+        {"filters": {"test": "is_tamed", "value": false}, "add": {"component_groups": ["ichiyon:garbage_idle"]}}
+      ]},
+      "ichiyon:garbage_start": {"remove": {"component_groups": ["ichiyon:garbage_idle"]}, "add": {"component_groups": ["ichiyon:garbage_follow", "ichiyon:garbage_following"]}, "set_property": {"ichiyon:pickup_enabled": false}},
+      "ichiyon:garbage_stop": {"remove": {"component_groups": ["ichiyon:garbage_follow", "ichiyon:garbage_following"]}, "add": {"component_groups": ["ichiyon:garbage_idle"]}, "set_property": {"ichiyon:pickup_enabled": false}}
     }
   }
 }

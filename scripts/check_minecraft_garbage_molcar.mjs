@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { collect, withdraw, createGarbageMolcar, GARBAGE, OWNER, PAW, isMob } from '../minecraft/behavior_packs/import_structures/scripts/garbage_molcar_core.js';
+import { collect, withdraw, canStore, seekDrop, createGarbageMolcar, GARBAGE, OWNER, PAW, isMob } from '../minecraft/behavior_packs/import_structures/scripts/garbage_molcar_core.js';
 
 class Stack {
   constructor(typeId,amount=1,nameTag=''){Object.assign(this,{typeId,amount,nameTag,maxAmount:64,opaque:'map-uuid-123'});}
@@ -99,6 +99,45 @@ test('isolated friendly native AI and persistent inventory',()=>{
     assert(!('minecraft:inventory' in c)||c===bp.components);
   }
   assert(bp.component_groups['ichiyon:garbage_idle']['minecraft:behavior.random_stroll']);
-  assert.equal(bp.component_groups['ichiyon:garbage_follow']['minecraft:behavior.follow_owner'].can_teleport,false);
+  assert.equal(bp.component_groups['ichiyon:garbage_following']['minecraft:behavior.follow_owner'].can_teleport,false);
+  assert.deepEqual(bp.events['ichiyon:garbage_pickup_on'].remove.component_groups,['ichiyon:garbage_idle','ichiyon:garbage_following']);
+  assert(!bp.events['ichiyon:garbage_pickup_on'].remove.component_groups.includes('ichiyon:garbage_follow'));
+  assert(!JSON.stringify(bp).includes('pickup_items'));
+});
+
+test('nearby seeking respects obstacles, owner range, height and capacity',()=>{
+  const m=entity(),p=entity('minecraft:player','owner');m.dimension.getBlockFromRay=()=>undefined;
+  const d=drop(new Stack('diamond',2));d.location={x:6,y:64,z:0};
+  assert.deepEqual(seekDrop(m,[d]).direction,{x:1,y:0,z:0});
+  m.dimension.getBlockFromRay=()=>({block:{}});assert(!seekDrop(m,[d]));
+  m.dimension.getBlockFromRay=()=>undefined;
+  p.location.x=-4;assert(!seekDrop(m,[d],p));
+  d.location.y=67;assert(!seekDrop(m,[d]));d.location.y=64;
+  m.setDynamicProperty(OWNER,'owner');for(let i=0;i<54;i++)m.container.setItem(i,new Stack('stone',64));
+  assert(!canStore(m,d));assert(!seekDrop(m,[d]));assert(d.isValid);
+});
+
+test('seeking pauses native wandering/follow and yields to owner/leash',()=>{
+  const m=entity(),p=entity('minecraft:player','owner'),d=drop(new Stack('diamond'));d.location={x:6,y:64,z:0};
+  m.isOnGround=true;m.getVelocity=()=>({x:0,y:0,z:0});m.setRotation=()=>{};
+  const impulses=[];m.applyImpulse=v=>impulses.push(v);
+  m.getProperty=k=>m.props.get(k)??false;
+  m.triggerEvent=e=>{m.events.push(e);m.props.set('ichiyon:pickup_enabled',e==='ichiyon:garbage_pickup_on');};
+  m.dimension.getBlockFromRay=()=>undefined;
+  m.dimension.getEntities=q=>q.type===GARBAGE?[m]:q.maxDistance===8?[d]:[];
+  const world={getDimension:n=>n==='overworld'?m.dimension:{getEntities:()=>[]},getAllPlayers:()=>[p]};
+  const core=createGarbageMolcar({world,system:{currentTick:0},ActionFormData:class{}});
+  core.scan();assert.equal(impulses.length,1);assert(impulses[0].x>0);assert.equal(m.events.at(-1),'ichiyon:garbage_pickup_on');
+  m.setDynamicProperty(OWNER,p.id);p.location.x=24;core.scan();assert.equal(impulses.length,1);assert.equal(m.events.at(-1),'ichiyon:garbage_pickup_off');
+  p.location.x=0;const component=m.getComponent;m.getComponent=k=>k==='minecraft:leashable'?{isLeashed:true}:component(k);
+  core.scan();assert.equal(impulses.length,1);
+});
+test('compact integrated cab, low lead and no headphone protrusions',()=>{
+  const geo=JSON.parse(readFileSync(new URL('../minecraft/resource_packs/ichiyon_avatar_rp/models/entity/garbage_molcar.geo.json',import.meta.url)))['minecraft:geometry'][0];
+  const body=geo.bones.find(b=>b.name==='body');assert.deepEqual(body.locators.lead,[-10,5.2,0]);
+  assert(!geo.bones.find(b=>b.name==='dj').cubes?.length);
+  assert(body.cubes.some(c=>c.size[0]>2&&c.uv.west.uv[0]===100));
+  assert(body.cubes.some(c=>c.size[0]>2&&c.origin[1]===6&&c.uv.west.uv[0]===36));
+  assert(geo.bones.reduce((n,b)=>n+(b.cubes?.length??0),0)<100);
 });
 console.log(`${passed} garbage/paw checks passed`);

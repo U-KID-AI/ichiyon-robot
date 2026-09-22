@@ -9,6 +9,40 @@ const near = (player, entity) => alive(player) && alive(entity)
   && Math.hypot(player.location.x - entity.location.x, player.location.y - entity.location.y,
     player.location.z - entity.location.z) <= 6;
 
+export function canStore(entity, drop) {
+  if (!entity.getDynamicProperty(OWNER)) return true;
+  const stack = drop.getComponent("minecraft:item")?.itemStack;
+  const container = inventory(entity);
+  if (!stack || !container) return false;
+  let room = 0;
+  for (let i = 0; i < container.size; i++) {
+    const item = container.getItem(i);
+    if (!item || item.isStackableWith(stack)) room += stack.maxAmount - (item?.amount ?? 0);
+    if (room >= stack.amount) return true;
+  }
+  return false;
+}
+
+// Short, unobstructed detours use physics impulses, not teleportation or attack targets.
+export function seekDrop(entity, drops, player) {
+  const from = entity.location;
+  for (const drop of drops) {
+    if (!drop.isValid || !canStore(entity, drop)) continue;
+    const to = drop.location;
+    if (Math.abs(to.y - from.y) > 1) continue;
+    if (player && Math.hypot(to.x - player.location.x, to.z - player.location.z) > 8) continue;
+    const dx = to.x - from.x, dz = to.z - from.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance <= 0.8) continue;
+    const direction = { x: dx / distance, y: 0, z: dz / distance };
+    const blocked = [-0.65, 0, 0.65].some((side) => entity.dimension.getBlockFromRay(
+      { x: from.x - direction.z * side, y: from.y + 0.5, z: from.z + direction.x * side },
+      direction, { maxDistance: distance, includePassableBlocks: false, includeLiquidBlocks: true }));
+    if (!blocked) return { direction, distance };
+  }
+  return undefined;
+}
+
 export function isMob(entity) {
   return entity?.typeId !== "minecraft:player" && alive(entity)
     && entity.getComponent("minecraft:type_family")?.hasTypeFamily("mob") === true;
@@ -173,14 +207,29 @@ export function createGarbageMolcar({ world, system, ActionFormData, report = co
           if (!alive(entity)) continue;
           try {
             const ownerId = entity.getDynamicProperty(OWNER);
+            const player = ownerId ? world.getAllPlayers().find((p) => p.id === ownerId) : undefined;
+            const pickupAllowed = !forms.has(entity.id) && (!ownerId || (player
+              && player.dimension.id === dimension.id
+              && Math.hypot(player.location.x - entity.location.x, player.location.z - entity.location.z) <= 8));
             if (ownerId) {
-              const player = world.getAllPlayers().find((p) => p.id === ownerId);
               const tame = entity.getComponent("minecraft:tameable");
               if (!tame) entity.triggerEvent("ichiyon:garbage_start");
               else if (player && tame.tamedToPlayerId !== ownerId) tame.tame(player);
             }
             if (!forms.has(entity.id)) {
-              for (const drop of dimension.getEntities({ type: "minecraft:item", location: entity.location, maxDistance: 2.5, closest: 16 })) collect(entity, drop);
+              for (const drop of dimension.getEntities({ type: "minecraft:item", location: entity.location, maxDistance: 1.1, closest: 16 })) collect(entity, drop);
+            }
+            const target = pickupAllowed && !entity.getComponent("minecraft:leashable")?.isLeashed
+              ? seekDrop(entity, dimension.getEntities({ type: "minecraft:item", location: entity.location, maxDistance: 8, closest: 8 }), player)
+              : undefined;
+            if (entity.getProperty("ichiyon:pickup_enabled") !== !!target) {
+              entity.triggerEvent(target ? "ichiyon:garbage_pickup_on" : "ichiyon:garbage_pickup_off");
+            }
+            if (target && entity.isOnGround) {
+              const velocity = entity.getVelocity();
+              const speed = Math.min(0.28, target.distance * 0.1);
+              entity.setRotation({ x: 0, y: Math.atan2(-target.direction.x, target.direction.z) * 180 / Math.PI });
+              entity.applyImpulse({ x: target.direction.x * speed - velocity.x, y: 0, z: target.direction.z * speed - velocity.z });
             }
             if ((sounds.get(entity.id) ?? 0) <= system.currentTick) {
               const velocity = entity.getVelocity();

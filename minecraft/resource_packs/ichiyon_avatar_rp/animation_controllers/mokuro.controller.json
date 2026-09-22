@@ -7,6 +7,7 @@
         "idle": {
           "on_entry": ["variable.mokuro_flap_wait = math.random(4.0, 8.0);"],
           "transitions": [
+            {"roll": "query.property('ichiyon:boosting')"},
             {"glide": "query.property('ichiyon:gliding')"},
             {"carried": "query.property('ichiyon:carried')"},
             {"walk": "query.is_on_ground && query.ground_speed > 0.05"},
@@ -16,6 +17,7 @@
         "walk": {
           "animations": ["walk"],
           "transitions": [
+            {"roll": "query.property('ichiyon:boosting')"},
             {"glide": "query.property('ichiyon:gliding')"},
             {"carried": "query.property('ichiyon:carried')"},
             {"idle": "!query.is_on_ground || query.ground_speed <= 0.05"}
@@ -24,6 +26,7 @@
         "flap": {
           "animations": ["flap"],
           "transitions": [
+            {"roll": "query.property('ichiyon:boosting')"},
             {"glide": "query.property('ichiyon:gliding')"},
             {"carried": "query.property('ichiyon:carried')"},
             {"walk": "query.is_on_ground && query.ground_speed > 0.05"},
@@ -32,12 +35,23 @@
         },
         "carried": {
           "transitions": [
+            {"roll": "query.property('ichiyon:boosting')"},
             {"glide": "query.property('ichiyon:gliding')"},
+            {"idle": "!query.property('ichiyon:carried')"}
+          ]
+        },
+        "roll": {
+          "animations": ["roll"],
+          "blend_transition": 0.1,
+          "transitions": [
+            {"glide": "query.property('ichiyon:gliding')"},
+            {"carried": "!query.property('ichiyon:boosting') && query.property('ichiyon:carried')"},
             {"idle": "!query.property('ichiyon:carried')"}
           ]
         },
         "glide": {
           "animations": ["open_wings"],
+          "blend_transition": 0.1,
           "transitions": [{"idle": "!query.property('ichiyon:gliding')"}]
         }
       }

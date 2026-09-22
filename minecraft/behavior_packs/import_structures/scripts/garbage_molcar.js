@@ -13,5 +13,5 @@ world.afterEvents.entityHurt.subscribe(({ hurtEntity }) => {
 world.afterEvents.entityDie.subscribe(({ deadEntity }) => {
   if (deadEntity.typeId === GARBAGE) garbage.sound(deadEntity, "death");
 });
-system.runInterval(() => garbage.scan(), 20);
+system.runInterval(() => garbage.scan(), 10);
 console.warn("[GarbageMolcar] collection and Kuma paw loaded");

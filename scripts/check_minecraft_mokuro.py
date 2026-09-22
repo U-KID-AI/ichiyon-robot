@@ -92,7 +92,8 @@ class MokuroChecks(unittest.TestCase):
         self.assertEqual(states["walk"]["animations"], ["walk"])
         self.assertEqual(states["flap"]["animations"], ["flap"])
         self.assertNotIn("animations", states["carried"])
-        self.assertNotIn("roll", [a for state in states.values() for a in state.get("animations", [])])
+        self.assertEqual(states["roll"]["animations"], ["roll"])
+        self.assertTrue(any("ichiyon:boosting" in expression for transition in states["carried"]["transitions"] for expression in transition.values()))
         for lang in ("ja_JP", "en_US"):
             text = (RP / f"texts/{lang}.lang").read_text(encoding="utf-8")
             for key in ("entity.ichiyon:mokuro.name", "item.spawn_egg.entity.ichiyon:mokuro.name", "action.interact.ichiyon_mokuro"):
