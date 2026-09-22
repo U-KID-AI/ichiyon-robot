@@ -96,6 +96,7 @@ export function withdraw(entity, player, slot) {
 export function createGarbageMolcar({ world, system, ActionFormData, report = console.warn }) {
   const forms = new Set();
   const sounds = new Map();
+  const initialized = new Set();
   let lastError = -200;
   function error(e) {
     if (system.currentTick - lastError < 200) return;
@@ -222,8 +223,10 @@ export function createGarbageMolcar({ world, system, ActionFormData, report = co
             const target = pickupAllowed && !entity.getComponent("minecraft:leashable")?.isLeashed
               ? seekDrop(entity, dimension.getEntities({ type: "minecraft:item", location: entity.location, maxDistance: 8, closest: 8 }), player)
               : undefined;
-            if (entity.getProperty("ichiyon:pickup_enabled") !== !!target) {
+            // Old saves have the owner group but not the newly separated following goal.
+            if (!initialized.has(entity.id) || entity.getProperty("ichiyon:pickup_enabled") !== !!target) {
               entity.triggerEvent(target ? "ichiyon:garbage_pickup_on" : "ichiyon:garbage_pickup_off");
+              initialized.add(entity.id);
             }
             if (target && entity.isOnGround) {
               const velocity = entity.getVelocity();
@@ -241,6 +244,7 @@ export function createGarbageMolcar({ world, system, ActionFormData, report = co
       } catch (e) { error(e); }
     }
     for (const id of sounds.keys()) if (!seen.has(id)) sounds.delete(id);
+    for (const id of initialized) if (!seen.has(id)) initialized.delete(id);
   }
   return { interact, scan, menu, start, stop, sound };
 }
