@@ -417,17 +417,22 @@ def wait_for_container_stopped(timeout_seconds: int) -> bool:
     return False
 
 
-def wait_for_ready(timeout_seconds: int) -> Dict[str, Any]:
-    deadline = time.time() + timeout_seconds
+def wait_for_ready(timeout_seconds: int, *, require_healthy: bool = False) -> Dict[str, Any]:
+    deadline = time.monotonic() + timeout_seconds
     latest = status_payload()
-    while time.time() < deadline:
-        latest = status_payload()
+    while True:
         container = latest.get("container") or {}
-        # Preserve the production readiness check: actual UDP Bedrock response.
-        if container.get("state") == "running" and latest.get("bridge", {}).get("responding"):
+        # UDP can respond before Docker finishes its first health check. Cosmetic
+        # apply/rollback must wait for BOTH, rather than rejecting "starting".
+        # Existing restart callers retain their UDP-based readiness contract.
+        if (container.get("state") == "running" and latest.get("bridge", {}).get("responding")
+                and (not require_healthy or container.get("health") == "healthy")):
             return latest
-        time.sleep(2)
-    return latest
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return latest
+        time.sleep(min(2, remaining))
+        latest = status_payload()
 
 
 @app.get("/status")

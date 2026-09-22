@@ -182,7 +182,7 @@ class PackApplications:
         result = self.api.run_fixed(['docker', 'compose', 'up', '-d', self.api.COMPOSE_SERVICE], timeout=120)
         if result.returncode:
             raise RuntimeError('start failed')
-        result = self.api.wait_for_ready(self.api.RESTART_WAIT_SECONDS)
+        result = self.api.wait_for_ready(self.api.RESTART_WAIT_SECONDS, require_healthy=True)
         state = result.get('container', {})
         if state.get('state') != 'running' or state.get('health') != 'healthy' or not result.get('bridge', {}).get('responding'):
             raise RuntimeError('health failed')

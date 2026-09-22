@@ -38,7 +38,7 @@ class API:
         return SimpleNamespace(returncode=0)
     def wait_for_container_stopped(self, timeout): return True
     def status_payload(self): return {'container': {'state':'running', 'health':'healthy'}, 'bridge': {'responding':True}}
-    def wait_for_ready(self, timeout):
+    def wait_for_ready(self, timeout, *, require_healthy=False):
         if self.health_failures:
             self.health_failures -= 1
             return {'container': {'state':'running', 'health':'unhealthy'}}
@@ -134,6 +134,47 @@ class ApplyChecks(unittest.TestCase):
         job = self.manager.submit(str(uuid.uuid4()), self.archive); self.manager._run(job)
         second = json.loads((self.api.DATA_DIR / deploy.PACKS[1] / 'manifest.json').read_text(encoding='utf-8'))['header']['version']
         self.assertGreater(second, first)
+
+
+class ReadinessChecks(unittest.TestCase):
+    def setUp(self):
+        import minecraft_control_api as api
+        self.api = api
+        self.elapsed = 0
+        def sleep(seconds): self.elapsed += seconds
+        for p in (patch.object(api.time, 'monotonic', side_effect=lambda: self.elapsed),
+                  patch.object(api.time, 'sleep', side_effect=sleep),
+                  patch.object(api, 'run_fixed', return_value=SimpleNamespace(returncode=0))):
+            p.start(); self.addCleanup(p.stop)
+
+    def state(self, health='healthy', responding=True):
+        return {'container': {'state':'running', 'health':health}, 'bridge': {'responding':responding}}
+
+    def test_apply_and_rollback_start_wait_for_docker_health_after_udp_responds(self):
+        # Exercise the real _start + wait_for_ready pair used in both transactions.
+        with patch.object(self.api, 'status_payload', side_effect=[self.state('starting'), self.state('starting'), self.state()]) as status:
+            deploy.PackApplications(self.api)._start()
+        self.assertEqual(status.call_count, 3)
+        self.assertEqual(self.elapsed, 4)
+
+    def test_docker_health_alone_is_not_ready_without_bedrock_response(self):
+        with patch.object(self.api, 'status_payload', side_effect=[self.state(responding=False), self.state()]) as status:
+            deploy.PackApplications(self.api)._start()
+        self.assertEqual(status.call_count, 2)
+
+    def test_timeout_still_fails_closed_after_waiting(self):
+        for state in (self.state('starting'), self.state('unhealthy'), self.state(None), self.state(responding=False)):
+            with self.subTest(state=state), patch.object(self.api, 'RESTART_WAIT_SECONDS', 5), patch.object(self.api, 'status_payload', return_value=state):
+                before = self.elapsed
+                with self.assertRaisesRegex(RuntimeError, 'health failed'):
+                    deploy.PackApplications(self.api)._start()
+                self.assertEqual(self.elapsed - before, 5)
+
+    def test_existing_restart_keeps_udp_readiness(self):
+        with patch.object(self.api, 'status_payload', return_value=self.state('starting')):
+            result = self.api.wait_for_ready(5)
+        self.assertEqual(result['container']['health'], 'starting')
+        self.assertEqual(self.elapsed, 0)
 
 
 class ControlHTTPChecks(unittest.TestCase):
