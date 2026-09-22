@@ -21,4 +21,5 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 RUN python -c "import cv2, numpy; print('cv2 import ok', cv2.__version__)"
 
+# Read-only inspection CLI is included; running it requires Git, not installed in this image.
 COPY . .

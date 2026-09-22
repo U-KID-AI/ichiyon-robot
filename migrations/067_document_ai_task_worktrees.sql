@@ -1,0 +1,1 @@
+COMMENT ON COLUMN ai_tasks.worktree_name IS 'Name of the dedicated per-task Git checkout (ai-task-<task UUID>), associated with the task branch and used by the AI runner for development and verification.';
