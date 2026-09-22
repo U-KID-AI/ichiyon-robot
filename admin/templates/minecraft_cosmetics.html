@@ -1,0 +1,102 @@
+{% extends "layout.html" %}
+{% block title %}マネキンとモルカーの着せ替え{% endblock %}
+{% block heading %}マネキンとモルカーの着せ替え{% endblock %}
+{% block content %}
+<style>
+  .cosmetic-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:1rem; }
+  .cosmetic-card { background:var(--panel-bg,#383a40); border:1px solid var(--border,#4e5058); border-radius:12px; padding:1.25rem; }
+  .cosmetic-card label { display:block; margin:.65rem 0; }
+  .cosmetic-card input,.cosmetic-card select { max-width:100%; }
+  .cosmetic-card img { image-rendering:pixelated; width:96px; height:96px; object-fit:contain; background:#e2e8f0; }
+  .cosmetic-notice { padding:1rem; background:#eef2ff; border-radius:8px; margin-bottom:1rem; color:#1e293b; }
+  .cosmetic-error { background:#fee2e2; color:#991b1b; }
+  .cosmetic-table { overflow-x:auto; } .cosmetic-table table { width:100%; }
+</style>
+{% if error %}<p class="cosmetic-notice cosmetic-error" role="alert">{{ error }}</p>{% endif %}
+<p class="cosmetic-notice">① 素材をアップロード → ②「ゲームに反映」を押す → ③ Minecraftに入り直して確認。反映中はサーバーが短時間再起動します。</p>
+<div class="cosmetic-grid">
+  <section class="cosmetic-card">
+    <h2>スキンを追加</h2>
+    <p>64×64のスキン画像を使います。追加後は共通エッグの一覧にも表示されます。</p>
+    <form action="/minecraft/cosmetics/assets" method="post" enctype="multipart/form-data">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="skin">
+      <label>名前 <input name="name" maxlength="48" required></label>
+      <label>腕の種類 <select name="model"><option value="classic">通常（4ピクセル）</option><option value="slim">スリム（3ピクセル）</option></select></label>
+      <label>スキン画像 <input type="file" name="texture" accept="image/png,.png" required></label>
+      <button type="submit">スキンを登録</button>
+    </form>
+  </section>
+  <section class="cosmetic-card">
+    <h2>モルカーのアクセサリーを追加</h2>
+    <p>3種類のモルカーに共通で使えます。各ファイルは1MB以下です。</p>
+    <form action="/minecraft/cosmetics/assets" method="post" enctype="multipart/form-data">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="accessory">
+      <label>名前 <input name="name" maxlength="48" required></label>
+      <label>装着部位 <select name="slot"><option value="hat">頭（帽子など）</option><option value="face">顔（メガネなど）</option><option value="neck">首</option><option value="back">背中</option></select></label>
+      <label>モデル（.geo.json） <input type="file" name="geometry" accept=".json" required></label>
+      <label>モデルの画像 <input type="file" name="texture" accept="image/png,.png" required></label>
+      <label>持ち物アイコン <input type="file" name="icon" accept="image/png,.png" required></label>
+      <button type="submit">アクセサリーを登録</button>
+    </form>
+  </section>
+  <section class="cosmetic-card">
+    <h2>ゲームへの反映</h2>
+    <p>登録した素材をまとめて反映します。バックアップ、反映、再起動、起動確認は自動で行います。</p>
+    <p id="apply-status" role="status" aria-live="polite">反映状況を確認しています…</p>
+    <form id="apply-form" action="/minecraft/cosmetics/apply" method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="operation_id" value="{{ operation_id }}"><button id="apply-button" type="submit">ゲームに反映</button></form>
+    <h3>ゲーム内の使い方</h3>
+    <p>共通エッグを地面に使うとマネキンを選べます。マネキンを使うと着替え・解除、クリエイティブでしゃがんで使うと変更・撤去ができます。</p>
+    <p>アクセサリーを持ってモルカーを使うと装着、空の手でしゃがんで使うと取り外せます。違う部位は同時に装着できます。</p>
+  </section>
+</div>
+<section class="cosmetic-card" style="margin:1rem 0">
+  <h2>マネキンを配置</h2>
+  <p>オンラインのプレイヤーの前に置きます。足元と頭上が空いた場所で待機してください。</p>
+  <form action="/minecraft/cosmetics/place" method="post">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>接続先 <select name="server" required>
+      <option value="">選択してください</option>
+      {% for server in servers %}<option value="{{ server.bot_id }}/{{ server.guild_id }}" {% if not server.online or server.catalog_digest != digest %}disabled{% endif %}>{{ server.bot_id }} / {{ server.guild_id }} — {% if not server.online %}未接続{% elif server.catalog_digest == digest %}素材一覧を読み込み済み{% else %}パックの反映待ち{% endif %}</option>{% endfor %}
+    </select></label>
+    <label>キャラクター <select name="skin_id" required>{% for asset in assets if asset.kind == 'skin' %}<option value="{{ asset.id }}">{{ asset.name }}</option>{% endfor %}</select></label>
+    <label>プレイヤー名 <input name="player" pattern="[A-Za-z0-9_]{1,16}" maxlength="16" required></label>
+    <button type="submit">プレイヤーの前に配置</button>
+  </form>
+  {% if not servers %}<p>対応パックからの接続を待っています。</p>{% endif %}
+  <p><a href="/minecraft/cosmetics">接続・配置結果を更新</a></p>
+  <div class="cosmetic-table"><table><thead><tr><th>プレイヤー</th><th>スキン番号</th><th>結果</th></tr></thead><tbody>
+    {% set statuses = {'pending':'待機中','claimed':'配置中','succeeded':'配置完了','failed':'配置できませんでした'} %}
+    {% set reasons = {'timeout':'応答がありません。ゲーム側で配置済みか確認してください。','catalog_not_loaded':'最新パックを反映してください。','player_offline':'プレイヤーがオフラインです。','placement_failed':'配置場所の空きとパックを確認してください。','invalid_player_name':'プレイヤー名を確認してください。'} %}
+    {% for job in recent %}<tr><td>{{ job.minecraft_player }}</td><td>{{ job.skin_id }}</td><td>{{ statuses[job.status] }} {{ reasons.get(job.reason,'') }}</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+<h2>登録済みの素材</h2>
+<div class="cosmetic-grid">{% for asset in assets %}<article class="cosmetic-card">
+  <img src="/minecraft/cosmetics/preview/{{ asset.kind }}/{{ asset.id }}" alt="{{ asset.name }}の画像">
+  <h3>{{ asset.name }}</h3><p>{{ 'スキン' if asset.kind == 'skin' else 'アクセサリー' }} #{{ asset.id }}{% if asset.model is defined %} ・ {{ 'スリム' if asset.model == 'slim' else '通常' }}{% endif %}{% if asset.slot is defined %} ・ {{ {'hat':'頭','face':'顔','neck':'首','back':'背中'}[asset.slot] }}{% endif %}</p>
+</article>{% endfor %}</div>
+<script>
+(() => {
+  const output = document.getElementById('apply-status');
+  const button = document.getElementById('apply-button');
+  let submitting = false;
+  document.getElementById('apply-form').addEventListener('submit', () => {
+    submitting = true; button.disabled = true; output.textContent = '反映を開始しています…';
+  });
+  async function refresh() {
+    try {
+      const response = await fetch('/minecraft/cosmetics/application', {cache:'no-store'});
+      if (!response.ok) throw new Error();
+      const state = await response.json();
+      const busy = ['queued','stopping','installing','starting'].includes(state.status);
+      button.disabled = busy || submitting;
+      output.textContent = busy ? state.message : state.status === 'failed' || state.status === 'recovery_failed' ? state.message
+        : state.current ? (state.game_connected ? '反映済み・ゲームとの接続も確認できました。Minecraftに入り直して確認できます。' : '反映済みです。ゲームからの接続確認を待っています。')
+        : '未反映の素材があります。「ゲームに反映」を押してください。';
+    } catch (_) { output.textContent = '反映状況を取得できません。自動で再確認します。'; }
+    if (!submitting) setTimeout(refresh, 4000);
+  }
+  refresh();
+})();
+</script>
+{% endblock %}

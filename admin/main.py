@@ -20,6 +20,7 @@ from admin.auto_reactions import (
 from admin.auto_posts import register_auto_post_routes, router as auto_post_router
 from admin.audio_assets import register_audio_asset_routes, router as audio_asset_router
 from admin.auth import get_session_secret, register_auth_routes, router as auth_router
+from admin.minecraft_cosmetics import register_minecraft_cosmetics_routes, router as minecraft_cosmetics_router
 from admin.bots import register_bot_routes, router as bot_router
 from admin.bot_context import bot_id_from_path, current_bot_instance_for_request
 from admin.games import register_game_routes, router as game_router
@@ -90,6 +91,7 @@ templates.env.filters["role_label"] = role_label
 templates.env.filters["role_description"] = role_description
 app.state.templates = templates
 register_auth_routes(templates)
+register_minecraft_cosmetics_routes(templates)
 register_public_routes(templates)
 register_bot_routes(templates)
 register_server_routes(templates)
@@ -112,6 +114,7 @@ register_audio_asset_routes(templates)
 register_game_routes(templates)
 register_horoscope_routes(templates)
 app.include_router(auth_router)
+app.include_router(minecraft_cosmetics_router)
 app.include_router(public_router)
 app.include_router(bot_router)
 app.include_router(server_router)

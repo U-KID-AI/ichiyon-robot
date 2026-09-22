@@ -48,6 +48,27 @@ async def request_control_restart() -> Dict[str, Any]:
         raise MinecraftControlError(type(exc).__name__) from exc
 
 
+async def cosmetics_control(operation_id=None, archive=None):
+    """Fixed private API; credential and URL never come from form input."""
+    if not control_api_configured():
+        raise MinecraftControlError('反映先に接続できません。')
+    try:
+        async with httpx.AsyncClient(timeout=60, trust_env=False) as client:
+            if operation_id is None:
+                response = await client.get(_base_url() + '/cosmetics', headers=_headers())
+            else:
+                import uuid
+                operation_id = str(uuid.UUID(operation_id))
+                response = await client.post(_base_url() + '/cosmetics/' + operation_id, content=archive,
+                                             headers={**_headers(), 'Content-Type': 'application/zip'})
+            if response.status_code == 409:
+                raise MinecraftControlError('別の反映処理が実行中です。完了するまでお待ちください。')
+            response.raise_for_status()
+            return response.json()
+    except (httpx.HTTPError, ValueError):
+        raise MinecraftControlError('反映先との通信を確認できません。処理状況を確認してから再試行してください。') from None
+
+
 def format_control_status(payload: Dict[str, Any]) -> str:
     container = payload.get("container") or {}
     host = payload.get("host") or {}

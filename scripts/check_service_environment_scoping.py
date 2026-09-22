@@ -34,6 +34,7 @@ def main():
     vpn = service_block(compose, "youtube-vpn-proxy")
     results = []
     results.append(check("admin receives oauth env", "DISCORD_OAUTH_CLIENT_SECRET" in admin))
+    results.append(check("admin receives fixed Minecraft apply API configuration", "MINECRAFT_CONTROL_API_BASE" in admin and "MINECRAFT_CONTROL_API_SECRET" in admin))
     results.append(check("admin does not receive bot tokens", "ICHIYON_DISCORD_TOKEN" not in admin and "IRSIA_DISCORD_TOKEN" not in admin))
     results.append(check("ichiyon bot receives only ichiyon token", "ICHIYON_DISCORD_TOKEN" in bot and "IRSIA_DISCORD_TOKEN" not in bot))
     results.append(check("irsia bot receives only irsia token", "IRSIA_DISCORD_TOKEN" in irsia and "ICHIYON_DISCORD_TOKEN" not in irsia))

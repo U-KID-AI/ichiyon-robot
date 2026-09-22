@@ -2,24 +2,23 @@
   "format_version": "1.10.0",
   "minecraft:client_entity": {
     "description": {
+      "animations": {
+        "idle": "animation.ichiyon.avatar.idle",
+        "look_at_target": "animation.common.look_at_target",
+        "walk": "animation.ichiyon.avatar.walk"
+      },
+      "geometry": {
+        "classic": "geometry.ichiyon.avatar.classic",
+        "default": "geometry.ichiyon.avatar",
+        "slim": "geometry.ichiyon.avatar.slim"
+      },
       "identifier": "ichiyon:avatar_mei_placer",
       "materials": {
         "default": "entity_alphatest"
       },
-      "textures": {
-        "kiana": "textures/entity/avatar/kiana",
-        "mei": "textures/entity/avatar/mei",
-        "bronya": "textures/entity/avatar/bronya",
-        "albert": "textures/entity/avatar/albert"
-      },
-      "geometry": {
-        "default": "geometry.ichiyon.avatar"
-      },
-      "animations": {
-        "idle": "animation.ichiyon.avatar.idle",
-        "walk": "animation.ichiyon.avatar.walk",
-        "look_at_target": "animation.common.look_at_target"
-      },
+      "render_controllers": [
+        "controller.render.ichiyon.avatar"
+      ],
       "scripts": {
         "animate": [
           "idle",
@@ -29,12 +28,19 @@
           "look_at_target"
         ]
       },
-      "render_controllers": [
-        "controller.render.ichiyon.avatar"
-      ],
       "spawn_egg": {
         "base_color": "#DED8EF",
         "overlay_color": "#70539B"
+      },
+      "textures": {
+        "albert": "textures/entity/avatar/albert",
+        "bronya": "textures/entity/avatar/bronya",
+        "kiana": "textures/entity/avatar/kiana",
+        "mei": "textures/entity/avatar/mei",
+        "skin_1": "textures/entity/cosmetics/skin_1",
+        "skin_2": "textures/entity/cosmetics/skin_2",
+        "skin_3": "textures/entity/cosmetics/skin_3",
+        "skin_4": "textures/entity/cosmetics/skin_4"
       }
     }
   }

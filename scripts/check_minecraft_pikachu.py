@@ -17,7 +17,7 @@ RP = ROOT / "minecraft/resource_packs/ichiyon_avatar_rp"
 
 
 def read(path):
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 class PikachuChecks(unittest.TestCase):
@@ -46,7 +46,7 @@ class PikachuChecks(unittest.TestCase):
         self.assertTrue((RP / (self.client["textures"]["default"] + ".png")).is_file())
         self.assertEqual(set(self.client["spawn_egg"]), {"base_color", "overlay_color"})
         for lang in ("ja_JP", "en_US"):
-            lines = (RP / f"texts/{lang}.lang").read_text().splitlines()
+            lines = (RP / f"texts/{lang}.lang").read_text(encoding="utf-8").splitlines()
             for key in ("entity.ichiyon:pikachu.name", "item.spawn_egg.entity.ichiyon:pikachu.name",
                         "action.interact.ichiyon_pikachu_spin"):
                 self.assertEqual(sum(line.startswith(key + "=") for line in lines), 1)

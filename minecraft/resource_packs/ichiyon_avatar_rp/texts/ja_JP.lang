@@ -39,3 +39,6 @@ item.spawn_egg.entity.ichiyon:avatar_albert_placer.name=アルベール マネ�
 entity.ichiyon:pikachu.name=ピカチュウ
 item.spawn_egg.entity.ichiyon:pikachu.name=ピカチュウのスポーンエッグ
 action.interact.ichiyon_pikachu_spin=くるっと回る
+action.interact.ichiyon_cosmetic_wardrobe=着替える
+action.interact.ichiyon_cosmetic_remove=アクセサリーを外す
+action.interact.ichiyon_cosmetic_equip=アクセサリーを装着
