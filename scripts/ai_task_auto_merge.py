@@ -1,45 +1,30 @@
-"""High-privilege fixed GitHub mutations for Phase 2D."""
+"""Squash-merge the task PR after its actual CI checks succeed."""
 
 import json
-import os
 import re
-import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
 from uuid import UUID
 
-from ai_task_process import communicate_bounded, managed_process_options
-from ai_task_review_merge import (
-    EXPECTED_BASE,
-    EXPECTED_REPOSITORY,
-    ReviewGateResult,
-    ReviewMergeGate,
-    ReviewMergeSafetyError,
-)
-from ai_task_safety import (
-    expected_branch,
-    is_reparse_point,
-    validate_sha,
-)
+from ai_task_github import GitHubAdapter, GitHubError
+from ai_task_review_merge import EXPECTED_BASE, EXPECTED_REPOSITORY, ReviewMergeGate
+from ai_task_runtime import expected_branch, validate_sha
 
 
-MAX_GH_OUTPUT_BYTES = 128 * 1024
-
-READY_MUTATION = (
-    "mutation($pullRequestId:ID!){"
-    "markPullRequestReadyForReview("
-    "input:{pullRequestId:$pullRequestId}"
-    "){pullRequest{number isDraft}}}"
-)
-
-NODE_ID_PATTERN = re.compile(
-    r"^[A-Za-z0-9_=-]{1,200}$"
-)
-
-
-class AutoMergeSafetyError(RuntimeError):
+class AutoMergeError(GitHubError):
     pass
+
+
+class MergeOutcomeUnknownError(AutoMergeError):
+    """Reconcile the same PR before retrying implementation or publication."""
+
+    merge_outcome_unknown = True
+
+
+class _UnmergedPRError(AutoMergeError):
+    """GitHub returned a valid task PR that has not been merged."""
 
 
 @dataclass(frozen=True)
@@ -52,542 +37,147 @@ class AutoMergeResult:
     merge_sha: str
 
 
-class AutoMergeAdapter:
+class AutoMergeAdapter(GitHubAdapter):
+    error_type = AutoMergeError
+
     def __init__(
-        self,
-        gh_path: Path,
-        *,
-        gate: ReviewMergeGate | None = None,
-        runner: Callable[..., object] | None = None,
-        popen: Callable[..., object] | None = None,
+        self, gh_path: Path, *, gate: ReviewMergeGate | None = None,
+        runner: Callable[..., object] | None = None, popen: Callable[..., object] | None = None,
     ) -> None:
-        resolved = gh_path.resolve()
+        super().__init__(gh_path, runner=runner, popen=popen)
+        self.gate = gate or ReviewMergeGate(gh_path, runner=runner, popen=popen)
 
-        if (
-            not resolved.is_absolute()
-            or not resolved.is_file()
-            or resolved.is_symlink()
-            or is_reparse_point(resolved)
-        ):
-            raise AutoMergeSafetyError(
-                "GitHub CLI executable is unsafe"
-            )
-
-        self.gh_path = resolved
-        self._runner = runner or subprocess.run
-        self._popen = popen or subprocess.Popen
-
-        self.gate = gate or ReviewMergeGate(
-            resolved,
-            runner=runner,
-            popen=popen,
-        )
-
-    @staticmethod
-    def _valid_pr_number(value: int) -> bool:
-        return (
-            isinstance(value, int)
-            and not isinstance(value, bool)
-            and 0 < value <= 2_147_483_647
-        )
-
-    @staticmethod
-    def _environment() -> dict[str, str]:
-        allowed = {
-            "APPDATA",
-            "COMSPEC",
-            "HOME",
-            "HOMEDRIVE",
-            "HOMEPATH",
-            "LOCALAPPDATA",
-            "PATH",
-            "PATHEXT",
-            "SYSTEMDRIVE",
-            "SYSTEMROOT",
-            "TEMP",
-            "TMP",
-            "USERDOMAIN",
-            "USERNAME",
-            "USERPROFILE",
-            "WINDIR",
-        }
-
-        environment = {
-            key: value
-            for key, value in os.environ.items()
-            if key.upper() in allowed
-        }
-
-        environment.update(
-            {
-                "GH_HOST": "github.com",
-                "GH_PROMPT_DISABLED": "1",
-                "GH_PAGER": "cat",
-                "PAGER": "cat",
-                "NO_COLOR": "1",
-                "GIT_TERMINAL_PROMPT": "0",
-                "GCM_INTERACTIVE": "Never",
-            }
-        )
-
-        return environment
-
-    @classmethod
-    def _is_allowed_argv(
-        cls,
-        args: tuple[str, ...],
-    ) -> bool:
-        if (
-            len(args) == 4
-            and args[:3]
-            == ("api", "--method", "GET")
-            and re.fullmatch(
-                r"repos/U-KID-AI/ichiyon-robot/"
-                r"pulls/[1-9][0-9]*",
-                args[3],
-            )
-        ):
-            return True
-
-        if (
-            len(args) == 6
-            and args[:2] == ("api", "graphql")
-            and args[2] == "-f"
-            and args[3]
-            == f"query={READY_MUTATION}"
-            and args[4] == "-F"
-            and args[5].startswith(
-                "pullRequestId="
-            )
-        ):
-            node_id = args[5].split("=", 1)[1]
-            return (
-                NODE_ID_PATTERN.fullmatch(node_id)
-                is not None
-            )
-
-        if (
-            len(args) == 8
-            and args[:3]
-            == ("api", "--method", "PUT")
-            and re.fullmatch(
-                r"repos/U-KID-AI/ichiyon-robot/"
-                r"pulls/[1-9][0-9]*/merge",
-                args[3],
-            )
-            and args[4:6]
-            == ("-f", "merge_method=squash")
-            and args[6] == "-f"
-            and re.fullmatch(
-                r"sha=[0-9a-fA-F]{40}",
-                args[7],
-            )
-        ):
-            return True
-
-        return False
-
-    def _run(
-        self,
-        args: Sequence[str],
-        *,
-        cwd: Path,
-        timeout: float = 60,
-        stop_event=None,
-    ):
-        values = tuple(args)
-
-        if not self._is_allowed_argv(values):
-            raise AutoMergeSafetyError(
-                "GitHub mutation is not allowlisted"
-            )
-
-        argv = [
-            str(self.gh_path),
-            *values,
-        ]
-
-        environment = self._environment()
-
-        if stop_event is None:
-            result = self._runner(
-                argv,
-                cwd=str(cwd.resolve()),
-                shell=False,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=timeout,
-                check=False,
-                env=environment,
-            )
-
-            stdout = result.stdout or ""
-            stderr = result.stderr or ""
-
-            size = (
-                len(
-                    stdout.encode(
-                        "utf-8",
-                        errors="replace",
-                    )
-                )
-                + len(
-                    stderr.encode(
-                        "utf-8",
-                        errors="replace",
-                    )
-                )
-            )
-
-            if size > MAX_GH_OUTPUT_BYTES:
-                raise AutoMergeSafetyError(
-                    "GitHub mutation output is too large"
-                )
-
-            return result
-
-        if stop_event.is_set():
-            raise AutoMergeSafetyError(
-                "GitHub mutation refused after lease loss"
-            )
-
-        process = self._popen(
-            argv,
-            **managed_process_options(),
-            cwd=str(cwd.resolve()),
-            shell=False,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=environment,
-        )
-
-        result = communicate_bounded(
-            process,
-            input_text=None,
-            timeout=timeout,
-            max_output_bytes=MAX_GH_OUTPUT_BYTES,
-            stop_event=stop_event,
-        )
-
-        if result.stopped:
-            raise AutoMergeSafetyError(
-                "GitHub mutation stopped after lease loss"
-            )
-
-        if result.timed_out:
-            raise AutoMergeSafetyError(
-                "GitHub mutation timed out"
-            )
-
-        if result.stdin_cleanup_failed:
-            raise AutoMergeSafetyError(
-                "GitHub mutation cleanup failed"
-            )
-
-        return result
-
-    def _read_pr(
-        self,
-        cwd: Path,
-        pr_number: int,
-        *,
-        stop_event=None,
-    ) -> dict:
-        result = self._run(
-            (
-                "api",
-                "--method",
-                "GET",
-                (
-                    "repos/U-KID-AI/ichiyon-robot/"
-                    f"pulls/{pr_number}"
-                ),
-            ),
-            cwd=cwd,
-            stop_event=stop_event,
-        )
-
-        if result.returncode != 0:
-            raise AutoMergeSafetyError(
-                "GitHub PR read failed"
-            )
-
-        try:
-            value = json.loads(result.stdout)
-        except (
-            TypeError,
-            json.JSONDecodeError,
-        ) as exc:
-            raise AutoMergeSafetyError(
-                "GitHub returned invalid PR JSON"
-            ) from exc
-
-        if not isinstance(value, dict):
-            raise AutoMergeSafetyError(
-                "GitHub returned invalid PR object"
-            )
-
-        return value
-
-    @staticmethod
-    def _validate_pre_ready_pr(
-        item: dict,
-        *,
-        task_id: UUID,
-        commit_sha: str,
-        pr_number: int,
-        pr_url: str,
-        base_sha: str,
-    ) -> str:
-        base = item.get("base")
-        head = item.get("head")
-        node_id = item.get("node_id")
-
-        if (
-            item.get("number") != pr_number
-            or item.get("html_url") != pr_url
-            or item.get("state") != "open"
-            or item.get("draft") is not True
-            or item.get("merged_at") is not None
-            or not isinstance(base, dict)
-            or base.get("ref") != EXPECTED_BASE
-            or base.get("sha") != base_sha
-            or not isinstance(head, dict)
-            or head.get("ref")
-            != expected_branch(task_id)
-            or head.get("sha") != commit_sha
-            or not isinstance(node_id, str)
-            or NODE_ID_PATTERN.fullmatch(node_id)
-            is None
-        ):
-            raise AutoMergeSafetyError(
-                "PR changed before ready mutation"
-            )
-
-        return node_id
-
-    @staticmethod
-    def _same_gate(
-        before: ReviewGateResult,
-        after: ReviewGateResult,
-    ) -> bool:
-        return (
-            before.pr_number == after.pr_number
-            and before.pr_url == after.pr_url
-            and before.head_sha == after.head_sha
-            and before.base_sha == after.base_sha
-            and before.workflow_run_id
-            == after.workflow_run_id
-            and before.changed_files
-            == after.changed_files
-        )
+    def _read_pr(self, cwd: Path, pr_number: int, *, stop_event=None) -> dict:
+        return ReviewMergeGate._read_pr(self, cwd, pr_number, stop_event=stop_event)
 
     @staticmethod
     def _validate_merged_pr(
-        item: dict,
-        *,
-        task_id: UUID,
-        commit_sha: str,
-        pr_number: int,
-        pr_url: str,
-        base_sha: str,
+        item: dict, *, task_id: UUID, commit_sha: str, pr_number: int,
+        pr_url: str, base_sha: str,
     ) -> str:
-        base = item.get("base")
-        head = item.get("head")
+        base, head = item.get("base") or {}, item.get("head") or {}
         merge_sha = item.get("merge_commit_sha")
-
         if (
-            item.get("number") != pr_number
-            or item.get("html_url") != pr_url
-            or item.get("state") != "closed"
-            or item.get("draft") is not False
-            or not isinstance(
-                item.get("merged_at"),
-                str,
-            )
-            or not item.get("merged_at")
-            or not isinstance(base, dict)
+            item.get("number") != pr_number or item.get("html_url") != pr_url
+            or not isinstance(base, dict) or not isinstance(head, dict)
             or base.get("ref") != EXPECTED_BASE
-            or base.get("sha") != base_sha
-            or not isinstance(head, dict)
-            or head.get("ref")
-            != expected_branch(task_id)
-            or head.get("sha") != commit_sha
-            or not isinstance(merge_sha, str)
+            or head.get("ref") != expected_branch(task_id) or head.get("sha") != commit_sha
+            or not isinstance(base.get("repo"), dict) or not isinstance(head.get("repo"), dict)
+            or (base.get("repo") or {}).get("full_name") != EXPECTED_REPOSITORY
+            or (head.get("repo") or {}).get("full_name") != EXPECTED_REPOSITORY
+            or not isinstance(base.get("sha"), str)
+            or re.fullmatch(r"[0-9a-fA-F]{40}", base["sha"]) is None
         ):
-            raise AutoMergeSafetyError(
-                "merged PR metadata mismatch"
+            raise AutoMergeError(
+                f"Merge of task PR #{pr_number} at {commit_sha} was not confirmed; "
+                f"GitHub returned: {json.dumps(item, ensure_ascii=False)}"
             )
-
-        validate_sha(merge_sha)
+        if item.get("state") in ("open", "closed") and "merged_at" in item and item["merged_at"] is None:
+            raise _UnmergedPRError(
+                f"GitHub confirms task PR #{pr_number} is not merged: {json.dumps(item, ensure_ascii=False)}"
+            )
+        if (
+            item.get("state") != "closed"
+            or not isinstance(item.get("merged_at"), str) or not item["merged_at"]
+            or not isinstance(merge_sha, str) or re.fullmatch(r"[0-9a-fA-F]{40}", merge_sha) is None
+        ):
+            raise AutoMergeError(
+                f"Invalid merge metadata for task PR #{pr_number}: {json.dumps(item, ensure_ascii=False)}"
+            )
         return merge_sha
 
     def ready_and_squash_merge(
-        self,
-        cwd: Path,
-        task_id: UUID,
-        commit_sha: str,
-        pr_number: int,
-        pr_url: str,
-        expected_files: Sequence[str],
-        *,
-        stop_event=None,
+        self, cwd: Path, task_id: UUID, commit_sha: str, pr_number: int,
+        pr_url: str, expected_files: Sequence[str], *, stop_event=None,
     ) -> AutoMergeResult:
         if not isinstance(task_id, UUID):
-            raise AutoMergeSafetyError(
-                "task ID must be UUID"
-            )
-
+            raise AutoMergeError("task ID must be UUID")
         validate_sha(commit_sha)
-
-        if not self._valid_pr_number(pr_number):
-            raise AutoMergeSafetyError(
-                "invalid PR number"
+        if (
+            not ReviewMergeGate._valid_pr_number(pr_number)
+            or pr_url != ReviewMergeGate._expected_pr_url(pr_number)
+        ):
+            raise AutoMergeError(f"Invalid task PR identity: #{pr_number} {pr_url!r}")
+        identity = dict(task_id=task_id, commit_sha=commit_sha, pr_number=pr_number, pr_url=pr_url)
+        current = self._read_pr(cwd, pr_number, stop_event=stop_event)
+        if current.get("merged_at"):
+            merge_sha = self._validate_merged_pr(current, **identity, base_sha="")
+            # A retry after a lost merge response must not rerun the merge or gate.
+            return AutoMergeResult(
+                pr_number, pr_url, commit_sha, current["base"]["sha"], 0, merge_sha,
             )
-
-        before = self.gate.inspect_candidate(
-            cwd,
-            task_id,
-            commit_sha,
-            pr_number,
-            pr_url,
-            expected_files,
-            expected_draft=True,
-            stop_event=stop_event,
-        )
-
-        if stop_event is not None and stop_event.is_set():
-            raise AutoMergeSafetyError(
-                "lease lost before ready mutation"
+        ReviewMergeGate._validate_pr(current, **identity, expected_draft=False)
+        if current.get("draft"):
+            ready = self._run(
+                ("pr", "ready", str(pr_number), "--repo", EXPECTED_REPOSITORY),
+                cwd=cwd, stop_event=stop_event,
             )
-
-        pre_ready = self._read_pr(
-            cwd,
-            pr_number,
-            stop_event=stop_event,
-        )
-
-        node_id = self._validate_pre_ready_pr(
-            pre_ready,
-            task_id=task_id,
-            commit_sha=commit_sha,
-            pr_number=pr_number,
-            pr_url=pr_url,
-            base_sha=before.base_sha,
-        )
-
-        ready_result = self._run(
-            (
-                "api",
-                "graphql",
-                "-f",
-                f"query={READY_MUTATION}",
-                "-F",
-                f"pullRequestId={node_id}",
-            ),
-            cwd=cwd,
-            stop_event=stop_event,
-        )
-
-        if stop_event is not None and stop_event.is_set():
-            raise AutoMergeSafetyError(
-                "lease lost after ready mutation"
-            )
-
-        try:
-            after = self.gate.inspect_candidate(
-                cwd,
-                task_id,
-                commit_sha,
-                pr_number,
-                pr_url,
-                expected_files,
-                expected_draft=False,
-                stop_event=stop_event,
-            )
-        except ReviewMergeSafetyError as exc:
-            if ready_result.returncode != 0:
-                raise AutoMergeSafetyError(
-                    "ready mutation failed"
-                ) from exc
-            raise AutoMergeSafetyError(
-                "ready state could not be verified"
-            ) from exc
-
-        if not self._same_gate(before, after):
-            raise AutoMergeSafetyError(
-                "review gate changed after ready mutation"
-            )
-
-        if stop_event is not None and stop_event.is_set():
-            raise AutoMergeSafetyError(
-                "lease lost before merge mutation"
-            )
-
-        merge_result = self._run(
-            (
-                "api",
-                "--method",
-                "PUT",
-                (
-                    "repos/U-KID-AI/ichiyon-robot/"
-                    f"pulls/{pr_number}/merge"
-                ),
-                "-f",
-                "merge_method=squash",
-                "-f",
-                f"sha={commit_sha}",
-            ),
-            cwd=cwd,
-            timeout=120,
-            stop_event=stop_event,
-        )
-
-        final_pr = self._read_pr(
-            cwd,
-            pr_number,
-            stop_event=stop_event,
-        )
-
-        merge_sha = self._validate_merged_pr(
-            final_pr,
-            task_id=task_id,
-            commit_sha=commit_sha,
-            pr_number=pr_number,
-            pr_url=pr_url,
-            base_sha=before.base_sha,
-        )
-
-        if merge_result.returncode == 0:
             try:
-                payload = json.loads(
-                    merge_result.stdout
-                )
-            except (
-                TypeError,
-                json.JSONDecodeError,
-            ) as exc:
-                raise AutoMergeSafetyError(
-                    "merge returned invalid JSON"
+                current = self._read_pr(cwd, pr_number, stop_event=stop_event)
+                ReviewMergeGate._validate_pr(current, **identity, expected_draft=False)
+                if current.get("draft") is not False:
+                    raise AutoMergeError(f"PR #{pr_number} is still a draft")
+            except GitHubError as exc:
+                raise self._command_error(
+                    f"Could not mark PR #{pr_number} ready (exit {ready.returncode}): {exc}", ready,
                 ) from exc
-
-            if (
-                not isinstance(payload, dict)
-                or payload.get("merged") is not True
-                or payload.get("sha") != merge_sha
-            ):
-                raise AutoMergeSafetyError(
-                    "merge response mismatch"
-                )
-
-        return AutoMergeResult(
-            pr_number=pr_number,
-            pr_url=pr_url,
-            head_sha=commit_sha,
-            base_sha=before.base_sha,
-            workflow_run_id=before.workflow_run_id,
-            merge_sha=merge_sha,
+        # Ready events may start CI. Preserve repairable CI exceptions for the runner.
+        checked = self.gate.wait_for_draft_candidate(
+            cwd, task_id, commit_sha, pr_number, pr_url, expected_files,
+            timeout=900, interval=5, stop_event=stop_event,
         )
+        try:
+            merge = self._run(
+                ("pr", "merge", str(pr_number), "--repo", EXPECTED_REPOSITORY,
+                 "--squash", "--match-head-commit", commit_sha),
+                cwd=cwd, timeout=120, stop_event=stop_event,
+            )
+        except GitHubError as exc:
+            if stop_event is not None and stop_event.is_set():
+                raise
+            command_diagnostics = str(exc)
+        else:
+            command_diagnostics = str(self._command_error(
+                f"Merge command exited with status {merge.returncode}", merge,
+            ))
+        # The request may have reached GitHub even if the CLI timed out. Retry only
+        # confirmation, never the mutation or implementation, after that point.
+        failures = []
+        for attempt in range(3):
+            try:
+                final_pr = self._read_pr(cwd, pr_number, stop_event=stop_event)
+                merge_sha = self._validate_merged_pr(final_pr, **identity, base_sha=checked.base_sha)
+                return AutoMergeResult(
+                    pr_number, pr_url, commit_sha, final_pr["base"]["sha"],
+                    checked.workflow_run_id, merge_sha,
+                )
+            except GitHubError as exc:
+                failures.append(f"Confirmation attempt {attempt + 1}: {exc}")
+                if stop_event is not None and stop_event.is_set():
+                    raise AutoMergeError(
+                        f"Stopped confirming merge of PR #{pr_number}: {exc}\n{command_diagnostics}"
+                    ) from exc
+                if attempt == 2:
+                    if isinstance(exc, _UnmergedPRError):
+                        raise AutoMergeError(
+                            f"Squash merge of PR #{pr_number} failed; GitHub confirms it is not merged.\n"
+                            + command_diagnostics + "\n" + "\n".join(failures)
+                        ) from exc
+                    error = MergeOutcomeUnknownError(
+                        f"Squash merge outcome for PR #{pr_number} is unconfirmed after 3 reads. "
+                        "Reconcile this PR before retrying Codex or creating another PR.\n"
+                        + command_diagnostics + "\n" + "\n".join(failures)
+                    )
+                    error.pr_number = pr_number
+                    error.pr_url = pr_url
+                    error.head_sha = commit_sha
+                    raise error from exc
+            delay = attempt + 1
+            if stop_event is not None:
+                if stop_event.wait(delay):
+                    raise AutoMergeError(
+                        f"Stopped confirming merge of PR #{pr_number}\n{command_diagnostics}\n"
+                        + "\n".join(failures)
+                    )
+            else:
+                time.sleep(delay)

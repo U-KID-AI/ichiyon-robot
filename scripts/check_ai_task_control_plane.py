@@ -1,9 +1,10 @@
-"""Static and fake based checks for the Phase 2A AI task control plane."""
+"""Static and fake based checks for the AI task control plane."""
 
 import inspect
 import re
 import sys
 from pathlib import Path
+from unittest.mock import patch
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -11,9 +12,10 @@ from fastapi import HTTPException
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from admin import ai_tasks_internal as api
-from bot import config
-from bot.repositories import ai_tasks as repository
+with patch("dotenv.load_dotenv"), patch("os.environ", {}):
+    from admin import ai_tasks_internal as api
+    from bot import config
+    from bot.repositories import ai_tasks as repository
 
 
 MIGRATION = (ROOT / "migrations/060_add_ai_task_runner_fields.sql").read_text(encoding="utf-8")
@@ -136,6 +138,49 @@ def runtime_api_checks():
             raise AssertionError("connection failure did not raise")
         except HTTPException as exc:
             check("connection failure returns fixed 503", exc.status_code == 503 and "connection details" not in str(exc.detail))
+
+        for authorization in (None, "Bearer wrong"):
+            with patch.object(api, "get_connection") as connect:
+                try:
+                    api.retry(task_id, api.RetryRequest(runner_id="runner-1", claim_token=claim_token, reason="retry"), authorization)
+                    raise AssertionError("unauthorized retry accepted")
+                except HTTPException as exc:
+                    check("retry auth remains public and fixed", exc.status_code == 401 and exc.detail == "Unauthorized" and not connect.called)
+        with patch.object(config, "AI_TASK_RUNNER_API_TOKEN", ""), patch.object(api, "get_connection") as connect:
+            try:
+                api.retry(task_id, api.RetryRequest(runner_id="runner-1", claim_token=claim_token, reason="retry"), None)
+                raise AssertionError("unconfigured runner accepted")
+            except HTTPException as exc:
+                check("unconfigured runner remains fixed 503", exc.status_code == 503 and exc.detail == "AI task runner is not configured" and not connect.called)
+
+        failure = RuntimeError(f"constraint ai_tasks_merge_commit_sha_format failed; test-runner-secret; {claim_token}; password=db-test-value")
+        failing_connection = FakeConnection()
+        api.get_connection = lambda: failing_connection
+        class OwnedFailureRepository(FakeRepository):
+            def retry(self, **kwargs):
+                raise failure
+        api.AITaskRepository = OwnedFailureRepository
+        with patch.object(api.logger, "error") as log:
+            try:
+                api.retry(task_id, api.RetryRequest(runner_id="runner-1", claim_token=claim_token, reason="deploy exited 1"), "Bearer test-runner-secret")
+                raise AssertionError("owned failure accepted")
+            except HTTPException as exc:
+                check("owned DB failure includes actual error", exc.status_code == 503 and "RuntimeError" in exc.detail and "ai_tasks_merge_commit_sha_format" in exc.detail)
+                check("owned DB failure redacts response and log", all(value not in exc.detail + str(log.call_args) for value in ("test-runner-secret", str(claim_token), "db-test-value")))
+                check("owned error suppresses raw traceback context", exc.__suppress_context__)
+        check("owned DB error rolls back before close", failing_connection.rollback_count == 1 and failing_connection.rollback_before_close and failing_connection.closed and failing_connection.commit_count == 0)
+
+        api.get_connection = lambda: (_ for _ in ()).throw(RuntimeError("connection refused password=db-test-value"))
+        try:
+            api.heartbeat(task_id, heartbeat_request, "Bearer test-runner-secret")
+            raise AssertionError("owned connection failure accepted")
+        except HTTPException as exc:
+            check("owned connection failure is actionable and redacted", exc.status_code == 503 and "connection refused" in exc.detail and "db-test-value" not in exc.detail)
+        database_url = "postgresql://runner:database%2Ftest-secret@db.invalid/tasks"
+        with patch.dict("os.environ", {"DATABASE_URL": database_url}), patch.object(config, "TOKEN", "discord-test-value"), patch.object(api.logger, "error") as log:
+            error = api._connection_error(RuntimeError(f"connection failed {database_url} database/test-secret discord-test-value"), owned_request=heartbeat_request)
+            check("owned DB errors redact DSN and decoded password", "connection failed" in error.detail
+                  and all(value not in error.detail + str(log.call_args) for value in (database_url, "database%2Ftest-secret", "database/test-secret", "discord-test-value")))
     finally:
         api.get_connection = old_get_connection
         api.AITaskRepository = old_repository
@@ -300,10 +345,16 @@ def main():
     check("no runner subprocess/git/codex", not re.search(r"\b(subprocess|git|codex)\b", API_SOURCE, re.IGNORECASE))
     check("SQL is parameterized", "execute(f" not in REPO_SOURCE and "%s" in REPO_SOURCE)
     check("claim body is strict", getattr(api.RunnerRequest.Config, "extra", None) == "forbid")
-    check("fixed endpoint set", all(path in API_SOURCE for path in ("/claim", "/heartbeat", "/progress", "/testing", "/fail", "/needs-human", "/ready-for-review")))
+    check("fixed endpoint set", all(path in API_SOURCE for path in ("/claim", "/heartbeat", "/progress", "/testing", "/retry", "/fail", "/needs-human", "/ready-for-review")))
     runtime_api_checks()
     repository_runtime_checks()
     idempotency_checks()
+    # This entry point is already run by CI; keep retry coverage in that path.
+    from scripts.check_ai_task_phase3c_control_plane import check_retry_repository, check_nullable_workflow_id, check_retry_api, check_client_diagnostics
+    check_retry_repository()
+    check_nullable_workflow_id()
+    check_retry_api()
+    check_client_diagnostics()
     print("AI task control plane checks passed")
 
 

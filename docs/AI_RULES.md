@@ -1,189 +1,33 @@
-# AI権限と安全ルール
+# AI開発の実行ルール
 
-AIの操作は、影響範囲に応じて3段階に分ける。判断できない操作は上位レベルとして扱い、人間承認を求める。
+## 承認範囲と開発作業
 
-## Level 1: 自動実行可能
+runnerは、認証されたユーザーの依頼を通常のデスクトップCodexと同じ開発作業として扱う。Codexは `danger-full-access`、`approval_policy="never"` で、承認済みユーザースコープ内の調査、編集、ローカルコマンド、テストを実行する。
 
-- repository read/search
-- AI専用worktree内の全repoファイル編集、作成、削除、rename
-- static analysis
-- compile
-- unit/check系テスト
-- `git diff` / `git status` 確認
-- 実装と検証に必要なローカルコマンド実行
+workflow、migration、Docker/Compose、scripts、bot/admin、Minecraft pack、設定、テスト等の作成・変更・削除・renameは通常の開発対象である。ファイル名、変更内容、symlinkやjunctionであることを理由に変更を拒否・復元したり、人間対応へ送ったりしない。worktreeは作業場所であり、runner独自のfilesystem sandboxではない。
 
-実行前に既存実装と関連文書を調査する。workflow、migration、Docker/Compose、scripts、bot/admin、Minecraft pack、テストコードなども通常の開発対象として扱う。秘密値を表示・ログ出力・Discord返信・PR本文へ出す操作は含まない。テストやcheckが外部環境・本番データへ副作用を持つ場合はLevel 3相当として扱う。
+ユーザーの依頼は作業指示である。依頼文字列をshellへ直接渡す受付にはせず、Codexへデータとして渡し、Codexが必要なコマンドを選ぶ。公開処理の引数へ依頼本文をそのまま埋め込まない。
 
-## Level 2: PRまでは自動化可能
+## 設定と認証
 
-- AI専用branch作成
-- commit
-- push
-- Draft Pull Request作成
-- テスト結果と変更内容のDiscord報告
+Codexは通常のユーザー・project設定、hooks、ツール、環境変数を利用する。runnerは `--ignore-user-config`、独自の設定層検査、credential helper無効化、秘密らしい変数名による環境除去を追加しない。ユーザー自身の設定やOSのアクセス権は引き続き適用される。
 
-対象はレビュー可能なコード・文書変更に限る。パス種別だけで除外せず、無関係な変更を混ぜず、commit前に差分と対象ファイルを確認する。PR作成後のmergeやdeployはrunnerの固定フローでだけ扱う。
+承認範囲内で認証や設定を利用することと、秘密値を公開することは別である。秘密値をログ、Discord返信、PR本文、公開成果物へ含めない。報告・エラーには共通の `redact_secrets` を適用し、失敗原因を必要以上に隠さず伝える。runner設定自体はprocess environmentから読み取り、dotenvを暗黙に読み込まない。Codexの開発コマンドが必要なローカル設定を使うことは制限しない。
 
-## Level 3: 人間実行へ引き渡し
+## 検証と公開
 
-- `main` へのmerge
-- production deploy
-- production restart
-- production DB migration実行
-- production secrets変更
-- production firewall/network変更
-- Minecraft本番world変更
-- production data deletion
-- production rollback
-- その他、production環境に副作用を与える操作
+Codexはtaskに合ったテストを実行する。runnerのPython構文チェックは追加の品質確認であり、実行可能なテストや編集対象のallowlistではない。構文エラー、コマンド失敗、timeoutなどは修正と再試行のための診断として扱う。変更内容の許否を判定する自動content reviewは行わない。
 
-productionに関するLevel 3操作は、人間の承認を得てもAI Runner自身は実行しない。AI Runnerは `main` merge、production deploy、production restart、production DB migration、production secrets変更、production firewall/network変更、Minecraft production world変更、production data deletion、production rollbackを実行しない。必要になった場合は、対象、影響、必要な操作、検証結果、復旧方法を提示し、taskを人間へ引き渡す。実際の操作は人間が外部で実行する。将来この方針を変更する場合は、別途明示的な設計変更が必要である。stagingの扱いは今後のPhaseで別途定義し、productionと混同しない。
+commit、task branchへのpush、PR作成、merge、deploymentはrunnerの公開フローが担当する。公開先、task/branch名、lease、対象commit SHA、PR metadata、CI結果、deploymentの完了証明を扱う責務は、編集権限の判定とは分離する。Codexがこれらの公開操作を独自に重複実行しない。
 
-## 共通禁止事項
+実運用環境への反映は構成済みのdeployment adapterが担当する。task本文を新たな公開先やdeployment用shellとして実行しない。ローカル開発で使うコマンド、migrationやCompose定義の編集を、実運用環境への反映と混同しない。
 
-- `.env`、secrets、SSH鍵、Token、Cookie、認証情報の値を表示・ログ出力・Discord返信・PR本文へ出さない。
-- Discordから受け取った文字列を任意shellコマンドとして実行しない。
-- 推測でAPI、環境状態、ファイル構成、権限を決めない。
-- 本番worldや本番DBを検証用データとして扱わない。
-- 承認されていない外部送信、削除、再起動、デプロイを行わない。
-## Phase 2A
+## 保持する実行時チェック
 
-AI Task Control Planeは専用Bearer tokenと固定endpointで保護し、任意SQL、任意status、任意column、任意shellを公開しない。claim tokenとleaseを全Runner更新で検証し、期限切れtaskをqueuedへ戻さない。Phase 2AではCodex、Git、GitHub、worktree、production/staging操作を実行しない。IP制限はX-Forwarded-Forをアプリケーションで信頼せず、将来reverse proxyまたはfirewallで行う。
-## Phase 2B Local Runner
+- task UUIDと `ai/task/<UUID>`、`ai-task-<UUID>` の対応。
+- 必須設定、存在する設定先、URL、数値、SHAなどの入力形式。
+- 既存worktreeとの名前衝突、process timeout、子process停止、出力上限。
+- API認証、claim tokenとlease、公開対象と結果の照合。
+- 秘密値のredactionと、失敗時の作業内容の保持。
 
-Windows/Linux Local Runnerは専用API tokenだけを使い、DBへ直接接続しない。Codex argvは固定し、専用worktree内で通常開発タスクを完走できるようrepo内のパス制限は設けない。`--dangerously-bypass-approvals-and-sandbox`、danger-full-access、add-dir、worktree、skip-git-repo-checkは禁止する。Git/worktree自体が破損した場合、timeout、process異常、lease喪失は停止する。
-RunnerはPATH上の`git`を実行せず、検証済み絶対pathと`sys.executable`を使用する。Git publish/PR/merge/deploy argv、process tree停止argvは固定allowlistとし、Codex/Git/GitHub childへrunner tokenや既知secret環境変数を渡さない。Codexの変更をパスだけでrollbackしない。
-
-## Phase 3C-1D: durable deployment lifecycle
-
-Generic Codex/task execution may not access production, SSH, secrets, restart,
-migration or rollback. Production deployment may only be performed later by a
-separately implemented fixed-operation deployment adapter. Its only task-derived
-input may be a validated reviewed merge SHA; deployment configuration must be
-internally configured and trusted. Discord/task text must never specify shell
-commands, argv, production hosts, SSH paths, deployment paths, environment
-variables, SQL or rollback commands.
-
-Phase 3C-1D does not implement or authorize real deployment transport. The existing
-guarded merge runner records the exact reviewed merge metadata durably in the
-Control Plane before invoking any injected deployer. The lifecycle is
-`testing -> deploying -> completed`; completion requires an exact deployed SHA
-matching the stored merge SHA. Without a deployer it fails closed for human
-inspection. Generic task execution gains no merge or production authority.
-Stale deploying leases become `needs_human`; automatic reconciliation/reclaim is
-deferred to the fixed idempotent deployment adapter phase.
-
-
-## Phase 3C-2E: fixed deployment adapter (offline review only)
-
-Generic Codex/task execution still cannot access SSH, production or secrets.
-Only the separately reviewed fixed deployment adapter may perform production
-operations after a future explicitly authorized activation. Its deploy() input
-is only the reviewed lowercase 40-character merge SHA and heartbeat stop_event.
-Transport configuration comes from trusted runner process environment, without
-dotenv. Paths/service names/operation vocabulary are fixed in reviewed code;
-task or Discord text cannot select them.
-
-The existing reviewed merge -> mark_deploying -> deploy -> exact SHA proof ->
-mark_completed ordering is unchanged. Phase 3C-2E implements an offline-reviewed
-adapter but does not wire it into runner startup (Phase 3C-2F) and does not
-authorize a live deployment test. Stale deploying automatic Control Plane reclaim
-is still NOT enabled; expired leases require human inspection.
-
-App cutover includes only admin, bot and bot-irsia. DB and youtube-vpn-proxy are
-infrastructure, remain owned by legacy Compose, and must not be recreated or
-restarted. The dirty legacy repository is never a release source. Releases use
-an exact-main clean archive, immutable image, fixed persistence mounts, validated
-backups and migration/health proof before atomic current-pointer publication.
-Automatic destructive DB restore is forbidden. Failure attempts app-only rollback;
-migrations are not reversed, so schema backward compatibility needs human review.
-
-Same-SHA current retries revalidate actual health/image/migration/infrastructure
-state without restarting apps. Complete prepared releases and complete validated
-backups can be reused. An incomplete published release or incomplete backup
-fails closed for human inspection. Backups publish atomically from private staging
-after full dump/archive/metadata validation; interrupted staging remains for audit.
-Normal completion removes only this attempt's fixed-prefix temporary paths.
-The protocol establishes umask 077 before creating any deployment files.
-No marker file alone constitutes success. SSH loss is not cancellation proof:
-the remote lock serializes surviving children, and a future retry re-probes state.
-Migration containers have a fixed SHA-derived name. Reconciliation proves exact
-image, operation and network identity; running or ambiguous containers block
-deployment and rollback without being killed. Successful exited containers require
-actual database version proof; only proven failed target containers may be recreated.
-Previous releases require only the audited immutable artifact contract, with no
-new deployment marker files.
-
-Transport settings: AI_TASK_RUNNER_DEPLOY_SSH_PATH, SSH_HOST, SSH_USER,
-SSH_KEY_PATH and KNOWN_HOSTS_PATH (each with AI_TASK_RUNNER_DEPLOY_ prefix).
-SSH_USER must be ubuntu. Optional TIMEOUT_SECONDS (positive, at most 7200) and
-MAX_OUTPUT_BYTES (8192 through 1048576) use the same prefix. Credential file
-contents are never read by configuration validation. No concrete host, key path
-or credential value belongs in repository configuration.
-
-Deployment preflight requires existing normal release/shared/backup directories,
-shared mode 700, shared .env mode 600, an existing immutable current release,
-Python 3, git, flock, curl, tar and Docker Compose supporting !reset/!override.
-This phase validates these assumptions with offline fakes and static inspection;
-prior release artifact formats, production compatibility and migration rollback
-compatibility remain independent
-human audit items before Phase 3C-2F activation.
-
-## Phase 3C-3: fixed deploy adapter activation
-
-Runner startup now constructs the reviewed ProductionDeployAdapter from
-trusted AI_TASK_RUNNER_DEPLOY_* process configuration and injects it into
-LocalRunner. Generic Codex/task execution still receives no SSH, production,
-secret, host, path, service, SQL, or arbitrary-command authority.
-
-The only task-derived production input remains the reviewed lowercase merge
-SHA. Deployment transport and the remote operation vocabulary remain fixed in
-reviewed infrastructure code.
-
-This activation does not change the fail-closed stale-deploying policy.
-Production bootstrap, runner-token provisioning, scheduled runner activation,
-and the first real Discord-to-production E2E are operational steps performed
-after this reviewed wiring is merged.
-
-
-## Phase 3D: fixed Discord development channel
-
-The authoritative defaults are Guild `1515983621461245972` (いちよんラボ)
-and Channel `1551004878808285377` (ai開発). Trusted integer process settings
-`AI_TASK_DISCORD_GUILD_ID` and `AI_TASK_DISCORD_CHANNEL_ID` may override them;
-Discord/task content cannot configure these IDs. Names are informational only.
-
-Only `BOT_INSTANCE_ID=ichiyon` consumes this exact Guild + Channel. No mention
-or `AI 開発` prefix is required: one human message becomes one task description,
-without previous conversation history. The legacy `AI 開発`, `AI 状態`, and
-`AI 一覧` forms also work there. A leading Ichiyon mention is optional; other
-prompt contents are preserved. `AI_TASK_ALLOWED_USER_IDS` remains mandatory;
-an empty allowlist rejects everybody, before DB access. DB backend is required.
-Outside-channel capture is disabled, including mention-based task creation;
-Irsia never consumes the freeform AI-development channel. Prompts in the fixed
-channel are redacted from debug logs, including mentioned freeform prompts.
-
-A dedicated five-second Ichiyon DB loop returns `completed`, `failed`,
-`needs_human`, and `cancelled` results to the same fixed channel after checking
-its Guild ID. Responses disable all mentions and sanitize @everyone / @here.
-Migration 063 adds nullable terminal-notified status, timestamp, and Discord
-message ID columns with a consistency constraint and a pending-notification
-partial index. Old terminal tasks in this exact location are eligible after
-migration. Successful sends are recorded and committed; normal bot restarts do
-not resend recorded results. Failed sends remain pending. Row locks with
-`SKIP LOCKED` serialize concurrent notifiers, held through a bounded batch.
-There is an unavoidable crash window between Discord accepting a message and
-the DB batch commit: a retry may duplicate accepted messages in that batch.
-The cached channel must be available and message sending permitted; otherwise
-notification remains pending. Migration 063 must be applied by the authorized
-operational process before enabling this version; this repository change does
-not execute migrations or activate a live bot.
-
-This wiring does not weaken deploy/SSH/secret boundaries. Discord content is
-intent only; it never becomes shell, SSH, path, environment, or executable SQL
-input. Task descriptions are stored only as parameterized data. Notification
-formatting reads explicit result fields, never task descriptions or transport
-configuration; producers must continue to keep result/error summaries free of
-secrets. Generic task execution gains no production authority. Local/offline
-validation must not read credentials, send Discord messages, execute SSH,
-deploy, or run production migrations.
+これらは実行と公開を正しく完了させるためのチェックであり、旧来のchange-policyや段階別の編集拒否を復活させるものではない。

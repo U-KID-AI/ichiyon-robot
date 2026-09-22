@@ -63,7 +63,9 @@ def validate_pr_url(value: str, pr_number: int) -> None:
         raise ValueError("invalid PR URL")
 
 
-def validate_workflow_run_id(value: int) -> None:
+def validate_workflow_run_id(value: Optional[int]) -> None:
+    if value is None:
+        return
     if (
         not isinstance(value, int)
         or isinstance(value, bool)
@@ -353,6 +355,29 @@ class AITaskRepository:
             from_status="running", to_status="testing",
         )
 
+    def retry(self, *, task_id: uuid.UUID, runner_id: str, claim_token: uuid.UUID,
+              reason: str) -> Optional[Dict[str, Any]]:
+        validate_runner_id(runner_id)
+        if not isinstance(task_id, uuid.UUID) or not isinstance(claim_token, uuid.UUID):
+            raise ValueError("task_id and claim_token must be UUIDs")
+        if not isinstance(reason, str) or not 1 <= len(reason) <= MAX_PROGRESS_FIELD_LENGTH:
+            raise ValueError("retry reason is invalid")
+        # Keep ownership, lease and previous merge evidence until the next deployment.
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE ai_tasks
+                SET status = 'testing', current_step = 'retrying',
+                    progress_summary = %s, error_message = %s, updated_at = NOW()
+                WHERE task_id = %s AND bot_id = %s AND runner_id = %s AND claim_token = %s
+                  AND status IN ('running', 'testing', 'deploying')
+                  AND lease_expires_at > NOW()
+                RETURNING task_id, status
+                """,
+                (reason, reason, task_id, self.bot_id, runner_id, claim_token),
+            )
+            return fetch_one(cursor)
+
     def update_runner_progress(
         self, *, task_id: uuid.UUID, runner_id: str, claim_token: uuid.UUID,
         current_step: Optional[str] = None, progress_summary: Optional[str] = None,
@@ -470,7 +495,7 @@ class AITaskRepository:
         pr_url: str,
         test_summary: str,
         changed_files_summary: str,
-        ci_workflow_run_id: int,
+        ci_workflow_run_id: Optional[int] = None,
         review_summary: str,
         merge_commit_sha: str,
     ) -> Optional[Dict[str, Any]]:
@@ -508,9 +533,9 @@ class AITaskRepository:
             )
 
         result_summary = (
-            "Auto review approved. CI run "
-            + str(ci_workflow_run_id)
-            + ". Merge commit "
+            "CI passed. "
+            + (f"CI run {ci_workflow_run_id}. " if ci_workflow_run_id is not None else "")
+            + "Merge commit "
             + merge_commit_sha
             + ". Review: "
             + review_summary
@@ -531,8 +556,9 @@ class AITaskRepository:
                     merge_commit_sha = %s,
                     current_step = 'deploying',
                     progress_summary =
-                        'Reviewed merge recorded; deployment pending.',
+                        'Merge recorded; deployment pending.',
                     result_summary = %s,
+                    error_message = NULL,
                     deployment_started_at = NOW(),
                     updated_at = NOW()
                 WHERE task_id = %s

@@ -1,3 +1,4 @@
+import io
 import re
 import uuid
 from typing import Any, Dict, Optional, Tuple
@@ -7,6 +8,7 @@ import discord
 from bot import config
 from bot.db import get_connection
 from bot.repositories.ai_tasks import AITaskRepository
+from scripts.ai_task_diagnostics import redact_secrets
 
 
 MAX_DISCORD_DESCRIPTION_LENGTH = 1800
@@ -99,7 +101,7 @@ def build_task_names(task_id: uuid.UUID) -> Tuple[str, str]:
 
 
 def _safe_text(value: Any) -> str:
-    return str(value).replace("@everyone", "@\u200beveryone").replace("@here", "@\u200bhere")
+    return redact_secrets(value).replace("@everyone", "@\u200beveryone").replace("@here", "@\u200bhere")
 
 
 def _format_datetime(value: Any) -> str:
@@ -274,7 +276,7 @@ async def _handle_list(message: discord.Message) -> bool:
     return True
 
 
-def format_task_terminal(row: Dict[str, Any]) -> str:
+def task_terminal_details(row: Dict[str, Any]) -> str:
     if row.get("status") not in TERMINAL_STATUSES:
         raise ValueError("terminal status required")
     # Only explicit result fields; never include description or transport settings.
@@ -287,8 +289,12 @@ def format_task_terminal(row: Dict[str, Any]) -> str:
     lines = ["AI task結果"]
     for label, key in fields:
         if row.get(key):
-            lines.append("{0}: {1}".format(label, _safe_text(row[key])[:250]))
-    return _response("\n".join(lines))
+            lines.append("{0}: {1}".format(label, _safe_text(row[key])))
+    return "\n".join(lines)
+
+
+def format_task_terminal(row: Dict[str, Any]) -> str:
+    return _response(task_terminal_details(row))
 
 
 async def notify_ai_task_terminal_updates_once(bot) -> None:
@@ -310,8 +316,16 @@ async def notify_ai_task_terminal_updates_once(bot) -> None:
         )
         for row in rows:
             try:
+                details = task_terminal_details(row)
+                attachments = {}
+                if len(details) > MAX_DISCORD_RESPONSE_LENGTH:
+                    attachments["file"] = discord.File(
+                        io.BytesIO(details.encode("utf-8")),
+                        filename="ai-task-result.txt",
+                    )
                 sent = await channel.send(
                     format_task_terminal(row), allowed_mentions=discord.AllowedMentions.none(),
+                    **attachments,
                 )
             except Exception as exc:
                 print("[WARN] AI terminal notification send failed: " + type(exc).__name__)

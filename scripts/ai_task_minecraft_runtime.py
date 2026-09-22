@@ -3,19 +3,24 @@
 import base64
 import os
 import re
+import shlex
 import subprocess
-from dataclasses import dataclass, field
-from pathlib import Path
+import tempfile
+from dataclasses import dataclass, field, replace
+from pathlib import Path, PurePosixPath
 
 from ai_task_deploy_config import (
-    DeploymentSafetyError,
+    DeploymentError,
+    exception_detail,
     normal_file,
+    process_failure,
+    proof_error,
+    proof_fields,
     validate_host,
 )
 from ai_task_git import EXPECTED_ORIGIN
 from ai_task_minecraft_deploy import (
     DeploymentResult,
-    MAX_ARCHIVE_BYTES,
     prepare_pack_archive,
     validate_sha,
 )
@@ -25,8 +30,6 @@ from ai_task_process import communicate_bounded, managed_process_options
 TEMPLATE = Path(__file__).absolute().with_name("ai_task_minecraft_deploy_remote.py")
 PLACEHOLDER = "__ICHYON_ARCHIVE_BASE64__"
 SUMMARY = "Minecraft BDS deployment verified."
-SAFE_ATOM = re.compile(r"[A-Za-z0-9._-]{1,128}")
-SAFE_DATA_ROOT = re.compile(r"/[A-Za-z0-9._/-]{1,511}")
 
 
 @dataclass(frozen=True, repr=False)
@@ -46,8 +49,8 @@ class MinecraftDeployConfig:
     def validate(self) -> None:
         validate_host(self.ssh_host)
 
-        if self.ssh_user != "ubuntu" or not self.excluded_roots:
-            raise DeploymentSafetyError(
+        if self.ssh_user != "ubuntu":
+            raise DeploymentError(
                 "Minecraft deployment configuration rejected"
             )
 
@@ -63,38 +66,28 @@ class MinecraftDeployConfig:
         ):
             normal_file(path, roots)
 
-        if self.ssh_path.name != (
-            "ssh.exe" if os.name == "nt" else "ssh"
-        ):
-            raise DeploymentSafetyError(
-                "Minecraft deployment executable rejected"
-            )
-
         if (
-            SAFE_DATA_ROOT.fullmatch(self.data_root) is None
-            or "//" in self.data_root
-            or "/./" in self.data_root
-            or "/../" in self.data_root
-            or self.data_root.endswith(("/.", "/..", "/"))
+            not isinstance(self.data_root, str)
+            or not PurePosixPath(self.data_root).is_absolute()
+            or "\0" in self.data_root
+            or ".." in self.data_root.split("/")
         ):
-            raise DeploymentSafetyError(
+            raise DeploymentError(
                 "Minecraft data root rejected"
             )
 
-        for value in (self.world_name, self.container):
-            if (
-                SAFE_ATOM.fullmatch(value) is None
-                or value in (".", "..")
-            ):
-                raise DeploymentSafetyError(
-                    "Minecraft deployment identifier rejected"
-                )
+        if (not isinstance(self.world_name, str) or self.world_name in ("", ".", "..")
+                or "/" in self.world_name or "\0" in self.world_name):
+            raise DeploymentError("Minecraft world name must be one path component")
+        if (not isinstance(self.container, str)
+                or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", self.container) is None):
+            raise DeploymentError("Minecraft container name rejected")
 
         if (
             not isinstance(self.timeout, (int, float))
             or not 0 < float(self.timeout) <= 7200
         ):
-            raise DeploymentSafetyError(
+            raise DeploymentError(
                 "Minecraft deployment timeout rejected"
             )
 
@@ -104,7 +97,7 @@ class MinecraftDeployConfig:
             <= self.max_output_bytes
             <= 1048576
         ):
-            raise DeploymentSafetyError(
+            raise DeploymentError(
                 "Minecraft deployment output limit rejected"
             )
 
@@ -175,14 +168,14 @@ class MinecraftDeployConfig:
             ValueError,
             TypeError,
             OSError,
-        ):
-            raise DeploymentSafetyError(
-                "Minecraft deployment configuration rejected"
+        ) as exc:
+            raise DeploymentError(
+                "Minecraft deployment configuration invalid: " + exception_detail(exc)
             ) from None
 
 
 class ExactMergeSource:
-    """Read exact reviewed commits from the clean trusted source repo."""
+    """Read exact commits without using or modifying working-tree edits."""
 
     def __init__(
         self,
@@ -218,20 +211,22 @@ class ExactMergeSource:
                 }
             )
 
-        return subprocess.run(
-            [str(self.git_path), *args],
-            **kwargs,
-        )
+        try:
+            result = subprocess.run([str(self.git_path), *args], **kwargs)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise DeploymentError("Minecraft source git " + args[0] + ": " + exception_detail(exc)) from None
+        if result.returncode != 0:
+            raise DeploymentError(process_failure("Minecraft source git " + args[0], result))
+        return result
 
     def _require_repo(self) -> None:
         if (
             not self.repo_root.is_dir()
-            or self.repo_root.is_symlink()
             or not (
                 self.repo_root / ".git"
             ).exists()
         ):
-            raise DeploymentSafetyError(
+            raise DeploymentError(
                 "Minecraft source repository rejected"
             )
 
@@ -244,10 +239,6 @@ class ExactMergeSource:
         remote = self._run(
             ("remote", "get-url", "origin")
         )
-        status = self._run(
-            ("status", "--porcelain=v1")
-        )
-
         if (
             git_dir.returncode != 0
             or not git_dir.stdout.strip()
@@ -259,10 +250,8 @@ class ExactMergeSource:
             or remote.returncode != 0
             or remote.stdout.strip().rstrip("/")
             != EXPECTED_ORIGIN.rstrip("/")
-            or status.returncode != 0
-            or status.stdout
         ):
-            raise DeploymentSafetyError(
+            raise DeploymentError(
                 "Minecraft source repository rejected"
             )
 
@@ -280,8 +269,8 @@ class ExactMergeSource:
         )
 
         if result.returncode != 0:
-            raise DeploymentSafetyError(
-                "Minecraft source fetch failed"
+            raise DeploymentError(
+                process_failure("Minecraft source fetch failed", result)
             )
 
         result = self._run(
@@ -293,12 +282,12 @@ class ExactMergeSource:
         try:
             validate_sha(sha)
         except Exception:
-            raise DeploymentSafetyError(
+            raise DeploymentError(
                 "Minecraft source main SHA rejected"
             ) from None
 
         if result.returncode != 0:
-            raise DeploymentSafetyError(
+            raise DeploymentError(
                 "Minecraft source main SHA rejected"
             )
 
@@ -318,12 +307,12 @@ class ExactMergeSource:
         try:
             validate_sha(sha)
         except Exception:
-            raise DeploymentSafetyError(
+            raise DeploymentError(
                 "Minecraft source main SHA rejected"
             ) from None
 
         if result.returncode != 0:
-            raise DeploymentSafetyError(
+            raise DeploymentError(
                 "Minecraft source main SHA rejected"
             )
 
@@ -338,7 +327,7 @@ class ExactMergeSource:
         validate_sha(sha)
 
         if type(refresh_source) is not bool:
-            raise DeploymentSafetyError(
+            raise DeploymentError(
                 "Minecraft source refresh mode rejected"
             )
 
@@ -351,7 +340,7 @@ class ExactMergeSource:
         # Idle catch-up is permitted to skip the network fetch only for the
         # exact origin/main tip already synchronized by ExecStartPre.
         if not refresh_source and sha != main_sha:
-            raise DeploymentSafetyError(
+            raise DeploymentError(
                 "Minecraft local main SHA mismatch"
             )
 
@@ -395,7 +384,7 @@ class ExactMergeSource:
                 for token in tokens
             )
         ):
-            raise DeploymentSafetyError(
+            raise DeploymentError(
                 "Minecraft source commit rejected"
             )
 
@@ -414,8 +403,8 @@ class ExactMergeSource:
         )
 
         if result.returncode != 0:
-            raise DeploymentSafetyError(
-                "Minecraft merge diff rejected"
+            raise DeploymentError(
+                process_failure("Minecraft merge diff failed", result)
             )
 
         records = result.stdout.split("\0")
@@ -426,19 +415,13 @@ class ExactMergeSource:
         for path in records:
             if (
                 not path
-                or "\\" in path
                 or path.startswith("/")
                 or any(
                     part in ("", ".", "..")
                     for part in path.split("/")
                 )
-                or any(
-                    ord(char) < 32
-                    or ord(char) == 127
-                    for char in path
-                )
             ):
-                raise DeploymentSafetyError(
+                raise DeploymentError(
                     "Minecraft merge path rejected"
                 )
 
@@ -469,17 +452,14 @@ class ExactMergeSource:
 
         if (
             result.returncode != 0
-            or result.stderr
             or not isinstance(
                 result.stdout,
                 bytes,
             )
             or not result.stdout
-            or len(result.stdout)
-            > MAX_ARCHIVE_BYTES
         ):
-            raise DeploymentSafetyError(
-                "Minecraft source archive rejected"
+            raise DeploymentError(
+                process_failure("Minecraft source archive failed", result)
             )
 
         prepare_pack_archive(result.stdout)
@@ -491,25 +471,16 @@ def parse_proof(
     stdout: str,
     sha: str,
     tree_hash: str,
+    *,
+    stderr="",
 ) -> DeploymentResult:
-    prefix = (
-        "MINECRAFT_DEPLOY_RESULT=SUCCESS\n"
-        f"DEPLOYED_COMMIT_SHA={sha}\n"
-        f"MINECRAFT_TREE_SHA256={tree_hash}\n"
-        "MINECRAFT_CHANGED="
-    )
-
-    if not stdout.startswith(prefix):
-        raise DeploymentSafetyError(
-            "Minecraft deployment proof rejected"
-        )
-
-    suffix = stdout[len(prefix):]
-
-    if suffix not in ("0\n", "1\n"):
-        raise DeploymentSafetyError(
-            "Minecraft deployment proof rejected"
-        )
+    fields = proof_fields(stdout, {"MINECRAFT_DEPLOY_RESULT", "DEPLOYED_COMMIT_SHA",
+                                   "MINECRAFT_TREE_SHA256"}, stderr=stderr)
+    expected = {"MINECRAFT_DEPLOY_RESULT": "SUCCESS", "DEPLOYED_COMMIT_SHA": sha,
+                "MINECRAFT_TREE_SHA256": tree_hash}
+    for key, value in expected.items():
+        if fields.get(key) != value:
+            proof_error(f"Minecraft deployment {key} missing or mismatched", stdout, stderr)
 
     return DeploymentResult(
         sha,
@@ -541,7 +512,7 @@ class ProductionMinecraftDeployAdapter:
             self.config.validate()
 
             if type(refresh_source) is not bool:
-                raise DeploymentSafetyError(
+                raise DeploymentError(
                     "Minecraft deployment source mode rejected"
                 )
 
@@ -549,12 +520,12 @@ class ProductionMinecraftDeployAdapter:
                 stop_event is not None
                 and stop_event.is_set()
             ):
-                raise DeploymentSafetyError(
+                raise DeploymentError(
                     "Minecraft deployment stopped"
                 )
 
             archive = self.source.pack_archive(
-                merge_sha
+                merge_sha, refresh_source=refresh_source,
             )
 
             _, tree_hash = prepare_pack_archive(
@@ -571,7 +542,7 @@ class ProductionMinecraftDeployAdapter:
             )
 
             if template.count(PLACEHOLDER) != 1:
-                raise DeploymentSafetyError(
+                raise DeploymentError(
                     "Minecraft deployment template rejected"
                 )
 
@@ -616,59 +587,48 @@ class ProductionMinecraftDeployAdapter:
                 c.ssh_user
                 + "@"
                 + c.ssh_host,
-                "/usr/bin/python3",
-                "-",
-                merge_sha,
-                c.data_root,
-                c.world_name,
-                c.container,
+                shlex.join(["/usr/bin/python3", "-", merge_sha,
+                            c.data_root, c.world_name, c.container]),
             ]
 
-            process = subprocess.Popen(
-                argv,
-                **managed_process_options(),
-                shell=False,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-
-            result = communicate_bounded(
-                process,
-                input_text=rendered,
-                timeout=c.timeout,
-                max_output_bytes=(
-                    c.max_output_bytes
-                ),
-                stop_event=None,
-            )
+            # Keep complete logs independently of process timeout handling.
+            with tempfile.TemporaryFile() as diagnostics, tempfile.TemporaryFile() as output:
+                try:
+                    process = subprocess.Popen(
+                        argv, **managed_process_options(), shell=False,
+                        stdin=subprocess.PIPE, stdout=output, stderr=diagnostics,
+                    )
+                    result = communicate_bounded(
+                        process, input_text=rendered, timeout=c.timeout,
+                        max_output_bytes=c.max_output_bytes, stop_event=None,
+                    )
+                except Exception as exc:
+                    diagnostics.seek(0)
+                    output.seek(0)
+                    raise DeploymentError(exception_detail(exc) + "\n" +
+                                          diagnostics.read().decode("utf-8", errors="replace") + "\nstdout:\n" +
+                                          output.read().decode("utf-8", errors="replace")) from None
+                diagnostics.seek(0)
+                output.seek(0)
+                result = replace(result, stderr=diagnostics.read().decode("utf-8", errors="replace") + result.stderr,
+                                 stdout=output.read().decode("utf-8", errors="replace") + result.stdout)
 
             if (
                 result.timed_out
                 or result.stopped
                 or result.stdin_cleanup_failed
                 or result.returncode != 0
-                or result.stderr
                 or (
                     stop_event is not None
                     and stop_event.is_set()
                 )
-                or len(
-                    result.stdout.encode("utf-8")
-                )
-                >= c.max_output_bytes
             ):
-                raise DeploymentSafetyError(
-                    "Minecraft deployment transport failed"
-                )
+                detail = process_failure("Minecraft deployment transport failed", result)
+                if stop_event is not None and stop_event.is_set():
+                    detail += "; deployment lease lost"
+                raise DeploymentError(detail)
 
-            return parse_proof(
-                result.stdout,
-                merge_sha,
-                tree_hash,
-            )
+            return parse_proof(result.stdout, merge_sha, tree_hash, stderr=result.stderr)
 
-        except Exception:
-            raise DeploymentSafetyError(
-                "Minecraft deployment failed closed"
-            ) from None
+        except Exception as exc:
+            raise DeploymentError(exception_detail(exc)) from None

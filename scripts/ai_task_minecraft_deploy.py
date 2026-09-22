@@ -8,17 +8,17 @@ Only the reviewed merge SHA crosses the deployment boundary.
 import hashlib
 import io
 import json
+import logging
 import re
 import tarfile
 from dataclasses import dataclass
 from uuid import UUID
 
 from ai_task_deploy import DeploymentResult as AppDeploymentResult
-from ai_task_deploy_config import DeploymentSafetyError
+from ai_task_deploy_config import DeploymentError, exception_detail
+from ai_task_diagnostics import redact_secrets
 
 
-MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
-MAX_FILES = 10000
 KINDS = ("behavior_packs", "resource_packs")
 
 
@@ -32,9 +32,8 @@ def required_targets(changed_files):
         reject()
     targets = {"apps"}
     for path in changed_files:
-        if (not isinstance(path, str) or not path or "\\" in path
-                or any(part in ("", ".", "..") for part in path.split("/"))
-                or any(ord(char) < 32 for char in path)):
+        if (not isinstance(path, str) or not path or "\0" in path
+                or any(part in ("", ".", "..") for part in path.split("/"))):
             reject()
         if path.startswith("minecraft/"):
             targets.add("minecraft")
@@ -58,7 +57,7 @@ def verify_deployment(proof, sha, targets):
 
 
 def reject():
-    raise DeploymentSafetyError("Minecraft deployment input rejected")
+    raise DeploymentError("Minecraft deployment input rejected")
 
 
 def validate_sha(sha):
@@ -129,17 +128,16 @@ def prepare_pack_archive(raw):
     Unsupported Minecraft artifacts must be handled explicitly by the
     deployment transport; they must never be silently counted as deployed.
     """
-    if not isinstance(raw, bytes) or len(raw) > MAX_ARCHIVE_BYTES:
+    if not isinstance(raw, bytes):
         reject()
-    files, names, total = {}, set(), 0
+    files, names = {}, set()
     try:
         with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
             for member in archive:
                 name = member.name.rstrip("/") if member.isdir() else member.name
                 parts = name.split("/")
-                if (name in names or len(names) >= MAX_FILES
-                        or any(not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*", p)
-                               or p.endswith(".") for p in parts)
+                if (name in names or "\0" in name
+                        or any(p in ("", ".", "..") for p in parts)
                         or parts[0] != "minecraft"
                         or (len(parts) > 1 and parts[1] not in KINDS)
                         or not (member.isfile() or member.isdir())
@@ -147,13 +145,12 @@ def prepare_pack_archive(raw):
                     reject()
                 names.add(name)
                 if member.isfile():
-                    total += member.size
-                    if total > MAX_ARCHIVE_BYTES or member.size < 0:
+                    if member.size < 0:
                         reject()
                     stream = archive.extractfile(member)
                     if stream is None:
                         reject()
-                    files[name] = stream.read(MAX_ARCHIVE_BYTES + 1)
+                    files[name] = stream.read()
                     if len(files[name]) != member.size:
                         reject()
         for name in files:
@@ -166,11 +163,11 @@ def prepare_pack_archive(raw):
             manifests = [files[pack + "/manifest.json"] for pack in sorted(packs)
                          if pack.split("/")[1] == kind]
             sync_world_json(b"[]", manifests)
-    except (tarfile.TarError, OSError, KeyError, ValueError):
-        reject()
+    except (tarfile.TarError, OSError, KeyError, ValueError) as exc:
+        raise DeploymentError("Minecraft pack archive invalid: " + exception_detail(exc)) from None
     digest = hashlib.sha256()
     for name, content in sorted(files.items()):
-        digest.update(name.encode("ascii") + b"\0")
+        digest.update(name.encode("utf-8") + b"\0")
         digest.update(len(content).to_bytes(8, "big"))
         digest.update(content)
     return files, digest.hexdigest()
@@ -222,5 +219,7 @@ class TargetDeployAdapter:
             )
             verify_deployment(proof, sha, frozenset({"minecraft"}))
             return stop_event is None or not stop_event.is_set()
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "Minecraft catch-up failed: %s", redact_secrets(exception_detail(exc)))
             return False

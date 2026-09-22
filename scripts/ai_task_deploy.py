@@ -1,11 +1,15 @@
-"""Fixed production adapter; intentionally not connected to runner startup."""
+"""Fixed production adapter used by the runner after reviewed merge."""
 
 import re
 import subprocess
-from dataclasses import dataclass
+import tempfile
+from dataclasses import dataclass, replace
 from pathlib import Path
 
-from ai_task_deploy_config import DeployConfig, DeploymentSafetyError, normal_file
+from ai_task_deploy_config import (
+    DeployConfig, DeploymentError, exception_detail, normal_file,
+    process_failure, proof_error, proof_fields,
+)
 from ai_task_process import communicate_bounded, managed_process_options
 
 
@@ -19,11 +23,12 @@ class DeploymentResult:
     summary: str
 
 
-def parse_proof(stdout: str, sha: str) -> DeploymentResult:
-    # The protocol emits only these three lines. Reject all unsolicited output.
-    expected = f"DEPLOY_RESULT=SUCCESS\nDEPLOYED_COMMIT_SHA={sha}\nDEPLOY_SUMMARY={SUMMARY}\n"
-    if stdout != expected:
-        raise DeploymentSafetyError("deployment proof rejected")
+def parse_proof(stdout: str, sha: str, *, stderr="") -> DeploymentResult:
+    fields = proof_fields(stdout, {"DEPLOY_RESULT", "DEPLOYED_COMMIT_SHA"}, stderr=stderr)
+    if fields.get("DEPLOY_RESULT") != "SUCCESS":
+        proof_error("deployment success result missing or failed", stdout, stderr)
+    if fields.get("DEPLOYED_COMMIT_SHA") != sha:
+        proof_error("deployment SHA missing or mismatched", stdout, stderr)
     return DeploymentResult(sha, SUMMARY)
 
 
@@ -34,12 +39,12 @@ class ProductionDeployAdapter:
 
     def deploy(self, merge_sha: str, *, stop_event=None) -> DeploymentResult:
         if not isinstance(merge_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", merge_sha):
-            raise DeploymentSafetyError("deployment SHA rejected")
+            raise DeploymentError("deployment SHA rejected")
         try:
             self.config.validate()
             if stop_event is not None and stop_event.is_set():
-                raise DeploymentSafetyError("deployment stopped")
-            # No cwd or task-supplied script path. Reject linked installation files.
+                raise DeploymentError("deployment stopped")
+            # The installed protocol is sent on stdin, independent of task cwd.
             script = normal_file(SCRIPT, ()).read_text(encoding="utf-8")
             c = self.config
             argv = [str(c.ssh_path), "-F", "none", "-T",
@@ -51,20 +56,36 @@ class ProductionDeployAdapter:
                     "-o", "ClearAllForwardings=yes", "-o", "PermitLocalCommand=no",
                     "-i", str(c.ssh_key_path), c.ssh_user + "@" + c.ssh_host,
                     "bash", "-s", "--", merge_sha]
-            process = subprocess.Popen(argv, **managed_process_options(), shell=False, stdin=subprocess.PIPE,
-                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             # Once the fixed production transaction has started, transient Control
             # Plane lease loss must not kill SSH mid-backup/migration/cutover.
             # Lease loss is still checked before launch and immediately after the
-            # remote protocol returns, so Control Plane completion stays fail-closed.
-            result = communicate_bounded(process, input_text=script, timeout=c.timeout,
-                                         max_output_bytes=c.max_output_bytes, stop_event=None)
+            # remote protocol returns; completion still requires a valid lease.
+            # Spool both streams so verbose logs cannot truncate a final success
+            # marker or the actual error. Process deadlines remain enforced.
+            with tempfile.TemporaryFile() as diagnostics, tempfile.TemporaryFile() as output:
+                try:
+                    process = subprocess.Popen(argv, **managed_process_options(), shell=False, stdin=subprocess.PIPE,
+                                               stdout=output, stderr=diagnostics)
+                    result = communicate_bounded(process, input_text=script, timeout=c.timeout,
+                                                 max_output_bytes=c.max_output_bytes, stop_event=None)
+                except Exception as exc:
+                    diagnostics.seek(0)
+                    output.seek(0)
+                    raise DeploymentError(exception_detail(exc) + "\n" +
+                                          diagnostics.read().decode("utf-8", errors="replace") + "\nstdout:\n" +
+                                          output.read().decode("utf-8", errors="replace")) from None
+                diagnostics.seek(0)
+                output.seek(0)
+                result = replace(result, stderr=diagnostics.read().decode("utf-8", errors="replace") + result.stderr,
+                                 stdout=output.read().decode("utf-8", errors="replace") + result.stdout)
             if (result.timed_out or result.stopped or result.stdin_cleanup_failed
-                    or result.returncode != 0 or result.stderr
-                    or (stop_event is not None and stop_event.is_set())
-                    or len(result.stdout.encode("utf-8")) >= c.max_output_bytes):
-                raise DeploymentSafetyError("deployment transport failed")
-            return parse_proof(result.stdout, merge_sha)
-        except Exception:
-            # Suppress chained exceptions too: Popen errors can include key paths.
-            raise DeploymentSafetyError("deployment failed closed") from None
+                    or result.returncode != 0
+                    or (stop_event is not None and stop_event.is_set())):
+                detail = process_failure("deployment transport failed", result)
+                if stop_event is not None and stop_event.is_set():
+                    detail += "; deployment lease lost"
+                raise DeploymentError(detail)
+            return parse_proof(result.stdout, merge_sha, stderr=result.stderr)
+        except Exception as exc:
+            # Suppress the raw exception chain, but retain its operational cause.
+            raise DeploymentError(exception_detail(exc)) from None

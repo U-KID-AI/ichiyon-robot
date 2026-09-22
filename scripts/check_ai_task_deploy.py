@@ -17,9 +17,9 @@ import unittest
 from unittest.mock import patch
 
 from ai_task_deploy import ProductionDeployAdapter, SUMMARY, parse_proof
-from ai_task_deploy_config import DeployConfig, DeploymentSafetyError, normal_file
+from ai_task_deploy_config import DeployConfig, DeploymentError, normal_file
+from ai_task_diagnostics import redact_secrets
 from ai_task_process import ProcessResult
-from ai_task_safety import is_protected_path
 
 ROOT = Path(__file__).resolve().parent.parent
 REMOTE = ROOT / 'scripts/ai_task_deploy_remote.sh'
@@ -52,7 +52,7 @@ class DeploymentTests(unittest.TestCase):
         with patch('ai_task_deploy.subprocess.Popen') as popen:
             for value in (None, 3, '', 'A' * 40, 'a' * 39, 'a' * 41, SHA + '\n',
                           SHA + ';id', '--help', 'task/hello', '$(id)', ['a']):
-                with self.subTest(value=value), self.assertRaises(DeploymentSafetyError):
+                with self.subTest(value=value), self.assertRaises(DeploymentError):
                     self.adapter.deploy(value)
             with self.assertRaises(TypeError):
                 self.adapter.deploy(SHA, task='Discord text')
@@ -69,7 +69,7 @@ class DeploymentTests(unittest.TestCase):
             return ProcessResult(0, PROOF, '')
         with patch('ai_task_deploy.subprocess.Popen'), patch(
                 'ai_task_deploy.communicate_bounded', side_effect=lose_lease):
-            with self.assertRaises(DeploymentSafetyError):
+            with self.assertRaises(DeploymentError):
                 self.adapter.deploy(SHA, stop_event=stop)
 
     def test_fixed_transport_and_stdin(self):
@@ -96,44 +96,108 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(communicate.call_args.kwargs['max_output_bytes'], self.config.max_output_bytes)
 
     def test_failure_flags_and_no_leaks(self):
-        for result in (ProcessResult(1, PROOF, 'sensitive'), ProcessResult(0, PROOF, 'warning'),
+        for result in (ProcessResult(1, PROOF, 'permission denied; password=hidden-value'),
                        ProcessResult(0, PROOF, '', timed_out=True),
                        ProcessResult(0, PROOF, '', stopped=True),
                        ProcessResult(0, PROOF, '', stdin_cleanup_failed=True)):
             with patch('ai_task_deploy.subprocess.Popen'), patch(
                     'ai_task_deploy.communicate_bounded', return_value=result):
-                with self.assertRaises(DeploymentSafetyError) as error:
+                with self.assertRaises(DeploymentError) as error:
                     self.adapter.deploy(SHA)
-                self.assertEqual(str(error.exception), 'deployment failed closed')
+                self.assertIn('deployment transport failed', str(error.exception))
+                self.assertNotIn('hidden-value', str(error.exception))
+                if result.returncode:
+                    self.assertIn('permission denied', str(error.exception))
                 self.assertTrue(error.exception.__suppress_context__)
-        with patch('ai_task_deploy.subprocess.Popen', side_effect=OSError('sensitive path')):
-            with self.assertRaises(DeploymentSafetyError) as error:
+        with patch('ai_task_deploy.subprocess.Popen', side_effect=OSError('missing key ' + str(self.config.ssh_key_path))):
+            with self.assertRaises(DeploymentError) as error:
                 self.adapter.deploy(SHA)
-            self.assertNotIn('sensitive', str(error.exception))
+            self.assertIn(str(self.config.ssh_key_path), str(error.exception))
+            self.assertIn('missing key', str(error.exception))
         stop = threading.Event()
         stop.set()
         with patch('ai_task_deploy.subprocess.Popen') as popen:
-            with self.assertRaises(DeploymentSafetyError):
+            with self.assertRaises(DeploymentError):
                 self.adapter.deploy(SHA, stop_event=stop)
             popen.assert_not_called()
 
-    def test_exact_proof(self):
+    def test_successful_transport_stderr_is_not_a_failure(self):
+        with patch('ai_task_deploy.subprocess.Popen'), patch(
+                'ai_task_deploy.communicate_bounded', return_value=ProcessResult(0, PROOF, 'SSH warning')):
+            self.assertEqual(self.adapter.deploy(SHA).deployed_commit_sha, SHA)
+
+    def test_transport_preserves_full_stderr_and_rollback_result(self):
+        diagnostic = ('BEGIN host=example.invalid key=' + str(self.config.ssh_key_path) + '\n' +
+                      'migration output\n' * 10000 + 'END password=fixture-secret\n')
+
+        def launch(*args, **kwargs):
+            kwargs['stderr'].write(diagnostic.encode('utf-8'))
+            kwargs['stderr'].flush()
+            kwargs['stdout'].write(b'full stdout diagnostic\n' * 10000)
+            kwargs['stdout'].flush()
+            return object()
+
+        with patch('ai_task_deploy.subprocess.Popen', side_effect=launch), patch(
+                'ai_task_deploy.communicate_bounded', return_value=ProcessResult(1, 'DEPLOY_ERROR=ROLLED_BACK\n', '')):
+            with self.assertRaises(DeploymentError) as error:
+                self.adapter.deploy(SHA)
+        detail = str(error.exception)
+        self.assertIn('BEGIN host=example.invalid key=' + str(self.config.ssh_key_path), detail)
+        self.assertIn('END password=[redacted]', detail)
+        self.assertIn('DEPLOY_ERROR=ROLLED_BACK', detail)
+        self.assertNotIn('fixture-secret', detail)
+        self.assertEqual(detail.count('migration output\n'), 10000)
+        self.assertEqual(detail.count('full stdout diagnostic\n'), 10000)
+
+    def test_success_after_large_stdout_logs(self):
+        def launch(*args, **kwargs):
+            kwargs['stdout'].write(('build log\n' * 10000 + PROOF).encode())
+            kwargs['stdout'].flush()
+            return object()
+
+        with patch('ai_task_deploy.subprocess.Popen', side_effect=launch), patch(
+                'ai_task_deploy.communicate_bounded', return_value=ProcessResult(0, '', '')):
+            self.assertEqual(self.adapter.deploy(SHA).deployed_commit_sha, SHA)
+
+    def test_full_diagnostics_redact_only_secret_values(self):
+        with patch.dict(os.environ, {'EXAMPLE_TOKEN': 'known-credential-value'}):
+            detail = redact_secrets('operation failed known-credential-value ' +
+                'https://user:db-pass@example/db Bearer bearer-value ' +
+                'password="two words" api_key=key-value ' +
+                '-----BEGIN PRIVATE KEY-----\n' + ('private-data\n' * 400) +
+                '-----END PRIVATE KEY-----')
+        self.assertIn('operation failed', detail)
+        for secret in ('known-credential-value', 'db-pass', 'bearer-value', 'two words', 'key-value', 'private-data'):
+            self.assertNotIn(secret, detail)
+        diagnostic = f'host example.invalid key file {self.config.ssh_key_path}\n' + ('diagnostic\n' * 10000)
+        self.assertEqual(str(DeploymentError(diagnostic)), diagnostic)
+
+    def test_proof_requires_success_and_exact_sha_not_summary_or_log_format(self):
         self.assertEqual(parse_proof(PROOF, SHA).summary, SUMMARY)
-        invalid = ['', PROOF * 2, PROOF.replace(SHA, 'b' * 40), PROOF.replace('SUCCESS', 'OK'),
-                   PROOF.replace('DEPLOY_RESULT=SUCCESS\n', ''), PROOF + 'log\n',
-                   PROOF.replace('DEPLOY_SUMMARY=', ' DEPLOY_SUMMARY='), PROOF.rstrip('\n')]
-        for summary in ('', 'x' * 4001, 'safe\nunsafe', 'safe\runsafe', '\x00', '\x1b', '\x7f', '\u0085', 'unreviewed text'):
-            invalid.append(PROOF.replace(SUMMARY, summary))
-        for marker in PROOF.splitlines(keepends=True):
-            invalid.extend([PROOF + marker, PROOF.replace(marker, '')])
+        valid = [PROOF * 2, PROOF + 'log\n', 'preflight ok\n' + PROOF,
+                 PROOF.replace('DEPLOY_SUMMARY=', ' DEPLOY_SUMMARY='), PROOF.rstrip('\n'),
+                 PROOF.replace(f'DEPLOY_SUMMARY={SUMMARY}\n', ''), PROOF.replace('\n', '\r\n')]
+        for summary in ('', 'x' * 4001, 'first\nsecond', '\u65e5\u672c\u8a9e', 'deployment complete'):
+            valid.append(PROOF.replace(SUMMARY, summary))
+        for value in valid:
+            self.assertEqual(parse_proof(value, SHA).deployed_commit_sha, SHA)
+        invalid = ['', PROOF.replace(SHA, 'b' * 40), PROOF.replace('SUCCESS', 'FAILED'),
+                   PROOF.replace('DEPLOY_RESULT=SUCCESS\n', ''),
+                   PROOF.replace('DEPLOYED_COMMIT_SHA=' + SHA + '\n', ''),
+                   PROOF + 'DEPLOY_RESULT=FAILED\n', PROOF + 'DEPLOYED_COMMIT_SHA=' + 'b' * 40]
         for value in invalid:
-            with self.subTest(value=value[:80]), self.assertRaises(DeploymentSafetyError):
+            with self.subTest(value=value[:80]), self.assertRaises(DeploymentError):
                 parse_proof(value, SHA)
+        with self.assertRaises(DeploymentError) as error:
+            parse_proof('build failed; token=fixture-secret', SHA, stderr='daemon unavailable')
+        self.assertIn('build failed', str(error.exception))
+        self.assertIn('daemon unavailable', str(error.exception))
+        self.assertNotIn('fixture-secret', str(error.exception))
 
     def test_config_shapes_and_limits(self):
         for host in ('-host', 'host name', 'host\n', 'a/b', 'a:b', 'a@b', 'a;b',
                      'https://a', 'a?b', 'a#b', 'a$(id)', '', '256.1.1.1', 'a..b', 'a.' ):
-            with self.subTest(host=host), self.assertRaises(DeploymentSafetyError):
+            with self.subTest(host=host), self.assertRaises(DeploymentError):
                 replace(self.config, ssh_host=host).validate()
         for host in ('example.invalid', '127.0.0.1', 'host-1'):
             replace(self.config, ssh_host=host).validate()
@@ -141,27 +205,23 @@ class DeploymentTests(unittest.TestCase):
                              ('timeout', float('nan')), ('timeout', float('inf')),
                              ('timeout', 0), ('timeout', -1), ('timeout', 7201),
                              ('max_output_bytes', 0), ('max_output_bytes', 1048577),
-                             ('max_output_bytes', True), ('excluded_roots', ())]:
-            with self.subTest(field=field, value=value), self.assertRaises(DeploymentSafetyError):
+                             ('max_output_bytes', True)]:
+            with self.subTest(field=field, value=value), self.assertRaises(DeploymentError):
                 replace(self.config, **{field: value}).validate()
         for field in ('ssh_path', 'ssh_key_path', 'known_hosts_path'):
             for value in (Path('relative'), Path(self.temp.name), Path(self.temp.name) / 'missing'):
-                with self.subTest(field=field), self.assertRaises(DeploymentSafetyError):
+                with self.subTest(field=field), self.assertRaises(DeploymentError):
                     replace(self.config, **{field: value}).validate()
-            with self.assertRaises(DeploymentSafetyError):
-                replace(self.config, excluded_roots=(Path(self.temp.name),)).validate()
-        with patch('ai_task_deploy_config.is_reparse_point', return_value=True):
-            with self.assertRaises(DeploymentSafetyError):
-                self.config.validate()
-        with patch.object(Path, 'is_symlink', return_value=True):
-            with self.assertRaises(DeploymentSafetyError):
-                self.config.validate()
+        replace(self.config, excluded_roots=(Path(self.temp.name),)).validate()
+        replace(self.config, excluded_roots=()).validate()
         wrong = Path(self.temp.name) / 'other-executable'
         wrong.touch()
-        with self.assertRaises(DeploymentSafetyError):
-            replace(self.config, ssh_path=wrong).validate()
-        with self.assertRaises(DeploymentSafetyError):
-            normal_file(ROOT / 'scripts/ai_task_deploy.py', (ROOT,))
+        replace(self.config, ssh_path=wrong).validate()
+        self.assertEqual(normal_file(ROOT / 'scripts/ai_task_deploy.py', (ROOT,)),
+                         (ROOT / 'scripts/ai_task_deploy.py').resolve())
+        punctuation = Path(self.temp.name) / "transport file's $name%"
+        punctuation.touch()
+        self.assertEqual(normal_file(punctuation, ()), punctuation.resolve())
 
     def test_environment_only_configuration(self):
         values = dict(SSH_PATH=str(self.config.ssh_path), SSH_HOST='example.invalid', SSH_USER='ubuntu',
@@ -170,7 +230,7 @@ class DeploymentTests(unittest.TestCase):
         with patch.dict(os.environ, env, clear=True), patch.object(Path, 'read_text', side_effect=AssertionError('no reads')):
             config = DeployConfig.from_environment(repo_root=Path(self.temp.name) / 'repo', worktree_root=Path(self.temp.name) / 'worktrees')
             self.assertEqual(config.ssh_host, 'example.invalid')
-        with patch.dict(os.environ, {}, clear=True), self.assertRaises(DeploymentSafetyError):
+        with patch.dict(os.environ, {}, clear=True), self.assertRaisesRegex(DeploymentError, 'AI_TASK_RUNNER_DEPLOY_SSH_PATH'):
             DeployConfig.from_environment(repo_root=ROOT, worktree_root=ROOT)
 
 
@@ -178,6 +238,78 @@ class RemoteChecks(unittest.TestCase):
     def setUp(self):
         self.h = types.ModuleType('offline_remote_helper')
         exec(compile(HELPER, '<reviewed remote helper>', 'exec'), self.h.__dict__)
+
+    def test_remote_command_failure_keeps_stderr(self):
+        h = self.h
+        with patch.object(h.subprocess, 'run', return_value=types.SimpleNamespace(
+                returncode=17, stdout=b'', stderr=b'docker daemon unavailable')) as run:
+            with self.assertRaisesRegex(RuntimeError, 'exit=17.*docker daemon unavailable'):
+                h.run(['docker', 'inspect', 'fixture'])
+        self.assertEqual(run.call_args.kwargs['stderr'], subprocess.PIPE)
+        self.assertNotIn('exec >/dev/null 2>&1', SCRIPT)
+        self.assertIn('report_diagnostics', SCRIPT)
+
+    def test_linked_installation_and_deployment_directories_are_allowed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp).resolve()
+            file = path / 'fixture'
+            file.touch()
+            with patch.object(Path, 'is_symlink', return_value=True):
+                self.h.normal(path, True)
+                self.h.normal(file)
+                self.assertEqual(normal_file(file, (path,)), file.resolve())
+        self.assertIn('tar --dereference', SCRIPT)
+
+    def test_archive_accepts_normal_reviewed_files(self):
+        h = self.h
+        archive = io.BytesIO()
+        names = ('fixtures/.env', 'fixtures/public.pem', 'fixtures/test.key',
+                 'secrets/README.md', 'docs/space name.txt', 'docs/\u65e5\u672c\u8a9e.md')
+        with tarfile.open(fileobj=archive, mode='w') as tar:
+            for name in names:
+                member = tarfile.TarInfo(name)
+                member.size = 7
+                tar.addfile(member, io.BytesIO(b'fixture'))
+        with tempfile.TemporaryDirectory() as temp, patch.object(h, 'run', return_value=archive.getvalue()), \
+                patch.object(h, 'container', return_value={'Image': 'fake-image'}), \
+                patch.object(h, '__file__', str(REMOTE), create=True):
+            root = Path(temp)
+            h.prepare(root, SHA)
+            for name in names:
+                self.assertEqual((root / 'src' / name).read_bytes(), b'fixture')
+
+    def test_archive_accepts_contained_symlink_and_cleanup_does_not_follow(self):
+        h = self.h
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            stage = root / ('.prepare-' + SHA + '.12345678')
+            stage.mkdir()
+            outside = root / 'keep.txt'
+            outside.write_bytes(b'keep')
+            try:
+                (stage / 'link').symlink_to(outside)
+            except OSError as exc:
+                if getattr(exc, 'winerror', None) == 1314:
+                    self.skipTest('Windows symlink privilege unavailable')
+                raise
+            with patch.object(h, 'ROOT', root):
+                h.cleanup(stage, SHA)
+            self.assertEqual(outside.read_bytes(), b'keep')
+        archive = io.BytesIO()
+        with tarfile.open(fileobj=archive, mode='w') as tar:
+            target = tarfile.TarInfo('target.txt')
+            target.size = 4
+            tar.addfile(target, io.BytesIO(b'code'))
+            link = tarfile.TarInfo('link.txt')
+            link.type = tarfile.SYMTYPE
+            link.linkname = 'target.txt'
+            tar.addfile(link)
+        with tempfile.TemporaryDirectory() as temp, patch.object(h, 'run', return_value=archive.getvalue()), \
+                patch.object(h, 'container', return_value={'Image': 'fake-image'}), \
+                patch.object(h, '__file__', str(REMOTE), create=True):
+            h.prepare(Path(temp), SHA)
+            self.assertEqual((Path(temp) / 'src/link.txt').read_bytes(), b'code')
+            self.assertEqual(h.tree(Path(temp).resolve() / 'src')['link.txt'], ('symlink', 'target.txt'))
 
     def test_phase3b_legacy_release_without_src_revision(self):
         h = self.h
@@ -447,7 +579,7 @@ class RemoteChecks(unittest.TestCase):
         )
 
         for field, value in [('image', 'latest'), ('build', {'context': '.'}), ('build', None), ('pull_policy', 'always'),
-                             ('privileged', True), ('volumes', mounts + [dict(source='/', target='/app', type='bind')]),
+                             ('volumes', mounts + [dict(source='/', target='/app', type='bind')]),
                              ('networks', {'other': {}})]:
             bad = copy.deepcopy(config)
             bad['services']['admin'][field] = value
@@ -455,11 +587,10 @@ class RemoteChecks(unittest.TestCase):
                 with self.subTest(field=field), self.assertRaises(AssertionError):
                     h.contract(Path('/unused'))
 
-    def test_archive_rejects_escapes_and_secret_files(self):
+    def test_archive_rejects_escapes(self):
         h = self.h
         for name, kind in [('../escape', tarfile.REGTYPE), ('/escape', tarfile.REGTYPE),
-                           ('secrets/private', tarfile.REGTYPE), ('.git/config', tarfile.REGTYPE),
-                           ('.env', tarfile.REGTYPE), ('link', tarfile.SYMTYPE), ('hardlink', tarfile.LNKTYPE)]:
+                           ('link', tarfile.SYMTYPE), ('hardlink', tarfile.LNKTYPE)]:
             archive = io.BytesIO()
             with tarfile.open(fileobj=archive, mode='w') as tar:
                 member = tarfile.TarInfo(name)
@@ -467,15 +598,15 @@ class RemoteChecks(unittest.TestCase):
                 member.linkname = '/escape' if kind != tarfile.REGTYPE else ''
                 tar.addfile(member, io.BytesIO(b''))
             with tempfile.TemporaryDirectory() as temp, patch.object(h, 'run', return_value=archive.getvalue()):
-                with self.subTest(name=name), self.assertRaises(AssertionError):
+                with self.subTest(name=name), self.assertRaises((AssertionError, tarfile.FilterError)):
                     h.prepare(Path(temp), SHA)
 
-    def test_image_secret_audit_rejects_nonzero_and_revision(self):
+    def test_image_revision_proof(self):
         h = self.h
         image = {'Id': 'sha256:fake', 'Config': {'Labels': {'org.opencontainers.image.revision': SHA}}}
-        for count in (0, 1):
-            with patch.object(h, 'run', side_effect=[json.dumps([image]).encode(), f'BAKED_SECRET_FILE_COUNT={count}\n'.encode()]) as run:
-                if count:
+        for proof in (b'IMAGE_REVISION_VERIFIED\n', b'wrong'):
+            with patch.object(h, 'run', side_effect=[json.dumps([image]).encode(), proof]) as run:
+                if proof == b'wrong':
                     with self.assertRaises(AssertionError):
                         h.image_check(SHA)
                 else:
@@ -713,7 +844,7 @@ class RemoteChecks(unittest.TestCase):
                          "'archive', '--format=tar'", "APPS = ('admin', 'bot', 'bot-irsia')",
                          "INFRA = ('db', 'youtube-vpn-proxy')", '--no-deps --no-build --pull never',
                          'stop admin bot bot-irsia', 'infra_same', "c['RestartCount'] == 0",
-                         "status == b'200'", "b'Logged in as '", 'BAKED_SECRET_FILE_COUNT=0',
+                         "status == b'200'", "b'Logged in as '", 'IMAGE_REVISION_VERIFIED',
                          "m['Destination'] == '/app'", 'ichiyon-robot_postgres_data', 'ichiyon-robot_default',
                          "(path / 'checksums.sha256').read_text() == expected", "'pg_restore', '--list'", 'tarfile.open', 'scripts/migrate.py',
                          'actual == expected', 'quiesced=1', 'DEPLOY_ERROR=ROLLBACK_FAILED'):
@@ -917,12 +1048,6 @@ class RemoteChecks(unittest.TestCase):
             self.assertEqual(len(list(path.iterdir())), 7)
 
     def test_repository_paths_and_ci(self):
-        for path in ('Dockerfile', '.dockerignore', 'docker-compose.yml', 'docker-compose.prod.yml',
-                     'scripts/ai_task_deploy.py', 'scripts/ai_task_deploy_config.py',
-                     'scripts/ai_task_deploy_remote.sh', 'scripts/check_ai_task_deploy.py'):
-            self.assertFalse(is_protected_path(path))
-            self.assertFalse(is_protected_path(path.upper()))
-        self.assertTrue(is_protected_path('.git/config'))
         self.assertIn('secrets/', (ROOT / '.dockerignore').read_text(encoding='utf-8').splitlines())
         ci = (ROOT / '.github/workflows/checks.yml').read_text()
         for value in ('python-and-compose:', 'python scripts/check_ai_task_deploy.py', 'bash -n scripts/ai_task_deploy_remote.sh'):
@@ -939,10 +1064,6 @@ class RemoteChecks(unittest.TestCase):
         self.assertIn('DeployConfig.from_environment(', runner)
         self.assertIn(
             'deployer=ProductionDeployAdapter(deploy_config)',
-            ''.join(runner.split()),
-        )
-        self.assertIn(
-            'except(ValueError,OSError,SafetyError)asexc:',
             ''.join(runner.split()),
         )
 

@@ -1,772 +1,278 @@
-"""Offline checks for the Phase 2D read-only review gate."""
+"""Offline checks for CI readiness, diagnostics, cancellation and task identity."""
 
+import copy
+import io
 import json
-import os
 import sys
 import threading
+import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 from uuid import UUID
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from ai_task_review_merge import (
-    ReviewCIFailedError,
-    ReviewGateResult,
-    ReviewMergeGate,
-    ReviewMergeSafetyError,
-    ReviewPendingError,
+    ReviewCIFailedError, ReviewMergeGate, CIMonitorError, ReviewPendingError,
 )
 
-
-TASK_ID = UUID(
-    "00000000-0000-0000-0000-000000000001"
-)
+TASK_ID = UUID("00000000-0000-0000-0000-000000000001")
 COMMIT_SHA = "a" * 40
-BASE_SHA = "c" * 40
+BASE_SHA = "b" * 40
+MERGE_SHA = "c" * 40
 BRANCH = f"ai/task/{TASK_ID}"
 PR_NUMBER = 123
-PR_URL = (
-    "https://github.com/"
-    "U-KID-AI/ichiyon-robot/pull/123"
-)
-FILES = (
-    "bot/example.py",
-    "docs/example.md",
-)
+REPO = "U-KID-AI/ichiyon-robot"
+PR_URL = f"https://github.com/{REPO}/pull/{PR_NUMBER}"
+GH = Path(sys.executable).resolve()
+FILES = (".github/workflows/new.yml", "migrations/999.sql", "scripts/new.py")
 
 
-def check(name, condition):
-    if not condition:
-        raise AssertionError(name)
-    print(f"PASS {name}")
-
-
-def rejects(call):
-    try:
-        call()
-    except (
-        ValueError,
-        RuntimeError,
-        ReviewMergeSafetyError,
-    ):
-        return True
-    return False
+def result(value="", *, stderr="", code=0):
+    return SimpleNamespace(
+        stdout=value if isinstance(value, str) else json.dumps(value), stderr=stderr, returncode=code,
+    )
 
 
 def pr_item():
-    return {
-        "number": PR_NUMBER,
-        "html_url": PR_URL,
-        "state": "open",
-        "draft": True,
-        "merged_at": None,
-        "mergeable": True,
-        "base": {
-            "ref": "main",
-            "sha": BASE_SHA,
-            "repo": {
-                "full_name":
-                "U-KID-AI/ichiyon-robot",
-            },
-        },
-        "head": {
-            "ref": BRANCH,
-            "sha": COMMIT_SHA,
-            "repo": {
-                "full_name":
-                "U-KID-AI/ichiyon-robot",
-            },
-        },
-    }
-
-
-def run_item(
-    *,
-    run_id=900,
-    status="completed",
-    conclusion="success",
-    sha=COMMIT_SHA,
-    base_sha=BASE_SHA,
-    pr_number=PR_NUMBER,
-):
-    return {
-        "id": run_id,
-        "name": "checks",
-        "path": ".github/workflows/checks.yml",
-        "event": "pull_request",
-        "head_sha": sha,
-        "head_branch": BRANCH,
-        "status": status,
-        "conclusion": conclusion,
-        "pull_requests": [
-            {
-                "number": pr_number,
-                "base": {
-                    "ref": "main",
-                    "sha": base_sha,
-                },
-                "head": {
-                    "ref": BRANCH,
-                    "sha": sha,
-                },
-            },
-        ],
-    }
-
-
-def fake_backend(
-    *,
-    pr=None,
-    pr_after=None,
-    files=None,
-    page2=None,
-    runs=None,
-    main_sha=BASE_SHA,
-):
-    calls = []
-
-    pr = pr if pr is not None else pr_item()
-    pr_after = pr if pr_after is None else pr_after
-    pr_reads = 0
-    files = (
-        files
-        if files is not None
-        else [{"filename": value} for value in FILES]
-    )
-    page2 = page2 if page2 is not None else []
-    runs = (
-        runs
-        if runs is not None
-        else [run_item()]
+    return dict(
+        number=PR_NUMBER, html_url=PR_URL, state="open", draft=False, merged_at=None,
+        mergeable=None,
+        base=dict(ref="main", sha=BASE_SHA, repo=dict(full_name=REPO)),
+        head=dict(ref=BRANCH, sha=COMMIT_SHA, repo=dict(full_name=REPO)),
     )
 
-    def runner(argv, **kwargs):
-        nonlocal pr_reads
 
-        calls.append((argv, kwargs))
+def check_item(bucket="pass", *, run_id=900, name="test"):
+    return dict(
+        name=name, workflow="any-workflow-name", state=bucket.upper(),
+        bucket=bucket, description=f"{name} detail",
+        link=f"https://github.com/{REPO}/actions/runs/{run_id}/job/100",
+    )
+
+
+class FakeGitHub:
+    """All calls, including mutations, are local in-memory fixtures."""
+
+    def __init__(self):
+        self.pr = pr_item()
+        self.after_pr = None
+        self.pr_reads = 0
+        self.checks = [check_item()]
+        self.required_checks = None
+        self.check_sequence = []
+        self.check_error = None
+        self.pages = [[dict(filename=name) for name in FILES]]
+        self.logs = result("tests/test_feature.py:42: AssertionError: expected 2 got 1", stderr="job warning")
+        self.calls = []
+        self.listed = True
+        self.ready_code = 0
+        self.ready_succeeds = True
+        self.merge_code = 0
+        self.merge_succeeds = True
+        self.merge_base = "d" * 40
+        self.merge_head = COMMIT_SHA
+        self.after_merge_read_error = False
+        self.stop_after_ready = None
+
+    def __call__(self, argv, **kwargs):
         args = argv[1:]
-
-        if (
-            args[:3]
-            == ["api", "--method", "GET"]
-            and args[3]
-            == (
-                "repos/U-KID-AI/"
-                "ichiyon-robot/git/ref/heads/main"
+        self.calls.append(args)
+        if args[:2] == ["pr", "list"]:
+            return result([dict(
+                number=self.pr["number"], url=self.pr["html_url"], isDraft=self.pr["draft"],
+                baseRefName=self.pr["base"]["ref"], headRefName=self.pr["head"]["ref"],
+                headRefOid=self.pr["head"]["sha"], state="OPEN",
+            )] if self.listed else [])
+        if args[:2] == ["pr", "create"]:
+            self.listed = True
+            return result(self.pr["html_url"])
+        if args[:2] == ["pr", "checks"]:
+            if self.check_error:
+                return self.check_error
+            if "--required" in args and self.required_checks is not None:
+                if not self.required_checks:
+                    return result("", stderr=f"no required checks reported on the '{BRANCH}' branch", code=1)
+                return result(self.required_checks)
+            checks = self.check_sequence.pop(0) if self.check_sequence else self.checks
+            code = 1 if any(c["bucket"] in {"fail", "cancel"} for c in checks) else (
+                8 if any(c["bucket"] == "pending" for c in checks) else 0
             )
-        ):
-            return SimpleNamespace(
-                returncode=0,
-                stdout=json.dumps(
-                    {
-                        "ref": "refs/heads/main",
-                        "object": {
-                            "type": "commit",
-                            "sha": main_sha,
-                        },
-                    }
-                ),
-                stderr="",
-            )
-
-        if (
-            args[:3]
-            == ["api", "--method", "GET"]
-            and args[3]
-            == (
-                "repos/U-KID-AI/"
-                "ichiyon-robot/pulls/123"
-            )
-        ):
-            value = (
-                pr
-                if pr_reads == 0
-                else pr_after
-            )
-            pr_reads += 1
-
-            return SimpleNamespace(
-                returncode=0,
-                stdout=json.dumps(value),
-                stderr="",
-            )
-
-        if (
-            args[:3]
-            == ["api", "--method", "GET"]
-            and args[3]
-            == (
-                "repos/U-KID-AI/"
-                "ichiyon-robot/pulls/123/files"
-            )
-        ):
-            page = args[-1]
-
-            value = (
-                files
-                if page == "page=1"
-                else page2
-            )
-
-            return SimpleNamespace(
-                returncode=0,
-                stdout=json.dumps(value),
-                stderr="",
-            )
-
-        if (
-            args[:3]
-            == ["api", "--method", "GET"]
-            and args[3]
-            == (
-                "repos/U-KID-AI/"
-                "ichiyon-robot/actions/runs"
-            )
-        ):
-            return SimpleNamespace(
-                returncode=0,
-                stdout=json.dumps(
-                    {
-                        "workflow_runs": runs,
-                    }
-                ),
-                stderr="",
-            )
-
+            return result(checks, code=code)
+        if args[:2] == ["run", "view"]:
+            return self.logs
+        if args[:2] == ["pr", "ready"]:
+            if self.ready_succeeds:
+                self.pr["draft"] = False
+            if self.stop_after_ready is not None:
+                self.stop_after_ready.set()
+            return result("ready stdout", stderr="ready stderr", code=self.ready_code)
+        if args[:2] == ["pr", "merge"]:
+            if self.merge_succeeds:
+                self.pr.update(state="closed", draft=False, merged_at="2026-09-23T00:00:00Z",
+                               merge_commit_sha=MERGE_SHA)
+                self.pr["base"]["sha"] = self.merge_base
+                self.pr["head"]["sha"] = self.merge_head
+            return result("merge stdout", stderr="merge stderr", code=self.merge_code)
+        if args[:3] == ["api", "--method", "GET"]:
+            if "/files?" in args[-1]:
+                assert "--paginate" in args and "--slurp" in args
+                return result(self.pages)
+            assert args[-1] == f"repos/{REPO}/pulls/{PR_NUMBER}", args
+            self.pr_reads += 1
+            if self.pr.get("merged_at") and self.after_merge_read_error:
+                return result("read stdout", stderr="read unavailable", code=1)
+            return result(self.after_pr if self.after_pr is not None and self.pr_reads > 1 else self.pr)
         raise AssertionError(args)
 
-    return runner, calls
-
-
-def inspect_with(
-    *,
-    pr=None,
-    pr_after=None,
-    files=None,
-    page2=None,
-    runs=None,
-    main_sha=BASE_SHA,
-    expected_files=FILES,
-):
-    runner, calls = fake_backend(
-        pr=pr,
-        pr_after=pr_after,
-        files=files,
-        page2=page2,
-        runs=runs,
-        main_sha=main_sha,
-    )
-
-    adapter = ReviewMergeGate(
-        Path(sys.executable).resolve(),
-        runner=runner,
-    )
-
-    result = adapter.inspect_draft_candidate(
-        ROOT,
-        TASK_ID,
-        COMMIT_SHA,
-        PR_NUMBER,
-        PR_URL,
-        expected_files,
-    )
-
-    return result, calls
-
-
-def main():
-    old_values = {
-        key: os.environ.get(key)
-        for key in (
-            "AI_TASK_RUNNER_API_TOKEN",
-            "DATABASE_URL",
-            "GH_TOKEN",
-            "GITHUB_TOKEN",
-        )
-    }
-
-    os.environ["AI_TASK_RUNNER_API_TOKEN"] = (
-        "runner-secret"
-    )
-    os.environ["DATABASE_URL"] = "db-secret"
-    os.environ["GH_TOKEN"] = "gh-secret"
-    os.environ["GITHUB_TOKEN"] = "github-secret"
-
-    try:
-        result, calls = inspect_with()
-    finally:
-        for key, value in old_values.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
-
-    check(
-        "exact Draft PR and successful CI pass gate",
-        result.pr_number == PR_NUMBER
-        and result.pr_url == PR_URL
-        and result.head_sha == COMMIT_SHA
-        and result.base_sha == BASE_SHA
-        and result.workflow_run_id == 900
-        and result.changed_files == tuple(sorted(FILES)),
-    )
-
-    volatile_after = pr_item()
-    volatile_after["updated_at"] = (
-        "2026-09-20T04:29:44Z"
-    )
-    volatile_after["mergeable_state"] = "clean"
-
-    volatile_result, _volatile_calls = inspect_with(
-        pr_after=volatile_after,
-    )
-
-    check(
-        "volatile PR metadata may change during review gate",
-        volatile_result.head_sha == COMMIT_SHA
-        and volatile_result.base_sha == BASE_SHA,
-    )
-
-    changed_head_after = pr_item()
-    changed_head_after["head"] = dict(
-        changed_head_after["head"]
-    )
-    changed_head_after["head"]["sha"] = "b" * 40
-
-    check(
-        "critical PR binding change between reads is rejected",
-        rejects(
-            lambda: inspect_with(
-                pr_after=changed_head_after,
-            )
-        ),
-    )
-
-    ready_pr = pr_item()
-    ready_pr["draft"] = False
-
-    ready_runner, _ready_calls = fake_backend(
-        pr=ready_pr,
-    )
-
-    ready_result = ReviewMergeGate(
-        Path(sys.executable).resolve(),
-        runner=ready_runner,
-    ).inspect_candidate(
-        ROOT,
-        TASK_ID,
-        COMMIT_SHA,
-        PR_NUMBER,
-        PR_URL,
-        FILES,
-        expected_draft=False,
-    )
-
-    check(
-        "same gate can verify ready PR state",
-        ready_result.head_sha == COMMIT_SHA
-        and ready_result.base_sha == BASE_SHA,
-    )
-
-    check(
-        "wrong expected draft state is rejected",
-        rejects(
-            lambda: ReviewMergeGate(
-                Path(sys.executable).resolve(),
-                runner=ready_runner,
-            ).inspect_candidate(
-                ROOT,
-                TASK_ID,
-                COMMIT_SHA,
-                PR_NUMBER,
-                PR_URL,
-                FILES,
-                expected_draft=True,
-            )
-        ),
-    )
-
-    check(
-        "review gate re-reads PR metadata",
-        sum(
-            1
-            for argv, _kwargs in calls
-            if argv[1:4]
-            == ["api", "--method", "GET"]
-            and argv[4]
-            == (
-                "repos/U-KID-AI/"
-                "ichiyon-robot/pulls/123"
-            )
-        )
-        == 2,
-    )
-
-    check(
-        "GitHub API uses shell false",
-        all(
-            kwargs["shell"] is False
-            for _argv, kwargs in calls
-        ),
-    )
-
-    first_env = calls[0][1]["env"]
-
-    check(
-        "review gate child excludes secrets",
-        all(
-            key not in first_env
-            for key in (
-                "AI_TASK_RUNNER_API_TOKEN",
-                "DATABASE_URL",
-                "GH_TOKEN",
-                "GITHUB_TOKEN",
-            )
-        ),
-    )
-
-    check(
-        "review gate disables prompting",
-        first_env.get("GH_PROMPT_DISABLED") == "1"
-        and first_env.get("GIT_TERMINAL_PROMPT")
-        == "0",
-    )
-
-    wrong_base = pr_item()
-    wrong_base["base"] = {"ref": "other"}
-
-    check(
-        "wrong PR base is rejected",
-        rejects(
-            lambda: inspect_with(
-                pr=wrong_base,
-            )
-        ),
-    )
-
-    wrong_head = pr_item()
-    wrong_head["head"] = dict(
-        wrong_head["head"]
-    )
-    wrong_head["head"]["sha"] = "b" * 40
-
-    check(
-        "wrong PR head SHA is rejected",
-        rejects(
-            lambda: inspect_with(
-                pr=wrong_head,
-            )
-        ),
-    )
-
-    not_mergeable = pr_item()
-    not_mergeable["mergeable"] = False
-
-    check(
-        "non-mergeable PR is rejected",
-        rejects(
-            lambda: inspect_with(
-                pr=not_mergeable,
-            )
-        ),
-    )
-
-    check(
-        "PR base must still equal current main",
-        rejects(
-            lambda: inspect_with(
-                main_sha="d" * 40,
-            )
-        ),
-    )
-
-    check(
-        "CI for stale base SHA is rejected",
-        rejects(
-            lambda: inspect_with(
-                runs=[
-                    run_item(
-                        base_sha="d" * 40,
-                    )
-                ],
-            )
-        ),
-    )
-
-    check(
-        "wrong PR URL is rejected",
-        rejects(
-            lambda: ReviewMergeGate(
-                Path(sys.executable).resolve(),
-                runner=lambda *_args, **_kwargs: (
-                    None
-                ),
-            ).inspect_draft_candidate(
-                ROOT,
-                TASK_ID,
-                COMMIT_SHA,
-                PR_NUMBER,
-                (
-                    "https://github.com/"
-                    "U-KID-AI/ichiyon-robot/"
-                    "pull/124"
-                ),
-                FILES,
-            )
-        ),
-    )
-
-    check(
-        "changed-file mismatch is rejected",
-        rejects(
-            lambda: inspect_with(
-                files=[
-                    {
-                        "filename":
-                        "bot/unexpected.py",
-                    },
-                ],
-            )
-        ),
-    )
-
-    check(
-        "more than 100 PR files is rejected",
-        rejects(
-            lambda: inspect_with(
-                page2=[
-                    {
-                        "filename":
-                        "bot/too_many.py",
-                    },
-                ],
-            )
-        ),
-    )
-
-    check(
-        "pending CI is rejected",
-        rejects(
-            lambda: inspect_with(
-                runs=[
-                    run_item(
-                        status="in_progress",
-                        conclusion=None,
-                    )
-                ],
-            )
-        ),
-    )
-
-    check(
-        "failed CI is rejected",
-        rejects(
-            lambda: inspect_with(
-                runs=[
-                    run_item(
-                        status="completed",
-                        conclusion="failure",
-                    )
-                ],
-            )
-        ),
-    )
-
-    try:
-        inspect_with(runs=[])
-        missing_ci_pending = False
-    except ReviewPendingError:
-        missing_ci_pending = True
-
-    check(
-        "missing exact CI is transient pending",
-        missing_ci_pending,
-    )
-
-    try:
-        inspect_with(
-            runs=[
-                run_item(
-                    status="completed",
-                    conclusion="failure",
-                )
-            ],
-        )
-        failed_ci_typed = False
-    except ReviewCIFailedError:
-        failed_ci_typed = True
-
-    check(
-        "completed failed CI is not retried as pending",
-        failed_ci_typed,
-    )
-
-    wait_adapter = ReviewMergeGate(
-        Path(sys.executable).resolve(),
-        runner=lambda *_args, **_kwargs: None,
-    )
-
-    wait_calls = []
-
-    def sequenced_inspection(
-        *args,
-        **kwargs,
-    ):
-        wait_calls.append(True)
-
-        if len(wait_calls) == 1:
-            raise ReviewPendingError(
-                "pending"
-            )
-
-        return ReviewGateResult(
-            pr_number=PR_NUMBER,
-            pr_url=PR_URL,
-            head_sha=COMMIT_SHA,
-            base_sha=BASE_SHA,
-            workflow_run_id=900,
-            changed_files=tuple(
-                sorted(FILES)
-            ),
+    def popen(self, argv, **kwargs):
+        received = self(argv, **kwargs)
+        return SimpleNamespace(
+            stdout=io.BytesIO(received.stdout.encode()), stderr=io.BytesIO(received.stderr.encode()),
+            returncode=received.returncode, poll=lambda: received.returncode, wait=lambda **kw: received.returncode,
         )
 
-    wait_adapter.inspect_draft_candidate = (
-        sequenced_inspection
-    )
 
-    waited = wait_adapter.wait_for_draft_candidate(
-        ROOT,
-        TASK_ID,
-        COMMIT_SHA,
-        PR_NUMBER,
-        PR_URL,
-        FILES,
-        timeout=1,
-        interval=0.01,
-    )
+class ReviewChecks(unittest.TestCase):
+    def gate(self, backend):
+        return ReviewMergeGate(GH, runner=backend, popen=backend.popen)
 
-    check(
-        "bounded CI wait retries only transient pending state",
-        len(wait_calls) == 2
-        and waited.workflow_run_id == 900,
-    )
+    def inspect(self, backend, files=FILES):
+        return self.gate(backend).inspect_draft_candidate(
+            ROOT, TASK_ID, COMMIT_SHA, PR_NUMBER, PR_URL, files,
+        )
 
-    check(
-        "CI for wrong SHA is rejected",
-        rejects(
-            lambda: inspect_with(
-                runs=[
-                    run_item(
-                        sha="b" * 40,
+    def test_success_with_concurrent_main_change_and_no_file_or_workflow_policy(self):
+        backend = FakeGitHub()
+        backend.after_pr = copy.deepcopy(backend.pr)
+        backend.after_pr["base"]["sha"] = "e" * 40
+        backend.pages = [[dict(filename=f"scripts/file{i}.py") for i in range(2100)]]
+        checked = self.inspect(backend, files=("unrelated/old-expectation",))
+        self.assertEqual(checked.base_sha, "e" * 40)
+        self.assertEqual(checked.workflow_run_id, 900)
+        self.assertEqual(len(checked.changed_files), 2100)
+        self.assertFalse(any("git/ref/heads/main" in " ".join(args) for args in backend.calls))
+
+    def test_successful_ci_result_and_skipped_jobs(self):
+        backend = FakeGitHub()
+        backend.checks.append(check_item("skipping", run_id=901))
+        checked = self.inspect(backend, files=())
+        self.assertEqual(checked.changed_files, tuple(sorted(FILES)))
+        self.assertEqual(checked.workflow_run_id, 900)
+
+    def test_required_checks_decide_readiness_when_configured(self):
+        backend = FakeGitHub()
+        backend.required_checks = [check_item()]
+        backend.checks = [check_item("fail", name="optional-job")]
+        self.assertEqual(self.inspect(backend).workflow_run_id, 900)
+        self.assertEqual(sum(args[:2] == ["pr", "checks"] for args in backend.calls), 1)
+        backend.required_checks = [check_item("fail", name="required-job")]
+        with self.assertRaises(ReviewCIFailedError) as raised:
+            self.inspect(backend)
+        self.assertIn("required-job", str(raised.exception))
+
+    def test_no_required_checks_falls_back_to_reported_ci(self):
+        backend = FakeGitHub()
+        backend.required_checks = []
+        self.assertEqual(self.inspect(backend).workflow_run_id, 900)
+        calls = [args for args in backend.calls if args[:2] == ["pr", "checks"]]
+        self.assertIn("--required", calls[0])
+        self.assertNotIn("--required", calls[1])
+        backend.checks = [check_item("fail")]
+        with self.assertRaises(ReviewCIFailedError):
+            self.inspect(backend)
+
+    def test_failed_ci_includes_full_repair_feedback_and_logs(self):
+        backend = FakeGitHub()
+        backend.checks = [check_item(), check_item("fail", run_id=901, name="integration"),
+                          check_item("pending", run_id=902)]
+        logs = "traceback\n" + "diagnostic line\n" * 12000 + "\nAssertionError final line"
+        backend.logs = result(logs, stderr="failed job stderr")
+        with self.assertRaises(ReviewCIFailedError) as raised:
+            self.inspect(backend)
+        error = raised.exception
+        self.assertTrue(error.repairable)
+        self.assertEqual(error.feedback, str(error))
+        for text in (logs, "failed job stderr", "integration detail", "/actions/runs/901/job/100"):
+            self.assertIn(text, str(error))
+        self.assertEqual([args[2] for args in backend.calls if args[:2] == ["run", "view"]], ["901"])
+
+    def test_cancelled_ci_and_log_retrieval_failure_are_repairable(self):
+        backend = FakeGitHub()
+        backend.checks = [check_item("cancel")]
+        backend.logs = result("no log body", stderr="log download failed", code=1)
+        with self.assertRaises(ReviewCIFailedError) as raised:
+            self.inspect(backend)
+        self.assertIn("log download failed", str(raised.exception))
+        self.assertIn("CANCEL", str(raised.exception))
+        self.assertTrue(raised.exception.repairable)
+
+    def test_external_check_failures_keep_provider_diagnostics(self):
+        backend = FakeGitHub()
+        backend.checks = [dict(check_item("fail"), link="https://ci.example.org/build/12")]
+        with self.assertRaises(ReviewCIFailedError) as raised:
+            self.inspect(backend)
+        self.assertIn("https://ci.example.org/build/12", str(raised.exception))
+        self.assertFalse(any(args[:2] == ["run", "view"] for args in backend.calls))
+        backend.checks[0]["bucket"] = "pass"
+        self.assertEqual(self.inspect(backend).workflow_run_id, 0)
+
+    def test_pending_empty_and_all_skipped_never_pass(self):
+        for checks in ([], [check_item("pending")], [check_item("skipping")]):
+            backend = FakeGitHub()
+            backend.checks = checks
+            with self.subTest(checks=checks), self.assertRaises(ReviewPendingError):
+                self.inspect(backend)
+
+    def test_real_api_failures_preserve_stdout_and_stderr(self):
+        backend = FakeGitHub()
+        backend.check_error = result("API stdout", stderr="HTTP 403 rate limited", code=1)
+        with self.assertRaises(CIMonitorError) as raised:
+            self.inspect(backend)
+        self.assertIn("API stdout", str(raised.exception))
+        self.assertIn("HTTP 403 rate limited", str(raised.exception))
+        self.assertFalse(raised.exception.repairable)
+
+    def test_new_head_or_wrong_repository_during_ci_is_not_merged(self):
+        for field in ("sha", "repo"):
+            backend = FakeGitHub()
+            backend.after_pr = copy.deepcopy(backend.pr)
+            backend.after_pr["head"][field] = "f" * 40 if field == "sha" else dict(full_name="other/repo")
+            with self.subTest(field=field), self.assertRaises(CIMonitorError):
+                self.inspect(backend)
+
+    def test_waits_from_pending_until_success(self):
+        backend = FakeGitHub()
+        backend.check_sequence = [[check_item("pending")], [check_item()]]
+        checked = self.gate(backend).wait_for_draft_candidate(
+            ROOT, TASK_ID, COMMIT_SHA, PR_NUMBER, PR_URL, FILES, timeout=1, interval=0.001,
+        )
+        self.assertEqual(checked.workflow_run_id, 900)
+        self.assertEqual(sum(args[:2] == ["pr", "checks"] for args in backend.calls), 2)
+
+    def test_timeout_reports_last_ci_output(self):
+        backend = FakeGitHub()
+        backend.checks = [check_item("pending", name="slow job")]
+        with self.assertRaisesRegex(CIMonitorError, "Timed out.*") as raised:
+            self.gate(backend).wait_for_draft_candidate(
+                ROOT, TASK_ID, COMMIT_SHA, PR_NUMBER, PR_URL, FILES, timeout=0.002, interval=0.001,
+            )
+        self.assertIn("slow job", str(raised.exception))
+
+    def test_stop_during_ci_wait(self):
+        backend = FakeGitHub()
+        gate = self.gate(backend)
+        stop = threading.Event()
+        with patch.object(gate, "inspect_draft_candidate", side_effect=ReviewPendingError("pending")):
+            with patch.object(stop, "wait", return_value=True):
+                with self.assertRaisesRegex(CIMonitorError, "Stopped"):
+                    gate.wait_for_draft_candidate(
+                        ROOT, TASK_ID, COMMIT_SHA, PR_NUMBER, PR_URL, FILES,
+                        timeout=1, interval=0.001, stop_event=stop,
                     )
-                ],
-            )
-        ),
-    )
-
-    check(
-        "CI for wrong PR is rejected",
-        rejects(
-            lambda: inspect_with(
-                runs=[
-                    run_item(
-                        pr_number=999,
-                    )
-                ],
-            )
-        ),
-    )
-
-    check(
-        "newer failed exact CI beats older success",
-        rejects(
-            lambda: inspect_with(
-                runs=[
-                    run_item(
-                        run_id=800,
-                    ),
-                    run_item(
-                        run_id=900,
-                        conclusion="failure",
-                    ),
-                ],
-            )
-        ),
-    )
-
-    adapter = ReviewMergeGate(
-        Path(sys.executable).resolve(),
-        runner=lambda *_args, **_kwargs: None,
-    )
-
-    check(
-        "merge write operation is not allowlisted",
-        rejects(
-            lambda: adapter._run(
-                (
-                    "api",
-                    "--method",
-                    "PUT",
-                    (
-                        "repos/U-KID-AI/"
-                        "ichiyon-robot/pulls/"
-                        "123/merge"
-                    ),
-                ),
-                cwd=ROOT,
-            )
-        ),
-    )
-
-    check(
-        "ready mutation is not allowlisted",
-        rejects(
-            lambda: adapter._run(
-                (
-                    "pr",
-                    "ready",
-                    "123",
-                ),
-                cwd=ROOT,
-            )
-        ),
-    )
-
-    stopped = threading.Event()
-    stopped.set()
-
-    stopped_adapter = ReviewMergeGate(
-        Path(sys.executable).resolve(),
-        runner=lambda *_args, **_kwargs: (
-            (_ for _ in ()).throw(
-                AssertionError(
-                    "runner must not start"
-                )
-            )
-        ),
-    )
-
-    check(
-        "review gate refuses after lease loss",
-        rejects(
-            lambda: stopped_adapter.inspect_draft_candidate(
-                ROOT,
-                TASK_ID,
-                COMMIT_SHA,
-                PR_NUMBER,
-                PR_URL,
-                FILES,
-                stop_event=stopped,
-            )
-        ),
-    )
-
-    print(
-        "AI task Phase 2D review gate checks passed"
-    )
 
 
 if __name__ == "__main__":
-    main()
+    unittest.main()

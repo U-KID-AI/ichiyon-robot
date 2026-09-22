@@ -25,8 +25,6 @@ from pathlib import Path
 from uuid import UUID
 
 
-MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
-MAX_FILES = 10000
 KINDS = ("behavior_packs", "resource_packs")
 WORLD_FILES = {
     "behavior_packs": "world_behavior_packs.json",
@@ -35,8 +33,8 @@ WORLD_FILES = {
 ARCHIVE_B64 = """__ICHYON_ARCHIVE_BASE64__"""
 
 
-def fail():
-    raise RuntimeError("deployment rejected")
+def fail(reason="deployment rejected"):
+    raise RuntimeError(reason)
 
 
 def valid_sha(value):
@@ -46,17 +44,13 @@ def valid_sha(value):
 def safe_atom(value):
     return (
         isinstance(value, str)
-        and re.fullmatch(r"[A-Za-z0-9._-]{1,128}", value) is not None
-        and value not in (".", "..")
+        and value not in ("", ".", "..")
+        and "/" not in value and "\0" not in value
     )
 
 
 def safe_tar_part(value):
-    return (
-        isinstance(value, str)
-        and re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*", value) is not None
-        and not value.endswith(".")
-    )
+    return safe_atom(value)
 
 
 def strict_json_bytes(raw):
@@ -164,16 +158,8 @@ def canonical_json(value):
 
 
 def validate_normal_dir(path):
-    try:
-        if not path.is_absolute() or not path.is_dir() or path.is_symlink():
-            fail()
-        if path.resolve(strict=True) != path:
-            fail()
-        for parent in (path, *path.parents):
-            if parent.is_symlink():
-                fail()
-    except OSError:
-        fail()
+    if not path.is_absolute() or not path.is_dir():
+        fail(f"Minecraft deployment directory unavailable: {path}")
 
 
 def docker(args):
@@ -189,7 +175,7 @@ def docker(args):
         check=False,
     )
     if result.returncode != 0:
-        fail()
+        fail(f"docker {args[0]} failed (exit={result.returncode}): {result.stderr}\nstdout:\n{result.stdout}")
     return result.stdout
 
 
@@ -219,10 +205,12 @@ def runtime_ready(container):
 def wait_stable(container, timeout=180):
     deadline = time.monotonic() + timeout
     consecutive = 0
+    last_error = "container not running or not healthy"
     while time.monotonic() < deadline:
         try:
             ready = runtime_ready(container)
-        except Exception:
+        except Exception as exc:
+            last_error = str(exc)
             ready = False
         if ready:
             consecutive += 1
@@ -231,16 +219,15 @@ def wait_stable(container, timeout=180):
         else:
             consecutive = 0
         time.sleep(5)
-    fail()
+    fail("Minecraft health check timed out: " + last_error)
 
 
 def parse_archive(raw):
-    if not isinstance(raw, bytes) or not raw or len(raw) > MAX_ARCHIVE_BYTES:
+    if not isinstance(raw, bytes) or not raw:
         fail()
 
     files = {}
     names = set()
-    total = 0
 
     try:
         with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
@@ -251,7 +238,6 @@ def parse_archive(raw):
                 if (
                     not name
                     or name in names
-                    or len(names) >= MAX_FILES
                     or any(not safe_tar_part(part) for part in parts)
                     or parts[0] != "minecraft"
                     or (len(parts) > 1 and parts[1] not in KINDS)
@@ -265,9 +251,6 @@ def parse_archive(raw):
                 if member.isfile():
                     if member.size < 0:
                         fail()
-                    total += member.size
-                    if total > MAX_ARCHIVE_BYTES:
-                        fail()
                     stream = archive.extractfile(member)
                     if stream is None:
                         fail()
@@ -275,8 +258,8 @@ def parse_archive(raw):
                     if len(content) != member.size:
                         fail()
                     files[name] = content
-    except (tarfile.TarError, OSError, KeyError, ValueError):
-        fail()
+    except (tarfile.TarError, OSError, KeyError, ValueError) as exc:
+        fail(f"Minecraft pack archive invalid: {type(exc).__name__}: {exc}")
 
     if not files:
         fail()
@@ -303,7 +286,7 @@ def parse_archive(raw):
 
     digest = hashlib.sha256()
     for name, content in sorted(files.items()):
-        digest.update(name.encode("ascii") + b"\0")
+        digest.update(name.encode("utf-8") + b"\0")
         digest.update(len(content).to_bytes(8, "big"))
         digest.update(content)
 
@@ -363,21 +346,15 @@ def desired_state(packs, tree_hash):
 
 
 def current_tree_matches(root, expected):
-    if not root.exists() or not root.is_dir() or root.is_symlink():
+    if not root.exists() or not root.is_dir():
         return False
 
     actual = {}
-    try:
-        for path in root.rglob("*"):
-            if path.is_symlink():
-                return False
-            if path.is_file():
-                actual[path.relative_to(root).as_posix()] = path.read_bytes()
-            elif not path.is_dir():
-                return False
-    except OSError:
-        return False
-
+    for path in root.rglob("*"):
+        if path.is_file():
+            actual[path.relative_to(root).as_posix()] = path.read_bytes()
+        elif not path.is_dir():
+            return False
     return actual == expected
 
 
@@ -410,7 +387,7 @@ def write_atomic(path, raw):
                 tmp.unlink()
         except OSError:
             pass
-        fail()
+        raise
 
 
 def restore_file(path, existed, raw):
@@ -429,7 +406,7 @@ def require_git_pack_ownership(data_root):
     # never issue an exact-Git deployment proof for Web-generated content.
     managed = data_root.parent / "cosmetics-applications"
     if managed.is_symlink() or os.path.lexists(managed / "active.json"):
-        fail()
+        fail("deployment rejected: Web-managed packs require the cosmetics Control API; Git replacement would erase Web assets")
 
 
 def main():
@@ -438,14 +415,15 @@ def main():
 
     merge_sha, data_arg, world_name, container = sys.argv[1:]
 
-    if not valid_sha(merge_sha) or not safe_atom(world_name) or not safe_atom(container):
+    if (not valid_sha(merge_sha) or not safe_atom(world_name)
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", container) is None):
         fail()
 
     data_root = Path(data_arg)
     if (
         not data_root.is_absolute()
         or "\x00" in data_arg
-        or any(ord(char) < 32 or ord(char) == 127 for char in data_arg)
+        or ".." in data_arg.split("/")
     ):
         fail()
 
@@ -579,7 +557,7 @@ def main():
                     old.parent.mkdir(parents=True, exist_ok=True)
 
                     if os.path.lexists(destination):
-                        if not destination.is_dir() or destination.is_symlink():
+                        if not destination.is_dir():
                             fail()
                         os.replace(destination, old)
                         moved.append((destination, old, True))
@@ -616,7 +594,7 @@ def main():
                 if deployed_entries != world_desired[kind]:
                     fail()
 
-        except Exception:
+        except Exception as deploy_error:
             try:
                 info = inspect_container(container)
                 if info.get("State", {}).get("Running"):
@@ -624,12 +602,15 @@ def main():
 
                 for destination, old, existed in reversed(moved):
                     if os.path.lexists(destination):
-                        if destination.is_symlink() or not destination.is_dir():
+                        if destination.is_symlink():
+                            destination.unlink()
+                        elif destination.is_dir():
+                            shutil.rmtree(destination)
+                        else:
                             fail()
-                        shutil.rmtree(destination)
 
                     if existed:
-                        if not old.is_dir() or old.is_symlink():
+                        if not old.is_dir() and not old.is_symlink():
                             fail()
                         destination.parent.mkdir(parents=True, exist_ok=True)
                         os.replace(old, destination)
@@ -641,9 +622,10 @@ def main():
 
                 docker(["start", container])
                 wait_stable(container)
-            except Exception:
+            except Exception as rollback_error:
                 rollback_failed = True
-            fail()
+                fail(f"{deploy_error}; app/pack rollback failed: {rollback_error}; backup retained")
+            raise
         finally:
             shutil.rmtree(stage, ignore_errors=True)
             if not rollback_failed:
@@ -657,5 +639,10 @@ def main():
 
 try:
     main()
-except Exception:
+except Exception as exc:
+    # SSH stderr is captured and redacted by the local adapter, never a proof.
+    if isinstance(exc, subprocess.TimeoutExpired):
+        print(f"Minecraft process timed out after {exc.timeout}s: {exc.stderr!r}", file=sys.stderr)
+    else:
+        print(f"Minecraft deployment failed: {type(exc).__name__}: {exc}", file=sys.stderr)
     sys.exit(1)

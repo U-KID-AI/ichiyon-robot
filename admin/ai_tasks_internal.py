@@ -1,6 +1,8 @@
 import hmac
 import logging
+import os
 from typing import Optional
+from urllib.parse import unquote, urlsplit
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, status
@@ -16,6 +18,7 @@ from bot.repositories.ai_tasks import (
     validate_pr_number,
     validate_workflow_run_id,
 )
+from scripts.ai_task_diagnostics import redact_secrets
 
 
 logger = logging.getLogger(__name__)
@@ -51,6 +54,10 @@ class NeedsHumanRequest(HeartbeatRequest):
     reason: str = Field(..., min_length=1, max_length=4000)
 
 
+class RetryRequest(HeartbeatRequest):
+    reason: StrictStr = Field(..., min_length=1, max_length=4000)
+
+
 class ReadyForReviewRequest(HeartbeatRequest):
     commit_sha: StrictStr = Field(..., min_length=40, max_length=40)
     pr_number: StrictInt
@@ -60,7 +67,7 @@ class ReadyForReviewRequest(HeartbeatRequest):
 
 
 class DeployingRequest(ReadyForReviewRequest):
-    ci_workflow_run_id: StrictInt
+    ci_workflow_run_id: Optional[StrictInt] = None
     review_summary: StrictStr = Field(
         ...,
         min_length=1,
@@ -94,9 +101,29 @@ def _validate_runner_id(runner_id: str) -> None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid runner_id")
 
 
-def _connection_error(exc: Exception) -> HTTPException:
-    logger.error("AI task control-plane database operation failed: %s", type(exc).__name__)
-    return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="AI task service is temporarily unavailable")
+def _redact_runner_diagnostic(text: str, request: HeartbeatRequest) -> str:
+    database_url = os.environ.get("DATABASE_URL", "")
+    secrets = [config.AI_TASK_RUNNER_API_TOKEN, config.TOKEN, str(request.claim_token), database_url]
+    try:
+        password = urlsplit(database_url).password
+    except ValueError:
+        password = None
+    if password:
+        secrets.extend((password, unquote(password)))
+    return redact_secrets(text, secrets=secrets)
+
+
+def _connection_error(exc: Exception, *, owned_request: Optional[HeartbeatRequest] = None) -> HTTPException:
+    detail = "AI task service is temporarily unavailable"
+    if owned_request is not None:
+        detail = _redact_runner_diagnostic(
+            f"AI task database operation failed: {type(exc).__name__}: {exc}",
+            owned_request,
+        )
+        logger.error("%s", detail)
+    else:
+        logger.error("AI task control-plane database operation failed: %s", type(exc).__name__)
+    return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail)
 
 
 def _rollback_safely(connection) -> None:
@@ -139,11 +166,11 @@ def claim_task(request: RunnerRequest, authorization: Optional[str] = Header(def
                 raise
             except Exception as exc:
                 _rollback_safely(connection)
-                raise _connection_error(exc)
+                raise _connection_error(exc) from None
     except HTTPException:
         raise
     except Exception as exc:
-        raise _connection_error(exc)
+        raise _connection_error(exc) from None
 
 
 def _run_owned_operation(task_id: UUID, request: HeartbeatRequest, operation):
@@ -161,11 +188,11 @@ def _run_owned_operation(task_id: UUID, request: HeartbeatRequest, operation):
                 raise
             except Exception as exc:
                 _rollback_safely(connection)
-                raise _connection_error(exc)
+                raise _connection_error(exc, owned_request=request) from None
     except HTTPException:
         raise
     except Exception as exc:
-        raise _connection_error(exc)
+        raise _connection_error(exc, owned_request=request) from None
 
 
 @router.post("/{task_id}/heartbeat")
@@ -199,6 +226,15 @@ def testing(task_id: UUID, request: HeartbeatRequest, authorization: Optional[st
 def fail(task_id: UUID, request: FailureRequest, authorization: Optional[str] = Header(default=None)):
     require_runner_token(authorization)
     return _run_owned_operation(task_id, request, lambda repo, tid, req: repo.mark_failed(task_id=tid, runner_id=req.runner_id, claim_token=req.claim_token, error_message=req.error_message))
+
+
+@router.post("/{task_id}/retry")
+def retry(task_id: UUID, request: RetryRequest, authorization: Optional[str] = Header(default=None)):
+    require_runner_token(authorization)
+    reason = _redact_runner_diagnostic(request.reason, request)[:4000]
+    return _run_owned_operation(task_id, request, lambda repo, tid, req: repo.retry(
+        task_id=tid, runner_id=req.runner_id, claim_token=req.claim_token, reason=reason,
+    ))
 
 
 @router.post("/{task_id}/needs-human")
