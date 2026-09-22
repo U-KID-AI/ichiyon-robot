@@ -14,6 +14,9 @@ world.afterEvents.playerLeave.subscribe((e) => guard("logout", () => mokuro.rele
 world.afterEvents.playerDimensionChange.subscribe((e) => guard("dimension", () => mokuro.releasePlayer(e.player.id)));
 world.afterEvents.entityDie.subscribe((e) => guard("death", () => mokuro.died(e.deadEntity)));
 world.afterEvents.entityLoad.subscribe((e) => guard("load", () => mokuro.recover(e.entity)));
+world.afterEvents.entitySpawn.subscribe((e) => {
+  if (e.entity.typeId === "ichiyon:mokuro") system.run(() => guard("spawn", () => mokuro.recover(e.entity)));
+});
 world.beforeEvents.entityHurt.subscribe((e) => guard("fall", () => mokuro.fall(e)));
 system.runInterval(() => mokuro.tick(), 1);
 system.runInterval(() => mokuro.scan(), 100);
