@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from bot.services.minecraft_cosmetics import asset, png_bytes, geometry_bytes, json_bytes, MAX_UPLOAD
 from bot.services.minecraft_cosmetics_pack import BP, RP, BRIDGE, MOLCARS, builtin_assets, compile_files, pack_zip, catalog_digest
+from bot.services.minecraft_cosmetics_pack import ACCESSORY_GROUPS, _creative_accessory_catalog
 
 
 def png(size=(64, 64)):
@@ -137,6 +138,60 @@ class PackChecks(unittest.TestCase):
             self.assertFalse(any(b.get("cubes") or b.get("locators") for name, b in bones.items() if not name.startswith("cosmetic_")))
             self.assertIn(RP + "textures/entity/cosmetics/accessory_1.png", self.files)
             self.assertIn(BP + "items/cosmetics/accessory_1.json", self.files)
+
+    def test_creative_inventory_groups_all_slots_with_stable_order(self):
+        accessories = [asset("accessory", i, f"accessory_{i}", f"Accessory {i}", png(),
+                             geometry=json_bytes(geometry()), icon=png((16, 16)), slot=slot)
+                       for slot, i in [("back", 16), ("face", 6), ("hat", 3), ("neck", 11), ("hat", 1)]]
+        files = compile_files(self.minecraft, builtin_assets(self.minecraft) + accessories)
+        catalog = json.loads(files[BP + "item_catalog/crafting_item_catalog.json"])
+        self.assertEqual(catalog["format_version"], "1.21.60")
+        categories = catalog["minecraft:crafting_items_catalog"]["categories"]
+        self.assertEqual([c["category_name"] for c in categories], ["equipment"])
+        groups = categories[0]["groups"]
+        self.assertEqual([g["group_identifier"]["name"] for g in groups], list(ACCESSORY_GROUPS.values()))
+        self.assertEqual(groups[0]["items"], ["ichiyon:accessory_1", "ichiyon:accessory_3"])
+        all_items = [item for group in groups for item in group["items"]]
+        self.assertEqual(len(all_items), len(set(all_items)))
+        self.assertEqual(set(all_items), {f"ichiyon:accessory_{a['id']}" for a in accessories})
+        for group in groups:
+            self.assertEqual(group["group_identifier"]["icon"], group["items"][0])
+        for a in accessories:
+            desc = json.loads(files[BP + f"items/cosmetics/accessory_{a['id']}.json"])["minecraft:item"]["description"]
+            self.assertEqual(desc["menu_category"], {"category": "equipment", "group": ACCESSORY_GROUPS[a["slot"]]})
+            for locale in ("ja_JP", "en_US"):
+                lines = files[RP + f"texts/{locale}.lang"].decode().splitlines()
+                self.assertEqual(sum(line.startswith(ACCESSORY_GROUPS[a["slot"]] + "=") for line in lines), 1)
+        self.assertIn("モルカー：頭", files[RP + "texts/ja_JP.lang"].decode())
+
+    def test_creative_catalog_refresh_retains_unrelated_groups_and_does_not_mutate_input(self):
+        foreign = {"group_identifier": {"name": "other:tools", "icon": "other:hammer"}, "items": ["other:hammer"]}
+        loose = {"items": ["other:block"]}
+        old = {"format_version": "1.21.60", "minecraft:crafting_items_catalog": {"categories": [
+            {"category_name": "construction", "groups": [loose]},
+            {"category_name": "equipment", "groups": [foreign, {
+                "group_identifier": {"name": ACCESSORY_GROUPS["face"], "icon": "ichiyon:accessory_99"},
+                "items": ["ichiyon:accessory_99"]}]}]}}
+        original = deepcopy(old)
+        hat = [fixture_assets()[-1]]
+        refreshed = _creative_accessory_catalog(old, hat)
+        self.assertEqual(old, original)
+        self.assertEqual(refreshed["minecraft:crafting_items_catalog"]["categories"][0]["groups"], [loose])
+        equipment = refreshed["minecraft:crafting_items_catalog"]["categories"][1]["groups"]
+        self.assertEqual(equipment[0], foreign)
+        self.assertEqual(len(equipment), 2)
+        self.assertEqual(equipment[1]["group_identifier"]["name"], ACCESSORY_GROUPS["hat"])
+        self.assertNotIn("accessory_99", json.dumps(refreshed))
+        self.assertEqual(_creative_accessory_catalog(refreshed, hat), refreshed)
+        empty = _creative_accessory_catalog(refreshed, [])
+        self.assertEqual(empty["minecraft:crafting_items_catalog"]["categories"][1]["groups"], [foreign])
+
+    def test_no_accessories_has_no_empty_creative_group(self):
+        files = compile_files(self.minecraft, builtin_assets(self.minecraft))
+        self.assertNotIn(BP + "item_catalog/crafting_item_catalog.json", files)
+        self.assertNotIn("ichiyon:itemGroup.molcar_", files[RP + "texts/ja_JP.lang"].decode())
+        empty = _creative_accessory_catalog(None, [])
+        self.assertEqual(empty["minecraft:crafting_items_catalog"]["categories"], [])
 
     def test_complete_archive_determinism_and_versions(self):
         data = pack_zip(self.minecraft, self.records, 9)
