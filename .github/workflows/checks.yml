@@ -79,6 +79,7 @@ jobs:
           python scripts/check_ai_task_review_merge.py
           python scripts/check_ai_task_auto_merge.py
           python scripts/check_ai_task_local_runner.py
+          python scripts/check_ai_task_worktree_inspection.py
           python scripts/check_ai_task_process.py
           python scripts/check_ai_task_linux.py
           python scripts/check_ai_task_minecraft_deploy.py
