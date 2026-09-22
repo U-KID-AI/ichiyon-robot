@@ -297,5 +297,7 @@ class RunnerTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    from check_ai_task_runner import InitialFetchTests, MainRefreshTests
+
     logging.disable(logging.CRITICAL)
     unittest.main(verbosity=2)

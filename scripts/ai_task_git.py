@@ -96,11 +96,15 @@ class GitAdapter:
         return value
 
     def integrate_main(self, cwd: Path) -> str:
-        """Merge the latest main into this worktree, leaving conflicts for repair."""
+        """Merge fetched main, retain edits/conflicts, and return that main commit."""
         self.snapshot(cwd)
         self._checked(("fetch", "origin", "main"), cwd, timeout=120)
-        self._checked(("merge", "--no-edit", "origin/main"), cwd, timeout=120)
-        return self._checked(("rev-parse", "HEAD"), cwd).stdout.strip()
+        main = self._checked(("rev-parse", "origin/main"), cwd)
+        main_sha = main.stdout.strip()
+        if not SHA_PATTERN.fullmatch(main_sha):
+            raise GitOperationError("origin/main SHA is invalid", stdout=main.stdout, stderr=main.stderr)
+        self._checked(("merge", "--no-edit", main_sha), cwd, timeout=120)
+        return main_sha
 
     @staticmethod
     def expected_branch(task_id: UUID) -> str:

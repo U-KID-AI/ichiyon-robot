@@ -10,10 +10,10 @@ from pathlib import Path
 from threading import Event
 
 from ai_task_api_client import ClaimedTask, RunnerAPIClient, RunnerAPIError
-from ai_task_auto_merge import AutoMergeAdapter, MergeOutcomeUnknownError
+from ai_task_auto_merge import AutoMergeAdapter, AutoMergeError, MergeOutcomeUnknownError
 from ai_task_codex import CodexAdapter, CodexResult, build_prompt
 from ai_task_diagnostics import redact_secrets
-from ai_task_git import GitAdapter
+from ai_task_git import GitAdapter, GitOperationError
 from ai_task_github import GitHubAdapter
 from ai_task_process import ProcessTerminationError
 from ai_task_publish import GitPublisher
@@ -196,6 +196,26 @@ class LocalRunner:
         if heartbeat.lost.is_set():
             raise RunnerAPIError("Control Plane heartbeat failed; task lease was lost")
 
+    def _fetch_main(self, task, heartbeat):
+        for attempt in range(1, self.config.max_attempts + 1):
+            self._require_lease(heartbeat)
+            try:
+                base_sha = self.git.fetch_main()
+            except GitOperationError as exc:
+                self._require_lease(heartbeat)
+                reason = redact_secrets(
+                    f"Fetching origin/main failed ({attempt}/{self.config.max_attempts}):\n{failure_reason(exc)}",
+                    (self.config.api_token,),
+                )
+                logger.warning("Task %s: %s", task.task_id, reason)
+                self._progress(task, current_step="fetching_base", progress_summary=reason)
+                if attempt == self.config.max_attempts:
+                    raise
+                heartbeat.lost.wait(self.config.poll_seconds)
+            else:
+                self._require_lease(heartbeat)
+                return base_sha
+
     def _process(self, task: ClaimedTask) -> bool:
         validate_claim_names(task.task_id, task.branch_name, task.worktree_name)
         heartbeat = self.heartbeat_factory(self.client, task,
@@ -204,7 +224,7 @@ class LocalRunner:
         try:
             self.git.require_source_repo()
             self._progress(task, current_step="fetching_base", progress_summary="Fetching origin/main")
-            base_sha = self.git.fetch_main()
+            base_sha = self._fetch_main(task, heartbeat)
             self._progress(task, base_commit_sha=base_sha, current_step="creating_worktree",
                            progress_summary="Creating task worktree")
             worktree = self.git.add_worktree(task.task_id, self.config.worktree_root, base_sha)
@@ -213,20 +233,31 @@ class LocalRunner:
             artifacts.mkdir(parents=True, exist_ok=True)
             prompt = build_prompt(task.description, read_rules(worktree))
             feedback, testing, merged = "", False, False
+            refresh_main = False
             for attempt in range(1, self.config.max_attempts + 1):
                 self._require_lease(heartbeat)
                 self.git.validate_worktree(task.task_id, worktree, base_sha)
                 step = "running_codex"
                 try:
-                    # A failed deployment may need another commit and PR. Merge
-                    # main into the task branch without discarding task edits.
-                    if merged:
+                    # Refresh a known-unmerged PR before asking Codex to retry.
+                    # Only an already-merged task advances its diff base to main.
+                    if merged or refresh_main:
+                        self._progress(task, current_step="integrating_main",
+                            progress_summary="Integrating current origin/main into the task branch")
                         try:
-                            base_sha = self.git.integrate_main(worktree)
-                            self._progress(task, base_commit_sha=base_sha)
-                        except Exception as exc:
-                            feedback += "\nIntegrating current main:\n" + failure_reason(exc)
+                            main_sha = self.git.integrate_main(worktree)
+                        except GitOperationError as exc:
+                            feedback += ("\nIntegrating current main failed; existing edits and any "
+                                "merge conflicts are retained for repair:\n" + failure_reason(exc))
+                        else:
+                            if merged:
+                                base_sha = main_sha
+                                self._progress(task, base_commit_sha=base_sha)
+                            feedback += (f"\nRunner integrated origin/main at {main_sha}. "
+                                "The task changes are preserved; no new edit is needed just to refresh the PR.")
                         merged = False
+                        refresh_main = False
+                        self._require_lease(heartbeat)
                     self._progress(task, current_step=step,
                         progress_summary=f"Running Codex attempt {attempt}/{self.config.max_attempts}")
                     attempt_prompt = prompt
@@ -320,6 +351,7 @@ class LocalRunner:
                     raise
                 except Exception as exc:
                     self._require_lease(heartbeat)
+                    refresh_main = step == "merging" and isinstance(exc, AutoMergeError)
                     feedback = redact_secrets(f"{step} failed on attempt {attempt}:\n{failure_reason(exc)}",
                                               (self.config.api_token,))
                     (artifacts / f"attempt-{attempt}-error.txt").write_text(feedback, encoding="utf-8")
