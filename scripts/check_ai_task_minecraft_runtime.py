@@ -131,6 +131,54 @@ class RuntimeChecks(unittest.TestCase):
             ("rev-parse", "origin/main")
         )
 
+    def test_source_repo_accepts_git_file_worktree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".git").write_text(
+                "gitdir: ../.git/worktrees/runtime-source\n",
+                encoding="utf-8",
+            )
+            source = ExactMergeSource(
+                root,
+                Path("/usr/bin/git"),
+            )
+            source._run = Mock(
+                side_effect=[
+                    SimpleNamespace(
+                        returncode=0,
+                        stdout="../.git/worktrees/runtime-source\n",
+                        stderr="",
+                    ),
+                    SimpleNamespace(
+                        returncode=0,
+                        stdout=str(root.resolve()) + "\n",
+                        stderr="",
+                    ),
+                    SimpleNamespace(
+                        returncode=0,
+                        stdout="https://github.com/U-KID-AI/ichiyon-robot.git\n",
+                        stderr="",
+                    ),
+                    SimpleNamespace(
+                        returncode=0,
+                        stdout="",
+                        stderr="",
+                    ),
+                ]
+            )
+
+            source._require_repo()
+
+            self.assertEqual(
+                [call.args[0] for call in source._run.call_args_list],
+                [
+                    ("rev-parse", "--git-dir"),
+                    ("rev-parse", "--show-toplevel"),
+                    ("remote", "get-url", "origin"),
+                    ("status", "--porcelain=v1"),
+                ],
+            )
+
     def test_local_commit_validation_never_fetches(self):
         source = ExactMergeSource(
             Path("/tmp/runtime-source"),

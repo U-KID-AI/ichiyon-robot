@@ -229,12 +229,15 @@ class ExactMergeSource:
             or self.repo_root.is_symlink()
             or not (
                 self.repo_root / ".git"
-            ).is_dir()
+            ).exists()
         ):
             raise DeploymentSafetyError(
                 "Minecraft source repository rejected"
             )
 
+        git_dir = self._run(
+            ("rev-parse", "--git-dir")
+        )
         root = self._run(
             ("rev-parse", "--show-toplevel")
         )
@@ -246,7 +249,9 @@ class ExactMergeSource:
         )
 
         if (
-            root.returncode != 0
+            git_dir.returncode != 0
+            or not git_dir.stdout.strip()
+            or root.returncode != 0
             or Path(
                 root.stdout.strip()
             ).resolve()
