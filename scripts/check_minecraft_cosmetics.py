@@ -147,8 +147,10 @@ class PackChecks(unittest.TestCase):
         catalog = json.loads(files[BP + "item_catalog/crafting_item_catalog.json"])
         self.assertEqual(catalog["format_version"], "1.21.60")
         categories = catalog["minecraft:crafting_items_catalog"]["categories"]
-        self.assertEqual([c["category_name"] for c in categories], ["equipment"])
-        groups = categories[0]["groups"]
+        self.assertEqual([c["category_name"] for c in categories], ["construction", "equipment"])
+        source_catalog = json.loads((self.minecraft / BP / "item_catalog/crafting_item_catalog.json").read_text())
+        self.assertEqual(categories[0], source_catalog["minecraft:crafting_items_catalog"]["categories"][0])
+        groups = categories[1]["groups"]
         self.assertEqual([g["group_identifier"]["name"] for g in groups], list(ACCESSORY_GROUPS.values()))
         self.assertEqual(groups[0]["items"], ["ichiyon:accessory_1", "ichiyon:accessory_3"])
         all_items = [item for group in groups for item in group["items"]]
@@ -188,7 +190,8 @@ class PackChecks(unittest.TestCase):
 
     def test_no_accessories_has_no_empty_creative_group(self):
         files = compile_files(self.minecraft, builtin_assets(self.minecraft))
-        self.assertNotIn(BP + "item_catalog/crafting_item_catalog.json", files)
+        self.assertEqual(json.loads(files[BP + "item_catalog/crafting_item_catalog.json"]),
+                         json.loads((self.minecraft / BP / "item_catalog/crafting_item_catalog.json").read_text()))
         self.assertNotIn("ichiyon:itemGroup.molcar_", files[RP + "texts/ja_JP.lang"].decode())
         empty = _creative_accessory_catalog(None, [])
         self.assertEqual(empty["minecraft:crafting_items_catalog"]["categories"], [])

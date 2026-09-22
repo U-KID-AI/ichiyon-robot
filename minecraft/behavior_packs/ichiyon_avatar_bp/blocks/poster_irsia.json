@@ -4,7 +4,8 @@
     "description": {
       "identifier": "ichiyon:poster_irsia",
       "menu_category": {
-        "category": "construction"
+        "category": "construction",
+        "group": "ichiyon:itemGroup.posters"
       },
       "traits": {
         "minecraft:placement_direction": {

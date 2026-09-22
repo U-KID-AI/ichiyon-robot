@@ -43,7 +43,7 @@ class PosterChecks(unittest.TestCase):
         }
 
     def test_versions(self):
-        for pack, version in ((BP, [1, 0, 31]), (RP, [1, 0, 36]), (IMPORT, [1, 0, 29])):
+        for pack, version in ((BP, [1, 0, 32]), (RP, [1, 0, 37]), (IMPORT, [1, 0, 29])):
             with self.subTest(pack=pack.name):
                 manifest = read_json(pack / "manifest.json")
                 self.assertEqual(manifest["header"]["version"], version)
@@ -75,7 +75,8 @@ class PosterChecks(unittest.TestCase):
                     block = read_json(BP / "blocks" / f"{name}.json")["minecraft:block"]
                     self.assertEqual(block["description"]["identifier"], f"ichiyon:{name}")
                     if name == base:
-                        self.assertEqual(block["description"]["menu_category"], {"category": "construction"})
+                        self.assertEqual(block["description"]["menu_category"],
+                                         {"category": "construction", "group": "ichiyon:itemGroup.posters"})
                     else:
                         self.assertNotIn("menu_category", block["description"])
                     components = block["components"]
@@ -88,6 +89,31 @@ class PosterChecks(unittest.TestCase):
                     expected = {"pools": [{"rolls": 1, "entries": [
                         {"type": "item", "name": f"ichiyon:{base}"}]}]} if name == base else {"pools": []}
                     self.assertEqual(loot, expected)
+
+    def test_creative_poster_group_contains_only_placeable_items(self):
+        catalog = read_json(BP / "item_catalog/crafting_item_catalog.json")
+        self.assertEqual(catalog["format_version"], "1.21.60")
+        categories = catalog["minecraft:crafting_items_catalog"]["categories"]
+        construction = next(c for c in categories if c["category_name"] == "construction")
+        groups = [g for g in construction["groups"]
+                  if g.get("group_identifier", {}).get("name") == "ichiyon:itemGroup.posters"]
+        self.assertEqual(len(groups), 1)
+        group = groups[0]
+        expected = {"ichiyon:poster_irsia"} | {f"ichiyon:poster_{name}" for name in POSTERS}
+        self.assertEqual(set(group["items"]), expected)
+        self.assertEqual(len(group["items"]), len(expected))
+        self.assertIn(group["group_identifier"]["icon"], expected)
+        visible = set()
+        for path in (BP / "blocks").glob("poster*.json"):
+            description = read_json(path)["minecraft:block"]["description"]
+            if "menu_category" in description:
+                visible.add(description["identifier"])
+                self.assertEqual(description["menu_category"],
+                                 {"category": "construction", "group": "ichiyon:itemGroup.posters"})
+        self.assertEqual(visible, expected)
+        for locale, label in (("ja_JP", "ポスター"), ("en_US", "Posters")):
+            self.assertEqual([line for line in self.lang[locale] if line.startswith("ichiyon:itemGroup.posters=")],
+                             ["ichiyon:itemGroup.posters=" + label])
 
     def test_dedicated_geometry_and_pngs(self):
         for key in POSTERS:
