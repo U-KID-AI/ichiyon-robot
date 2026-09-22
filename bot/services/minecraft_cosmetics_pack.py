@@ -16,6 +16,35 @@ BRIDGE = "behavior_packs/import_structures/"
 PACKS = (BP, RP, BRIDGE)
 BUILTINS = (("kiana", "キアナ"), ("mei", "芽衣"), ("bronya", "ブローニャ"), ("albert", "アルベール"))
 _DELETED_SKIN_TEXTURE = None
+ACCESSORY_GROUPS = {slot: f"ichiyon:itemGroup.molcar_{slot}" for slot in SLOTS}
+ACCESSORY_GROUP_LABELS = {
+    "ja_JP": {"hat": "モルカー：頭", "face": "モルカー：顔", "neck": "モルカー：首", "back": "モルカー：背中"},
+    "en_US": {"hat": "Molcar: Head", "face": "Molcar: Face", "neck": "Molcar: Neck", "back": "Molcar: Back"},
+}
+
+
+def _creative_accessory_catalog(existing, accessories):
+    """Refresh our collapsible groups while retaining other catalog entries."""
+    catalog = deepcopy(existing) if existing is not None else {
+        "format_version": "1.21.60", "minecraft:crafting_items_catalog": {"categories": []}}
+    categories = catalog["minecraft:crafting_items_catalog"]["categories"]
+    owned_names = set(ACCESSORY_GROUPS.values())
+    for category in categories:
+        category["groups"] = [group for group in category["groups"]
+                              if group.get("group_identifier", {}).get("name") not in owned_names]
+    groups = []
+    for slot in SLOTS:
+        items = [f"ichiyon:accessory_{a['id']}" for a in sorted(accessories, key=lambda a: a["id"]) if a["slot"] == slot]
+        if items:
+            groups.append({"group_identifier": {"name": ACCESSORY_GROUPS[slot], "icon": items[0]}, "items": items})
+    if groups:
+        equipment = next((c for c in categories if c["category_name"] == "equipment"), None)
+        if equipment is None:
+            equipment = {"category_name": "equipment", "groups": []}
+            categories.append(equipment)
+        equipment["groups"].extend(groups)
+    categories[:] = [category for category in categories if category["groups"]]
+    return catalog
 
 
 def builtin_assets(root):
@@ -207,15 +236,23 @@ def compile_files(root, records, *, revision=None):
         files[RP + f"textures/items/cosmetics/accessory_{accessory['id']}.png"] = accessory["icon"]
         atlas["texture_data"][item_id] = {"textures": f"textures/items/cosmetics/accessory_{accessory['id']}"}
         put(BP + f"items/cosmetics/accessory_{accessory['id']}.json", {"format_version": "1.26.0", "minecraft:item": {
-            "description": {"identifier": item_id, "menu_category": {"category": "equipment"}},
+            "description": {"identifier": item_id, "menu_category": {"category": "equipment", "group": ACCESSORY_GROUPS[accessory["slot"]]}},
             "components": {"minecraft:display_name": {"value": accessory["name"]}, "minecraft:icon": item_id, "minecraft:max_stack_size": 1, "minecraft:interact_button": "モルカーに装着"}}})
     put(RP + "textures/item_texture.json", atlas)
+    creative_catalog_path = BP + "item_catalog/crafting_item_catalog.json"
+    if accessories or (root / creative_catalog_path).exists():
+        existing = read(creative_catalog_path) if (root / creative_catalog_path).exists() else None
+        put(creative_catalog_path, _creative_accessory_catalog(existing, accessories))
     labels = {"ja_JP": {"wardrobe": "着替える", "remove": "アクセサリーを外す", "equip": "アクセサリーを装着"},
               "en_US": {"wardrobe": "Change outfit", "remove": "Remove accessory", "equip": "Equip accessory"}}
     for locale, translations in labels.items():
         path = RP + f"texts/{locale}.lang"
-        lines = [line for line in (root / path).read_text(encoding="utf-8").splitlines() if not line.startswith("action.interact.ichiyon_cosmetic_")]
+        lines = [line for line in (root / path).read_text(encoding="utf-8").splitlines()
+                 if not line.startswith("action.interact.ichiyon_cosmetic_") and line.partition("=")[0] not in ACCESSORY_GROUPS.values()]
         lines.extend(f"action.interact.ichiyon_cosmetic_{key}={value}" for key, value in translations.items())
+        for slot in SLOTS:
+            if any(a["slot"] == slot for a in accessories):
+                lines.append(f"{ACCESSORY_GROUPS[slot]}={ACCESSORY_GROUP_LABELS[locale][slot]}")
         files[path] = ("\n".join(lines) + "\n").encode("utf-8")
     put(RP + "render_controllers/cosmetics_accessories.render_controllers.json", {"format_version": "1.8.0", "render_controllers": accessory_controllers})
     for pack, patch in ((BP, 31), (RP, 36), (BRIDGE, 29)):
