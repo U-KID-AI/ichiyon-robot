@@ -1,5 +1,6 @@
 """Ordinary Git operations and task worktree integrity checks."""
 
+import codecs
 import os
 import re
 import subprocess
@@ -124,6 +125,16 @@ class GitAdapter:
         result = self._checked(("rev-parse", "--git-common-dir"), cwd)
         return (cwd / result.stdout.strip()).resolve()
 
+    def _worktree_list(self) -> GitResult:
+        try:
+            return self._checked(("worktree", "list", "--porcelain", "-z"))
+        except GitOperationError as exc:
+            if exc.returncode != 129 or not re.search(
+                r"(?m)^error: unknown (?:switch|option) [`'\"]-?z['\"]\r?$", exc.stderr,
+            ):
+                raise
+        return self._checked(("worktree", "list", "--porcelain"))
+
     def snapshot(self, cwd: Path) -> GitSnapshot:
         root = self._checked(("rev-parse", "--show-toplevel"), cwd)
         if Path(root.stdout.strip()).resolve() != cwd.resolve():
@@ -132,7 +143,7 @@ class GitAdapter:
             raise GitOperationError("worktree belongs to a different repository")
         head_result = self._checked(("rev-parse", "HEAD"), cwd)
         branch_result = self._checked(("rev-parse", "--abbrev-ref", "HEAD"), cwd)
-        worktree_result = self._checked(("worktree", "list", "--porcelain", "-z"))
+        worktree_result = self._worktree_list()
         origin_result = self._checked(("remote", "get-url", "origin"), cwd)
         head = head_result.stdout.strip()
         branch = branch_result.stdout.strip()
@@ -148,6 +159,18 @@ class GitAdapter:
     @staticmethod
     def _normalized_path(path: Path) -> str:
         return os.path.normcase(str(path)).replace(os.sep, "/").rstrip("/")
+
+    @staticmethod
+    def _unquote_worktree_path(value: str) -> str:
+        if not value.startswith('"'):
+            return value
+        if not re.fullmatch(r'"(?:[^"\\\r\n]|\\(?:[abfnrtv"\\]|[0-3][0-7]{2}))*"', value):
+            raise GitOperationError("Git worktree path quoting is malformed")
+        # Git quotes UTF-8 bytes as three-digit octal escapes, not Unicode code points.
+        decoded = codecs.escape_decode(value[1:-1].encode("utf-8"))[0].decode("utf-8", errors="replace")
+        if not decoded or "\0" in decoded:
+            raise GitOperationError("Git worktree path is malformed")
+        return decoded
 
     @classmethod
     def parse_worktree_porcelain(cls, value: str) -> set[str]:
@@ -167,6 +190,8 @@ class GitAdapter:
             raw_path = lines[0][len("worktree "):]
             if not raw_path or any(line.startswith("worktree ") for line in lines[1:]):
                 raise GitOperationError("Git worktree output is malformed")
+            if separator == "\n":
+                raw_path = cls._unquote_worktree_path(raw_path)
             if ("bare" not in lines and not any(
                     line.startswith("HEAD ") and SHA_PATTERN.fullmatch(line[5:]) for line in lines[1:])):
                 raise GitOperationError("Git worktree output is malformed")

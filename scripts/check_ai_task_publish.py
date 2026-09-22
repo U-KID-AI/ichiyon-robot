@@ -338,6 +338,32 @@ class PublishTests(unittest.TestCase):
         with self.assertRaisesRegex(GitOperationError, "root mismatch"):
             self.adapter.snapshot(nested)
 
+    def test_legacy_worktree_listing_keeps_real_worktree_integrity(self):
+        calls = []
+
+        def older_git(argv, **kwargs):
+            calls.append(argv[1:])
+            if argv[1:] == ["worktree", "list", "--porcelain", "-z"]:
+                return SimpleNamespace(returncode=129, stdout="", stderr="error: unknown switch `z'\n")
+            return subprocess.run(argv, **kwargs)
+
+        adapter = GitAdapter(self.source, self.git_path, runner=older_git)
+        task_id = UUID("00000000-0000-0000-0000-000000000002")
+        worktree = adapter.add_worktree(task_id, self.directory / "legacy spaces \u65e5\u672c", self.base)
+        snapshot = adapter.snapshot(worktree)
+        self.assertEqual(snapshot.head, self.base)
+        self.assertEqual(snapshot.branch, adapter.expected_branch(task_id))
+        self.assertNotIn("\0", snapshot.worktrees)
+        adapter.validate_worktree(task_id, worktree, self.base)
+        self.assertIn(["worktree", "list", "--porcelain"], calls)
+        self.git("checkout", "-b", "wrong-legacy-task", cwd=worktree)
+        with self.assertRaisesRegex(GitOperationError, "branch mismatch"):
+            adapter.validate_worktree(task_id, worktree, self.base)
+        source_only = self.git("worktree", "list", "--porcelain").stdout.split("\n\n", 1)[0] + "\n\n"
+        with patch.object(adapter, "_worktree_list", return_value=SimpleNamespace(stdout=source_only)):
+            with self.assertRaisesRegex(GitOperationError, "snapshot validation failed"):
+                adapter.snapshot(worktree)
+
     def test_symlinked_worktree_parent_is_accepted(self):
         alias = self.directory / "worktree-alias"
         try:
@@ -378,6 +404,81 @@ class PublishTests(unittest.TestCase):
 
 
 class DiagnosticTests(unittest.TestCase):
+    def test_worktree_z_fallback_is_specific_and_preserves_other_errors(self):
+        for message in ("error: unknown switch `z'\n", "error: unknown switch 'z'\n",
+                        'error: unknown option "-z"\n'):
+            calls = []
+
+            def legacy(argv, **kwargs):
+                calls.append(argv[1:])
+                return SimpleNamespace(returncode=129 if len(calls) == 1 else 0,
+                                       stdout="" if len(calls) == 1 else "legacy output", stderr=message if len(calls) == 1 else "")
+
+            with self.subTest(message=message):
+                adapter = GitAdapter(ROOT, Path(sys.executable), runner=legacy)
+                self.assertEqual(adapter._worktree_list().stdout, "legacy output")
+                self.assertEqual(calls, [["worktree", "list", "--porcelain", "-z"],
+                                         ["worktree", "list", "--porcelain"]])
+        for code, message in ((128, "error: unknown switch 'z'\n"), (129, "fatal: permission denied\n"),
+                              (129, "error: unknown switch 'x'\n"), (1, "fatal: not a git repository\n")):
+            calls = []
+
+            def failed(argv, **kwargs):
+                calls.append(argv[1:])
+                return SimpleNamespace(returncode=code, stdout="full stdout", stderr=message)
+
+            with self.subTest(code=code, message=message):
+                adapter = GitAdapter(ROOT, Path(sys.executable), runner=failed)
+                with self.assertRaises(GitOperationError) as caught:
+                    adapter._worktree_list()
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(caught.exception.returncode, code)
+                self.assertEqual(caught.exception.stdout, "full stdout")
+                self.assertEqual(caught.exception.stderr, message)
+
+    def test_legacy_worktree_listing_failure_is_not_hidden(self):
+        calls = []
+
+        def failed(argv, **kwargs):
+            calls.append(argv[1:])
+            if len(calls) == 1:
+                return SimpleNamespace(returncode=129, stdout="", stderr="error: unknown switch 'z'\n")
+            return SimpleNamespace(returncode=128, stdout="legacy stdout", stderr="fatal: legacy listing failed\n")
+
+        adapter = GitAdapter(ROOT, Path(sys.executable), runner=failed)
+        with self.assertRaises(GitOperationError) as caught:
+            adapter._worktree_list()
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(caught.exception.returncode, 128)
+        self.assertEqual(caught.exception.stdout, "legacy stdout")
+        self.assertEqual(caught.exception.stderr, "fatal: legacy listing failed\n")
+
+    def test_legacy_worktree_paths_decode_git_quoting_and_utf8(self):
+        encoded = [
+            "/tmp/plain space", r'"/tmp/quote\"and\\slash"',
+            r'"/tmp/line\nbreak\tand\rreturn"',
+            r'"/tmp/\346\227\245\346\234\254"',
+            '"/tmp/\u65e5\u672c"',
+        ]
+        decoded = ["/tmp/plain space", '/tmp/quote"and\\slash',
+                   "/tmp/line\nbreak\tand\rreturn", "/tmp/\u65e5\u672c", "/tmp/\u65e5\u672c"]
+        value = "".join(f"worktree {path}\nHEAD {'a' * 40}\nbranch refs/heads/task\n\n" for path in encoded)
+        self.assertEqual(GitAdapter.parse_worktree_porcelain(value),
+                         {GitAdapter._normalized_path(Path(path)) for path in decoded})
+        self.assertEqual(GitAdapter.parse_worktree_porcelain(value.replace("\n", "\r\n")),
+                         GitAdapter.parse_worktree_porcelain(value))
+
+    def test_nul_worktree_paths_are_not_unquoted(self):
+        path = '/tmp/literal\\n\nwith"quote'
+        value = f"worktree {path}\0HEAD {'a' * 40}\0detached\0\0"
+        self.assertEqual(GitAdapter.parse_worktree_porcelain(value),
+                         {GitAdapter._normalized_path(Path(path))})
+
+    def test_malformed_legacy_worktree_quoting_is_rejected(self):
+        for path in ('"unterminated', r'"/tmp/\q"', r'"/tmp/\400"', r'"/tmp/\000"', '""', '"/tmp/a"junk'):
+            with self.subTest(path=path), self.assertRaises(GitOperationError):
+                GitAdapter.parse_worktree_porcelain(f"worktree {path}\nHEAD {'a' * 40}\n\n")
+
     def test_full_streams_no_argv_allowlist_and_timeout_diagnostics(self):
         stdout = "out\n" * 40000
         stderr = "err\n" * 40000
