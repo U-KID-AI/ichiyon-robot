@@ -1,0 +1,40 @@
+{
+  "format_version": "1.10.0",
+  "animation_controllers": {
+    "controller.animation.pikachu.spin": {
+      "initial_state": "idle",
+      "states": {
+        "idle": {
+          "transitions": [
+            {
+              "clockwise": "query.property('ichiyon:spin') == 1"
+            },
+            {
+              "counterclockwise": "query.property('ichiyon:spin') == -1"
+            }
+          ]
+        },
+        "clockwise": {
+          "animations": [
+            "clockwise"
+          ],
+          "transitions": [
+            {
+              "idle": "query.property('ichiyon:spin') == 0"
+            }
+          ]
+        },
+        "counterclockwise": {
+          "animations": [
+            "counterclockwise"
+          ],
+          "transitions": [
+            {
+              "idle": "query.property('ichiyon:spin') == 0"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

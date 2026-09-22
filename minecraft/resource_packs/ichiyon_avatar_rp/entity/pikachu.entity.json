@@ -1,0 +1,38 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "ichiyon:pikachu",
+      "materials": {
+        "default": "entity_alphatest"
+      },
+      "textures": {
+        "default": "textures/entity/pikachu"
+      },
+      "geometry": {
+        "default": "geometry.pikachu"
+      },
+      "animations": {
+        "walk": "animation.pikachu.walk",
+        "clockwise": "animation.pikachu.clockwise",
+        "counterclockwise": "animation.pikachu.counterclockwise",
+        "spin": "controller.animation.pikachu.spin"
+      },
+      "scripts": {
+        "animate": [
+          "spin",
+          {
+            "walk": "query.is_moving && query.property('ichiyon:spin') == 0"
+          }
+        ]
+      },
+      "render_controllers": [
+        "controller.render.default"
+      ],
+      "spawn_egg": {
+        "base_color": "#FAD228",
+        "overlay_color": "#E73930"
+      }
+    }
+  }
+}

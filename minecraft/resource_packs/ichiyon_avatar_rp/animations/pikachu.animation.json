@@ -1,0 +1,101 @@
+{
+  "format_version": "1.8.0",
+  "animations": {
+    "animation.pikachu.walk": {
+      "loop": true,
+      "bones": {
+        "body_root": {
+          "rotation": [
+            0,
+            0,
+            "math.sin(query.modified_distance_moved * 100) * 2"
+          ]
+        },
+        "left_foot": {
+          "position": [
+            0,
+            0,
+            "math.sin(query.modified_distance_moved * 100) * 0.65"
+          ]
+        },
+        "right_foot": {
+          "position": [
+            0,
+            0,
+            "-math.sin(query.modified_distance_moved * 100) * 0.65"
+          ]
+        }
+      }
+    },
+    "animation.pikachu.clockwise": {
+      "loop": "hold_on_last_frame",
+      "animation_length": 0.45,
+      "bones": {
+        "root": {
+          "rotation": {
+            "0.0": [
+              0,
+              0,
+              0
+            ],
+            "0.06": [
+              0,
+              20,
+              0
+            ],
+            "0.2": [
+              0,
+              180,
+              0
+            ],
+            "0.36": [
+              0,
+              340,
+              0
+            ],
+            "0.45": [
+              0,
+              360,
+              0
+            ]
+          }
+        }
+      }
+    },
+    "animation.pikachu.counterclockwise": {
+      "loop": "hold_on_last_frame",
+      "animation_length": 0.45,
+      "bones": {
+        "root": {
+          "rotation": {
+            "0.0": [
+              0,
+              0,
+              0
+            ],
+            "0.06": [
+              0,
+              -20,
+              0
+            ],
+            "0.2": [
+              0,
+              -180,
+              0
+            ],
+            "0.36": [
+              0,
+              -340,
+              0
+            ],
+            "0.45": [
+              0,
+              -360,
+              0
+            ]
+          }
+        }
+      }
+    }
+  }
+}
