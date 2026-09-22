@@ -1,0 +1,21 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "ichiyon:mokuro",
+      "materials": {"default": "entity_alphatest"},
+      "textures": {"default": "textures/entity/mokuro"},
+      "geometry": {"default": "geometry.mokuro"},
+      "animations": {
+        "walk": "mocro_walk",
+        "flap": "mocro_flap",
+        "open_wings": "mocro_open_wings",
+        "roll": "mocro_roll",
+        "state": "controller.animation.mokuro.state"
+      },
+      "scripts": {"animate": ["state"]},
+      "render_controllers": ["controller.render.default"],
+      "spawn_egg": {"base_color": "#bba17b", "overlay_color": "#7ba872"}
+    }
+  }
+}

@@ -3,6 +3,7 @@ import { HttpHeader, HttpRequest, HttpRequestMethod, http } from "@minecraft/ser
 import { secrets, variables } from "@minecraft/server-admin";
 import { handleAvatarCommand } from "./avatar_commands.js";
 import { cosmetics, cosmeticsDigest } from "./cosmetics.js";
+import "./mokuro.js";
 
 console.warn("[NaritaBridge] main.js loaded");
 
