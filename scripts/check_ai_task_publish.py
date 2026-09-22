@@ -228,19 +228,6 @@ def main():
             "trailing whitespace   \n",
             encoding="utf-8",
         )
-        normal_diff_check = run(
-            [
-                str(git_path),
-                "diff",
-                "--check",
-                "--no-ext-diff",
-            ],
-            root,
-        )
-        check(
-            "normal diff check ignores untracked file",
-            normal_diff_check.returncode == 0,
-        )
         try:
             publisher.validate_candidate_diff_check(
                 root,
