@@ -5,13 +5,13 @@
 - AI専用のbranch/worktreeで作業する。
 - 無関係な変更を混ぜない。
 - 変更後は関連テスト、compile、checkを実行し、結果を確認する。
-- `.env`、secrets、SSH鍵、Token、Cookie、その他の認証情報を読まない、表示しない、コミットしない。
+- `.env`、secrets、SSH鍵、Token、Cookie、その他の認証情報の値を表示しない。必要な場合でもDiscord報告・ログ・PR本文へ秘密値を出さない。
 - 本番デプロイ、本番再起動、本番DB migrationを勝手に行わない。
 - Minecraft本番worldを勝手に変更しない。
 - Discordから任意のshellコマンドをそのまま実行する設計にしない。許可された固定操作と入力検証を使う。
 - 危険操作や外部副作用のある操作は人間承認を要求する。
 
-調査・編集・検証はAI専用worktreeで行う。commit、push、Draft PRは `docs/AI_RULES.md` で許可された場合のみ行う。mergeとproduction操作は行わない。
+調査・編集・検証はAI専用worktreeで行う。AI専用worktree内では通常のデスクトップCodexに近い自由度で、workflow、migration、Docker、scripts、bot/admin、Minecraft pack、テストを含むrepo内ファイルの作成・変更・削除・renameを許可する。commit、push、Draft PRはrunnerの固定フローで行う。mergeとproduction操作は固定のreview/deployフロー以外では行わない。
 
 ## Phase 3C-1D: durable deployment lifecycle
 

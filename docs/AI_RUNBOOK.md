@@ -44,7 +44,7 @@ Phase 1では、taskをPostgreSQLの`ai_tasks`へ保存する。`task_id`はUUID
 6. 結果を記録してからcommit、push、Draft PRへ進む。
 7. 実行結果、変更内容、検証結果、残課題をDiscordへ通知する。
 
-秘密情報を取得・表示・送信しない。Discord入力を任意shellコマンドとして実行しない。Level 3操作は停止し、対象、影響、必要な操作、検証結果、復旧方法を提示してtaskを人間へ引き渡す。production操作は人間が外部で実行し、AI Runnerは承認後も続行しない。
+秘密値を表示・送信しない。Discord入力を任意shellコマンドとしてそのまま実行しない。AI専用worktree内では通常の開発に必要なファイル作成・変更・削除・renameとローカルコマンド実行を許可する。Level 3操作は停止し、対象、影響、必要な操作、検証結果、復旧方法を提示してtaskを人間へ引き渡す。production操作は固定deployフロー以外では実行しない。
 
 ## エラー時
 
@@ -82,9 +82,9 @@ Phase 2AではAPIのDB状態更新だけを行う。Windows/Linux RunnerのCodex
 
 Phase 2Bのruntime test registryはuntrustedなrepository Pythonをホスト上でimport・実行しない。Python変更はメモリ上で構文compileのみを行い、`__pycache__`や`.pyc`を生成せず、repository由来のcheck scriptも実行しない。
 
-Windows/Linux Runnerは`--once`で1 taskだけ処理する。Control Planeからclaimした後、source repositoryのclean状態と固定originを確認し、`origin/main`をfetchしてUUID由来のbranch/worktreeを作成する。Codex実行中とtest中はheartbeatを送り、lease維持に失敗した場合は処理を止めてworktreeを保持する。CodexのcommitやGitHub操作は許可しない。
+Windows/Linux Runnerは`--once`で1 taskだけ処理する。Control Planeからclaimした後、source repositoryのclean状態と固定originを確認し、`origin/main`をfetchしてUUID由来のbranch/worktreeを作成する。Codex実行中とtest中はheartbeatを送り、lease維持に失敗した場合は処理を止めてworktreeを保持する。Codex自身にはcommitやGitHub操作をさせず、runnerが後続のcommit/push/PRを管理する。
 
-Phase 2Bは固定test registryと`git diff --check`を実行し、結果をprogressへ保存してtaskをtestingのまま終了する。Codex実行、Git、filesystem、API通信はfakeで検証し、実機Codex子プロセスやproduction/staging接続はこのPhaseのcheckで行わない。
+Phase 2B以降は固定test registryと`git diff --check`を実行し、通常のrepo内変更をパス種別だけでrollbackしない。Git/worktree破損、repo外path、`.git`内部、symlink/reparse、timeout、process異常は停止する。Codex実行、Git、filesystem、API通信はfakeで検証し、production/staging接続はcheckで行わない。
 RunnerのGit executableは`AI_TASK_RUNNER_GIT_PATH`で絶対path指定し、source repo/worktree配下の実行ファイルを拒否する。Codex childはGit credential helperを無効化した環境で起動し、stdout/stderrはbounded drainで上限を設ける。test registryはsubprocessを起動せず、メモリ上で構文compileを行う。
 ## Phase 2C Safe Publishing
 
@@ -122,7 +122,8 @@ trusted runner HOME's `.config/gh` path. No credential contents are copied into
 the environment. Operator-supplied GH_CONFIG_DIR/XDG overrides are not inherited.
 Missing helpers or unsafe configuration fail closed. Repository
 and UUID branch restrictions are unchanged. Windows-only Codex sandbox options
-are emitted only on Windows; Linux retains the fixed sandbox and network denial.
+are emitted only on Windows; Linux retains the fixed sandbox with network enabled
+for desktop-like implementation tasks.
 Managed POSIX children start a new session. Cleanup signals the entire group,
 waits boundedly after SIGTERM and SIGKILL, and fails closed if group disappearance
 cannot be verified (including unreaped descendants). Windows retains taskkill /T /F.

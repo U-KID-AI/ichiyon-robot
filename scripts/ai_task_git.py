@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable, Sequence
 from uuid import UUID
 
-from ai_task_safety import is_reparse_point, is_protected_path, validate_changed_paths
+from ai_task_safety import is_reparse_point, validate_changed_paths
 
 
 EXPECTED_ORIGIN = "https://github.com/U-KID-AI/ichiyon-robot.git"
@@ -23,31 +23,21 @@ class GitDiffCheckError(GitSafetyError):
 
 
 def _safe_relative(value: str) -> bool:
-    return (isinstance(value, str) and bool(re.fullmatch(r"[A-Za-z0-9_. /-]+", value))
-            and not Path(value).is_absolute()
-            and all(part not in ("", ".", "..") and not part.endswith((".", " "))
-                    for part in value.split("/")))
+    if not isinstance(value, str) or not value or "\0" in value or "\\" in value or ":" in value:
+        return False
+    path = Path(value)
+    return (not path.is_absolute() and not value.startswith("-")
+            and all(part not in ("", ".", "..") for part in value.split("/")))
 
 
 def repairable_paths(cwd: Path, paths: list[str]) -> list[str]:
-    """Classify policy edits only after checking every filesystem boundary.
-
-    Credential paths are never restored, opened, or included in diagnostics.
-    Use a conservative portable filename vocabulary for recovery operations.
-    """
+    """Validate changed paths without classifying policy edits for rollback."""
     root = cwd.resolve()
     if cwd.is_symlink() or is_reparse_point(cwd):
         raise GitSafetyError("worktree filesystem boundary violation")
-    protected = []
     for relative in paths:
-        parts = relative.lower().split("/")
-        if (not _safe_relative(relative)
-                or any(part == ".git" or part.startswith(".env")
-                       or part in ("secrets", ".ssh", "production", "staging")
-                       or any(word in part for word in ("secret", "credential", "token", "cookie", "private_key", "private-key"))
-                       or part in ("id_rsa", "id_ed25519", "id_ecdsa", "id_dsa") for part in parts)
-                or relative.lower().endswith((".pem", ".key", ".p12", ".pfx", ".crt", ".cer"))):
-            raise GitSafetyError("unsafe or credential changed path")
+        if not _safe_relative(relative):
+            raise GitSafetyError("unsafe changed path")
         candidate = root
         for part in relative.split("/"):
             candidate = candidate / part
@@ -61,11 +51,8 @@ def repairable_paths(cwd: Path, paths: list[str]) -> list[str]:
                 raise GitSafetyError("changed path is a reparse point")
         if root not in candidate.resolve().parents:
             raise GitSafetyError("changed path escapes repository")
-        if is_protected_path(relative):
-            protected.append(relative)
-        else:
-            validate_changed_paths(cwd, [relative])
-    return protected
+        validate_changed_paths(cwd, [relative])
+    return []
 
 
 @dataclass(frozen=True)
@@ -112,9 +99,7 @@ class GitAdapter:
         if len(args) == 6 and args[:3] == ("ls-tree", "-z", "--full-tree") and args[4] == "--":
             return bool(SHA_PATTERN.fullmatch(args[3]) and _safe_relative(args[5]))
         if len(args) == 6 and args[:2] == ("restore", "--worktree") and args[2] == "--source":
-            return bool(SHA_PATTERN.fullmatch(args[3]) and args[4] == "--"
-                        and args[5].startswith(":(literal)")
-                        and _safe_relative(args[5][10:]) and is_protected_path(args[5][10:]))
+            return False
         return False
 
     def unstage(self, cwd: Path, task_id: UUID, base_sha: str) -> None:
@@ -127,44 +112,7 @@ class GitAdapter:
             raise GitSafetyError("Git index remains staged after automatic unstage")
 
     def restore_protected(self, cwd: Path, task_id: UUID, base_sha: str, paths: list[str]) -> None:
-        self.validate_worktree(task_id, cwd, base_sha)
-        self.snapshot(cwd)
-        if repairable_paths(cwd, paths) != paths:
-            raise GitSafetyError("recovery requires only protected paths")
-        for relative in paths:
-            entry = self._run(("ls-tree", "-z", "--full-tree", base_sha, "--", relative), cwd)
-            if entry.returncode:
-                raise GitSafetyError("protected base path inspection failed")
-            if entry.stdout:
-                records = entry.stdout.rstrip("\0").split("\0")
-                if len(records) != 1 or not re.fullmatch(
-                        r"100(?:644|755) blob [0-9a-f]{40}\t" + re.escape(relative), records[0]):
-                    raise GitSafetyError("protected base path is not a regular file")
-                if self._run(("restore", "--worktree", "--source", base_sha, "--", ":(literal)" + relative), cwd).returncode:
-                    raise GitSafetyError("protected path restoration failed")
-            else:
-                candidate = cwd / relative
-                if candidate.exists():
-                    if not candidate.is_file():
-                        raise GitSafetyError("protected untracked path is not a file")
-                    candidate.unlink()
-        # A removed project Codex layer must not leave an empty directory that
-        # would block the next sandbox invocation. Never recursively delete.
-        parents = set()
-        for relative in paths:
-            if relative.startswith(".codex/"):
-                parent = (cwd / relative).parent
-                while parent != cwd:
-                    parents.add(parent)
-                    parent = parent.parent
-        for parent in sorted(parents, key=lambda path: len(path.parts), reverse=True):
-            if parent.exists() and not parent.is_symlink() and not is_reparse_point(parent):
-                try:
-                    parent.rmdir()  # Only empty directories; ignored contents remain fail-closed.
-                except OSError:
-                    pass
-        if set(paths) & set(self.changed_files(cwd)):
-            raise GitSafetyError("protected paths remain changed after restoration")
+        raise GitSafetyError("protected path restoration is disabled; repository edits are preserved")
 
     def require_source_repo(self) -> None:
         if not self.repo_root.is_dir() or not (self.repo_root / ".git").exists():

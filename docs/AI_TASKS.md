@@ -36,7 +36,7 @@
 - Draft PRを作成する。
 - テスト結果と変更内容をDiscordへ報告する。
 
-任意shell実行の受付、秘密情報の受け渡し、本番環境への接続は設計対象外または禁止対象である。
+Discord入力をshellとしてそのまま実行する受付、秘密情報の受け渡し、本番環境への直接接続は設計対象外または禁止対象である。Codex自身は専用worktree内で実装・検証に必要なローカルコマンドを実行できる。
 
 ## Phase 3: レビュー支援（将来）
 
@@ -62,6 +62,6 @@ production deploy、production restart、production DB migration、production se
 Phase 2AはControl Planeだけを提供し、Codex、Git、worktree、branch、PR作成、Discord通知は実行しない。
 ## Phase 2B Local Runner
 
-Runnerの設定はprocess environmentからのみ読み取り、dotenvは読み込まない。API URL、Runner ID、source repo、専用worktree root、Codex実行ファイルを検証する。taskのbranch/worktree名はUUIDから再生成してAPI値と一致確認し、Codex終了後にHEAD、branch、worktree一覧、remoteを比較する。保護ファイル、repo外path、symlink、secret系pathの変更はneeds_humanとする。
+Runnerの設定はprocess environmentからのみ読み取り、dotenvは読み込まない。API URL、Runner ID、source repo、専用worktree root、Codex実行ファイルを検証する。taskのbranch/worktree名はUUIDから再生成してAPI値と一致確認し、Codex終了後にHEAD、branch、worktree一覧、remoteを比較する。repo内のworkflow、migration、Docker、scripts、bot/admin、Minecraft pack、テスト等は通常の編集対象とし、パスだけを理由にrollbackやneeds_humanへ送らない。repo外path、`.git`内部、symlink/reparse等のworktree境界違反は停止する。
 
-Codexは固定argv、workspace-write、ephemeral、ignore-user-config、Bearer tokenを渡さないclean environmentで実行する。Phase 2Bではready_for_reviewを呼ばず、commit/push/Draft PRはPhase 2Cへ残す。
+Codexは固定argv、workspace-write、network有効、ephemeral、ignore-user-config、Bearer tokenを渡さないclean environmentで実行する。Codexの変更は保持し、runnerが検証後にcommit/push/Draft PRを管理する。

@@ -89,15 +89,17 @@ def main():
     )
 
     check(
-        "Phase 2C sensitive paths are protected",
-        all(
+        "publisher allows normal repository paths",
+        not any(
             is_protected_path(value)
             for value in (
                 ".gitattributes",
                 "scripts/ai_task_publish.py",
                 "scripts/ai_task_github.py",
+                ".github/workflows/checks.yml",
             )
-        ),
+        )
+        and is_protected_path(".git/config"),
     )
 
     with tempfile.TemporaryDirectory() as directory:

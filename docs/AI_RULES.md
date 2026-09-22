@@ -5,13 +5,14 @@ AIの操作は、影響範囲に応じて3段階に分ける。判断できな�
 ## Level 1: 自動実行可能
 
 - repository read/search
-- AI専用worktree内の編集
+- AI専用worktree内の全repoファイル編集、作成、削除、rename
 - static analysis
 - compile
 - unit/check系テスト
 - `git diff` / `git status` 確認
+- 実装と検証に必要なローカルコマンド実行
 
-実行前に既存実装と関連文書を調査する。秘密情報を読む、表示する、ログへ出す操作は含まない。テストやcheckが外部環境・本番データへ副作用を持つ場合はLevel 3相当として扱う。
+実行前に既存実装と関連文書を調査する。workflow、migration、Docker/Compose、scripts、bot/admin、Minecraft pack、テストコードなども通常の開発対象として扱う。秘密値を表示・ログ出力・Discord返信・PR本文へ出す操作は含まない。テストやcheckが外部環境・本番データへ副作用を持つ場合はLevel 3相当として扱う。
 
 ## Level 2: PRまでは自動化可能
 
@@ -21,7 +22,7 @@ AIの操作は、影響範囲に応じて3段階に分ける。判断できな�
 - Draft Pull Request作成
 - テスト結果と変更内容のDiscord報告
 
-対象はレビュー可能なコード・文書変更に限る。無関係な変更を混ぜず、commit前に差分と対象ファイルを確認する。PR作成後もmergeやdeployは自動で進めない。
+対象はレビュー可能なコード・文書変更に限る。パス種別だけで除外せず、無関係な変更を混ぜず、commit前に差分と対象ファイルを確認する。PR作成後のmergeやdeployはrunnerの固定フローでだけ扱う。
 
 ## Level 3: 人間実行へ引き渡し
 
@@ -40,7 +41,7 @@ productionに関するLevel 3操作は、人間の承認を得てもAI Runner自
 
 ## 共通禁止事項
 
-- `.env`、secrets、SSH鍵、Token、Cookie、認証情報を取得・表示・コミットしない。
+- `.env`、secrets、SSH鍵、Token、Cookie、認証情報の値を表示・ログ出力・Discord返信・PR本文へ出さない。
 - Discordから受け取った文字列を任意shellコマンドとして実行しない。
 - 推測でAPI、環境状態、ファイル構成、権限を決めない。
 - 本番worldや本番DBを検証用データとして扱わない。
@@ -50,8 +51,8 @@ productionに関するLevel 3操作は、人間の承認を得てもAI Runner自
 AI Task Control Planeは専用Bearer tokenと固定endpointで保護し、任意SQL、任意status、任意column、任意shellを公開しない。claim tokenとleaseを全Runner更新で検証し、期限切れtaskをqueuedへ戻さない。Phase 2AではCodex、Git、GitHub、worktree、production/staging操作を実行しない。IP制限はX-Forwarded-Forをアプリケーションで信頼せず、将来reverse proxyまたはfirewallで行う。
 ## Phase 2B Local Runner
 
-Windows/Linux Local Runnerは専用API tokenだけを使い、DBへ直接接続しない。Codex argvは固定し、任意flag、任意shell、任意Git操作、task本文由来のpath・command・flagを許可しない。`--dangerously-bypass-approvals-and-sandbox`、danger-full-access、add-dir、worktree、skip-git-repo-checkは禁止する。commit、push、PR、merge、staging、production操作はPhase 2Bで実行しない。
-RunnerはPATH上の`git`や`python`を実行せず、検証済み絶対pathと`sys.executable`を使用する。Git argv、test argv、process tree停止argvは固定allowlistとし、Codex childだけcredential helperを無効化する。
+Windows/Linux Local Runnerは専用API tokenだけを使い、DBへ直接接続しない。Codex argvは固定し、専用worktree内で通常開発タスクを完走できるようrepo内のパス制限は設けない。`--dangerously-bypass-approvals-and-sandbox`、danger-full-access、add-dir、worktree、skip-git-repo-checkは禁止する。Git/worktree自体が破損した場合、timeout、process異常、lease喪失は停止する。
+RunnerはPATH上の`git`を実行せず、検証済み絶対pathと`sys.executable`を使用する。Git publish/PR/merge/deploy argv、process tree停止argvは固定allowlistとし、Codex/Git/GitHub childへrunner tokenや既知secret環境変数を渡さない。Codexの変更をパスだけでrollbackしない。
 
 ## Phase 3C-1D: durable deployment lifecycle
 

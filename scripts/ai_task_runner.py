@@ -44,35 +44,19 @@ from ai_task_test_registry import TestRegistryError, run_tests
 logger = logging.getLogger("ai_task_runner")
 
 
+def _redact_failure_text(value: str) -> str:
+    text = str(value or "")
+    text = re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{8,}", r"\1[redacted]", text)
+    text = re.sub(r"(?i)(token|secret|password|api[_-]?key|private[_-]?key)(\s*[:=]\s*)\S+",
+                  r"\1\2[redacted]", text)
+    text = re.sub(r"(?i)(https?://[^/\s:@]+:)[^@\s/]+@", r"\1[redacted]@", text)
+    text = re.sub(r"\b[A-Za-z0-9_=-]{48,}\b", "[redacted-long-value]", text)
+    return text[:2400] if text else "no detail"
+
+
 def failure_reason(exc):
-    # Never serialize arbitrary exception text (transport errors may contain credentials).
-    safe_messages = {
-        "task Git topology changed", "origin repository mismatch", "source repository is not clean",
-        "worktree root mismatch", "worktree base mismatch", "worktree branch mismatch",
-        "worktree name mismatch", "invalid worktree input", "Git snapshot validation failed",
-        "unsafe or credential changed path", "changed path is a symlink",
-        "changed path is a reparse point", "changed path escapes repository",
-        "automatic unstage failed", "protected path restoration failed",
-        "protected base path is not a regular file", "origin fetch failed",
-        "Phase 2C publishing is not configured", "invalid task ID",
-        "claim names do not match task ID", "Codex input cleanup did not complete",
-    }
-    if type(exc) in (GitSafetyError, SafetyError, ProcessTerminationError) and str(exc) in safe_messages:
-        return str(exc)
-    reasons = {
-        GitSafetyError: "Git integrity or recovery operation failed; ownership, origin, base or worktree could not be verified",
-        DeploymentSafetyError: "Production deployment verification failed; completion withheld",
-        SafetyError: "Repository filesystem or policy boundary validation failed",
-        CodexSafetyError: "Codex adapter safety or process handling failed",
-        ProcessTerminationError: "Process cleanup could not be verified; human inspection required",
-        RunnerAPIError: "Control Plane operation failed; task transition could not be confirmed",
-        TestRegistryError: "Fixed offline test registry could not inspect an implementation file",
-        PublishSafetyError: "Deterministic task publication validation failed",
-        GitHubSafetyError: "Draft PR identity or GitHub operation validation failed",
-        OSError: "Runner filesystem or process operation failed",
-    }
-    return next((message for kind, message in reasons.items() if isinstance(exc, kind)),
-                "Runner validation failed in a fixed operation; inspect runner diagnostics")
+    message = _redact_failure_text(str(exc))
+    return f"{type(exc).__name__}: {message}"
 
 
 def test_feedback(item, changed=()):
@@ -294,17 +278,15 @@ class LocalRunner:
         if self.git.snapshot(worktree) != before:
             raise GitSafetyError("task Git topology changed")
         changed = self.git.changed_files(worktree)
-        protected = repairable_paths(worktree, changed)
+        repairable_paths(worktree, changed)
         if self.git.staged_files(worktree):
             self.git.unstage(worktree, task.task_id, base_sha)
-        if protected:
-            self.git.restore_protected(worktree, task.task_id, base_sha, protected)
         changed = self.git.changed_files(worktree)
         validate_changed_paths(worktree, changed)
         validate_project_codex_layer(worktree)
         if self.git.snapshot(worktree) != before or self.git.staged_files(worktree):
             raise GitSafetyError("Git integrity changed during automatic recovery")
-        return protected, changed
+        return [], changed
 
     def _process(self, task: ClaimedTask) -> bool:
         validate_claim_names(task.task_id, task.branch_name, task.worktree_name)
@@ -337,7 +319,7 @@ class LocalRunner:
                                      progress_summary=f"Running Codex attempt {attempt}/{self.config.max_attempts}")
                 attempt_prompt = prompt
                 if feedback:
-                    attempt_prompt += "\n<retry_feedback>\n" + feedback[:2000] + "\nRepair the implementation and preserve allowed edits.\n</retry_feedback>"
+                    attempt_prompt += "\n<retry_feedback>\n" + feedback[:2000] + "\nRepair the implementation and preserve existing repository edits.\n</retry_feedback>"
                 output = self.config.worktree_root / f".{task.worktree_name}.codex-output-attempt-{attempt}.txt"
                 if (output.exists() or output.is_symlink() or output.parent.is_symlink()
                         or is_reparse_point(output.parent)):
@@ -357,7 +339,7 @@ class LocalRunner:
                     raise ProcessTerminationError("Codex input cleanup did not complete")
                 if result.returncode != 0 and codex_usage_limit_reached(result):
                     self.codex.stop()
-                    protected, changed = self._repair_changes(
+                    _protected, changed = self._repair_changes(
                         task, worktree_path, base_sha, before
                     )
                     changed_summary = (
@@ -384,9 +366,7 @@ class LocalRunner:
                     feedback = ("Codex timed out" if result.timed_out else
                                 "Codex process stopped unexpectedly" if getattr(result, "stopped", False) else
                                 "Codex nonzero exit")
-                protected, changed = self._repair_changes(task, worktree_path, base_sha, before)
-                if protected:
-                    feedback = (feedback + "; " if feedback else "") + "Protected paths were reverted: " + ", ".join(protected)[:1400]
+                _protected, changed = self._repair_changes(task, worktree_path, base_sha, before)
                 if feedback:
                     continue
                 if not changed:
@@ -400,10 +380,7 @@ class LocalRunner:
                 if heartbeat.lost.is_set():
                     self.client.mark_needs_human(task.task_id, task.claim_token, "Control Plane lease could not be maintained")
                     return False
-                protected, changed_after_tests = self._repair_changes(task, worktree_path, base_sha, before)
-                if protected:
-                    feedback = "Protected paths were reverted after tests: " + ", ".join(protected)[:1400]
-                    continue
+                _protected, changed_after_tests = self._repair_changes(task, worktree_path, base_sha, before)
                 if not changed_after_tests:
                     feedback = "No repository changes after tests; implementation changes are required"
                     continue
