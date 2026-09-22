@@ -5,7 +5,7 @@ import json
 import subprocess
 import unittest
 
-from export_mokuro import ROOT, RP, SOURCE, SOURCE_SHA, export, position, rotation
+from export_mokuro import ANIMATION_IDS, ROOT, RP, SOURCE, SOURCE_SHA, export, position, rotation
 
 BP = ROOT / "minecraft/behavior_packs/ichiyon_avatar_bp"
 
@@ -42,9 +42,9 @@ class MokuroChecks(unittest.TestCase):
     def test_every_original_keyframe_timing_angles_loop(self):
         src = read(SOURCE)
         exported = read(RP / "animations/mokuro.animation.json")["animations"]
-        self.assertEqual(set(exported), {"mocro_walk", "mocro_flap", "mocro_open_wings", "mocro_roll"})
+        self.assertEqual(set(exported), {"animation.mokuro.walk", "animation.mokuro.flap", "animation.mokuro.open_wings", "animation.mokuro.roll"})
         for anim in src["animations"]:
-            dst = exported[anim["name"]]
+            dst = exported[ANIMATION_IDS[anim["name"]]]
             self.assertEqual(dst["loop"], True if anim["loop"] == "loop" else "hold_on_last_frame")
             self.assertEqual(dst["animation_length"], anim["length"])
             for animator in anim["animators"].values():
@@ -81,6 +81,8 @@ class MokuroChecks(unittest.TestCase):
         self.assertEqual(client["identifier"], "ichiyon:mokuro")
         self.assertEqual(client["geometry"]["default"], "geometry.mokuro")
         self.assertIn("spawn_egg", client)
+        for name in ("walk", "flap", "open_wings", "roll"):
+            self.assertEqual(client["animations"][name], f"animation.mokuro.{name}")
         states = read(RP / "animation_controllers/mokuro.controller.json")["animation_controllers"]["controller.animation.mokuro.state"]["states"]
         self.assertEqual(states["glide"]["animations"], ["open_wings"])
         self.assertEqual(states["walk"]["animations"], ["walk"])

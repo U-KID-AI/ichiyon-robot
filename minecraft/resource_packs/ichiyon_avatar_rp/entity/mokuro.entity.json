@@ -7,10 +7,10 @@
       "textures": {"default": "textures/entity/mokuro"},
       "geometry": {"default": "geometry.mokuro"},
       "animations": {
-        "walk": "mocro_walk",
-        "flap": "mocro_flap",
-        "open_wings": "mocro_open_wings",
-        "roll": "mocro_roll",
+        "walk": "animation.mokuro.walk",
+        "flap": "animation.mokuro.flap",
+        "open_wings": "animation.mokuro.open_wings",
+        "roll": "animation.mokuro.roll",
         "state": "controller.animation.mokuro.state"
       },
       "scripts": {"animate": ["state"]},
