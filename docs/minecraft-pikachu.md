@@ -80,12 +80,27 @@ bone階層、UV、PNG CRC・展開サイズ、geometry再生成一致、羊毛�
 - 変更Pythonのcompileと`git diff --check`成功。
 - 差分を確認し、他の追跡済みMinecraft assetsと参照構造物に変更がないことを検証。
 
-対応環境で未完了の回帰checkを再実行する必要がある。
+2026-09-22の引き継ぎ検証では、Python 3.13.5（UTF-8モード）、Pillow 11.1.0、
+Node.jsのある開発用コピーで未完了の回帰checkを再実行した。
+Avatar/Poster/Lead Anchorの固定バージョン期待値が更新前のBP 1.0.29・RP 1.0.33の
+ままだったため、今回のmanifestに合わせてBP 1.0.30・RP 1.0.34へ修正した。
+バージョン一致・module一致の検証は維持している。
+
+- Pikachu: 7テスト成功。
+- Avatar: 11テスト成功。
+- Poster: 5テスト成功。
+- Lead Anchor: 5テスト成功（world-reference同期を含む、オフライン検証）。
+- Avatar Bridge: 17テスト成功。
+- version-policy: 2テスト成功、およびmain `9cd3534` とPR更新 `f9c1f2f` の比較成功。
+- 関連Pythonのcompileと`git diff --check`成功。
+
 CI workflowとRunner test registryは保護対象のため変更しておらず、本checkのCI登録は残件。
 実機のContent Log、エッグ、連続インタラクト、同tick入力、チャンク再読込、
 Creativeを含む睡眠追従・起床/離脱・経路探索・同期は未検証。
 最終的な見た目・歩き方・回転の感触も未確認。
 
-Runner指示によりcommit/push/PR/remote CI/review/merge、本番BDS deploy、
+初回Runner作業では、Runner指示によりcommit/push/PR/remote CI/review/merge、本番BDS deploy、
 world pack参照同期、再起動、health、本番packとmain一致確認は実施しない。
 これらと実機検証は、権限を持つ外部の運用・検証工程へ引き継ぐ。
+その後、外部工程でPR #51の作成とmain取り込みが行われ、`f9c1f2f` のGitHub CI成功を確認した。
+今回の引き継ぎで残っていたオフライン回帰checkは完了したが、merge、本番反映、実機確認は未実施。

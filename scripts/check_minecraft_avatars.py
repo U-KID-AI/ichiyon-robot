@@ -533,7 +533,7 @@ class AvatarChecks(unittest.TestCase):
                 self.assertLessEqual(v + y + z, 64)
 
     def test_pack_versions_and_localized_names(self):
-        for pack, version in ((BP, [1, 0, 29]), (RP, [1, 0, 33])):
+        for pack, version in ((BP, [1, 0, 30]), (RP, [1, 0, 34])):
             manifest = read_json(pack / "manifest.json")
             self.assertEqual(manifest["header"]["version"], version)
             self.assertTrue(all(m["version"] == version for m in manifest["modules"]))
