@@ -142,7 +142,8 @@
           "controller.render.player.map": "variable.map_face_icon"
         }
       ],
-      "enable_attachables": true
+      "enable_attachables": true,
+      "min_engine_version": "1.13.0"
     }
   }
 }

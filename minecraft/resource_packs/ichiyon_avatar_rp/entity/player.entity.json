@@ -90,6 +90,7 @@
         "default": "entity_alphatest",
         "spectator": "player_spectator"
       },
+      "min_engine_version": "1.13.0",
       "render_controllers": [
         {
           "controller.render.player.first_person_spectator": "(variable.is_first_person && query.is_spectator) && query.property('ichiyon:skin_id') == 0"
