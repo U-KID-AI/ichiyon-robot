@@ -2,6 +2,7 @@
   "format_version": "1.26.0",
   "minecraft:client_entity": {
     "description": {
+      "min_engine_version": "1.13.0",
       "animations": {
         "attack.positions": "animation.player.attack.positions",
         "attack.rotations": "animation.player.attack.rotations",
