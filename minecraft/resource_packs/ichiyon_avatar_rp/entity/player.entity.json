@@ -2,7 +2,6 @@
   "format_version": "1.26.0",
   "minecraft:client_entity": {
     "description": {
-      "min_engine_version": "1.13.0",
       "animations": {
         "attack.positions": "animation.player.attack.positions",
         "attack.rotations": "animation.player.attack.rotations",
@@ -91,6 +90,7 @@
         "default": "entity_alphatest",
         "spectator": "player_spectator"
       },
+      "min_engine_version": "1.13.0",
       "render_controllers": [
         {
           "controller.render.player.first_person_spectator": "(variable.is_first_person && query.is_spectator) && query.property('ichiyon:skin_id') == 0"
