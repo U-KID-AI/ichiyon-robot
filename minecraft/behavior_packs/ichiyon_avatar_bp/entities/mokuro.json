@@ -41,7 +41,10 @@
       "minecraft:interact": {
         "interactions": [{
           "on_interact": {"filters": {"all_of": [
-            {"test": "is_family", "subject": "other", "value": "player"}
+            {"test": "is_family", "subject": "other", "value": "player"},
+            {"test": "has_equipment", "subject": "other", "domain": "hand", "operator": "not", "value": "minecraft:lead"},
+            {"test": "has_equipment", "subject": "other", "domain": "hand", "operator": "not", "value": "minecraft:name_tag"},
+            {"test": "has_equipment", "subject": "other", "domain": "hand", "operator": "not", "value": "ichiyon:bartholomew_kuma_paw"}
           ]}},
           "interact_text": "action.interact.ichiyon_mokuro"
         }]

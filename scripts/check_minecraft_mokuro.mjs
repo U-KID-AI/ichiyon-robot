@@ -161,6 +161,21 @@ await test("ActionForm head / back / cancel, and owner detach", async () => {
     if (selection !== 2) { formState.selection = 0; await core.menu(p, mob); assert.equal(core.owners.size, 0); }
   }
 });
+await test("held normal items can mount; special interaction items pass through", async () => {
+  const { core, p, mob } = fixture();
+  p.held = { typeId: "minecraft:stone" };
+  await core.menu(p, mob);
+  assert.equal(core.owners.size, 1);
+  core.releasePlayer(p.id);
+
+  for (const typeId of ["minecraft:lead", "minecraft:name_tag", "ichiyon:bartholomew_kuma_paw"]) {
+    p.held = { typeId };
+    const e = { player: p, target: mob };
+    core.interact(e);
+    assert(!e.cancel, typeId);
+  }
+});
+
 await test("grounded sneak jump offers detach, held items are left alone", async () => {
   const { core, p, mob } = fixture(); core.attach(p, mob, "head"); p.isSneaking = true;
   core.jump(p); await Promise.resolve(); assert.equal(core.owners.size, 0);

@@ -46,8 +46,17 @@ export function createMokuro({ world, system, ActionFormData, report = console.w
     notices.set(label, system.currentTick);
     report(`[Mokuro] ${label}: ${String(e).slice(0, 300)}`);
   }
+  function heldType(player) {
+    return player.getComponent("minecraft:inventory")?.container?.getItem(player.selectedSlotIndex)?.typeId;
+  }
+  function passthroughItem(player) {
+    const type = heldType(player);
+    return type === "minecraft:lead"
+      || type === "minecraft:name_tag"
+      || type === "ichiyon:bartholomew_kuma_paw";
+  }
   function emptyHand(player) {
-    return !player.getComponent("minecraft:inventory")?.container?.getItem(player.selectedSlotIndex);
+    return heldType(player) === undefined;
   }
   function forget(state) {
     if (owners.get(state.playerId) === state) owners.delete(state.playerId);
@@ -92,7 +101,7 @@ export function createMokuro({ world, system, ActionFormData, report = console.w
       && distance(player.location, entity.location) <= 5;
   }
   function attach(player, entity, mode) {
-    if (!["head", "back"].includes(mode) || !usable(player, entity) || !emptyHand(player)) return false;
+    if (!["head", "back"].includes(mode) || !usable(player, entity) || passthroughItem(player)) return false;
     if (owners.has(player.id) || entities.has(entity.id) || entity.getDynamicProperty(OWNER) !== undefined) return false;
     if (entity.getComponent("minecraft:leashable")?.isLeashed) {
       player.sendMessage("リードを外してからモクローを乗せてください。");
@@ -121,7 +130,7 @@ export function createMokuro({ world, system, ActionFormData, report = console.w
     }
   }
   async function menu(player, entity) {
-    if (forms.has(player.id) || !usable(player, entity) || !emptyHand(player)) return;
+    if (forms.has(player.id) || !usable(player, entity)) return;
     forms.add(player.id);
     try {
       const state = entities.get(entity.id);
@@ -133,17 +142,22 @@ export function createMokuro({ world, system, ActionFormData, report = console.w
       if (state) form.body("通常のモクローに戻します。").button("降ろす").button("キャンセル");
       else form.body("このモクローをどこに乗せますか？").button("頭に乗せる").button("背中に背負う").button("キャンセル");
       const result = await form.show(player);
-      if (result.canceled || !usable(player, entity) || !emptyHand(player)) return;
+      if (result.canceled || !usable(player, entity)) return;
       if (state) {
+        if (!emptyHand(player)) {
+          player.sendMessage("\u30e2\u30af\u30ed\u30fc\u3092\u964d\u308d\u3059\u3068\u304d\u306f\u624b\u3092\u7a7a\u306b\u3057\u3066\u304f\u3060\u3055\u3044\u3002");
+          return;
+        }
         if (result.selection === 0 && owners.get(player.id) === state && !state.gliding) detach(state, true);
       } else if (result.selection === 0 || result.selection === 1) {
+        if (passthroughItem(player)) return;
         attach(player, entity, result.selection === 0 ? "head" : "back");
       }
     } catch (e) { error("interaction", e); }
     finally { forms.delete(player.id); }
   }
   function interact(event) {
-    if (event.target?.typeId !== MOKURO || !emptyHand(event.player)) return;
+    if (event.target?.typeId !== MOKURO || passthroughItem(event.player)) return;
     event.cancel = true;
     system.run(() => void menu(event.player, event.target));
   }
