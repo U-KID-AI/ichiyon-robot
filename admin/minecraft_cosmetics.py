@@ -9,7 +9,6 @@ from starlette.datastructures import UploadFile
 
 from admin.auth import require_login
 from bot.db import get_connection
-from bot.repositories import PermissionRepository
 from bot.repositories.minecraft_cosmetics import MinecraftCosmeticsRepository
 from bot.services.minecraft_cosmetics import MAX_UPLOAD, public_asset
 from bot.services.minecraft_cosmetics_pack import builtin_assets, catalog_digest, pack_zip
@@ -17,14 +16,6 @@ from bot.services.minecraft_control import cosmetics_control, MinecraftControlEr
 
 router = APIRouter(prefix="/minecraft/cosmetics", tags=["minecraft-cosmetics"])
 ROOT = Path(__file__).resolve().parent.parent / "minecraft"
-
-
-def require_admin(request):
-    user = require_login(request)
-    with get_connection() as connection:
-        if not PermissionRepository(connection).has_global_admin(str(user["user_id"])):
-            raise HTTPException(403, "この操作には全体管理者の権限が必要です。")
-    return user
 
 
 async def bounded_form(request):
@@ -74,12 +65,12 @@ def register_minecraft_cosmetics_routes(templates):
 
     @router.get("")
     async def catalog_page(request: Request):
-        require_admin(request)
+        require_login(request)
         return page(request)
 
     @router.post("/assets")
     async def upload(request: Request):
-        user = require_admin(request)
+        user = require_login(request)
         try:
             form = await bounded_form(request)
             with get_connection() as connection:
@@ -94,7 +85,7 @@ def register_minecraft_cosmetics_routes(templates):
 
     @router.post("/assets/{kind}/{asset_id}/delete")
     async def delete_asset(request: Request, kind: str, asset_id: int):
-        user = require_admin(request)
+        user = require_login(request)
         try:
             await bounded_form(request)
             if kind != "skin":
@@ -108,7 +99,7 @@ def register_minecraft_cosmetics_routes(templates):
 
     @router.get("/preview/{kind}/{asset_id}")
     async def preview(request: Request, kind: str, asset_id: int):
-        require_admin(request)
+        require_login(request)
         with get_connection() as connection:
             entry = next((a for a in records(MinecraftCosmeticsRepository(connection)) if a["kind"] == kind and a["id"] == asset_id), None)
         if not entry:
@@ -117,7 +108,7 @@ def register_minecraft_cosmetics_routes(templates):
 
     @router.post("/export")
     async def export(request: Request):
-        require_admin(request)
+        require_login(request)
         await bounded_form(request)
         with get_connection() as connection:
             repository = MinecraftCosmeticsRepository(connection)
@@ -132,7 +123,7 @@ def register_minecraft_cosmetics_routes(templates):
 
     @router.get('/application')
     async def application(request: Request):
-        require_admin(request)
+        require_login(request)
         try:
             result = await cosmetics_control()
             with get_connection() as connection:
@@ -147,7 +138,7 @@ def register_minecraft_cosmetics_routes(templates):
 
     @router.post('/apply')
     async def apply(request: Request):
-        require_admin(request)
+        require_login(request)
         try:
             form = await bounded_form(request)
             operation_id = str(uuid.UUID(str(form.get('operation_id', ''))))

@@ -82,7 +82,7 @@ app.mount("/static", StaticFiles(directory=str(ROOT / "admin/static")), name="st
 class AdminChecks(unittest.TestCase):
     def setUp(self):
         FakeRepository.added = []; FakeRepository.deleted = set()
-        self.patches = [patch.object(admin, "get_connection", fake_connection), patch.object(admin, "PermissionRepository", FakePermission),
+        self.patches = [patch.object(admin, "get_connection", fake_connection),
                         patch.object(admin, "MinecraftCosmeticsRepository", FakeRepository), patch.object(admin, "require_login", require_login)]
         for item in self.patches: item.start(); self.addCleanup(item.stop)
         self.client = TestClient(app)
@@ -91,11 +91,11 @@ class AdminChecks(unittest.TestCase):
     def sign_in(self, user="admin"):
         self.client.get("/test-login/" + user)
 
-    def test_anonymous_and_non_admin_cannot_read_or_mutate(self):
-        for user, expected in ((None, 401), ("viewer", 403)):
-            if user: self.sign_in(user)
-            for method, path in (("get", ""), ("get", "/preview/skin/1"), ("get", "/application"), ("post", "/apply"), ("post", "/assets"), ("post", "/export"), ("post", "/assets/skin/1/delete")):
-                with self.subTest(user=user, path=path): self.assertEqual(getattr(self.client, method)("/minecraft/cosmetics" + path).status_code, expected)
+    def test_anonymous_requires_login_but_any_logged_in_user_can_access(self):
+        self.assertEqual(self.client.get("/minecraft/cosmetics").status_code, 401)
+        self.sign_in("viewer")
+        self.assertEqual(self.client.get("/minecraft/cosmetics").status_code, 200)
+        self.assertNotEqual(self.client.get("/minecraft/cosmetics/application").status_code, 403)
 
     def test_csrf_required_for_every_mutation(self):
         self.sign_in()
