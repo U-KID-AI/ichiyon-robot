@@ -72,7 +72,10 @@ class MokuroChecks(unittest.TestCase):
         self.assertEqual(mobile["minecraft:leashable"]["presets"], [{"soft_distance": 4, "hard_distance": 6, "max_distance": 12}])
         interaction = entity["components"]["minecraft:interact"]["interactions"][0]
         self.assertEqual(interaction["on_interact"]["filters"]["all_of"], [
-            {"test": "is_family", "subject": "other", "value": "player"}
+            {"test": "is_family", "subject": "other", "value": "player"},
+            {"test": "has_equipment", "subject": "other", "domain": "hand", "operator": "not", "value": "minecraft:lead"},
+            {"test": "has_equipment", "subject": "other", "domain": "hand", "operator": "not", "value": "minecraft:name_tag"},
+            {"test": "has_equipment", "subject": "other", "domain": "hand", "operator": "not", "value": "ichiyon:bartholomew_kuma_paw"}
         ])
         self.assertFalse(any(k.startswith("minecraft:behavior.") or k.startswith("minecraft:navigation.") for k in carried))
         self.assertEqual(carried["minecraft:physics"], {"has_gravity": False, "has_collision": False})
