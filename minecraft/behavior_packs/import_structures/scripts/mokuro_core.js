@@ -145,7 +145,7 @@ export function createMokuro({ world, system, ActionFormData, report = console.w
       if (result.canceled || !usable(player, entity)) return;
       if (state) {
         if (!emptyHand(player)) {
-          player.sendMessage("??????????????????????");
+          player.sendMessage("\u30e2\u30af\u30ed\u30fc\u3092\u964d\u308d\u3059\u3068\u304d\u306f\u624b\u3092\u7a7a\u306b\u3057\u3066\u304f\u3060\u3055\u3044\u3002");
           return;
         }
         if (result.selection === 0 && owners.get(player.id) === state && !state.gliding) detach(state, true);
