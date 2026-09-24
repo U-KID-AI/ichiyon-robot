@@ -2,10 +2,9 @@ import asyncio
 import os
 import random
 import re
+import shlex
 import shutil
-import subprocess
 import tempfile
-import threading
 import time
 import unicodedata
 from collections import deque
@@ -53,6 +52,7 @@ from bot.services.voice_audio import (
     is_voice_client_connected,
 )
 from bot.services.voice.models import MusicState, MusicTrack
+from bot.services.voice.ffmpeg import MusicFFmpegPCMAudio
 from bot.services.voice.mixer import ensure_mixer_playing, get_mixer
 from bot.services.voice.session import (
     clear_music_state,
@@ -155,7 +155,9 @@ def format_music_timing_fields(fields: Dict[str, object]) -> str:
         value = fields[key]
         if value is None:
             continue
-        safe_items.append("{0}={1}".format(key, value))
+        if re.search(r"cookie|token|secret|password|authorization|headers|proxy_url", key, re.I):
+            value = "[redacted]"
+        safe_items.append("{0}={1}".format(key, sanitize_playback_log_message(value)))
     return " ".join(safe_items)
 
 
@@ -655,8 +657,10 @@ def build_ytdl_options(
     if runtime not in SUPPORTED_YTDLP_JS_RUNTIMES:
         raise ValueError("unsupported yt-dlp JS runtime: {0}".format(runtime))
     options["js_runtimes"] = {runtime: {}}
-    if stage_recorder is not None:
-        options["logger"] = stage_recorder
+    options["logger"] = stage_recorder or YoutubeExtractStageRecorder()
+    # An empty proxy explicitly disables yt-dlp's environment proxy discovery.
+    options["proxy"] = ""
+    options["socket_timeout"] = int(socket_timeout or youtube_home_vpn_extract_timeout_seconds())
     if proxy_url:
         options["proxy"] = str(proxy_url).strip()
         connect_timeout = youtube_home_vpn_connect_timeout_seconds()
@@ -716,8 +720,8 @@ def log_music_action(
             guild_id,
             channel_id or "",
             requester_id or "",
-            title or "",
-            reason or "",
+            sanitize_playback_log_message(title),
+            sanitize_playback_log_message(reason),
         )
     )
 
@@ -726,21 +730,17 @@ def _log_future_error(done_future) -> None:
     try:
         done_future.result()
     except Exception as exc:  # pragma: no cover - defensive callback logging.
-        print("[WARN] voice music background task failed: error={0}".format(exc))
+        print("[WARN] voice music background task failed: error={0}".format(type(exc).__name__))
 
 
 def sanitize_playback_log_message(message: object) -> str:
-    text = str(message or "")
+    if isinstance(message, BaseException):
+        return type(message).__name__
+    text = str(message if message is not None else "")
+    if re.search(r"\b(cookies?|token|secret|password|authorization|bearer|x-api-key)\b|access_token|refresh_token", text, re.I):
+        return "[redacted-sensitive-message]"
     text = SIGNED_MEDIA_URL_PATTERN.sub("[redacted-youtube-stream-url]", text)
-
-    def _strip_query(match: re.Match) -> str:
-        raw_url = match.group(0)
-        parsed = urlparse(raw_url)
-        if not parsed.netloc:
-            return "[redacted-url]"
-        return "{0}://{1}{2}".format(parsed.scheme, parsed.netloc, parsed.path or "")
-
-    return HTTP_URL_LOG_PATTERN.sub(_strip_query, text)
+    return HTTP_URL_LOG_PATTERN.sub("[redacted-url]", text).replace("\r", " ").replace("\n", " ")
 
 
 def is_playback_http_403_message(message: object) -> bool:
@@ -768,65 +768,21 @@ def is_retryable_ffmpeg_playback_failure(track: Optional[MusicTrack], error: Opt
     )
 
 
-def _read_ffmpeg_stderr(
-    stream,
-    process,
-    track: MusicTrack,
-    guild_id: str,
-    channel_id: str,
-) -> None:
-    try:
-        for raw_line in iter(stream.readline, b""):
-            if not raw_line:
-                break
-            try:
-                line = raw_line.decode("utf-8", errors="replace").strip()
-            except AttributeError:
-                line = str(raw_line or "").strip()
-            if not line:
-                continue
-            safe_line = sanitize_playback_log_message(line)
-            if is_playback_http_403_message(line):
-                track.playback_http_403 = True
-                print(
-                    "[WARN] voice music ffmpeg http 403: guild_id={0} channel_id={1} requester_id={2} title={3} message={4}".format(
-                        guild_id,
-                        channel_id,
-                        track.requester_id,
-                        track.title,
-                        safe_line,
-                    )
-                )
-                log_music_action(
-                    "ffmpeg_http_403",
-                    guild_id,
-                    channel_id,
-                    track.requester_id,
-                    track.title,
-                    safe_youtube_route_for_log(track.youtube_route),
-                )
-        try:
-            track.playback_ffmpeg_returncode = process.wait(timeout=0.2)
-        except subprocess.TimeoutExpired:
-            track.playback_ffmpeg_returncode = process.poll()
-    except Exception as exc:  # pragma: no cover - background log reader must never affect playback.
-        print("[WARN] voice music ffmpeg stderr reader failed: guild_id={0} error={1}".format(guild_id, type(exc).__name__))
+def create_music_source(track: MusicTrack, voice_client, guild_id: str):
+    def diagnostic(action, **fields):
+        mixer = get_mixer(guild_id)
+        log_music_timing(
+            action, guild_id, voice_channel_id(voice_client),
+            route=safe_youtube_route_for_log(track.youtube_route),
+            voice_connected=is_voice_client_connected(voice_client),
+            voice_playing=voice_client.is_playing(),
+            voice_paused=voice_client.is_paused(),
+            **mixer.diagnostics(), **fields,
+        )
 
-
-def start_ffmpeg_stderr_reader(raw_source, track: MusicTrack, guild_id: str, channel_id: str) -> None:
-    process = getattr(raw_source, "_process", None)
-    stderr = getattr(process, "stderr", None)
-    if stderr is None:
-        return
-    thread = threading.Thread(
-        target=_read_ffmpeg_stderr,
-        args=(stderr, process, track, guild_id, channel_id),
-        name="voice-ffmpeg-stderr-{0}".format(guild_id),
-        daemon=True,
+    return MusicFFmpegPCMAudio(
+        track, diagnostic, before_options=build_ffmpeg_before_options(track), options=STREAM_OPTIONS,
     )
-    track.playback_ffmpeg_stderr_thread = thread
-    track.playback_ffmpeg_returncode = None
-    thread.start()
 
 
 def wait_for_ffmpeg_diagnostics(track: Optional[MusicTrack], timeout: float = 0.5) -> None:
@@ -943,7 +899,7 @@ def load_music_volume_percent(guild_id: str, state: Optional[MusicState] = None)
             settings = MusicSettingsRepository(connection).get(guild_id)
             current_state.music_volume_percent = int(settings.get("music_volume_percent") or DEFAULT_MUSIC_VOLUME_PERCENT)
     except Exception as exc:
-        print("[WARN] music volume settings unavailable: guild_id={0} error={1}".format(guild_id, exc))
+        print("[WARN] music volume settings unavailable: guild_id={0} error={1}".format(guild_id, type(exc).__name__))
         current_state.music_volume_percent = DEFAULT_MUSIC_VOLUME_PERCENT
     return current_state.music_volume_percent
 
@@ -957,7 +913,7 @@ def save_music_volume_percent(guild_id: str, percent: int, state: Optional[Music
             MusicSettingsRepository(connection).upsert(guild_id, music_volume_percent=value)
             connection.commit()
     except Exception as exc:
-        print("[WARN] music volume settings save failed: guild_id={0} error={1}".format(guild_id, exc))
+        print("[WARN] music volume settings save failed: guild_id={0} error={1}".format(guild_id, type(exc).__name__))
         saved = False
     current_state.music_volume_percent = value
     return value, saved
@@ -1027,9 +983,29 @@ def make_loop_track(track: MusicTrack) -> MusicTrack:
 
 
 def build_ffmpeg_before_options(track: Optional[MusicTrack]) -> str:
-    if track is None or not str(getattr(track, "ffmpeg_proxy_url", "") or "").strip():
+    if track is None:
         return STREAM_BEFORE_OPTIONS
-    return "{0} -http_proxy {1}".format(STREAM_BEFORE_OPTIONS, str(track.ffmpeg_proxy_url).strip())
+    args = shlex.split(STREAM_BEFORE_OPTIONS)
+    args.extend(["-rw_timeout", str(max(1, track.ffmpeg_socket_timeout) * 1_000_000)])
+    if track.ffmpeg_proxy_url:
+        args.extend(["-http_proxy", track.ffmpeg_proxy_url])
+    headers = []
+    request_headers = dict(track.ffmpeg_headers)
+    if track.ffmpeg_cookies and track.youtube_route != YOUTUBE_ROUTE_HOME_VPN:
+        # Serialize the jar's URL-scoped request header, not Set-Cookie records.
+        # Older FFmpeg builds mis-match cookie path/domain behind HTTP proxies
+        # and on non-default ports when using their -cookies option.
+        request_headers = {k: v for k, v in request_headers.items() if k.lower() != "cookie"}
+        request_headers["Cookie"] = track.ffmpeg_cookies
+    for key, value in request_headers.items():
+        if not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", str(key)) or any(c in str(value) for c in "\r\n\x00"):
+            raise ValueError("Invalid media HTTP header")
+        if str(key).lower() == "cookie" and track.youtube_route == YOUTUBE_ROUTE_HOME_VPN:
+            continue
+        headers.append("{0}: {1}\r\n".format(key, value))
+    if headers:
+        args.extend(["-headers", "".join(headers)])
+    return shlex.join(args)
 
 
 def preserve_track_metadata(source: MusicTrack, refreshed: MusicTrack) -> MusicTrack:
@@ -1135,6 +1111,14 @@ def extract_track_info(
     try:
         with yt_dlp.YoutubeDL(ytdl_options) as ydl:
             info = ydl.extract_info(url, download=False)
+            selected = info
+            if selected and "entries" in selected:
+                selected = next((entry for entry in selected.get("entries") or [] if entry), None)
+            cookies = ""
+            if selected and use_cookies and youtube_route != YOUTUBE_ROUTE_HOME_VPN:
+                media_url = str(selected.get("url") or "")
+                if is_http_url(media_url):
+                    cookies = ydl.cookiejar.get_cookie_header(media_url) or ""
     except Exception:
         recorder.finish_extract_info(perf_ms(extract_started))
         recorder.emit(safe_guild_id, requester_id)
@@ -1173,6 +1157,10 @@ def extract_track_info(
         source_url=url,
         youtube_route=safe_youtube_route_for_log(youtube_route),
         ffmpeg_proxy_url=str(proxy_url or "").strip(),
+        ffmpeg_headers={str(k): str(v) for k, v in (info.get("http_headers") or {}).items()
+                        if str(k).lower() != "cookie" or (use_cookies and youtube_route != YOUTUBE_ROUTE_HOME_VPN)},
+        ffmpeg_cookies=cookies,
+        ffmpeg_socket_timeout=int(ytdl_options["socket_timeout"]),
     )
     recorder.set_result_processing_ms(perf_ms(processing_started))
     recorder.emit(safe_guild_id, requester_id)
@@ -1302,7 +1290,7 @@ async def extract_track_info_with_cookie_fallback(
                 )
                 return track
             except Exception as fallback_exc:
-                print("[WARN] voice music cookie-less fallback failed: guild_id={0} requester_id={1} error={2}".format(guild_id, requester_id, fallback_exc))
+                print("[WARN] voice music cookie-less fallback failed: guild_id={0} requester_id={1} error={2}".format(guild_id, requester_id, type(fallback_exc).__name__))
                 log_music_timing(
                     "youtube_extract_failed",
                     guild_id,
@@ -1867,7 +1855,7 @@ async def refresh_track_for_playback(track: MusicTrack, guild_id: str, voice_cli
         refreshed = await extract_track_info_with_cookie_fallback(track.source_url, track.requester_id, guild_id, voice_client)
     except Exception as exc:
         error_status = classify_ytdlp_error(exc)
-        print("[WARN] voice music loop refresh failed: guild_id={0} title={1} status={2} error={3}".format(guild_id, track.title, error_status, type(exc).__name__))
+        print("[WARN] voice music loop refresh failed: guild_id={0} status={1} error={2}".format(guild_id, error_status, type(exc).__name__))
         log_music_action("loop_refresh_failed", guild_id, requester_id=track.requester_id, title=track.title, reason=error_status)
         return None
 
@@ -1924,12 +1912,12 @@ async def ensure_music_voice_client(message: discord.Message) -> Optional[discor
         discord.HTTPException,
         DISCORD_CONNECTION_CLOSED,
     ) as exc:
-        print("[WARN] voice music connect failed: guild_id={0} channel_id={1} error={2}".format(guild_id, target_channel_id, exc))
+        print("[WARN] voice music connect failed: guild_id={0} channel_id={1} error={2}".format(guild_id, target_channel_id, type(exc).__name__))
         await cleanup_stale_voice_client(get_raw_guild_voice_client(guild))
         await message.channel.send("VCへの接続に失敗しました。権限や接続状態を確認してください。")
         return None
     except Exception as exc:
-        print("[WARN] unexpected voice music connect failed: guild_id={0} channel_id={1} error={2}".format(guild_id, target_channel_id, exc))
+        print("[WARN] unexpected voice music connect failed: guild_id={0} channel_id={1} error={2}".format(guild_id, target_channel_id, type(exc).__name__))
         await cleanup_stale_voice_client(get_raw_guild_voice_client(guild))
         await message.channel.send("VCへの接続に失敗しました。")
         return None
@@ -1977,12 +1965,12 @@ async def ensure_mention_music_voice_client(message: discord.Message) -> Optiona
             discord.HTTPException,
             DISCORD_CONNECTION_CLOSED,
         ) as exc:
-            print("[WARN] mention music voice connect failed: guild_id={0} channel_id={1} error={2}".format(guild_id, target_channel_id, exc))
+            print("[WARN] mention music voice connect failed: guild_id={0} channel_id={1} error={2}".format(guild_id, target_channel_id, type(exc).__name__))
             await cleanup_stale_voice_client(get_raw_guild_voice_client(guild))
             await message.channel.send("VCへの接続に失敗しました。権限や接続状態を確認してください。")
             return None
         except Exception as exc:
-            print("[WARN] unexpected mention music voice connect failed: guild_id={0} channel_id={1} error={2}".format(guild_id, target_channel_id, exc))
+            print("[WARN] unexpected mention music voice connect failed: guild_id={0} channel_id={1} error={2}".format(guild_id, target_channel_id, type(exc).__name__))
             await cleanup_stale_voice_client(get_raw_guild_voice_client(guild))
             await message.channel.send("VCへの接続に失敗しました。")
             return None
@@ -2020,6 +2008,8 @@ async def retry_track_after_http_403(
         enqueued_at_monotonic=0.0,
     )
     if track.youtube_route == YOUTUBE_ROUTE_HOME_VPN:
+        if not youtube_home_vpn_fallback_enabled():
+            return False
         try:
             refreshed = await asyncio.to_thread(
                 extract_track_info,
@@ -2037,7 +2027,7 @@ async def retry_track_after_http_403(
             print(
                 "[WARN] voice music ffmpeg direct retry extraction failed: guild_id={0} title={1} error={2}".format(
                     guild_id,
-                    track.title,
+                    sanitize_playback_log_message(track.title),
                     type(exc).__name__,
                 )
             )
@@ -2129,15 +2119,10 @@ async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> b
             continue
 
         state.current = refreshed_track
+        raw_source = None
         try:
             ffmpeg_started = time.perf_counter()
-            raw_source = discord.FFmpegPCMAudio(
-                refreshed_track.stream_url,
-                before_options=build_ffmpeg_before_options(refreshed_track),
-                options=STREAM_OPTIONS,
-                stderr=subprocess.PIPE,
-            )
-            start_ffmpeg_stderr_reader(raw_source, refreshed_track, guild_id, channel_id)
+            raw_source = create_music_source(refreshed_track, voice_client, guild_id)
             mixer = get_mixer(guild_id)
             mixer.set_music_volume(volume_factor(load_music_volume_percent(guild_id, state)))
             mixer.set_music_source(raw_source, lambda error: _schedule_after_callback(voice_client, guild_id, error))
@@ -2159,12 +2144,17 @@ async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> b
                 ffmpeg_ms=ffmpeg_ms,
                 play_call_ms=play_call_ms,
                 total_ms=perf_ms(setup_started),
+                voice_connected=is_voice_client_connected(voice_client),
+                **mixer.diagnostics(),
             )
             return True
-        except (discord.ClientException, discord.OpusNotLoaded, OSError) as exc:
-            print("[WARN] voice music play start failed: guild_id={0} title={1} error={2}".format(guild_id, refreshed_track.title, exc))
-            log_music_action("playback_error", guild_id, channel_id, refreshed_track.requester_id, refreshed_track.title, str(exc))
-            if refreshed_track.youtube_route == YOUTUBE_ROUTE_HOME_VPN and refreshed_track.source_url:
+        except (discord.ClientException, discord.opus.OpusNotLoaded, OSError, ValueError) as exc:
+            get_mixer(guild_id).clear_music(call_after=False)
+            if raw_source is not None:
+                raw_source.cleanup()
+            log_music_action("playback_error", guild_id, channel_id, refreshed_track.requester_id, refreshed_track.title, type(exc).__name__)
+            if (refreshed_track.youtube_route == YOUTUBE_ROUTE_HOME_VPN
+                    and refreshed_track.source_url and youtube_home_vpn_fallback_enabled()):
                 try:
                     fallback_started = time.perf_counter()
                     fallback_track = await asyncio.to_thread(
@@ -2181,13 +2171,7 @@ async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> b
                     fallback_track = preserve_track_metadata(refreshed_track, fallback_track)
                     state.current = fallback_track
                     ffmpeg_started = time.perf_counter()
-                    raw_source = discord.FFmpegPCMAudio(
-                        fallback_track.stream_url,
-                        before_options=build_ffmpeg_before_options(fallback_track),
-                        options=STREAM_OPTIONS,
-                        stderr=subprocess.PIPE,
-                    )
-                    start_ffmpeg_stderr_reader(raw_source, fallback_track, guild_id, channel_id)
+                    raw_source = create_music_source(fallback_track, voice_client, guild_id)
                     mixer = get_mixer(guild_id)
                     mixer.set_music_volume(volume_factor(load_music_volume_percent(guild_id, state)))
                     mixer.set_music_source(raw_source, lambda error: _schedule_after_callback(voice_client, guild_id, error))
@@ -2211,10 +2195,15 @@ async def play_next_track(voice_client: discord.VoiceClient, guild_id: str) -> b
                         ffmpeg_ms=ffmpeg_ms,
                         play_call_ms=play_call_ms,
                         total_ms=perf_ms(setup_started),
+                        voice_connected=is_voice_client_connected(voice_client),
+                        **mixer.diagnostics(),
                     )
                     return True
                 except Exception as fallback_exc:
-                    print("[WARN] voice music ffmpeg fallback failed: guild_id={0} title={1} error={2}".format(guild_id, refreshed_track.title, type(fallback_exc).__name__))
+                    get_mixer(guild_id).clear_music(call_after=False)
+                    if raw_source is not None:
+                        raw_source.cleanup()
+                    print("[WARN] voice music ffmpeg fallback failed: guild_id={0} error={1}".format(guild_id, type(fallback_exc).__name__))
                     log_music_action("playback_error", guild_id, channel_id, refreshed_track.requester_id, refreshed_track.title, "ffmpeg_fallback_failed")
             state.current = None
 
@@ -2259,7 +2248,7 @@ async def enqueue_music_url(message: discord.Message, url: str) -> bool:
         track = await extract_track_info_with_cookie_fallback(url, requester_id, guild_id, voice_client)
         extract_ms = perf_ms(extract_started)
     except Exception as exc:
-        print("[WARN] voice music extract failed: guild_id={0} requester_id={1} error={2}".format(guild_id, requester_id, exc))
+        print("[WARN] voice music extract failed: guild_id={0} requester_id={1} error={2}".format(guild_id, requester_id, type(exc).__name__))
         if classify_ytdlp_error(exc) in AUTH_FAILURE_STATUSES or is_youtube_cookie_required_error(exc):
             await message.channel.send("YouTube側の確認要求により取得できませんでした。Cookie設定が必要な可能性があります。")
             return True

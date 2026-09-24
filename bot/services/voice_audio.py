@@ -369,7 +369,7 @@ def play_audio_on_voice_client(
             reaction_key,
         )
         return True, "played"
-    except (discord.ClientException, discord.OpusNotLoaded, OSError) as exc:
+    except (discord.ClientException, discord.opus.OpusNotLoaded, OSError) as exc:
         log_voice_audio(
             "play_skipped",
             guild_id,
@@ -446,7 +446,7 @@ def _start_next_foreground_audio(voice_client: discord.VoiceClient, guild_id: st
         ensure_mixer_playing(voice_client, guild_id)
         _FOREGROUND_ACTIVE[key] = True
         log_voice_audio("play_start", guild_id, channel_id, filename, item.get("reaction_type"), item.get("reaction_key"))
-    except (discord.ClientException, discord.OpusNotLoaded, OSError) as exc:
+    except (discord.ClientException, discord.opus.OpusNotLoaded, OSError) as exc:
         _FOREGROUND_ACTIVE[key] = False
         log_voice_audio("play_skipped", guild_id, channel_id, filename, item.get("reaction_type"), item.get("reaction_key"), "playback_error")
         print(

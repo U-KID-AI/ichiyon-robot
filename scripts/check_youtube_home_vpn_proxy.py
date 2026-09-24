@@ -1,5 +1,6 @@
 import asyncio
 import os
+import shlex
 import sys
 from pathlib import Path
 
@@ -163,7 +164,8 @@ def run_static_checks():
         proxy_track = MusicTrack("title", "page", "stream", "user", source_url="page", youtube_route=YOUTUBE_ROUTE_HOME_VPN, ffmpeg_proxy_url="http://youtube-vpn-proxy:8888")
         direct_track = MusicTrack("title", "page", "stream", "user", source_url="page", youtube_route=YOUTUBE_ROUTE_DIRECT_COOKIE)
         results.append(check("ffmpeg home vpn path includes proxy", "-http_proxy http://youtube-vpn-proxy:8888" in build_ffmpeg_before_options(proxy_track), build_ffmpeg_before_options(proxy_track)))
-        results.append(check("ffmpeg direct path has no proxy", build_ffmpeg_before_options(direct_track) == STREAM_BEFORE_OPTIONS, build_ffmpeg_before_options(direct_track)))
+        direct_args = shlex.split(build_ffmpeg_before_options(direct_track))
+        results.append(check("ffmpeg direct path has no proxy and a bounded timeout", "-http_proxy" not in direct_args and direct_args[direct_args.index("-rw_timeout") + 1] == "30000000", build_ffmpeg_before_options(direct_track)))
 
         compose = (ROOT_DIR / "docker-compose.yml").read_text(encoding="utf-8")
         results.append(check("compose includes youtube vpn proxy sidecar", "youtube-vpn-proxy:" in compose))

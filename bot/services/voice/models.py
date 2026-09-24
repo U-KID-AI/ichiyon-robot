@@ -8,11 +8,11 @@ import discord
 @dataclass
 class MusicTrack:
     title: str
-    webpage_url: str
-    stream_url: str
+    webpage_url: str = field(repr=False)
+    stream_url: str = field(repr=False)
     requester_id: str
     duration: Optional[int] = None
-    source_url: Optional[str] = None
+    source_url: Optional[str] = field(default=None, repr=False)
     refresh_required: bool = False
     source_type: str = "youtube"
     original_spotify_url: str = ""
@@ -26,7 +26,10 @@ class MusicTrack:
     spotify_resolve_status: str = ""
     enqueued_at_monotonic: float = 0.0
     youtube_route: str = "direct_cookie"
-    ffmpeg_proxy_url: str = ""
+    ffmpeg_proxy_url: str = field(default="", repr=False)
+    ffmpeg_headers: dict = field(default_factory=dict, repr=False)
+    ffmpeg_cookies: str = field(default="", repr=False)
+    ffmpeg_socket_timeout: int = 30
     playback_http_403: bool = False
     playback_retry_count: int = 0
 
