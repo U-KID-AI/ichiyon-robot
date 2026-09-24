@@ -31,6 +31,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Install media test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Install isolated cosmetics test dependencies
         run: python -m pip install Pillow fastapi jinja2 python-multipart "psycopg[binary]" httpx itsdangerous python-dotenv
       - name: Validate catalog, UI and durable placement queue
@@ -73,6 +77,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
+
+      - name: Install media test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
 
       - name: Compile Python
         run: python -m compileall admin bot scripts
