@@ -1,0 +1,27 @@
+{
+  "main_path": "minecraft/behavior_packs/import_structures/scripts/main.js",
+  "main_import": "import \"./death_prairie_dog.js\";",
+  "localization": {
+    "ja_JP": {
+      "entity.ichiyon:death_prairie_dog.name": "デスプレーリードッグ",
+      "item.spawn_egg.entity.ichiyon:death_prairie_dog.name": "デスプレーリードッグのスポーンエッグ"
+    },
+    "en_US": {
+      "entity.ichiyon:death_prairie_dog.name": "Death Prairie Dog",
+      "item.spawn_egg.entity.ichiyon:death_prairie_dog.name": "Death Prairie Dog Spawn Egg"
+    }
+  },
+  "checks": [
+    "python scripts/build_death_prairie_dog_behavior.py --check",
+    "python scripts/export_death_prairie_dog.py --check",
+    "python scripts/check_minecraft_death_prairie_dog.py",
+    "node --check minecraft/behavior_packs/import_structures/scripts/death_prairie_dog.js",
+    "node --check minecraft/behavior_packs/import_structures/scripts/death_prairie_dog_core.js"
+  ],
+  "entity_id": "ichiyon:death_prairie_dog",
+  "generated_spawn_egg_id": "ichiyon:death_prairie_dog_spawn_egg",
+  "new_manifest_dependencies": [],
+  "shared_sound_changes": [],
+  "catalog_changes": [],
+  "pack_compiler_changes": []
+}
