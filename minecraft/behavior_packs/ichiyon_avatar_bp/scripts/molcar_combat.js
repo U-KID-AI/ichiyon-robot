@@ -285,6 +285,7 @@ function driveZombieMolcar(molcar) {
 function canHit(molcar, target, riders) {
   try {
     if (target.id === molcar.id) return false;
+    if (target.typeId === "ichiyon:garbage_molcar") return false;
 
     for (const rider of riders) {
       if (target.id === rider.id) return false;

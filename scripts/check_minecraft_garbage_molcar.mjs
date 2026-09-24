@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
 import { collect, withdraw, canStore, seekDrop, createGarbageMolcar, GARBAGE, OWNER, PAW, isMob } from '../minecraft/behavior_packs/import_structures/scripts/garbage_molcar_core.js';
 
 class Stack {
@@ -92,6 +93,14 @@ test('switching held item before scheduled paw use cancels removal',()=>{
 });
 const bp=JSON.parse(readFileSync(new URL('../minecraft/behavior_packs/ichiyon_avatar_bp/entities/garbage_molcar.json',import.meta.url)))['minecraft:entity'];
 test('isolated friendly native AI and persistent inventory',()=>{
+  assert.equal(bp.components['minecraft:movement'].value,.34);
+  assert.equal(bp.component_groups['ichiyon:garbage_following']['minecraft:behavior.follow_owner'].speed_multiplier,1.25);
+  assert(bp.components['minecraft:type_family'].family.includes('mob'));
+  assert.deepEqual(bp.components['minecraft:collision_box'],{width:1.5,height:1.25});
+  assert.deepEqual(bp.components['minecraft:physics'],{});
+  assert('minecraft:pushable_by_entity' in bp.components);
+  assert('minecraft:pushable_by_block' in bp.components);
+  assert('minecraft:leashable' in bp.components);
   assert.equal(bp.components['minecraft:inventory'].inventory_size,54);assert.equal(bp.components['minecraft:inventory'].private,true);
   assert('minecraft:persistent' in bp.components);assert(!bp.components['minecraft:type_family'].family.includes('molcar'));
   for(const c of [bp.components,...Object.values(bp.component_groups)]){
@@ -127,7 +136,7 @@ test('seeking pauses native wandering/follow and yields to owner/leash',()=>{
   m.dimension.getEntities=q=>q.type===GARBAGE?[m]:q.maxDistance===8?[d]:[];
   const world={getDimension:n=>n==='overworld'?m.dimension:{getEntities:()=>[]},getAllPlayers:()=>[p]};
   const core=createGarbageMolcar({world,system:{currentTick:0},ActionFormData:class{}});
-  core.scan();assert.equal(impulses.length,1);assert(impulses[0].x>0);assert.equal(m.events.at(-1),'ichiyon:garbage_pickup_on');
+  core.scan();assert.equal(impulses.length,1);assert.equal(impulses[0].x,.38);assert.equal(m.events.at(-1),'ichiyon:garbage_pickup_on');
   m.setDynamicProperty(OWNER,p.id);p.location.x=24;core.scan();assert.equal(impulses.length,1);assert.equal(m.events.at(-1),'ichiyon:garbage_pickup_off');
   p.location.x=0;const component=m.getComponent;m.getComponent=k=>k==='minecraft:leashable'?{isLeashed:true}:component(k);
   core.scan();assert.equal(impulses.length,1);
@@ -152,5 +161,31 @@ test('pre-upgrade owner and storage survive load-time following goal repair',()=
   loaded=false;core.scan();loaded=true;core.scan();assert.equal(m.events.length,2);
   assert.equal(m.getDynamicProperty(OWNER),p.id);assert.equal(m.container.getItem(0).amount,7);
   assert.equal(m.container.getItem(0).nameTag,'saved');
+});
+test('both combat copies exclude garbage damage and knockback but preserve other ram combat',()=>{
+  for(const pack of ['import_structures','ichiyon_avatar_bp']){
+    const intervals=[];
+    const rider={id:'rider',typeId:'minecraft:player'};
+    const make=(typeId,id)=>({typeId,id,location:{x:.5,y:64,z:0},hits:0,knockbacks:0,ejected:0,
+      getComponent(name){
+        if(name==='minecraft:health')return{currentValue:30};
+        if(name==='minecraft:rideable')return{getRiders:()=>this.id==='source'?[rider]:[],ejectRiders:()=>this.ejected++};
+      },
+      getVelocity:()=>({x:.4,y:0,z:0}),applyDamage(){this.hits++;},applyKnockback(){this.knockbacks++;},applyImpulse(){}});
+    const source=make('ichiyon:molcar','source'),garbage=make(GARBAGE,'garbage'),cow=make('minecraft:cow','cow'),other=make('ichiyon:molcar2','other');
+    source.location.x=0;
+    const all=[source,garbage,cow,other];
+    const dimension={playSound(){},getEntities:q=>q.type?all.filter(e=>e.typeId===q.type):all};
+    all.forEach(e=>e.dimension=dimension);
+    const signal={subscribe(){}};
+    const world={getAllPlayers:()=>[],getDimension:n=>n==='overworld'?dimension:{getEntities:()=>[]},
+      beforeEvents:{entityHurt:signal},afterEvents:{entitySpawn:signal,entityHurt:signal,entityDie:signal}};
+    const sourceText=readFileSync(new URL(`../minecraft/behavior_packs/${pack}/scripts/molcar_combat.js`,import.meta.url),'utf8').replace(/^import .*;\r?\n/,'');
+    vm.runInNewContext(sourceText,{world,system:{runInterval:fn=>intervals.push(fn)},console:{warn(){}}});
+    intervals[0]();
+    assert.equal(garbage.hits,0,pack);assert.equal(garbage.knockbacks,0,pack);assert.equal(garbage.ejected,0,pack);
+    assert.equal(cow.hits,1,pack);assert.equal(cow.knockbacks,1,pack);
+    assert.equal(other.hits,0,pack);assert.equal(other.knockbacks,1,pack);assert.equal(other.ejected,1,pack);
+  }
 });
 console.log(`${passed} garbage/paw checks passed`);

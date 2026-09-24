@@ -230,7 +230,7 @@ export function createGarbageMolcar({ world, system, ActionFormData, report = co
             }
             if (target && entity.isOnGround) {
               const velocity = entity.getVelocity();
-              const speed = Math.min(0.28, target.distance * 0.1);
+              const speed = Math.min(0.38, target.distance * 0.1);
               entity.setRotation({ x: 0, y: Math.atan2(-target.direction.x, target.direction.z) * 180 / Math.PI });
               entity.applyImpulse({ x: target.direction.x * speed - velocity.x, y: 0, z: target.direction.z * speed - velocity.z });
             }
