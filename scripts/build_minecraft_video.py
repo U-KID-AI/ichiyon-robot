@@ -64,7 +64,7 @@ def geometry(identifier, width, z, texture_width, texture_height):
             "visible_bounds_height": 5, "visible_bounds_offset": [0, 2, 0]},
             "bones": [{"name": "screen", "pivot": [0, 0, 0], "cubes": [{
                 "origin": [-width / 2, 0, z], "size": [width, 64, 0],
-                "uv": {"south": {"uv": [0, 0], "uv_size": [texture_width, texture_height]}}}]}]}
+                "uv": {"north": {"uv": [0, 0], "uv_size": [texture_width, texture_height]}}}]}]}
 
 
 def write_definitions(root, media, atlas_count):
@@ -91,11 +91,11 @@ def write_definitions(root, media, atlas_count):
             "render_controllers": ["controller.render.ichiyon_video_black", {
                 "controller.render.ichiyon_video_screen": "q.property('ichiyon:frame') >= 0"}]}}})
     write_json(rp / "models/entity/video_screen.geo.json", {"format_version": "1.12.0", "minecraft:geometry": [
-        geometry("geometry.ichiyon_video_screen", 64 * 16 / 9, 0.5, WIDTH, HEIGHT),
+        # Entity yaw 0 maps model north (-Z) toward the audience (world +Z).
+        geometry("geometry.ichiyon_video_screen", 64 * 16 / 9, -0.5, WIDTH, HEIGHT),
         geometry("geometry.ichiyon_video_black", 11 * 16, 0, 1, 1)]})
-    write_json(rp / "materials/video_screen.material", {"materials": {"version": "1.0.0",
-        "ichiyon_video_uv:entity_alphatest": {"+defines": ["USE_UV_ANIM"],
-            "+states": ["DisableCulling"]}}})
+    write_json(rp / "materials/entity.material", {"materials": {"version": "1.0.0",
+        "ichiyon_video_uv:entity_alphatest": {"+defines": ["USE_UV_ANIM"]}}})
     write_json(rp / "render_controllers/video_screen.render_controllers.json", {"format_version": "1.8.0", "render_controllers": {
         "controller.render.ichiyon_video_black": {"geometry": "Geometry.black", "materials": [{"*": "Material.black"}],
             "textures": ["Texture.black"], "ignore_lighting": True},
@@ -140,7 +140,7 @@ def build(source, root=ROOT):
             sound = "ichiyon.video_screen.audio"
             run(["ffmpeg", "-v", "error", "-i", str(pcm), "-c:a", "libvorbis", "-q:a", "3",
                  "-fflags", "+bitexact", "-flags:a", "+bitexact", "-y", str(sound_dir / "audio.ogg")])
-            definitions[sound] = {"category": "record", "min_distance": 1, "max_distance": 16,
+            definitions[sound] = {"category": "record", "min_distance": 8, "max_distance": 64,
                 "sounds": [{"name": "sounds/video_screen/audio", "stream": False, "is3D": True}]}
         # Remove only this builder's previous segmented implementation outputs.
         for path in sound_dir.glob("segment_*.ogg"):

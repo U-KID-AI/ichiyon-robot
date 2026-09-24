@@ -67,6 +67,8 @@ test("unique real 11x4 wall computes lower-left control and one entity", () => {
   assert.equal(f.core.status().videoStatus, "ready");
   assert.deepEqual(f.core.status().screen.button, { x: 131, y: 255, z: -85 });
   assert.equal(f.entities.length, 1); assert.equal(f.core.status().on, false);
+  assert.deepEqual(f.entities[0].location, f.core.status().screen.origin);
+  assert.deepEqual(f.entities[0].rotation, { x: 0, y: 0 });
   assert.equal(f.entities[0].properties["ichiyon:frame"], -1);
   f.core.scan(); assert.equal(f.entities.length, 1);
 });
@@ -85,6 +87,7 @@ test("cold OFF, ON frame zero, time advance, loop, OFF and re-ON reset", () => {
   const f = fixture(); f.video(); f.core.scan(); f.press();
   assert.equal(f.core.status().frame, 0); assert(f.core.status().on);
   assert.equal(f.plays()[0].handle.seek, 0);
+  assert.deepEqual(f.plays()[0].options.location, f.core.status().screen.center);
   f.advance(2.5); assert.equal(f.core.status().frame, 50);
   f.advance(media.duration - 2.5); assert.equal(f.core.status().frame, 0);
   assert.equal(f.plays().length, 2); assert(f.plays()[0].handle.stopped);
@@ -99,11 +102,14 @@ test("button destruction/replacement does not change state; alternate button ope
   f.press("other:stone_button"); assert(!f.core.status().on);
   f.press("minecraft:stone_button", { x: 130, y: 255, z: -85 }); assert(!f.core.status().on);
 });
-test("front hemisphere only, 16 block radius, attenuation and correct dimension", () => {
+test("front hemisphere only, 64 block radius, no double attenuation and correct dimension", () => {
   const f = fixture(); f.video(); f.core.scan(); const screen = f.core.status().screen;
   const p = f.players[0]; assert(audienceGain(p, screen) > 0);
-  p.location = { ...screen.center, z: screen.center.z + 8 }; assert.equal(audienceGain(p, screen), 0.5);
-  p.location.z = screen.center.z + 16; assert.equal(audienceGain(p, screen), 0);
+  assert.equal(config.video.audienceRadius, 64);
+  for (const distance of [1, 8, 16, 32, 48, 63]) {
+    p.location = { ...screen.center, z: screen.center.z + distance }; assert.equal(audienceGain(p, screen), 1);
+  }
+  p.location.z = screen.center.z + 64; assert.equal(audienceGain(p, screen), 0);
   p.location.z = screen.center.z - 1; assert.equal(audienceGain(p, screen), 0);
   p.location.z = screen.center.z + 1; p.dimension = { id: "minecraft:nether" }; assert.equal(audienceGain(p, screen), 0);
 });
@@ -117,10 +123,10 @@ test("late arrival seeks current position; exits stop only their own handle", ()
   assert(!f.plays()[1].handle.stopped);
   f.core.leave("late"); assert(f.plays()[1].handle.stopped);
 });
-test("moving listener volume follows distance without restarting the track", () => {
+test("moving listener keeps full gain inside audience range without restarting the track", () => {
   const f = fixture(); f.video(); f.core.scan(); f.press(); const start = f.plays()[0].handle.volume;
-  f.players[0].location.z += 5; f.advance(0.1);
-  assert(f.plays()[0].handle.volume < start); assert.equal(f.plays().length, 1);
+  f.players[0].location.z += 30; f.advance(0.1);
+  assert.equal(start, 1); assert.equal(f.plays()[0].handle.volume, start); assert.equal(f.plays().length, 1);
 });
 test("reload clears persisted helper and sound; unloaded entity resets OFF", () => {
   const f = fixture(); f.video();
