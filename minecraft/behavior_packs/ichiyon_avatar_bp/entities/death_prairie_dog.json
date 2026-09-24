@@ -702,6 +702,10 @@
       "minecraft:movement": {
         "value": 0.22
       },
+      "minecraft:follow_range": {
+        "value": 32,
+        "max": 32
+      },
       "minecraft:movement.basic": {
         "max_turn": 30
       },
@@ -728,6 +732,7 @@
         "priority": 1,
         "avoid_target_xz": 16,
         "avoid_target_y": 7,
+        "max_dist": 8,
         "entity_types": [
           {
             "filters": {

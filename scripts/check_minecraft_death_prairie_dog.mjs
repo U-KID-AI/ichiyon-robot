@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   createDeathPrairieDog, isPrairieNight, nearestAwake, PRAIRIE, STATE,
-  TARGET_BITS, TAG_PREFIX,
+  TARGET_BITS, TAG_PREFIX, RANGE,
 } from "../minecraft/behavior_packs/import_structures/scripts/death_prairie_dog_core.js";
 
 const read = path => JSON.parse(readFileSync(new URL(path, import.meta.url)));
@@ -195,6 +195,7 @@ test("native definitions follow one tagged awake player without any attack targe
   assert(avoid.priority < follow.priority);
   assert(avoid.entity_types[0].filters.all_of.some(f => f.test === "is_sleeping" && f.value === true));
   assert.equal(avoid.entity_types[0].max_dist, 8);
+  assert.equal(avoid.max_dist, 8, "outer avoid search must cover the entire sleep clearance radius");
 });
 test("no attack execution, damage, commands, movement injection or target assignment", () => {
   for (const group of [bp.components, ...Object.values(bp.component_groups)]) {
@@ -208,6 +209,16 @@ test("no attack execution, damage, commands, movement injection or target assign
     assert(!/\.target\s*=/.test(code));
     assert(!/\.target\?\./.test(code));
   }
+});
+
+test("native path range covers the entire Script and follow-goal search radius", () => {
+  const follow = bp.component_groups["ichiyon:prairie_chase"]["minecraft:behavior.follow_mob"];
+  assert.equal(follow.search_range, RANGE);
+  assert.equal(bp.components["minecraft:follow_range"].value, RANGE);
+  assert.equal(bp.components["minecraft:follow_range"].max, RANGE);
+  assert.equal(nearestAwake({ x: 0, y: 64, z: 0 }, [{
+    id: "creative-at-22", mode: "Creative", sleeping: false, location: { x: 22, y: 64, z: 0 },
+  }]).id, "creative-at-22");
 });
 
 function matchesFilter(filter, mob, player) {

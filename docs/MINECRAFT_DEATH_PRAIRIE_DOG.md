@@ -47,6 +47,9 @@ Animation identifiers alone are namespaced to avoid global collisions.
   Starting pursuit holds movement for
   10 ticks and plays the original 0.5-second transition once. Chase then uses
   native `follow_mob` at multiplier 2.5 (nominal 0.55) and `prairie4walk`.
+  Both the goal's search radius and the entity's `minecraft:follow_range`
+  (`value` and `max`) are explicitly 32. Search radius alone did not enable
+  native pursuit of a Creative player about 22 blocks away in BDS 1.26.51.1.
 - There is no attack selector, attack attribute, melee/ranged goal, retaliation,
   damage call, projectile, explosion or monster runtime inheritance. Explicit
   `follow_mob` filters match only the selected player's private tags. Nonempty
@@ -63,6 +66,9 @@ Animation identifiers alone are namespaced to avoid global collisions.
 - Priority-1 `avoid_mob_type` uses native walking navigation to flee sleepers,
   ahead of priority-3 following. New pursuit waits at least 20 ticks and until
   all sleepers are beyond 8 blocks; the native flee goal may continue to 10.
+  Its outer `max_dist` is explicitly 8 as well as the entity-type entry's
+  `max_dist`. Leaving the outer search at its documented default of 3 prevented
+  escape from a sleeping player about 4 blocks away in the real smoke.
   If an obstacle prevents escape there is no timeout that resumes pursuit next
   to a sleeper. Other awake players become eligible after clearance. A target
   that sleeps farther than 8 blocks is already clear, but still gets a release
@@ -95,9 +101,10 @@ by later scans; per-mob warnings are throttled.
 
 Limitations are explicit:
 
-- Creative is included in both selection and the native follow filters. The
-  parent must verify real Creative path following in its isolated BDS smoke;
-  passing mocks alone is not proof. Spectator is intentionally excluded because
+- Creative is included in both selection and the native follow filters.
+  Real BDS movement, including obstacle navigation and nearest-player changes,
+  was verified with GameTest SimulatedPlayers; mocks alone are not proof.
+  Spectator is intentionally excluded because
   it is non-interacting and invisible to mobs. Search is 32 blocks, not global.
 - No `Entity.target` access remains, avoiding its pre-release read-only API.
   Existing `@minecraft/server` 2.11.0-beta dependency is unchanged; the code uses
@@ -110,31 +117,35 @@ Limitations are explicit:
 - A newly tracking client may play its local transition once on joining an
   already active chase. The original clip remains hold, not a looping animation.
 - Local contract/mocked lifecycle tests do not execute Bedrock's native goals or
-  render the client model. Native goal interaction, actual target clearing,
-  no-damage contact, spawn-egg visibility, and sleep/pathfinding still need an
-  isolated target-version BDS/client acceptance run. No such runtime validation
-  or production operation was performed in this scoped task.
+  render the client model. The isolated BDS acceptance below verifies native
+  movement and sleep behavior. Client model rendering, animation appearance,
+  localized inventory labels and spawn-egg artwork still need a client check.
+  Real BDS unload/restart recovery was not exercised by that lifecycle smoke;
+  it is covered by local lifecycle contracts only. No production operation was
+  performed in this scoped task.
 
 ## Parent Integration
 
 Machine-readable exact fragments: `docs/death_prairie_dog_integration.json`.
+The parent has already integrated the main import and ja/en localization below.
+Do not apply them again. The JSON is retained because tests depend on it.
 The shared files below were deliberately not edited by this task.
 
-Add exactly once alongside other imports in
+Already integrated alongside other imports in
 `minecraft/behavior_packs/import_structures/scripts/main.js`:
 
 ```javascript
 import "./death_prairie_dog.js";
 ```
 
-Append once to `minecraft/resource_packs/ichiyon_avatar_rp/texts/ja_JP.lang`:
+Already integrated in `minecraft/resource_packs/ichiyon_avatar_rp/texts/ja_JP.lang`:
 
 ```text
 entity.ichiyon:death_prairie_dog.name=デスプレーリードッグ
 item.spawn_egg.entity.ichiyon:death_prairie_dog.name=デスプレーリードッグのスポーンエッグ
 ```
 
-Append once to `minecraft/resource_packs/ichiyon_avatar_rp/texts/en_US.lang`:
+Already integrated in `minecraft/resource_packs/ichiyon_avatar_rp/texts/en_US.lang`:
 
 ```text
 entity.ichiyon:death_prairie_dog.name=Death Prairie Dog
@@ -161,24 +172,22 @@ node --check minecraft/behavior_packs/import_structures/scripts/death_prairie_do
 ```
 
 The Python suite runs 6 source/asset/integration tests including the Node suite
-of 25 lifecycle, native-definition and controller contracts. It verifies every
+of 26 lifecycle, native-definition and controller contracts. It verifies every
 cube and keyframe, green selection independent of IDs/order, byte-exact PNG,
 night boundaries, sleep release and blocked escape, nearest replacement,
 no attack/movement injection, recovery, and controller reachability.
 
-Target BDS acceptance after parent integration: summon in Creative, check day
-wander and health, set time 13000, arrange two awake players and an obstacle,
-confirm nearest-player following and a single transition, let the chased player
-sleep with another player awake, confirm release/flee before reacquisition,
-then time 23001, unload/reload and restart. Verify no content/Script errors and
-no health loss caused by mob contact. Verify all three original clips and the
-green-only model on a client. This document does not authorize deployment.
+Remaining client/recovery acceptance: verify all three original clips and the
+green-only model, localized spawn egg, and unload/reload plus restart recovery.
+The headless smoke verifies movement, not rendered animation playback. This
+document does not authorize deployment.
 
 ## Official API References
 
 Checked 2026-09-24; all are Microsoft Learn Bedrock creator references.
 
 - [Follow mob: explicit filters permit players, speed and stopping distance](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/entitygoals/minecraftbehavior_follow_mob?view=minecraft-bedrock-stable)
+- [Follow range: native pursuit range, distinct from goal search radius](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/entitycomponents/minecraftcomponent_follow_range?view=minecraft-bedrock-stable)
 - [Player tag filter](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/filters/has_tag?view=minecraft-bedrock-stable)
 - [Sleeping filter](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/filters/is_sleeping?view=minecraft-bedrock-stable)
 - [Boolean-property filter](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/filters/bool_property?view=minecraft-bedrock-stable)
@@ -188,16 +197,60 @@ Checked 2026-09-24; all are Microsoft Learn Bedrock creator references.
 - [GameMode values](https://learn.microsoft.com/en-us/minecraft/creator/scriptapi/minecraft/server/gamemode?view=minecraft-bedrock-stable)
 - [Entity removal event and removedEntityId](https://learn.microsoft.com/en-us/minecraft/creator/scriptapi/minecraft/server/entityremoveafterevent?view=minecraft-bedrock-stable)
 
-## Prepared Isolated Smoke
+## Verified Isolated Smoke
 
 Local-only harness, outside the checkout:
-`C:/Users/syoub/.codex/tmp/death-prairie-smoke-20260924/prairie_smoke.js`.
-The adjacent README has exact test-pack integration instructions, and
-`structures/ichiyon_prairie_smoke/arena.mcstructure` is already generated.
-Run `gametest run ichiyon_prairie:lifecycle` only after the parent grants exclusive
-test-container use. Includes real Creative navigation around an obstacle,
-Survival/no-damage contact, day/night switching, real bed interaction and sleep,
-clearance, and retargeting. No container was accessed or run to prepare this.
+`C:/Users/syoub/.codex/tmp/death-prairie-smoke-20260924/prairie_entry.js`.
+It uses the real `@minecraft/server-gametest` SimulatedPlayer API, ordinary
+`Dimension.spawnEntity`, actual bed interaction and the actual runtime. It
+never assigns sleep/state or moves the mob by Script. Only the test players
+are repositioned between scenarios. The adjacent `run_isolated.py` validates
+the sole test mount, network `none`, empty port bindings and stopped state,
+copies scoped assets, and always stops the isolated container in `finally`.
+
+Parent-authorized exclusive run `r12` on BDS **1.26.51.1** passed **10 checks**:
+egg construction, real daytime wander/HP20, Creative wall navigation,
+nearest-player retarget, dawn release, Survival approach, contact without
+damage, real sleep, native flee and another awake Creative target after release.
+The runtime uses server 2.11.0-beta; the test-only GameTest module is 1.0.0-beta.
+
+| r12 measurement | Start | End |
+| --- | --- | --- |
+| Creative behind three-high wall | 20.64 blocks | 1.98 blocks |
+| Nearest-player change | 7.36 blocks | 1.59 blocks |
+| Survival approach | 11.00 blocks | 0.79 blocks |
+| Separation from actually sleeping player | 4.36 blocks | 8.24 blocks |
+| Awake Creative after sleep clearance | 14.28 blocks | 2.55 blocks |
+
+Survival HP stayed 20 after 100 contact ticks and throughout sleep. The original
+player remained asleep during escape and subsequent pursuit. Movement samples
+were bounded (largest approximately 3.26 blocks per five ticks); no teleport,
+attack target or attack goal was used.
+
+Verified causes and fixes, not filter/API-enumeration speculation:
+
+1. `follow_mob.search_range: 32` alone did not make a target around 22 blocks
+   reachable. r9 failed; r10 added only `minecraft:follow_range` value/max 32
+   and passed wall chase, nearest-player change, dawn and no-damage contact.
+2. The avoid goal's outer search was still at default 3 even though its
+   entity-type entry allowed 8. r10 remained still about 4 blocks from the
+   sleeping player. r12 added only outer `max_dist: 8` to the corrected source
+   and passed escape/reacquisition. No visibility override or owner API was
+   needed. r11's broader diagnostic overrides were not shipped.
+3. Early registration-harness runs overlapped/replaced test terrain, displaced
+   spawned entities and sometimes lost initial HP. They do not establish a
+   Creative exclusion in `follow_mob`. Behavior goals also need not appear in
+   Script component enumeration; `hasComponent` was never the movement oracle.
+
+The final r12 used byte-exact checkout assets, with no diagnostic BP overrides.
+BP SHA-256: `c94b8bfc5d22c43bfe156b099f146448ba7e741ae801b5367fbd67d28640d137`.
+Evidence: adjacent `r12.log` and `r12-release.json`.
+Container `mokuro-smoke-20260923` was stopped and explicitly released:
+`Running=false`, `ExitCode=0`, finished `2026-09-24T11:58:53.377336565Z`.
+The test-only manifest entry remains `scripts/prairie_entry.js`; the next owner
+must replace it before starting. No further container access is authorized by
+this document. The known server NetherNet transport warning is unrelated to
+these headless tests; no Prairie content or Script error was logged in r12.
 
 ## Owned Files
 

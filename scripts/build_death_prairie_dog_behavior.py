@@ -32,6 +32,8 @@ def behavior():
         "minecraft:collision_box": {"width": 0.6, "height": 1},
         "minecraft:nameable": {}, "minecraft:persistent": {},
         "minecraft:movement": {"value": 0.22},
+        # Goal search_range alone does not extend native pathfinding range.
+        "minecraft:follow_range": {"value": 32, "max": 32},
         "minecraft:movement.basic": {"max_turn": 30},
         "minecraft:navigation.walk": {"avoid_water": True, "avoid_damage_blocks": True, "can_jump": True, "can_float": True},
         "minecraft:jump.static": {},
@@ -41,6 +43,7 @@ def behavior():
         "minecraft:behavior.random_look_around": {"priority": 8},
         "minecraft:behavior.avoid_mob_type": {
             "priority": 1, "avoid_target_xz": 16, "avoid_target_y": 7,
+            "max_dist": 8,
             "entity_types": [{"filters": {"all_of": [
                 {"test": "is_family", "subject": "other", "value": "player"},
                 {"test": "is_sleeping", "subject": "other", "value": True},
