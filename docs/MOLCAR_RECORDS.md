@@ -12,13 +12,25 @@ unload and reload stop playback. The runtime updates only active recordings.
 
 ## Source Asset Status
 
-The requested fixed **Let's Cooking Molcar** OGG and icon were not present in
-the supplied files, this PC's audio directories, or the inspected existing
-Minecraft packs on 2026-09-24. The catalog therefore remains empty. No silence,
-unrelated song, fabricated duration or substitute icon is published as the
-requested record. This feature is not yet usable in production.
+The source `C:/Users/syoub/Desktop/神社/ogg/lets_cooking.ogg` was located during
+the final asset search. Its identical Downloads copy confirms the same bytes.
+The original OGG is copied without re-encoding: Vorbis stereo, 44.1 kHz,
+261.247710 seconds, SHA-256
+`692eff62aa1d9566d3af7d5286cfeaaa65c2ce279c441c5c8a167b62d7aef113`.
 
-Once the actual assets are available, validate/import them with:
+The office-PC icon was unavailable. A new fixed transparent PNG was generated
+with the built-in image tool, not represented as the missing original: a black
+pixel-style vinyl record with an orange/white Molcar chef label, no lettering.
+Prompt: "Minecraft inventory music record icon, transparent background, crisp
+pixel-art, black vinyl, orange and white guinea-pig-car face label with a tiny
+chef hat, front-on flat sprite, no text or scene." The selected image is stored
+at `minecraft/resource_packs/ichiyon_avatar_rp/textures/items/record_lets_cooking_molcar.png`.
+No existing model, texture or source image was changed.
+
+Creative item / give identifier: `ichiyon:record_lets_cooking_molcar`.
+Use it on an ordinary Molcar; while riding, item use also controls that car.
+
+Validate/import explicitly selected assets with:
 
 ```powershell
 python scripts/build_molcar_record.py --audio <original.ogg> --icon <original.png>

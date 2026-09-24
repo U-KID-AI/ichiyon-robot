@@ -1,4 +1,4 @@
-"""Import the supplied Let's Cooking Molcar OGG/icon without substituting audio."""
+"""Import the original Let's Cooking Molcar OGG and selected fixed PNG icon."""
 from __future__ import annotations
 
 import argparse
@@ -22,7 +22,7 @@ def write_json(path: Path, value: object) -> None:
 
 def build(audio: Path, icon: Path, root: Path = ROOT, *, write: bool = False) -> dict:
     if audio.suffix.lower() != ".ogg" or icon.suffix.lower() != ".png":
-        raise ValueError("Supply the original OGG and PNG, not replacements or placeholders")
+        raise ValueError("Supply the original OGG and a fixed PNG icon")
     probe = json.loads(subprocess.check_output([
         "ffprobe", "-v", "error", "-show_format", "-show_streams", "-of", "json", str(audio),
     ], text=True, encoding="utf-8"))

@@ -1,0 +1,18 @@
+{
+  "format_version": "1.21.100",
+  "minecraft:item": {
+    "description": {
+      "identifier": "ichiyon:record_lets_cooking_molcar",
+      "menu_category": {
+        "category": "items"
+      }
+    },
+    "components": {
+      "minecraft:max_stack_size": 1,
+      "minecraft:icon": "ichiyon:record_lets_cooking_molcar",
+      "minecraft:display_name": {
+        "value": "item.ichiyon:record_lets_cooking_molcar.name"
+      }
+    }
+  }
+}
