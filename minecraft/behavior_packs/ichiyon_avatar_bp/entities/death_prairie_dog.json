@@ -1,0 +1,819 @@
+{
+  "format_version": "1.26.30",
+  "minecraft:entity": {
+    "description": {
+      "identifier": "ichiyon:death_prairie_dog",
+      "is_spawnable": true,
+      "is_summonable": true,
+      "is_experimental": false,
+      "properties": {
+        "ichiyon:prairie_state": {
+          "type": "enum",
+          "values": [
+            "wander",
+            "transition",
+            "chase",
+            "flee"
+          ],
+          "default": "wander",
+          "client_sync": true
+        },
+        "ichiyon:prairie_bit_0": {
+          "type": "bool",
+          "default": false
+        },
+        "ichiyon:prairie_bit_1": {
+          "type": "bool",
+          "default": false
+        },
+        "ichiyon:prairie_bit_2": {
+          "type": "bool",
+          "default": false
+        },
+        "ichiyon:prairie_bit_3": {
+          "type": "bool",
+          "default": false
+        },
+        "ichiyon:prairie_bit_4": {
+          "type": "bool",
+          "default": false
+        },
+        "ichiyon:prairie_bit_5": {
+          "type": "bool",
+          "default": false
+        },
+        "ichiyon:prairie_bit_6": {
+          "type": "bool",
+          "default": false
+        },
+        "ichiyon:prairie_bit_7": {
+          "type": "bool",
+          "default": false
+        },
+        "ichiyon:prairie_bit_8": {
+          "type": "bool",
+          "default": false
+        },
+        "ichiyon:prairie_bit_9": {
+          "type": "bool",
+          "default": false
+        },
+        "ichiyon:prairie_bit_10": {
+          "type": "bool",
+          "default": false
+        },
+        "ichiyon:prairie_bit_11": {
+          "type": "bool",
+          "default": false
+        },
+        "ichiyon:prairie_bit_12": {
+          "type": "bool",
+          "default": false
+        },
+        "ichiyon:prairie_bit_13": {
+          "type": "bool",
+          "default": false
+        },
+        "ichiyon:prairie_bit_14": {
+          "type": "bool",
+          "default": false
+        },
+        "ichiyon:prairie_bit_15": {
+          "type": "bool",
+          "default": false
+        }
+      }
+    },
+    "component_groups": {
+      "ichiyon:prairie_wander": {
+        "minecraft:behavior.random_stroll": {
+          "priority": 6,
+          "speed_multiplier": 1,
+          "interval": 40,
+          "xz_dist": 6,
+          "y_dist": 1
+        }
+      },
+      "ichiyon:prairie_chase": {
+        "minecraft:behavior.follow_mob": {
+          "priority": 3,
+          "speed_multiplier": 2.5,
+          "search_range": 32,
+          "stop_distance": 1.5,
+          "filters": {
+            "all_of": [
+              {
+                "test": "is_family",
+                "subject": "other",
+                "value": "player"
+              },
+              {
+                "test": "is_sleeping",
+                "subject": "other",
+                "value": false
+              },
+              {
+                "test": "has_tag",
+                "subject": "other",
+                "value": "ichiyon:prairie_candidate"
+              },
+              {
+                "any_of": [
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_0",
+                        "value": true
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "value": "ichiyon:prairie_bit_0"
+                      }
+                    ]
+                  },
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_0",
+                        "value": false
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "operator": "not",
+                        "value": "ichiyon:prairie_bit_0"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "any_of": [
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_1",
+                        "value": true
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "value": "ichiyon:prairie_bit_1"
+                      }
+                    ]
+                  },
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_1",
+                        "value": false
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "operator": "not",
+                        "value": "ichiyon:prairie_bit_1"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "any_of": [
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_2",
+                        "value": true
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "value": "ichiyon:prairie_bit_2"
+                      }
+                    ]
+                  },
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_2",
+                        "value": false
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "operator": "not",
+                        "value": "ichiyon:prairie_bit_2"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "any_of": [
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_3",
+                        "value": true
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "value": "ichiyon:prairie_bit_3"
+                      }
+                    ]
+                  },
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_3",
+                        "value": false
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "operator": "not",
+                        "value": "ichiyon:prairie_bit_3"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "any_of": [
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_4",
+                        "value": true
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "value": "ichiyon:prairie_bit_4"
+                      }
+                    ]
+                  },
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_4",
+                        "value": false
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "operator": "not",
+                        "value": "ichiyon:prairie_bit_4"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "any_of": [
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_5",
+                        "value": true
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "value": "ichiyon:prairie_bit_5"
+                      }
+                    ]
+                  },
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_5",
+                        "value": false
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "operator": "not",
+                        "value": "ichiyon:prairie_bit_5"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "any_of": [
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_6",
+                        "value": true
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "value": "ichiyon:prairie_bit_6"
+                      }
+                    ]
+                  },
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_6",
+                        "value": false
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "operator": "not",
+                        "value": "ichiyon:prairie_bit_6"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "any_of": [
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_7",
+                        "value": true
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "value": "ichiyon:prairie_bit_7"
+                      }
+                    ]
+                  },
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_7",
+                        "value": false
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "operator": "not",
+                        "value": "ichiyon:prairie_bit_7"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "any_of": [
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_8",
+                        "value": true
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "value": "ichiyon:prairie_bit_8"
+                      }
+                    ]
+                  },
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_8",
+                        "value": false
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "operator": "not",
+                        "value": "ichiyon:prairie_bit_8"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "any_of": [
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_9",
+                        "value": true
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "value": "ichiyon:prairie_bit_9"
+                      }
+                    ]
+                  },
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_9",
+                        "value": false
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "operator": "not",
+                        "value": "ichiyon:prairie_bit_9"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "any_of": [
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_10",
+                        "value": true
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "value": "ichiyon:prairie_bit_10"
+                      }
+                    ]
+                  },
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_10",
+                        "value": false
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "operator": "not",
+                        "value": "ichiyon:prairie_bit_10"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "any_of": [
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_11",
+                        "value": true
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "value": "ichiyon:prairie_bit_11"
+                      }
+                    ]
+                  },
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_11",
+                        "value": false
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "operator": "not",
+                        "value": "ichiyon:prairie_bit_11"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "any_of": [
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_12",
+                        "value": true
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "value": "ichiyon:prairie_bit_12"
+                      }
+                    ]
+                  },
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_12",
+                        "value": false
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "operator": "not",
+                        "value": "ichiyon:prairie_bit_12"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "any_of": [
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_13",
+                        "value": true
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "value": "ichiyon:prairie_bit_13"
+                      }
+                    ]
+                  },
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_13",
+                        "value": false
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "operator": "not",
+                        "value": "ichiyon:prairie_bit_13"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "any_of": [
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_14",
+                        "value": true
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "value": "ichiyon:prairie_bit_14"
+                      }
+                    ]
+                  },
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_14",
+                        "value": false
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "operator": "not",
+                        "value": "ichiyon:prairie_bit_14"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "any_of": [
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_15",
+                        "value": true
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "value": "ichiyon:prairie_bit_15"
+                      }
+                    ]
+                  },
+                  {
+                    "all_of": [
+                      {
+                        "test": "bool_property",
+                        "subject": "self",
+                        "domain": "ichiyon:prairie_bit_15",
+                        "value": false
+                      },
+                      {
+                        "test": "has_tag",
+                        "subject": "other",
+                        "operator": "not",
+                        "value": "ichiyon:prairie_bit_15"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "components": {
+      "minecraft:type_family": {
+        "family": [
+          "death_prairie_dog",
+          "mob"
+        ]
+      },
+      "minecraft:health": {
+        "value": 20,
+        "max": 20
+      },
+      "minecraft:collision_box": {
+        "width": 0.6,
+        "height": 1
+      },
+      "minecraft:nameable": {},
+      "minecraft:persistent": {},
+      "minecraft:movement": {
+        "value": 0.22
+      },
+      "minecraft:movement.basic": {
+        "max_turn": 30
+      },
+      "minecraft:navigation.walk": {
+        "avoid_water": true,
+        "avoid_damage_blocks": true,
+        "can_jump": true,
+        "can_float": true
+      },
+      "minecraft:jump.static": {},
+      "minecraft:physics": {
+        "has_gravity": true,
+        "has_collision": true
+      },
+      "minecraft:pushable_by_entity": {},
+      "minecraft:pushable_by_block": {},
+      "minecraft:behavior.float": {
+        "priority": 0
+      },
+      "minecraft:behavior.random_look_around": {
+        "priority": 8
+      },
+      "minecraft:behavior.avoid_mob_type": {
+        "priority": 1,
+        "avoid_target_xz": 16,
+        "avoid_target_y": 7,
+        "entity_types": [
+          {
+            "filters": {
+              "all_of": [
+                {
+                  "test": "is_family",
+                  "subject": "other",
+                  "value": "player"
+                },
+                {
+                  "test": "is_sleeping",
+                  "subject": "other",
+                  "value": true
+                }
+              ]
+            },
+            "max_dist": 8,
+            "max_flee": 10,
+            "walk_speed_multiplier": 2.5,
+            "sprint_speed_multiplier": 2.5
+          }
+        ]
+      }
+    },
+    "events": {
+      "minecraft:entity_spawned": {
+        "add": {
+          "component_groups": [
+            "ichiyon:prairie_wander"
+          ]
+        }
+      },
+      "ichiyon:prairie_wander": {
+        "remove": {
+          "component_groups": [
+            "ichiyon:prairie_wander",
+            "ichiyon:prairie_chase"
+          ]
+        },
+        "set_property": {
+          "ichiyon:prairie_state": "wander"
+        },
+        "add": {
+          "component_groups": [
+            "ichiyon:prairie_wander"
+          ]
+        }
+      },
+      "ichiyon:prairie_transition": {
+        "remove": {
+          "component_groups": [
+            "ichiyon:prairie_wander",
+            "ichiyon:prairie_chase"
+          ]
+        },
+        "set_property": {
+          "ichiyon:prairie_state": "transition"
+        }
+      },
+      "ichiyon:prairie_chase": {
+        "remove": {
+          "component_groups": [
+            "ichiyon:prairie_wander",
+            "ichiyon:prairie_chase"
+          ]
+        },
+        "set_property": {
+          "ichiyon:prairie_state": "chase"
+        },
+        "add": {
+          "component_groups": [
+            "ichiyon:prairie_chase"
+          ]
+        }
+      },
+      "ichiyon:prairie_flee": {
+        "remove": {
+          "component_groups": [
+            "ichiyon:prairie_wander",
+            "ichiyon:prairie_chase"
+          ]
+        },
+        "set_property": {
+          "ichiyon:prairie_state": "flee"
+        }
+      }
+    }
+  }
+}
