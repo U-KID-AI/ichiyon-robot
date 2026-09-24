@@ -3,9 +3,10 @@ export const RECORD_MOLCARS = new Set([
 ]);
 export const RECORD_RADIUS = 16;
 
-export function createMolcarRecords({ world, system, tracks, report = console.warn }) {
+export function createMolcarRecords({ world, system, tracks, report = console.warn, now = () => Date.now() }) {
   const byItem = new Map(tracks.map((track) => [track.itemId, track]));
   const playback = new Map();
+  const pending = new Set(), lastUse = new Map();
 
   function stopListener(listener) {
     try { listener.sound.stop(); } catch { /* Disconnected recipient or stopped sound. */ }
@@ -38,7 +39,7 @@ export function createMolcarRecords({ world, system, tracks, report = console.wa
     stop(molcar.id);
     if (previous?.track.itemId === itemId) return true;
     playback.set(molcar.id, {
-      track, started: system.currentTick, dimension: molcar.dimension.id, listeners: new Map(),
+      track, started: now(), dimension: molcar.dimension.id, listeners: new Map(),
     });
     tick();
     return true;
@@ -50,7 +51,8 @@ export function createMolcarRecords({ world, system, tracks, report = console.wa
     for (const [id, state] of playback) {
       try {
         const molcar = world.getEntity(id);
-        const elapsed = (system.currentTick - state.started) / 20;
+        // Native sound playback uses real seconds, even when server ticks lag.
+        const elapsed = Math.max(0, (now() - state.started) / 1000);
         if (!molcar?.isValid || molcar.dimension.id !== state.dimension || elapsed >= state.track.durationSeconds) {
           stop(id);
           continue;
@@ -64,9 +66,10 @@ export function createMolcarRecords({ world, system, tracks, report = console.wa
           const volume = (1 - distance / RECORD_RADIUS) ** 2;
           let listener = state.listeners.get(player.id);
           if (!listener) {
-            const sound = player.playSound(state.track.soundId, { volume, pitch: 1 });
-            if (!sound || typeof sound.stop !== "function" || typeof sound.seekTo !== "function") {
-              player.stopSound(state.track.soundId);
+            const sound = player.playSound(state.track.soundId, { volume: 0, pitch: 1 });
+            if (!sound || typeof sound.stop !== "function" || typeof sound.seekTo !== "function" || typeof sound.setVolume !== "function") {
+              if (typeof sound?.stop === "function") sound.stop();
+              else player.stopSound(state.track.soundId);
               throw new Error("Molcar records require the installed Script API SoundInstance handle");
             }
             listener = { sound };
@@ -89,6 +92,8 @@ export function createMolcarRecords({ world, system, tracks, report = console.wa
   }
 
   function clearPlayer(playerId) {
+    pending.delete(playerId);
+    lastUse.delete(playerId);
     for (const state of playback.values()) {
       const listener = state.listeners.get(playerId);
       if (listener) stopListener(listener);
@@ -102,17 +107,28 @@ export function createMolcarRecords({ world, system, tracks, report = console.wa
     }
   }
 
-  function interact(event) {
+  function request(event, player, target, requireRider = false) {
     const itemId = event.itemStack?.typeId;
-    if (!byItem.has(itemId) || !RECORD_MOLCARS.has(event.target.typeId)) return;
+    if (event.cancel || !byItem.has(itemId) || !RECORD_MOLCARS.has(target?.typeId) || !player?.isValid) return;
     event.cancel = true;
-    const { player, target } = event;
+    if (pending.has(player.id)) return;
+    const slot = player.selectedSlotIndex;
+    pending.add(player.id);
     system.run(() => {
       try {
+        if (!player.isValid || player.selectedSlotIndex !== slot || lastUse.get(player.id) === system.currentTick) return;
+        if (requireRider && player.getComponent("minecraft:riding")?.entityRidingOn?.id !== target.id) return;
         const inventory = player.getComponent("minecraft:inventory")?.container;
-        if (inventory?.getItem(player.selectedSlotIndex)?.typeId === itemId) use(player, target, itemId);
+        if (inventory?.getItem(slot)?.typeId === itemId && use(player, target, itemId)) lastUse.set(player.id, system.currentTick);
       } catch (error) { report(`[MolcarRecords] interaction failed: ${error}`); }
+      finally { pending.delete(player.id); }
     });
   }
-  return { interact, use, tick, stop, clearPlayer, resetPlayer, playback };
+  function interact(event) { request(event, event.player, event.target); }
+  function itemUse(event) {
+    const player = event.source;
+    if (!byItem.has(event.itemStack?.typeId) || !player?.isValid) return;
+    request(event, player, player.getComponent("minecraft:riding")?.entityRidingOn, true);
+  }
+  return { interact, itemUse, use, tick, stop, clearPlayer, resetPlayer, playback };
 }

@@ -25,7 +25,7 @@ entities.set(molcar.id, molcar);
 const tracks = [{ itemId: "record1", soundId: "song1", durationSeconds: 261 },
   { itemId: "record2", soundId: "song2", durationSeconds: 261 }];
 const system = { currentTick: 0, run: (fn) => fn() };
-const runtime = createMolcarRecords({ world: { getAllPlayers: () => players, getEntity: (id) => entities.get(id) }, system, tracks });
+const runtime = createMolcarRecords({ world: { getAllPlayers: () => players, getEntity: (id) => entities.get(id) }, system, tracks, now: () => system.currentTick * 50 });
 assert.equal(runtime.use(player, molcar, "record1"), true);
 assert.equal(handles.length, 1);
 assert.ok(handles[0].volume < 1);
@@ -67,3 +67,121 @@ assert.equal(runtime.playback.size, 0, "261-second recording expires");
 assert.equal(handles.at(-1).stopped, true);
 assert.equal(runtime.use(player, { ...molcar, typeId: "minecraft:player" }, "record1"), false);
 console.log("Molcar record playback: PASS (toggle/switch/moving rider/attenuation/late listener/multiple cars/logout/unload/261s)");
+
+let passed = 0;
+function test(name, fn) { fn(); passed++; console.log(`PASS ${name}`); }
+function fixture() {
+  let milliseconds = 100000;
+  const calls = [], pending = [], errors = [];
+  let held = { typeId: "record1", amount: 1 }, mount;
+  const p = { ...player, selectedSlotIndex: 0,
+    getComponent: (name) => name === "minecraft:inventory" ? { container: { getItem: () => held } }
+      : name === "minecraft:riding" && mount ? { entityRidingOn: mount } : undefined,
+    stopSound: (id) => calls.push(["stopSound", id]),
+    playSound(id, options) {
+      calls.push(["play", id, options.volume]);
+      const handle = { stopped: false,
+        stop() { this.stopped = true; calls.push(["stop", id]); },
+        seekTo(value) { calls.push(["seek", value]); },
+        setVolume(value) { calls.push(["volume", value]); } };
+      return handle;
+    } };
+  const m = { ...molcar, getVelocity: () => ({ x: 0, y: 0, z: 0 }), getComponent: () => ({ getRiders: () => [] }) };
+  const all = [p];
+  const clock = { currentTick: 0, run: (fn) => pending.push(fn) };
+  const state = createMolcarRecords({ world: { getAllPlayers: () => all, getEntity: () => m }, system: clock,
+    tracks, now: () => milliseconds, report: (message) => errors.push(message) });
+  return { state, p, m, all, clock, calls, errors,
+    advance(seconds) { milliseconds += seconds * 1000; },
+    held: () => held, setHeld(item) { held = item; }, setMount(entity) { mount = entity; }, flush() { pending.splice(0).forEach((fn) => fn()); } };
+}
+test("expiry follows real audio time when server ticks stall", () => {
+  const f = fixture(); f.state.use(f.p, f.m, "record1");
+  f.advance(260.99); f.state.tick(); assert.equal(f.state.playback.size, 1);
+  f.advance(0.01); f.state.tick(); assert.equal(f.clock.currentTick, 0);
+  assert.equal(f.state.playback.size, 0); assert(f.calls.some(([method]) => method === "stop"));
+});
+test("fast ticks alone cannot expire an unelapsed recording", () => {
+  const f = fixture(); f.state.use(f.p, f.m, "record1");
+  f.clock.currentTick += 261 * 20; f.state.tick(); assert.equal(f.state.playback.size, 1);
+});
+test("late arrival starts muted then seeks real elapsed seconds before unmuting", () => {
+  const f = fixture(); f.all.length = 0; f.state.use(f.p, f.m, "record1");
+  f.advance(130.5); f.all.push(f.p); f.state.tick();
+  assert.deepEqual(f.calls.slice(0, 2), [["play", "song1", 0], ["seek", 130.5]]);
+  assert.equal(f.calls[2][0], "volume"); assert(f.calls[2][1] > 0);
+});
+test("all three native control methods are checked and only the new handle stops", () => {
+  const f = fixture(); let stopped = false;
+  f.p.playSound = () => ({ stop() { stopped = true; }, seekTo() {} });
+  f.state.use(f.p, f.m, "record1"); assert(stopped); assert.equal(f.state.playback.size, 0);
+  assert.equal(f.errors.length, 1); assert.match(f.errors[0], /SoundInstance/);
+  assert(!f.calls.some(([method]) => method === "stopSound"));
+});
+test("native seek failure stops retained handle and removes playback", () => {
+  const f = fixture(); f.all.length = 0; f.state.use(f.p, f.m, "record1"); f.advance(10);
+  let stopped = false;
+  f.p.playSound = () => ({ stop() { stopped = true; }, seekTo() { throw Error("seek failure"); }, setVolume() {} });
+  f.all.push(f.p); f.state.tick(); assert(stopped); assert.equal(f.state.playback.size, 0);
+  assert.match(f.errors[0], /seek failure/);
+});
+test("record interaction cancels default action without consuming or replacing item", () => {
+  const f = fixture(), original = f.held();
+  const event = { player: f.p, target: f.m, itemStack: original, cancel: false };
+  f.state.interact(event); assert(event.cancel); assert.equal(f.state.playback.size, 0);
+  f.flush(); assert.equal(f.state.playback.size, 1); assert.strictEqual(f.held(), original); assert.equal(original.amount, 1);
+  f.clock.currentTick++; event.cancel = false;
+  f.state.interact(event); f.flush(); assert.equal(f.state.playback.size, 0); assert.equal(original.amount, 1);
+});
+test("switching held item before the queued interaction cancels playback start", () => {
+  const f = fixture(); f.state.interact({ player: f.p, target: f.m, itemStack: f.held() });
+  f.setHeld({ typeId: "minecraft:stick", amount: 1 }); f.flush(); assert.equal(f.state.playback.size, 0);
+});
+test("dimension change and invalid entity each stop active native handles", () => {
+  const f = fixture(); f.state.use(f.p, f.m, "record1"); f.m.dimension = { id: "minecraft:nether" };
+  f.state.tick(); assert.equal(f.state.playback.size, 0);
+  f.m.dimension = dim; f.state.use(f.p, f.m, "record1"); f.m.isValid = false;
+  f.state.tick(); assert.equal(f.state.playback.size, 0);
+  assert.equal(f.calls.filter(([method]) => method === "stop").length, 2);
+});
+test("rider itemUse resolves only their native mount and never consumes record", () => {
+  const f = fixture(); f.setMount(f.m);
+  const event = { source: f.p, itemStack: f.held(), cancel: false };
+  f.state.itemUse(event); assert(event.cancel); f.flush(); assert.equal(f.state.playback.size, 1);
+  assert.equal(f.held().amount, 1); f.clock.currentTick++;
+  f.state.itemUse({ ...event, cancel: false }); f.flush(); assert.equal(f.state.playback.size, 0);
+  assert.equal(f.held().amount, 1);
+});
+test("itemUse plus interaction in the same tick does not toggle twice", () => {
+  const f = fixture(); f.setMount(f.m);
+  f.state.itemUse({ source: f.p, itemStack: f.held() });
+  f.state.interact({ player: f.p, target: f.m, itemStack: f.held() }); f.flush();
+  assert.equal(f.state.playback.size, 1);
+  f.state.itemUse({ source: f.p, itemStack: f.held() }); f.flush(); assert.equal(f.state.playback.size, 1);
+});
+test("dismount or changed inventory slot before queued itemUse prevents activation", () => {
+  for (const change of [f => f.setMount(undefined), f => { f.p.selectedSlotIndex = 1; }]) {
+    const f = fixture(); f.setMount(f.m);
+    f.state.itemUse({ source: f.p, itemStack: f.held() }); change(f); f.flush();
+    assert.equal(f.state.playback.size, 0);
+  }
+});
+test("unmounted, wrong-mount, unrelated and already-cancelled uses are untouched", () => {
+  const f = fixture();
+  for (const mount of [undefined, { ...f.m, typeId: "minecraft:pig" }]) {
+    f.setMount(mount); const event = { source: f.p, itemStack: f.held(), cancel: false };
+    f.state.itemUse(event); assert(!event.cancel); f.flush(); assert.equal(f.state.playback.size, 0);
+  }
+  f.setMount(f.m);
+  const unrelated = { source: f.p, itemStack: { typeId: "minecraft:carrot" }, cancel: false };
+  f.state.itemUse(unrelated); assert(!unrelated.cancel);
+  f.state.itemUse({ source: f.p, itemStack: f.held(), cancel: true }); f.flush();
+  assert.equal(f.state.playback.size, 0);
+});
+test("idle records perform no player enumeration or entity lookup", () => {
+  const fail = () => { throw Error("unexpected idle world scan"); };
+  const idle = createMolcarRecords({ world: { getAllPlayers: fail, getEntity: fail }, system, tracks });
+  for (let i = 0; i < 100; i++) idle.tick();
+  assert.equal(idle.playback.size, 0);
+});
+console.log(`${passed} focused record regressions passed`);

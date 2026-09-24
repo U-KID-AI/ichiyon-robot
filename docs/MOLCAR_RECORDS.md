@@ -45,3 +45,25 @@ assets alongside database-managed cosmetics. Normal review/tests/deployment
 are still required after importing real assets.
 
 API reference: [SoundInstance](https://learn.microsoft.com/en-us/minecraft/creator/scriptapi/minecraft/server/soundinstance?view=minecraft-bedrock-experimental).
+
+## Native Runtime Verification
+
+An isolated BDS 1.26.51.1 GameTest run passed 29 checks on 2026-09-24.
+Real mounted `itemUse` events started playback and toggled it off while moving;
+the inventory retained one record. No extra item-use component was needed.
+Native `SoundInstance` calls verified late-join seeking at 125.3 seconds,
+16-block departure/reentry, retention beyond 260 seconds, and stopping the
+original handle after 261.304 seconds. Audio timing uses elapsed real time,
+not server tick count. New listeners start muted, seek, then receive volume.
+
+The isolated container stopped normally with exit code zero. Its known
+NetherNet transport configuration advisory was retained in the logs; no new
+record schema or native API errors occurred. This test proves server API and
+mounted input behavior, not audible playback or artwork on a human client.
+The GameTest external entity-interaction helper did not emit that event, so
+outside-player input delivery still needs client confirmation. Core external
+activation/toggle and mounted event delivery were verified independently.
+
+Local coverage: `python scripts/check_molcar_records.py` (five checks plus
+13 focused JavaScript regressions). Evidence is retained outside the repository
+in `C:/Users/syoub/AppData/Local/Temp/ichiyon-record-smoke-20260924/`.

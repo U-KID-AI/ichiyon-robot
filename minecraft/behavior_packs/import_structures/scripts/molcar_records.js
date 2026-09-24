@@ -6,6 +6,7 @@ import { createMolcarRecords } from "./molcar_records_core.js";
 if (molcarRecords.length) {
   const records = createMolcarRecords({ world, system, tracks: molcarRecords });
   world.beforeEvents.playerInteractWithEntity.subscribe((event) => records.interact(event));
+  world.beforeEvents.itemUse.subscribe((event) => records.itemUse(event));
   world.afterEvents.entityDie.subscribe(({ deadEntity }) => records.stop(deadEntity.id));
   world.afterEvents.entityRemove.subscribe(({ removedEntityId }) => records.stop(removedEntityId));
   world.afterEvents.playerLeave.subscribe(({ playerId }) => records.clearPlayer(playerId));

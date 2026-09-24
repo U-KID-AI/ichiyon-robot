@@ -54,6 +54,7 @@ jobs:
           python scripts/check_minecraft_mokuro.py
           python scripts/check_minecraft_garbage_molcar.py
           node scripts/check_minecraft_molcar_boost.mjs
+          python scripts/check_molcar_records.py
           node scripts/check_molcar_records.mjs
           node scripts/check_narita_poll_serialization.mjs
           python scripts/check_minecraft_managed_posters.py
