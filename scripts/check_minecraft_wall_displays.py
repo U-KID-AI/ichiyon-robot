@@ -9,7 +9,7 @@ import unittest
 
 from PIL import Image, ImageChops
 
-from build_minecraft_video import ROOT, build, probe, run
+from build_minecraft_video import ROOT, build, probe, run, write_definitions
 
 RP = ROOT / "minecraft/resource_packs/ichiyon_avatar_rp"
 BP = ROOT / "minecraft/behavior_packs/ichiyon_avatar_bp"
@@ -36,14 +36,52 @@ class WallDisplayChecks(unittest.TestCase):
         video, black = [g["bones"][0]["cubes"][0] for g in geometries]
         self.assertAlmostEqual(video["size"][0] / video["size"][1], 16 / 9)
         self.assertEqual(black["size"], [176, 64, 0])
-        self.assertGreater(video["origin"][2], black["origin"][2])
-        self.assertEqual(set(video["uv"]), {"south"})
+        # Model north faces world +Z at the runtime's fixed yaw 0. The video
+        # must be closer to those viewers than both the black plane and wall.
+        origin_z, wall_front_z = -84.98, -85
+        video_world_z = origin_z - video["origin"][2] / 16
+        black_world_z = origin_z - black["origin"][2] / 16
+        self.assertGreater(video_world_z, black_world_z)
+        self.assertGreater(black_world_z, wall_front_z)
+        self.assertEqual(set(video["uv"]), {"north"})
+        self.assertEqual(set(black["uv"]), {"north"})
         client = read(RP / "entity/video_screen.entity.json")["minecraft:client_entity"]["description"]
         self.assertEqual(len(client["textures"]), report["output"]["atlasCount"] + 1)
         for texture in client["textures"].values():
             self.assertTrue((RP / (texture + ".png")).is_file())
-        material = read(RP / "materials/video_screen.material")["materials"]["ichiyon_video_uv:entity_alphatest"]
+        material = read(RP / "materials/entity.material")["materials"]["ichiyon_video_uv:entity_alphatest"]
         self.assertIn("USE_UV_ANIM", material["+defines"])
+        self.assertEqual(client["materials"]["default"], "ichiyon_video_uv")
+        controllers = read(RP / "render_controllers/video_screen.render_controllers.json")["render_controllers"]
+        render = controllers["controller.render.ichiyon_video_screen"]
+        self.assertEqual(render["geometry"], "Geometry.default")
+        self.assertEqual(render["materials"], [{"*": "Material.default"}])
+        self.assertEqual(render["arrays"]["textures"]["Array.frames"],
+                         [f"Texture.atlas_{i}" for i in range(report["output"]["atlasCount"])])
+        self.assertEqual(render["uv_anim"]["scale"], [64 / 660, 36 / 380])
+        self.assertIn("/ 100", render["textures"][0])
+        self.assertEqual(render["uv_anim"]["offset"], [
+            "(math.mod(math.max(0, q.property('ichiyon:frame')), 10) * 66 + 1) / 660",
+            "(math.floor(math.mod(math.max(0, q.property('ichiyon:frame')), 100) / 10) * 38 + 1) / 380"])
+
+    def test_definition_generator_matches_without_decoding_video(self):
+        output = read(ROOT / "minecraft/video_screen/build_report.json")["output"]
+        media = {key: output[key] for key in ("fps", "frameCount", "duration", "sound")}
+        with tempfile.TemporaryDirectory(prefix="video-definitions-") as temporary:
+            root = Path(temporary)
+            write_definitions(root, media, output["atlasCount"])
+            for path in root.rglob("*"):
+                if path.is_file():
+                    actual = ROOT / path.relative_to(root)
+                    self.assertEqual(path.read_text(encoding="utf-8"), actual.read_text(encoding="utf-8"), str(actual))
+
+    def test_audience_sound_definition(self):
+        fragment = read(ROOT / "minecraft/video_screen/sound_definitions.fragment.json")
+        definition = fragment["ichiyon.video_screen.audio"]
+        self.assertEqual(definition["min_distance"], 8)
+        self.assertEqual(definition["max_distance"], 64)
+        self.assertTrue(definition["sounds"][0]["is3D"])
+        self.assertEqual(read(RP / "sounds/sound_definitions.json")["sound_definitions"]["ichiyon.video_screen.audio"], definition)
 
     def test_atlas_frames_padding_and_nonblank(self):
         output = read(ROOT / "minecraft/video_screen/build_report.json")["output"]
@@ -75,7 +113,7 @@ class WallDisplayChecks(unittest.TestCase):
         definitions = read(ROOT / "minecraft/video_screen/sound_definitions.fragment.json")
         self.assertEqual(set(definitions), {report["output"]["sound"]})
         definition = definitions[report["output"]["sound"]]
-        self.assertEqual(definition["max_distance"], 16)
+        self.assertEqual(definition["max_distance"], 64)
         self.assertFalse(definition["sounds"][0]["stream"])
         self.assertTrue(definition["sounds"][0]["is3D"])
 

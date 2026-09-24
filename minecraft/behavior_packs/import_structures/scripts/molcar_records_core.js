@@ -65,14 +65,20 @@ export function createMolcarRecords({ world, system, tracks, report = console.wa
           audible.add(player.id);
           const volume = (1 - distance / RECORD_RADIUS) ** 2;
           let listener = state.listeners.get(player.id);
+          if (listener && Math.hypot(...["x", "y", "z"].map((axis) => molcar.location[axis] - listener.anchor[axis])) >= 1.5) {
+            stopListener(listener);
+            state.listeners.delete(player.id);
+            listener = undefined;
+          }
           if (!listener) {
-            const sound = player.playSound(state.track.soundId, { volume: 0, pitch: 1 });
+            const anchor = { ...molcar.location };
+            const sound = player.playSound(state.track.soundId, { location: anchor, volume: 0, pitch: 1 });
             if (!sound || typeof sound.stop !== "function" || typeof sound.seekTo !== "function" || typeof sound.setVolume !== "function") {
               if (typeof sound?.stop === "function") sound.stop();
               else player.stopSound(state.track.soundId);
               throw new Error("Molcar records require the installed Script API SoundInstance handle");
             }
-            listener = { sound };
+            listener = { sound, anchor };
             state.listeners.set(player.id, listener);
             if (elapsed > 0) sound.seekTo(elapsed);
           }

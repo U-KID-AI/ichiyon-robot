@@ -72,29 +72,83 @@ let passed = 0;
 function test(name, fn) { fn(); passed++; console.log(`PASS ${name}`); }
 function fixture() {
   let milliseconds = 100000;
-  const calls = [], pending = [], errors = [];
+  const calls = [], pending = [], errors = [], sounds = [];
   let held = { typeId: "record1", amount: 1 }, mount;
-  const p = { ...player, selectedSlotIndex: 0,
+  const p = { ...player, location: { ...player.location }, selectedSlotIndex: 0,
     getComponent: (name) => name === "minecraft:inventory" ? { container: { getItem: () => held } }
       : name === "minecraft:riding" && mount ? { entityRidingOn: mount } : undefined,
     stopSound: (id) => calls.push(["stopSound", id]),
     playSound(id, options) {
       calls.push(["play", id, options.volume]);
-      const handle = { stopped: false,
+      const handle = { options, stopped: false,
         stop() { this.stopped = true; calls.push(["stop", id]); },
         seekTo(value) { calls.push(["seek", value]); },
         setVolume(value) { calls.push(["volume", value]); } };
+      sounds.push(handle);
       return handle;
     } };
-  const m = { ...molcar, getVelocity: () => ({ x: 0, y: 0, z: 0 }), getComponent: () => ({ getRiders: () => [] }) };
+  const m = { ...molcar, location: { ...molcar.location }, getVelocity: () => ({ x: 0, y: 0, z: 0 }), getComponent: () => ({ getRiders: () => [] }) };
   const all = [p];
   const clock = { currentTick: 0, run: (fn) => pending.push(fn) };
   const state = createMolcarRecords({ world: { getAllPlayers: () => all, getEntity: () => m }, system: clock,
     tracks, now: () => milliseconds, report: (message) => errors.push(message) });
-  return { state, p, m, all, clock, calls, errors,
+  return { state, p, m, all, clock, calls, errors, sounds,
     advance(seconds) { milliseconds += seconds * 1000; },
     held: () => held, setHeld(item) { held = item; }, setMount(entity) { mount = entity; }, flush() { pending.splice(0).forEach((fn) => fn()); } };
 }
+test("initial sound uses a copied car location and listener motion never reanchors", () => {
+  const f = fixture(); f.state.use(f.p, f.m, "record1");
+  assert.deepEqual(f.sounds[0].options, { location: f.m.location, volume: 0, pitch: 1 });
+  assert.notStrictEqual(f.sounds[0].options.location, f.m.location);
+  const initialVolume = f.calls.at(-1)[1];
+  for (let i = 0; i < 100; i++) { f.advance(0.05); f.state.tick(); }
+  f.p.location.x = 8; f.state.tick();
+  assert(f.calls.at(-1)[1] < initialVolume);
+  assert.equal(f.sounds.length, 1); assert(!f.sounds[0].stopped);
+});
+
+test("car travel accumulates to 1.5 blocks on every axis before stop, muted restart, seek and volume", () => {
+  for (const axis of ["x", "y", "z"]) {
+    const f = fixture(); f.state.use(f.p, f.m, "record1");
+    for (let i = 0; i < 2; i++) { f.m.location[axis] += 0.5; f.state.tick(); }
+    assert.equal(f.sounds.length, 1); assert(!f.sounds[0].stopped);
+    f.advance(12.75); f.calls.length = 0;
+    f.m.location[axis] += 0.5; f.state.tick();
+    assert.equal(f.clock.currentTick, 0); assert.equal(f.sounds.length, 2);
+    assert(f.sounds[0].stopped); assert(!f.sounds[1].stopped);
+    assert.deepEqual(f.sounds[1].options.location, f.m.location);
+    assert.deepEqual(f.calls.slice(0, 3), [["stop", "song1"], ["play", "song1", 0], ["seek", 12.75]]);
+    assert.equal(f.calls[3][0], "volume"); assert(f.calls[3][1] > 0);
+    f.m.location[axis] += 1; f.state.tick(); assert.equal(f.sounds.length, 2);
+    f.advance(2); f.m.location[axis] += 0.5; f.calls.length = 0; f.state.tick();
+    assert.equal(f.sounds.length, 3); assert(f.sounds[1].stopped);
+    assert.deepEqual(f.calls.slice(0, 3), [["stop", "song1"], ["play", "song1", 0], ["seek", 14.75]]);
+  }
+});
+
+test("reanchoring uses each listener's own anchor and three-dimensional distance", () => {
+  const f = fixture(); f.state.use(f.p, f.m, "record1");
+  f.m.location.x += 0.9; f.advance(3);
+  f.all.push({ ...f.p, id: "p2" }); f.state.tick();
+  assert.equal(f.sounds.length, 2);
+  f.m.location.y += 1.2; f.state.tick();
+  assert.equal(f.sounds.length, 3); assert(f.sounds[0].stopped); assert(!f.sounds[1].stopped);
+  f.m.location.y += 0.3; f.state.tick();
+  assert.equal(f.sounds.length, 4); assert(f.sounds[1].stopped); assert(!f.sounds[2].stopped);
+});
+
+test("reanchored handles retain the original lifetime and clearPlayer cleanup", () => {
+  for (const clear of [false, true]) {
+    const f = fixture(); f.state.use(f.p, f.m, "record1");
+    f.advance(260); f.m.location.x += 1.5; f.state.tick();
+    assert.equal(f.sounds.length, 2); assert(f.sounds[0].stopped);
+    if (clear) f.state.clearPlayer(f.p.id);
+    else { f.advance(1); f.state.tick(); assert.equal(f.state.playback.size, 0); }
+    assert(f.sounds[1].stopped);
+    assert.equal(f.state.playback.get(f.m.id)?.listeners.size ?? 0, 0);
+  }
+});
+
 test("expiry follows real audio time when server ticks stall", () => {
   const f = fixture(); f.state.use(f.p, f.m, "record1");
   f.advance(260.99); f.state.tick(); assert.equal(f.state.playback.size, 1);

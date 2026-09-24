@@ -73,7 +73,8 @@ export function audienceGain(player, screen, config = WALL_DISPLAYS) {
   if (!screen || player.dimension.id !== config.dimension || player.location.z < screen.center.z) return 0;
   const p = player.location, c = screen.center;
   const distance = Math.hypot(p.x - c.x, p.y - c.y, p.z - c.z);
-  return Math.max(0, 1 - distance / config.video.audienceRadius);
+  // The positional sound definition supplies attenuation; do not apply it twice.
+  return distance < config.video.audienceRadius ? 1 : 0;
 }
 
 export function createWallDisplays({ world, system, media, now = () => Date.now(), config = WALL_DISPLAYS, log = console.warn }) {

@@ -4,9 +4,6 @@
     "ichiyon_video_uv:entity_alphatest": {
       "+defines": [
         "USE_UV_ANIM"
-      ],
-      "+states": [
-        "DisableCulling"
       ]
     }
   }
