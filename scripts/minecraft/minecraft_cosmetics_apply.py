@@ -17,8 +17,11 @@ import threading
 import uuid
 from zipfile import ZipFile, BadZipFile
 
-MAX_ARCHIVE = 32 * 1024 * 1024
-MAX_EXPANDED = 128 * 1024 * 1024
+# Authenticated managed archives only; mirrored by minecraft_resource_packs.py.
+MAX_ARCHIVE = 192 * 1024 * 1024
+MAX_EXPANDED = 512 * 1024 * 1024
+MAX_FILE = 8 * 1024 * 1024
+MAX_FILES = 16384
 PACKS = ('behavior_packs/import_structures', 'behavior_packs/ichiyon_avatar_bp', 'resource_packs/ichiyon_avatar_rp')
 BEHAVIOR_PACKS = PACKS[:2]
 RETIRED_PACKS = {PACKS[2]: '3e1bcf76-b5e3-465a-a184-d2d90cfa0d74'}
@@ -209,13 +212,19 @@ def prepare_manifests(stage, live):
 
 
 def unpack(data, destination, live):
-    """No extractall: reject links, duplicate paths, zip bombs and foreign packs."""
-    if len(data) > MAX_ARCHIVE:
-        raise ValueError('archive too large')
+    """Accept bytes or a seekable upload; reject links, bombs and foreign packs."""
+    if isinstance(data, bytes):
+        if len(data) > MAX_ARCHIVE:
+            raise ValueError('archive too large')
+        data = BytesIO(data)
     seen, total = set(), 0
     try:
-        with ZipFile(BytesIO(data)) as archive:
-            if len(archive.infolist()) > 8192:
+        data.seek(0, os.SEEK_END)
+        if data.tell() > MAX_ARCHIVE:
+            raise ValueError('archive too large')
+        data.seek(0)
+        with ZipFile(data) as archive:
+            if len(archive.infolist()) > MAX_FILES:
                 raise ValueError('too many files')
             for info in archive.infolist():
                 name = info.filename
@@ -232,7 +241,7 @@ def unpack(data, destination, live):
                         or (stat.S_IFMT(mode) not in (0, stat.S_IFREG))):
                     raise ValueError('invalid archive path')
                 total += info.file_size
-                if total > MAX_EXPANDED or info.file_size > 8 * 1024 * 1024:
+                if total > MAX_EXPANDED or info.file_size > MAX_FILE:
                     raise ValueError('expanded archive too large')
                 seen.add(name.casefold())
                 target = destination / name

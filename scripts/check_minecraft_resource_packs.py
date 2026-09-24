@@ -7,15 +7,17 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from bot.services.minecraft_cosmetics import asset
-from bot.services.minecraft_cosmetics_pack import PACKS, builtin_assets, compile_files, pack_zip
+from bot.services import minecraft_cosmetics_pack as compiler
+from bot.services.minecraft_cosmetics_pack import BP, BRIDGE, PACKS, builtin_assets, compile_files, pack_zip
 from bot.services.minecraft_resource_packs import (
-    LEGACY, LEGACY_UUID, RESOURCE_PACKS, REGISTRIES, SKINS, ACCESSORIES, POSTERS,
-    VIDEO, RECORDS, split_resource_packs,
+    LEGACY, LEGACY_UUID, RESOURCE_PACKS, SPLIT_RESOURCE_PACKS, DIRECT_RESOURCE_PACKS,
+    REGISTRIES, SKINS, ACCESSORIES, POSTERS, VIDEO, VIDEO_BIG, RECORDS, split_resource_packs,
 )
 from scripts.check_minecraft_cosmetics import fixture_assets, png
 
@@ -38,7 +40,7 @@ class SplitChecks(unittest.TestCase):
                 self.assertEqual(self.split[path], raw)
                 continue
             relative = path[len(LEGACY):]
-            outputs = [self.split[pack + relative] for pack in RESOURCE_PACKS if pack + relative in self.split]
+            outputs = [self.split[pack + relative] for pack in SPLIT_RESOURCE_PACKS if pack + relative in self.split]
             if relative == "manifest.json":
                 continue
             if relative in REGISTRIES:
@@ -74,9 +76,74 @@ class SplitChecks(unittest.TestCase):
                 self.assertEqual(section["version"], [1, 0, 0])
         with ZipFile(BytesIO(pack_zip(self.root, self.records, 12))) as archive:
             proof = json.loads(archive.read("cosmetics-build.json"))
-            self.assertEqual(len(proof["packs"]), 8)
+            self.assertEqual(proof["packs"], [p.rstrip("/") for p in (BP, BRIDGE, *RESOURCE_PACKS)])
+            self.assertEqual(len(RESOURCE_PACKS), 7)
             self.assertEqual(proof["retired_packs"], [{"path": LEGACY.rstrip("/"), "uuid": LEGACY_UUID}])
-            self.assertEqual(set(archive.namelist()) - {"cosmetics-build.json"}, set(self.split))
+            direct = {p.relative_to(self.root).as_posix(): p for pack in DIRECT_RESOURCE_PACKS
+                      for p in (self.root / pack).rglob("*") if p.is_file()}
+            self.assertEqual(set(archive.namelist()) - {"cosmetics-build.json"}, set(self.split) | direct.keys())
+            for name, path in direct.items():
+                self.assertEqual(archive.read(name), path.read_bytes(), name)
+            for name, data in self.split.items():
+                self.assertEqual(archive.read(name), data, name)
+
+    def test_direct_pack_never_receives_legacy_registries_or_language_files(self):
+        self.assertEqual([p for p in self.split if p.startswith(VIDEO_BIG)], [VIDEO_BIG + "manifest.json"])
+        from bot.services import minecraft_resource_packs as packs
+        with patch.object(packs, "RESOURCE_PACKS", SPLIT_RESOURCE_PACKS):
+            previous = split_resource_packs(self.root, self.source)
+        self.assertEqual(previous, {p: data for p, data in self.split.items() if not p.startswith(VIDEO_BIG)})
+
+    def test_direct_content_only_bumps_its_pack_after_six_pack_install(self):
+        from scripts.minecraft.minecraft_cosmetics_apply import unpack, content_hash
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "minecraft"
+            # Use a small direct fixture, independently of the pending video encode.
+            def ignore(directory, names):
+                return [name for name in names if name != "manifest.json"] if Path(directory) == self.root / VIDEO_BIG else []
+            shutil.copytree(self.root, source, ignore=ignore)
+            media = source / VIDEO_BIG / "fixture.bin"
+            media.write_bytes(b"first direct media")
+            first = root / "first"
+            live = root / "live"
+            live.mkdir()
+            unpack(pack_zip(source, self.records, 12), first, live)
+            for pack in (BP, BRIDGE, *SPLIT_RESOURCE_PACKS):
+                shutil.copytree(first / pack, live / pack)
+            original = {pack: content_hash(live / pack) for pack in SPLIT_RESOURCE_PACKS}
+            second = root / "second"
+            unpack(pack_zip(source, self.records, 13), second, live)
+            for pack in SPLIT_RESOURCE_PACKS:
+                self.assertEqual(content_hash(second / pack), original[pack])
+                self.assertEqual((second / pack / "manifest.json").read_bytes(), (live / pack / "manifest.json").read_bytes())
+            self.assertEqual(json.loads((second / VIDEO_BIG / "manifest.json").read_bytes())["header"]["version"], [1, 0, 0])
+            for pack in (BP, BRIDGE, *RESOURCE_PACKS):
+                shutil.copytree(second / pack, live / pack, dirs_exist_ok=True)
+            media.write_bytes(b"changed direct media")
+            third = root / "third"
+            unpack(pack_zip(source, self.records, 14), third, live)
+            for pack in RESOURCE_PACKS:
+                version = json.loads((third / pack / "manifest.json").read_bytes())["header"]["version"]
+                self.assertEqual(version, [1, 0, 1] if pack == VIDEO_BIG else [1, 0, 0])
+                if pack != VIDEO_BIG:
+                    self.assertEqual(content_hash(third / pack), original[pack])
+                shutil.copytree(third / pack, live / pack, dirs_exist_ok=True)
+            fourth = root / "fourth"
+            unpack(pack_zip(source, self.records, 15), fourth, live)
+            for pack in RESOURCE_PACKS:
+                self.assertEqual((fourth / pack / "manifest.json").read_bytes(), (live / pack / "manifest.json").read_bytes())
+
+    def test_compiler_and_standalone_control_limits_agree_and_fail_closed(self):
+        from scripts.minecraft import minecraft_cosmetics_apply as deploy
+        from bot.services import minecraft_control as client
+        for name, value in (("MAX_ARCHIVE", 192 * 1024 * 1024), ("MAX_EXPANDED", 512 * 1024 * 1024),
+                            ("MAX_FILE", 8 * 1024 * 1024), ("MAX_FILES", 16384)):
+            self.assertEqual(getattr(compiler, name), value)
+            self.assertEqual(getattr(deploy, name), value)
+            with self.subTest(limit=name), patch.object(compiler, name, 1), self.assertRaises(ValueError):
+                pack_zip(self.root, self.records, 12)
+        self.assertEqual(client.MAX_ARCHIVE, deploy.MAX_ARCHIVE)
 
     def changed_packs(self, files):
         def payload(source, pack):

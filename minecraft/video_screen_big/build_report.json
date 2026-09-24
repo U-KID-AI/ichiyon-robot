@@ -1,0 +1,56 @@
+{
+  "source": {
+    "filename": "3865.mp4",
+    "sha256": "584a65579950a6e8123192f1f89ad6c0e5d73bcd3a446c472d416c4f7ed420fa",
+    "width": 640,
+    "height": 360,
+    "fps": "24/1",
+    "duration": 510.188844,
+    "videoDuration": 510.166667,
+    "hasAudio": true,
+    "bytes": 24332100,
+    "frameCount": 12244,
+    "audio": {
+      "codec": "aac",
+      "channels": 2,
+      "sampleRate": 44100
+    }
+  },
+  "output": {
+    "fps": 20,
+    "frameCount": 10203,
+    "duration": 510.15,
+    "sound": "ichiyon.video_screen_big.audio",
+    "atlasCount": 26,
+    "atlasWidth": 1950,
+    "atlasHeight": 1998,
+    "frameWidth": 128,
+    "frameHeight": 72,
+    "assetBytes": 102360685,
+    "profile": "big-128",
+    "gridColumns": 15,
+    "gridRows": 27,
+    "framesPerAtlas": 405,
+    "paddingPixels": 1,
+    "atlasPngBytes": 98461214,
+    "audioBytes": 3899402,
+    "decodedRgbaBytes": 405194400,
+    "decodedRgbaWithMipmapsBytes": 540259200,
+    "decodedRgbaPerAtlasBytes": 15584400,
+    "audio": {
+      "codec": "vorbis",
+      "channels": 1,
+      "sampleRate": 44100,
+      "stream": true,
+      "duration": 510.15,
+      "minDistance": 32,
+      "maxDistance": 64,
+      "runtimeGain": 1,
+      "unstreamedPcm16Bytes": 44995230,
+      "unstreamedFloat32Bytes": 89990460
+    },
+    "resourcePack": "ichiyon_video_big_rp",
+    "generatedPackBytesExcludingManifest": 102367828
+  },
+  "memoryNote": "RGBA assumes all atlases resident with no GPU compression; mipmaps add about one third. Engine overhead, other packs and streaming audio buffers are excluded. Streaming audio avoids requiring the full decoded PCM buffer; actual device memory and stream seeking still require an in-game check."
+}

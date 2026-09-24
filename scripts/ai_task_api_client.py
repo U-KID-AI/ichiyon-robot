@@ -61,7 +61,12 @@ class RunnerAPIClient:
                 "Accept": "application/json",
             },
         )
-        with urlopen(request, timeout=self.timeout) as response:
+        # This POST waits for synchronous compilation, upload and staging. Keep
+        # heartbeats/status calls on their normal deadline without shared mutation.
+        timeout = self.timeout
+        if method == "POST" and re.fullmatch(r"/internal/minecraft-release/[0-9a-f]{40}", path):
+            timeout = max(timeout, 600.0)
+        with urlopen(request, timeout=timeout) as response:
             data = response.read(self.max_response_bytes + 1)
             if len(data) > self.max_response_bytes:
                 raise RunnerAPIError(f"HTTP {response.status}: response is too large")

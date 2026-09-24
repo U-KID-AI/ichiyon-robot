@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from zipfile import ZipFile
 import json
+import asyncio
 from copy import deepcopy
 import shutil
 import sys
@@ -438,6 +439,30 @@ class SplitApplyChecks(unittest.TestCase):
         self.assertFalse(self.api.commands)
         self.assertEqual(self.snapshot(), self.original)
 
+    def test_byte_and_seekable_archives_enforce_all_inclusive_budgets(self):
+        data = self.archive()
+        with ZipFile(BytesIO(data)) as archive:
+            infos = archive.infolist()
+        limits = {'MAX_ARCHIVE': len(data), 'MAX_EXPANDED': sum(i.file_size for i in infos),
+                  'MAX_FILE': max(i.file_size for i in infos), 'MAX_FILES': len(infos)}
+        for use_file in (False, True):
+            for limited in (None, *limits):
+                values = dict(limits)
+                if limited:
+                    values[limited] -= 1
+                with self.subTest(file=use_file, limit=limited), tempfile.TemporaryFile() as stream:
+                    stream.write(data)
+                    source = stream if use_file else data
+                    stage = self.api.PROJECT_DIR / str(uuid.uuid4())
+                    with patch.multiple(deploy, **values):
+                        if limited:
+                            with self.assertRaises(ValueError):
+                                deploy.unpack(source, stage, self.api.DATA_DIR)
+                        else:
+                            self.assertEqual(deploy.unpack(source, stage, self.api.DATA_DIR), self.digest)
+                    self.assertFalse(stream.closed)
+        self.assertFalse(self.api.commands)
+
 
 class ControlBackupChecks(unittest.TestCase):
     def test_raw_restart_backup_uses_live_manifests_and_preserves_world_and_active(self):
@@ -542,10 +567,91 @@ class ControlHTTPChecks(unittest.TestCase):
             self.assertEqual(response.status_code, 400); self.assertNotIn('disclose', response.text)
             manager.submit.side_effect = RuntimeError('busy')
             self.assertEqual(client.post('/cosmetics/' + identifier, content=b'x', headers=headers).status_code, 409)
-            manager.submit.side_effect = None; manager.submit.return_value = {'status':'queued'}
+            received = []
+            def submit(operation_id, stream):
+                self.assertEqual(operation_id, identifier)
+                self.assertEqual(stream.read(), b'pack')
+                self.assertFalse(stream.closed)
+                received.append(stream)
+                return {'status': 'queued'}
+            manager.submit.side_effect = submit
             self.assertEqual(client.post('/cosmetics/' + identifier, content=b'pack', headers=headers).status_code, 202)
-            manager.submit.assert_called_with(identifier, b'pack')
+            self.assertTrue(received[0].closed)
             client.close()
+
+    def test_auth_precedes_body_and_declared_and_chunked_limits_are_strict(self):
+        from fastapi import HTTPException
+        from starlette.requests import Request
+        import minecraft_control_api as api
+        identifier = str(uuid.uuid4())
+        with patch.object(api, 'CONTROL_SECRET', 'offline-control-test'), patch.object(api, 'MAX_ARCHIVE', 4), \
+                patch.object(api, 'cosmetic_applications') as manager:
+            async def attempt(chunks, length=None, secret='offline-control-test'):
+                messages = iter(chunks)
+                async def receive():
+                    body, more = next(messages)
+                    return {'type': 'http.request', 'body': body, 'more_body': more}
+                headers = [] if length is None else [(b'content-length', length.encode())]
+                request = Request({'type': 'http', 'headers': headers}, receive)
+                return await api.apply_cosmetics(identifier, request, secret)
+            for length, secret, status in ((None, None, 401), ('5', 'offline-control-test', 413),
+                                            ('-1', 'offline-control-test', 400), ('invalid', 'offline-control-test', 400)):
+                with self.subTest(length=length, secret=secret), self.assertRaises(HTTPException) as error:
+                    asyncio.run(attempt([], length, secret))
+                self.assertEqual(error.exception.status_code, status)
+            for length in (None, '2'):
+                with self.assertRaises(HTTPException) as error:
+                    asyncio.run(attempt([(b'123', True), (b'45', False)], length))
+                self.assertEqual(error.exception.status_code, 413)
+            manager.submit.assert_not_called()
+            streams = []
+            def submit(operation_id, stream):
+                self.assertEqual(stream.read(), b'1234')
+                streams.append(stream)
+                return {'status': 'queued'}
+            manager.submit.side_effect = submit
+            self.assertEqual(asyncio.run(attempt([(b'12', True), (b'34', False)], '4')), {'status': 'queued'})
+            self.assertTrue(streams[0].closed)
+
+    def test_upload_temporary_file_closes_on_invalid_archive(self):
+        from fastapi.testclient import TestClient
+        import minecraft_control_api as api
+        received = []
+        def reject(operation_id, stream):
+            received.append(stream)
+            raise ValueError('invalid')
+        with patch.object(api, 'CONTROL_SECRET', 'offline-control-test'), patch.object(api, 'cosmetic_applications') as manager:
+            manager.submit.side_effect = reject
+            with TestClient(api.app) as client:
+                response = client.post('/cosmetics/' + str(uuid.uuid4()), content=b'invalid',
+                                       headers={'X-Minecraft-Control-Secret': 'offline-control-test'})
+            self.assertEqual(response.status_code, 400)
+            self.assertTrue(received[0].closed)
+
+
+class AdminControlClientChecks(unittest.IsolatedAsyncioTestCase):
+    async def test_managed_archive_cap_is_checked_before_network_and_has_upload_timeout(self):
+        from unittest.mock import AsyncMock
+        from bot.services import minecraft_control as client
+        identifier = str(uuid.uuid4())
+        response = SimpleNamespace(status_code=202, raise_for_status=lambda: None, json=lambda: {'status': 'queued'})
+        with patch.object(client, 'control_api_configured', return_value=True), patch.object(client, '_headers', return_value={}), \
+                patch.object(client, '_base_url', return_value='http://control.invalid'), patch.object(client, 'MAX_ARCHIVE', 4), \
+                patch.object(client.httpx, 'AsyncClient') as factory:
+            for payload in (None, 'pack', b'12345'):
+                with self.assertRaises(client.MinecraftControlError):
+                    await client.cosmetics_control(identifier, payload)
+            factory.assert_not_called()
+            session = factory.return_value.__aenter__.return_value
+            session.post = AsyncMock(return_value=response)
+            self.assertEqual(await client.cosmetics_control(identifier, b'1234'), {'status': 'queued'})
+            self.assertEqual(session.post.call_args.kwargs['content'], b'1234')
+            self.assertFalse(factory.call_args.kwargs['trust_env'])
+            timeout = factory.call_args.kwargs['timeout']
+            self.assertEqual((timeout.connect, timeout.read, timeout.write), (10, 180, 180))
+            session.get = AsyncMock(return_value=response)
+            await client.cosmetics_control()
+            self.assertEqual(factory.call_args.kwargs['timeout'], 60)
 
 
 if __name__ == '__main__': unittest.main()

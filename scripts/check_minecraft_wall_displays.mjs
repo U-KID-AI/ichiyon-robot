@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { createWallDisplays, detectVideoScreen, detectMapWall, isVanillaButton, audienceGain } from "../minecraft/behavior_packs/import_structures/scripts/wall_displays_core.js";
-import { WALL_DISPLAYS as config } from "../minecraft/behavior_packs/import_structures/scripts/wall_displays_config.js";
+import { createWallDisplays, createVideoDisplays, detectVideoScreen, detectFloorButton, detectMapWall, isVanillaButton, audienceGain } from "../minecraft/behavior_packs/import_structures/scripts/wall_displays_core.js";
+import { WALL_DISPLAYS as config, BIG_VIDEO_DISPLAY as bigConfig } from "../minecraft/behavior_packs/import_structures/scripts/wall_displays_config.js";
 import { VIDEO_MEDIA as media } from "../minecraft/behavior_packs/import_structures/scripts/video_media.generated.js";
 
 let passed = 0;
@@ -23,7 +23,7 @@ function fixture() {
   };
   function block(typeId, location, states = {}) {
     return { typeId, location, dimension,
-      isAir: typeId === "minecraft:air", isSolid: ["minecraft:white_concrete", "minecraft:stone"].includes(typeId),
+      isAir: typeId === "minecraft:air", isSolid: ["minecraft:white_concrete", "minecraft:black_concrete", "minecraft:stone"].includes(typeId),
       permutation: { getState: (name) => states[name] } };
   }
   function put(x, y, z, type = "minecraft:white_concrete", states) {
@@ -58,7 +58,7 @@ function fixture() {
     system.currentTick++; core.button({ block: block(type, at), source: players[0] });
   }
   const plays = () => sounds.filter((s) => s.action === "play");
-  return { dimension, blocks, entities, sounds, players, core, put, video, map, press, player, plays, logs,
+  return { dimension, blocks, entities, sounds, players, core, put, video, map, press, player, plays, logs, world, system, now: () => time,
     advance(seconds) { time += seconds * 1000; system.currentTick++; core.tick(); } };
 }
 
@@ -193,5 +193,105 @@ test("lost detection logs status once and recovery proves coordinates once again
   f.dimension.unloaded = false; f.core.scan();
   assert.deepEqual(f.logs.slice(4), f.logs.slice(0, 2));
   f.core.scan(); assert.equal(f.logs.length, 6);
+});
+function bigWall(f, left = -18, bottom = 66, z = -189) {
+  for (let x = left; x < left + 24; x++) for (let y = bottom; y < bottom + 11; y++) f.put(x, y, z, "minecraft:black_concrete");
+}
+function floorButton(f, x = -16, y = 66, z = -185, type = "minecraft:cherry_button", facing = 1) {
+  f.put(x, y - 1, z, "minecraft:stone");
+  return f.put(x, y, z, type, { facing_direction: facing });
+}
+function multiFixture() {
+  const f = fixture(); f.video(); bigWall(f); floorButton(f);
+  const bigMedia = { ...media, fps: 20, frameCount: 10204, duration: 510.2, sound: "ichiyon.video_screen_big.audio" };
+  const group = createVideoDisplays({ world: f.world, system: f.system, now: f.now, log: (m) => f.logs.push(m), displays: [
+    { id: "small", config, media }, { id: "big", config: bigConfig, media: bigMedia },
+  ] });
+  group.scan();
+  const press = (id) => {
+    f.system.currentTick++;
+    const p = group.status()[id].screen.button;
+    group.button({ block: { typeId: "minecraft:stone_button", location: p, dimension: f.dimension }, source: f.players[0] });
+  };
+  return { ...f, group, bigMedia, pressDisplay: press };
+}
+test("big detector finds actual 24x11 black plane near anchor without fixed coordinates", () => {
+  const f = fixture(); bigWall(f);
+  const before = [...f.blocks.entries()];
+  const result = detectVideoScreen(f.dimension, bigConfig.video);
+  assert.equal(result.status, "ready");
+  assert.deepEqual([result.screen.left, result.screen.right, result.screen.bottom, result.screen.top, result.screen.z], [-18, 5, 66, 76, -189]);
+  assert.equal(result.screen.center.z, -187.98);
+  assert.deepEqual([...f.blocks.entries()], before);
+  bigWall(f, -18, 66, -191); assert.equal(detectVideoScreen(f.dimension, bigConfig.video).status, "ambiguous");
+});
+test("big detector rejects nonblack, larger wall, outside bounds, occlusion and missing chunks", () => {
+  for (const mutate of [f => f.put(-19, 70, -189, "minecraft:black_concrete"),
+    f => f.put(-10, 70, -188, "minecraft:stone"), f => { f.dimension.unloaded = true; }]) {
+    const f = fixture(); bigWall(f); mutate(f); assert.notEqual(detectVideoScreen(f.dimension, bigConfig.video).status, "ready");
+  }
+  const f = fixture(); bigWall(f, 30); assert.equal(detectVideoScreen(f.dimension, bigConfig.video).status, "not_found");
+  f.blocks.clear(); for (let x = -18; x < 6; x++) for (let y = 66; y < 77; y++) f.put(x, y, -189);
+  assert.equal(detectVideoScreen(f.dimension, bigConfig.video).status, "not_found");
+});
+test("floor button detector requires one supported vanilla button and solid floor", () => {
+  const f = fixture(); assert.equal(detectFloorButton(f.dimension, bigConfig.video.floorButton).status, "not_found");
+  floorButton(f); assert.deepEqual(detectFloorButton(f.dimension, bigConfig.video.floorButton).button, { x: -16, y: 66, z: -185 });
+  floorButton(f, -15); assert.equal(detectFloorButton(f.dimension, bigConfig.video.floorButton).status, "ambiguous");
+  f.blocks.clear(); floorButton(f, -16, 66, -185, "minecraft:stone_button", 2);
+  assert.equal(detectFloorButton(f.dimension, bigConfig.video.floorButton).status, "not_found");
+  f.blocks.clear(); floorButton(f, -16, 66, -185, "minecraft:warped_button", "up");
+  assert.equal(detectFloorButton(f.dimension, bigConfig.video.floorButton).status, "ready");
+  f.blocks.delete("-16,65,-185"); assert.equal(detectFloorButton(f.dimension, bigConfig.video.floorButton).status, "not_found");
+});
+test("two independent helpers, buttons, frame clocks, loops and audio", () => {
+  const f = multiFixture(); f.players.push(f.player("big", { x: -5, y: 67, z: -175 }));
+  assert.equal(f.entities.filter(e => e.isValid).length, 2);
+  assert(!f.group.status().small.on && !f.group.status().big.on);
+  f.pressDisplay("big"); assert(f.group.status().big.on); assert(!f.group.status().small.on);
+  assert.equal(f.plays().at(-1).sound, f.bigMedia.sound); assert.equal(f.plays().at(-1).handle.seek, 0);
+  f.advance(2); f.group.tick(); assert.equal(f.group.status().big.frame, 40);
+  f.pressDisplay("small"); assert.equal(f.group.status().small.frame, 0); assert.equal(f.group.status().big.frame, 40);
+  f.advance(1); f.group.tick(); assert.equal(f.group.status().big.frame, 60); assert.equal(f.group.status().small.frame, 20);
+  const smallHandle = f.plays().find(s => s.sound === media.sound).handle;
+  f.pressDisplay("big"); assert(!f.group.status().big.on); assert(f.group.status().small.on); assert(!smallHandle.stopped);
+  f.pressDisplay("big"); assert.equal(f.group.status().big.frame, 0);
+  f.advance(f.bigMedia.duration); f.group.tick(); assert.equal(f.group.status().big.frame, 0);
+  assert.equal(f.plays().filter(s => s.sound === f.bigMedia.sound).at(-1).handle.seek, 0);
+});
+test("big button destruction and replacement preserves playback without block writes", () => {
+  const f = multiFixture(); f.pressDisplay("big");
+  f.blocks.delete("-16,66,-185"); f.group.scan(); assert(f.group.status().big.on);
+  assert.equal(f.group.status().big.buttonStatus, "not_found");
+  const replacement = floorButton(f, -16, 66, -185, "minecraft:crimson_button");
+  f.system.currentTick++; f.group.button({ block: replacement }); assert(!f.group.status().big.on);
+  f.pressDisplay("big"); floorButton(f, -15); f.group.scan();
+  f.system.currentTick++; f.group.button({ block: replacement }); assert(f.group.status().big.on);
+  assert.equal(f.group.status().big.buttonStatus, "ambiguous");
+});
+test("big rectangular audience includes rear seats but excludes behind, sides and wrong Y/dimension", () => {
+  const f = multiFixture(), screen = f.group.status().big.screen, p = f.players[0];
+  for (const location of [{ x: -17, y: 66, z: -186 }, { x: 4, y: 69, z: -168 }, { x: -5, y: 67, z: -175 }]) {
+    p.location = location; assert.equal(audienceGain(p, screen, bigConfig), 1);
+  }
+  for (const location of [{ x: -5, y: 66, z: -190 }, { x: -21, y: 66, z: -175 },
+    { x: 9, y: 66, z: -175 }, { x: -5, y: 66, z: -164 }, { x: -5, y: 80, z: -175 }]) {
+    p.location = location; assert.equal(audienceGain(p, screen, bigConfig), 0);
+  }
+  p.location = { x: -5, y: 66, z: -175 }; p.dimension = { id: "minecraft:nether" };
+  assert.equal(audienceGain(p, screen, bigConfig), 0);
+});
+test("one display failure/unload never resets the other and reload creates no duplicate helpers", () => {
+  const f = multiFixture(); f.pressDisplay("small"); f.pressDisplay("big");
+  f.entities.find(e => e.typeId === bigConfig.video.entity).isValid = false;
+  f.group.tick(); assert(!f.group.status().big.on); assert(f.group.status().small.on);
+  f.group.scan(); assert.equal(f.entities.filter(e => e.isValid).length, 2);
+  const stale = f.dimension.spawnEntity(bigConfig.video.entity, { x: -5, y: 66, z: -188 });
+  f.group.recover(stale); assert(!stale.isValid); assert(f.group.status().small.on);
+  f.group.scan(); assert.equal(f.entities.filter(e => e.isValid).length, 2);
+  const small = f.entities.find(e => e.typeId === config.video.entity && e.isValid);
+  const large = f.entities.find(e => e.typeId === bigConfig.video.entity && e.isValid);
+  large.setProperty = () => { throw new Error("fixture big failure"); };
+  f.group.recover(large); assert(small.isValid); assert(f.group.status().small.on);
 });
 console.log(`${passed} wall display runtime tests passed`);

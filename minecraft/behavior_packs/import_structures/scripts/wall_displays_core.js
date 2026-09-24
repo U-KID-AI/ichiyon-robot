@@ -23,29 +23,46 @@ function reader(dimension) {
 export function detectVideoScreen(dimension, config = WALL_DISPLAYS.video) {
   const read = reader(dimension), matches = [];
   try {
-    for (const z of config.planes) for (let y = config.minBottom; y <= config.maxBottom; y++) {
-      const first = read(config.x, y, z);
-      if (!first.isSolid) continue;
+    for (const z of config.planes) for (let x = config.minX ?? config.x; x <= (config.maxX ?? config.x); x++) for (let y = config.minBottom; y <= config.maxBottom; y++) {
+      const first = read(x, y, z);
+      if (!first.isSolid || (config.materials && !config.materials.includes(first.typeId))) continue;
       const material = first.typeId;
       let valid = true;
       for (let dx = 0; dx < config.width && valid; dx++) for (let dy = 0; dy < config.height; dy++) {
-        const block = read(config.x + dx, y + dy, z);
-        if (!block.isSolid || block.typeId !== material || !read(config.x + dx, y + dy, z + 1).isAir) { valid = false; break; }
+        const block = read(x + dx, y + dy, z);
+        if (!block.isSolid || block.typeId !== material || !read(x + dx, y + dy, z + 1).isAir) { valid = false; break; }
       }
       if (!valid) continue;
-      // A larger uniform wall is not evidence of the requested 11x4 screen.
+      // Reject subrectangles of a larger wall rather than guessing an installation.
       for (let dx = 0; dx < config.width; dx++) {
-        if (read(config.x + dx, y - 1, z).typeId === material || read(config.x + dx, y + config.height, z).typeId === material) valid = false;
+        if (read(x + dx, y - 1, z).typeId === material || read(x + dx, y + config.height, z).typeId === material) valid = false;
       }
       for (let dy = 0; dy < config.height; dy++) {
-        if (read(config.x - 1, y + dy, z).typeId === material || read(config.x + config.width, y + dy, z).typeId === material) valid = false;
+        if (read(x - 1, y + dy, z).typeId === material || read(x + config.width, y + dy, z).typeId === material) valid = false;
       }
-      if (valid) matches.push({ bottom: y, z, material,
-        origin: position(config.x + config.width / 2, y, z + 1.02),
-        center: position(config.x + config.width / 2, y + config.height / 2, z + 1.02),
-        button: position(config.x - 1, y, z + 1) });
+      if (valid) matches.push({ left: x, right: x + config.width - 1, bottom: y, top: y + config.height - 1, z, material,
+        origin: position(x + config.width / 2, y, z + 1.02),
+        center: position(x + config.width / 2, y + config.height / 2, z + 1.02),
+        button: config.floorButton ? undefined : position(x - 1, y, z + 1) });
     }
     return { status: matches.length === 1 ? "ready" : matches.length ? "ambiguous" : "not_found", screen: matches.length === 1 ? matches[0] : undefined };
+  } catch (error) { return { status: "unloaded", error: String(error) }; }
+}
+
+export function detectFloorButton(dimension, config) {
+  const read = reader(dimension), matches = [], { anchor, radius } = config;
+  try {
+    for (let x = anchor.x - radius; x <= anchor.x + radius; x++)
+      for (let y = anchor.y - radius; y <= anchor.y + radius; y++)
+        for (let z = anchor.z - radius; z <= anchor.z + radius; z++) {
+          if (Math.hypot(x - anchor.x, y - anchor.y, z - anchor.z) > radius) continue;
+          const block = read(x, y, z);
+          if (!isVanillaButton(block.typeId)) continue;
+          const facing = block.permutation.getState("facing_direction");
+          if ((facing === 1 || facing === "up") && read(x, y - 1, z).isSolid) matches.push(position(x, y, z));
+        }
+    return { status: matches.length === 1 ? "ready" : matches.length ? "ambiguous" : "not_found",
+      button: matches.length === 1 ? matches[0] : undefined };
   } catch (error) { return { status: "unloaded", error: String(error) }; }
 }
 
@@ -72,6 +89,10 @@ export function detectMapWall(dimension, config = WALL_DISPLAYS.map) {
 export function audienceGain(player, screen, config = WALL_DISPLAYS) {
   if (!screen || player.dimension.id !== config.dimension || player.location.z < screen.center.z) return 0;
   const p = player.location, c = screen.center;
+  const area = config.video.audience;
+  if (area) return p.x >= screen.left - area.marginX && p.x <= screen.right + 1 + area.marginX &&
+    p.z >= c.z + area.near && p.z <= c.z + area.far &&
+    p.y >= screen.bottom + area.minY && p.y <= screen.bottom + area.maxY ? 1 : 0;
   const distance = Math.hypot(p.x - c.x, p.y - c.y, p.z - c.z);
   // The positional sound definition supplies attenuation; do not apply it twice.
   return distance < config.video.audienceRadius ? 1 : 0;
@@ -79,7 +100,8 @@ export function audienceGain(player, screen, config = WALL_DISPLAYS) {
 
 export function createWallDisplays({ world, system, media, now = () => Date.now(), config = WALL_DISPLAYS, log = console.warn }) {
   let screen, mapWall, entity, on = false, started = 0, frame = -1, lastCycle = -1;
-  let videoStatus = "cold", mapStatus = "cold", lastButtonTick = -100;
+  let videoStatus = "cold", mapStatus = "cold", buttonStatus = "cold", lastButtonTick = -100;
+  let controlButton;
   const listeners = new Map(), cleanedPlayers = new Set();
   const dimension = () => world.getDimension(config.dimension);
   function stopPlayer(player) {
@@ -103,6 +125,7 @@ export function createWallDisplays({ world, system, media, now = () => Date.now(
     loaded.remove();
   }
   function scanMap() {
+    if (!config.map) return { status: "disabled" };
     const result = detectMapWall(dimension(), config.map);
     if (result.wall && (mapStatus !== result.status || !samePosition(mapWall?.button, result.wall.button))) {
       const { bottom, z, button } = result.wall;
@@ -115,10 +138,22 @@ export function createWallDisplays({ world, system, media, now = () => Date.now(
   }
   function scan() {
     const result = detectVideoScreen(dimension(), config.video);
-    if (result.screen && (videoStatus !== result.status || !samePosition(screen?.button, result.screen.button))) {
+    if (config.video.floorButton) {
+      const found = detectFloorButton(dimension(), config.video.floorButton);
+      if (found.button && (buttonStatus !== found.status || !samePosition(controlButton, found.button))) {
+        const { x, y, z } = found.button;
+        log(`[Video screen:${config.id}] button=(${x},${y},${z}) floor=true`);
+      } else if (buttonStatus !== found.status) log(`[Video screen:${config.id}] button ${found.status}`);
+      buttonStatus = found.status;
+      // A removed button does not stop playback. Only a uniquely detected button can operate it.
+      controlButton = found.button;
+      if (result.screen) result.screen.button = controlButton;
+    }
+    if (result.screen && (videoStatus !== result.status || !samePosition(screen?.origin, result.screen.origin))) {
       const { bottom, z, button } = result.screen;
-      log(`[Video screen] ready dimension=${config.dimension} bottom=${bottom} wallPlaneZ=${z} button=(${button.x},${button.y},${button.z})`);
-    } else if (videoStatus !== result.status) log(`[Video screen] ${result.status}`);
+      if (config.id) log(`[Video screen:${config.id}] ready dimension=${config.dimension} left=${result.screen.left} right=${result.screen.right} bottom=${bottom} top=${result.screen.top} wallPlaneZ=${z} audience=south(+Z)`);
+      else log(`[Video screen] ready dimension=${config.dimension} bottom=${bottom} wallPlaneZ=${z} button=(${button.x},${button.y},${button.z})`);
+    } else if (videoStatus !== result.status) log(`[Video screen${config.id ? ":" + config.id : ""}] ${result.status}`);
     videoStatus = result.status;
     if (!result.screen) {
       reset(); screen = undefined;
@@ -129,7 +164,7 @@ export function createWallDisplays({ world, system, media, now = () => Date.now(
       if (changed) reset();
       screen = result.screen;
       for (const old of dimension().getEntities({ type: config.video.entity })) {
-        if (old.id !== entity?.id) recover(old);
+        if (old.typeId === config.video.entity && old.id !== entity?.id) recover(old);
       }
       if (!entity?.isValid || changed) {
         reset();
@@ -149,6 +184,12 @@ export function createWallDisplays({ world, system, media, now = () => Date.now(
       const message = `[Map wall] ${result.status}: ${result.wall?.frames.length ?? 0}/8. ${MAP_REFRESH_LIMITATION}`;
       if (event.source?.typeId === "minecraft:player") event.source.sendMessage(message);
       log(message);
+    }
+    // Replacing a broken floor button works immediately, before the periodic scan.
+    if (config.video.floorButton) {
+      const { anchor, radius } = config.video.floorButton;
+      if (Math.hypot(block.location.x - anchor.x, block.location.y - anchor.y, block.location.z - anchor.z) > radius) return;
+      scan();
     }
     if (!samePosition(block.location, screen?.button) || system.currentTick === lastButtonTick) return;
     lastButtonTick = system.currentTick;
@@ -208,5 +249,26 @@ export function createWallDisplays({ world, system, media, now = () => Date.now(
     cleanedPlayers.delete(id);
   }
   return { scan, scanMap, tick, button, reset, recover, release, leave,
-    status: () => ({ on, frame, videoStatus, mapStatus, screen, mapWall, listeners: listeners.size }) };
+    status: () => ({ on, frame, videoStatus, mapStatus, buttonStatus, screen, mapWall, listeners: listeners.size }) };
+}
+
+export function createVideoDisplays({ world, system, displays, now, log = console.warn }) {
+  const instances = displays.map(({ id, config, media }) => ({ id,
+    core: createWallDisplays({ world, system, config, media, now, log }), lastError: -100 }));
+  const call = (method, ...args) => {
+    for (const entry of instances) {
+      try { entry.core[method](...args); }
+      catch (error) {
+        try { entry.core.reset(); } catch { /* This display chunk may be unloading. */ }
+        if (system.currentTick - entry.lastError >= 100) {
+          log(`[Video screen:${entry.id}] ${String(error).slice(0, 250)}`);
+          entry.lastError = system.currentTick;
+        }
+      }
+    }
+  };
+  return Object.fromEntries(["scan", "tick", "button", "recover", "release", "leave", "reset"]
+    .map((method) => [method, (...args) => call(method, ...args)]).concat([
+      ["status", () => Object.fromEntries(instances.map(({ id, core }) => [id, core.status()]))],
+    ]));
 }

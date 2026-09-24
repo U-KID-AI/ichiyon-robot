@@ -167,6 +167,21 @@ class ManagedChecks(unittest.TestCase):
         requester.assert_called_with("GET", f"/internal/minecraft-release/{SHA}/operations/{OPERATION}", None)
         with self.assertRaises(ValueError): client.minecraft_release("../bad")
 
+    def test_only_release_post_gets_compilation_upload_and_staging_timeout(self):
+        for configured in (15.0, 180.0, 900.0):
+            with self.subTest(timeout=configured), patch("ai_task_api_client.urlopen") as request:
+                request.return_value.__enter__.return_value.read.return_value = json.dumps(payload()).encode()
+                client = RunnerAPIClient("https://example.test", "test-only", "runner", timeout=configured)
+                client.minecraft_release(SHA)
+                self.assertEqual(request.call_args.kwargs["timeout"], max(configured, 600.0))
+                client.minecraft_release_status(SHA, OPERATION)
+                self.assertEqual(request.call_args.kwargs["timeout"], configured)
+                client.claim()
+                self.assertEqual(request.call_args.kwargs["timeout"], configured)
+                client.heartbeat(uuid4(), uuid4())
+                self.assertEqual(request.call_args.kwargs["timeout"], configured)
+                self.assertEqual(client.timeout, configured)
+
     def test_normal_runner_factory_needs_no_new_credentials(self):
         import ai_task_runner as runner
         config = SimpleNamespace(repo_root=ROOT, worktree_root=ROOT.parent, git_path=ROOT / "git",
@@ -183,6 +198,7 @@ class ManagedChecks(unittest.TestCase):
         self.assertIsInstance(adapter, ManagedMinecraftDeployAdapter)
         self.assertEqual(adapter.client.base_url, config.api_base_url)
         self.assertEqual(adapter.client.token, config.api_token)
+        self.assertEqual(adapter.client.timeout, 180)
 
     def test_app_failure_proof_and_lease_loss_prevent_minecraft(self):
         apps = Mock()
