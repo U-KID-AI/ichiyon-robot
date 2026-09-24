@@ -1,6 +1,18 @@
 {
   "format_version": "1.20.20",
   "sound_definitions": {
+    "ichiyon.video_screen.audio": {
+      "category": "record",
+      "min_distance": 1,
+      "max_distance": 16,
+      "sounds": [
+        {
+          "name": "sounds/video_screen/audio",
+          "stream": false,
+          "is3D": true
+        }
+      ]
+    },
     "ichiyon:molcar.pui": {
       "category": "neutral",
       "sounds": [
@@ -53,6 +65,15 @@
       "category": "neutral",
       "sounds": [
         "sounds/molcar/molcar_common"
+      ]
+    },
+    "ichiyon:record.lets_cooking_molcar": {
+      "category": "record",
+      "sounds": [
+        {
+          "name": "sounds/records/lets_cooking_molcar",
+          "stream": true
+        }
       ]
     }
   }

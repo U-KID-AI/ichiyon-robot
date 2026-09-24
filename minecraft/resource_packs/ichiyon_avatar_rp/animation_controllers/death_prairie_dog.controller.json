@@ -1,0 +1,30 @@
+{
+  "format_version": "1.17.30",
+  "animation_controllers": {
+    "controller.animation.death_prairie_dog.state": {
+      "initial_state": "wander",
+      "states": {
+        "wander": {
+          "animations": [{"prairie2walk": "query.ground_speed > 0.01"}],
+          "transitions": [
+            {"transition": "query.property('ichiyon:prairie_state') == 'transition' || query.property('ichiyon:prairie_state') == 'chase'"}
+          ]
+        },
+        "transition": {
+          "animations": ["transition"],
+          "transitions": [
+            {"wander": "query.property('ichiyon:prairie_state') == 'wander' || query.property('ichiyon:prairie_state') == 'flee'"},
+            {"chase": "query.state_time >= 0.5 && query.property('ichiyon:prairie_state') == 'chase'"}
+          ]
+        },
+        "chase": {
+          "animations": ["prairie4walk"],
+          "transitions": [
+            {"wander": "query.property('ichiyon:prairie_state') == 'wander' || query.property('ichiyon:prairie_state') == 'flee'"},
+            {"transition": "query.property('ichiyon:prairie_state') == 'transition'"}
+          ]
+        }
+      }
+    }
+  }
+}

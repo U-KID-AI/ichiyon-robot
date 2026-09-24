@@ -64,7 +64,7 @@
       },
       "minecraft:leashable": {},
       "minecraft:movement": {
-        "max": 0.4,
+        "max": 0.65,
         "value": 0.4
       },
       "minecraft:movement.basic": {},

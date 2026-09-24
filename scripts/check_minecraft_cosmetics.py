@@ -14,6 +14,9 @@ sys.path.insert(0, str(ROOT))
 from bot.services.minecraft_cosmetics import asset, png_bytes, geometry_bytes, json_bytes, MAX_UPLOAD
 from bot.services.minecraft_cosmetics_pack import BP, RP, BRIDGE, MOLCARS, builtin_assets, compile_files, pack_zip, catalog_digest
 from bot.services.minecraft_cosmetics_pack import ACCESSORY_GROUPS, _creative_accessory_catalog
+from scripts.build_minecraft_cosmetics import generated_matches
+# unittest discovers this class through the existing CI entry point as well.
+from scripts.check_build_minecraft_cosmetics import BuilderChecks
 
 
 def png(size=(64, 64)):
@@ -216,8 +219,7 @@ class PackChecks(unittest.TestCase):
     def test_built_in_generation_is_current(self):
         for name, data in compile_files(self.minecraft, builtin_assets(self.minecraft)).items():
             actual = (self.minecraft / name).read_bytes()
-            if not name.endswith(".png"): actual = actual.replace(b"\r\n", b"\n")
-            self.assertEqual(actual, data, name)
+            self.assertTrue(generated_matches(name, actual, data), name)
 
     def test_bridge_dependency_modules_are_permitted(self):
         manifest = json.loads((self.minecraft / BRIDGE / "manifest.json").read_bytes())

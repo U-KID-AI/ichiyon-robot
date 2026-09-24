@@ -28,10 +28,24 @@ class VoiceMixerAudioSource(discord.AudioSource):
         self.music_volume = 0.4
         self.tts_volume = 0.5
         self.closed = False
+        self.music_input_frames = 0
+        self.music_input_nonzero = False
         self.ducking = DuckingEnvelope(DuckingConfig())
 
     def is_opus(self) -> bool:
         return False
+
+    def diagnostics(self) -> dict:
+        with self._lock:
+            return {
+                "mixer_music_input": self.music_source is not None,
+                "mixer_music_frames": self.music_input_frames,
+                "mixer_music_nonzero": self.music_input_nonzero,
+                "mixer_volume": self.music_volume,
+                "mixer_ducking_gain": self.ducking.current_gain,
+                "mixer_tts_input": self.tts_source is not None,
+                "mixer_closed": self.closed,
+            }
 
     def configure_ducking(self, config: DuckingConfig) -> None:
         with self._lock:
@@ -49,6 +63,8 @@ class VoiceMixerAudioSource(discord.AudioSource):
         with self._lock:
             self._cleanup_source(self.music_source)
             self.music_source = source
+            self.music_input_frames = 0
+            self.music_input_nonzero = False
             self.music_after = after
             self.closed = False
 
@@ -123,6 +139,9 @@ class VoiceMixerAudioSource(discord.AudioSource):
         if not data:
             self._finish_source(kind, None)
             return None
+        if kind == "music":
+            self.music_input_frames += 1
+            self.music_input_nonzero = self.music_input_nonzero or any(data)
         if len(data) < PCM_FRAME_BYTES:
             data += b"\x00" * (PCM_FRAME_BYTES - len(data))
         return data[:PCM_FRAME_BYTES]

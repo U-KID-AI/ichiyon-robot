@@ -1,4 +1,5 @@
 import asyncio
+import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -550,12 +551,19 @@ def static_checks():
     results.append(check("taketumi egg item has icon", '"minecraft:icon": "ichiyon:taketumi_spawn_egg"' in avatar_bp_item and "textures/items/taketumi_spawn_egg" in item_texture))
     results.append(check("taketumi egg has display name", "item.ichiyon:taketumi_spawn_egg.name=タケツミエッグ" in lang))
     results.append(check("script can inspect held item", "handleHeldItemInspect" in script and "getDynamicPropertyIds" in script and "internal_nbt: Script APIでは取得不可" in script))
-    results.append(check("script recognizes taketumi spawn type", "taketumi_spawn_near_player" in script and "handleTaketumiSpawnNearPlayer" in script))
-    results.append(check("script recognizes taketumi remove type", "taketumi_remove_near_player" in script and "handleTaketumiRemoveNearPlayer" in script))
-    results.append(check("script uses fixed taketumi entity id", 'const TAKETUMI_ENTITY_ID = "ichiyon:taketumi"' in script and "command.entity" not in script))
-    results.append(check("script sets taketumi nameTag", 'const TAKETUMI_NAME_TAG = "タケツミ"' in script and "spawned.nameTag = TAKETUMI_NAME_TAG" in script))
+    taketumi_spec = re.search(r"const ENTITY_COMMANDS = \{\s*taketumi: \{([^}]+)\}", script)
+    taketumi_spec = taketumi_spec.group(1) if taketumi_spec else ""
+    results.append(check("script recognizes taketumi spawn type", re.search(
+        r'command.type === "taketumi_spawn_near_player"\) \{\s*await handleEntitySpawnNearPlayer\(command, ENTITY_COMMANDS.taketumi\)', script)))
+    results.append(check("script recognizes taketumi remove type", re.search(
+        r'command.type === "taketumi_remove_near_player"\) \{\s*await handleEntityRemoveNearPlayer\(command, ENTITY_COMMANDS.taketumi\)', script)))
+    results.append(check("script uses fixed taketumi entity id", 'entityId: "ichiyon:taketumi"' in taketumi_spec
+                         and "spawnEntity(spec.entityId," in script and "command.entity" not in script))
+    results.append(check("script sets taketumi nameTag", 'nameTag: "タケツミ"' in taketumi_spec and "spawned.nameTag = spec.nameTag" in script))
     results.append(check("script cleans up spawn when nameTag fails", "taketumi_name_failed" in script and "spawned.remove()" in script))
-    results.append(check("script removes only nearby taketumi", "type: TAKETUMI_ENTITY_ID" in script and "maxDistance: 16" in script))
+    remove_handler = script.split("async function handleEntityRemoveNearPlayer(command, spec)", 1)[-1].split("async function", 1)[0]
+    results.append(check("script removes only nearby taketumi", "type: spec.entityId" in remove_handler
+                         and "location: player.location" in remove_handler and "maxDistance: 16" in remove_handler))
     results.append(check("script does not expose arbitrary entity identifier", "spawnEntity(command" not in script and "getEntities(command" not in script))
     results.append(check("script can report minecraft status", "handleServerStatus" in script and "world.getAllPlayers()" in script and "Minecraft Server: ONLINE" in script))
     results.append(check("script does not expose host shell status", "child_process" not in script and "docker ps" not in script))

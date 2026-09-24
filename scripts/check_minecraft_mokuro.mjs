@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { createMokuro, attachmentPose, glideImpulse, MOKURO, OWNER, RETURN } from "../minecraft/behavior_packs/import_structures/scripts/mokuro_core.js";
+import { createMokuro, attachmentPose, attachmentPrediction, glideTarget, glideImpulse, MOKURO, OWNER, RETURN } from "../minecraft/behavior_packs/import_structures/scripts/mokuro_core.js";
 
 let count = 0;
 function test(name, fn) {
@@ -19,6 +19,17 @@ function fixture() {
     const e = { typeId, id: String(next++), isValid: true, health: 20, location: { ...loc }, dimension: dimensions.overworld,
       isOnGround: true, isSneaking: false, selectedSlotIndex: 0, messages: [], events, impulses, props, dynamic,
       velocity: { x: 0, y: 0, z: 0 }, yaw: 0, leashed: false, held: undefined, mobile: true,
+      effects: new Map(), effectCalls: [],
+      getEffect(name) {
+        const effect = this.effects.get(name);
+        return effect && effect.until > system.currentTick
+          ? { amplifier: effect.amplifier, duration: effect.until - system.currentTick } : undefined;
+      },
+      addEffect(name, duration, options) {
+        this.effectCalls.push({ name, duration, options, tick: system.currentTick });
+        this.effects.set(name, { amplifier: options.amplifier, until: system.currentTick + duration });
+      },
+      removeEffect(name) { return this.effects.delete(name); },
       getComponent(name) {
         if (name === "minecraft:health") return { currentValue: this.health };
         if (name === "minecraft:inventory") return { container: { getItem: () => this.held } };
@@ -97,8 +108,8 @@ await test("real Elytra, creative flight, water, climbing and riding excluded", 
 await test("inertial bounded impulse and no upwards powered flight", () => {
   for (const y of [-1, 0, 1]) {
     const v = glideImpulse({ x: 2, y: -0.05, z: -1 }, { x: 0, y, z: 1 });
-    assert(Math.abs(v.x) <= .04 && Math.abs(v.z) <= .04 && Math.abs(v.y) <= .12);
-    assert(v.y <= 0);
+    assert(Math.hypot(v.x, v.z) <= .04 + 1e-12);
+    assert.equal(v.y, 0);
   }
 });
 await test("fall protection limited to active head glide; never other damage", () => {
@@ -290,5 +301,104 @@ await test("roll uses original clip then blends into open wings", () => {
   const a=animationFixture();a.props['ichiyon:carried']=true;a.step();
   a.props['ichiyon:boosting']=true;assert.equal(a.step(),'roll');
   a.props['ichiyon:boosting']=false;a.props['ichiyon:gliding']=true;assert.equal(a.step(),'glide');
+});
+await test("slow falling level zero refreshes every six ticks with no vertical impulses", () => {
+  const { core, p, system, glide } = fixture(); glide();
+  for (let tick = 2; tick <= 19; tick++) { system.currentTick = tick; core.tick(); }
+  assert.deepEqual(p.effectCalls.map(e => e.tick), [1, 7, 13, 19]);
+  for (const call of p.effectCalls) {
+    assert.equal(call.name, "slow_falling"); assert.equal(call.duration, 8);
+    assert.deepEqual(call.options, { amplifier: 0, showParticles: false });
+  }
+  assert(p.impulses.every(v => v.y === 0 && Math.hypot(v.x, v.z) <= .04 + 1e-12));
+});
+await test("glide termination removes only its own short slow falling effect", () => {
+  for (const cause of ["sneak", "land", "detach", "mobDeath", "dimension", "elytra"]) {
+    const { core, p, mob, dimensions, glide } = fixture(); glide();
+    assert(p.getEffect("slow_falling"));
+    if (cause === "sneak") p.isSneaking = true;
+    if (cause === "land") p.isOnGround = true;
+    if (cause === "detach") core.releasePlayer(p.id);
+    if (cause === "mobDeath") { mob.health = 0; core.died(mob); }
+    if (cause === "dimension") p.dimension = dimensions.nether;
+    if (cause === "elytra") p.chest = { typeId: "minecraft:elytra" };
+    core.tick(); assert.equal(p.getEffect("slow_falling"), undefined, cause);
+  }
+});
+await test("pre-existing and replacement potion effects survive glide and detach", () => {
+  for (const amplifier of [0, 1]) for (const before of [true, false]) {
+    const { core, p, glide } = fixture();
+    if (before) p.addEffect("slow_falling", 500, { amplifier });
+    glide();
+    if (!before) p.addEffect("slow_falling", 500, { amplifier });
+    core.releasePlayer(p.id);
+    assert.deepEqual(p.getEffect("slow_falling"), { amplifier, duration: 500 });
+  }
+});
+await test("reload effect has bounded lifetime without a surviving glide timer", () => {
+  const { p, mob, deps, system, glide } = fixture(); glide();
+  const reloaded = createMokuro(deps); reloaded.recover(mob);
+  system.currentTick += 8; assert.equal(p.getEffect("slow_falling"), undefined);
+  assert.equal(reloaded.owners.size, 0);
+});
+await test("short external effects are not claimed, and infinite effects are never removed", () => {
+  const f = fixture(); f.p.addEffect("slow_falling", 2, { amplifier: 0 }); f.glide();
+  assert.equal(f.p.effectCalls.length, 1); f.system.currentTick += 2; f.core.tick();
+  assert.equal(f.p.effectCalls.length, 2); assert.equal(f.p.getEffect("slow_falling").duration, 8);
+  for (const duration of [-1, 20000000]) {
+    const g = fixture(); g.glide();
+    g.p.getEffect = () => ({ amplifier: 0, duration });
+    g.p.removeEffect = () => { throw Error("must not remove external effect"); };
+    g.p.addEffect = () => { throw Error("must not replace external effect"); };
+    g.system.currentTick += 6; g.core.tick();
+    assert.equal(g.core.owners.size, 1); g.core.releasePlayer(g.p.id); assert.equal(g.core.owners.size, 0);
+  }
+});
+await test("horizontal target speed, shortest turns, interpolation and deadband", () => {
+  for (const y of [-2, -1, 0, 1]) {
+    const target = glideTarget({ x: 0, z: 0 }, { x: 0, y, z: 1 });
+    assert(Math.hypot(target.x, target.z) >= .32 - 1e-12);
+    assert(Math.hypot(target.x, target.z) <= .5 + 1e-12);
+  }
+  let target = { x: .32, z: 0 };
+  for (let i = 0; i < 40; i++) {
+    const next = glideTarget(target, { x: -1, y: -1, z: 0 }, target);
+    const delta = Math.atan2(next.z, next.x) - Math.atan2(target.z, target.x);
+    assert(Math.abs(Math.atan2(Math.sin(delta), Math.cos(delta))) <= 12 * Math.PI / 180 + 1e-12);
+    assert(Math.abs(Math.hypot(next.x, next.z) - (Math.hypot(target.x, target.z) * .8 + .5 * .2)) < 1e-12);
+    target = next;
+  }
+  const angle = 10 * Math.PI / 180;
+  const smallTurn = glideTarget({ x: .32, z: 0 }, { x: Math.cos(angle), y: 0, z: Math.sin(angle) }, { x: .32, z: 0 });
+  assert(Math.abs(Math.atan2(smallTurn.z, smallTurn.x) - angle * .2) < 1e-12);
+  assert.deepEqual(glideImpulse({ x: .31, y: -10, z: 0 }, {}, { x: .32, z: 0 }), { x: 0, y: 0, z: 0 });
+  assert.equal(glideImpulse({ x: .2, y: 10, z: 0 }, {}, { x: .32, z: 0 }).x, (.32 - .2) * .08);
+  const left = { x: Math.cos(179 * Math.PI / 180) * .32, z: Math.sin(179 * Math.PI / 180) * .32 };
+  const wrapped = glideTarget(left, { x: Math.cos(-179 * Math.PI / 180), y: 0, z: Math.sin(-179 * Math.PI / 180) }, left);
+  assert(Math.abs(Math.atan2(wrapped.z, wrapped.x) * 180 / Math.PI - 179.4) < 1e-9);
+});
+await test("prediction is 0.75 tick, horizontal, capped by length, and rejects stale velocity", () => {
+  const predicted = attachmentPrediction({ x: .2, y: 99, z: 0 });
+  assert(Math.abs(predicted.x - .15) < 1e-12); assert.equal(predicted.z, 0);
+  for (const velocity of [{ x: 3, z: 4 }, { x: -10, z: 0 }]) {
+    const predicted = attachmentPrediction(velocity);
+    assert(Math.hypot(predicted.x, predicted.z) <= .25 + 1e-12);
+  }
+  for (const delta of [{ x: 0, z: 0 }, { x: -.2, z: 0 }]) {
+    assert.deepEqual(attachmentPrediction({ x: .2, z: 0 }, delta), { x: 0, z: 0 });
+  }
+});
+await test("head/back offsets unchanged; stop and reversal immediately clear old prediction", () => {
+  for (const mode of ["head", "back"]) {
+    const { core, p, mob } = fixture(); core.attach(p, mob, mode);
+    p.velocity.x = .2; p.location.x += .2; core.tick();
+    let pose = attachmentPose(p, mode);
+    assert(Math.abs(mob.location.x - pose.location.x - .15) < 1e-12);
+    assert.equal(mob.location.y, pose.location.y); assert.equal(mob.location.z, pose.location.z);
+    core.tick(); assert.deepEqual(mob.location, attachmentPose(p, mode).location);
+    p.location.x -= .2; core.tick(); assert.deepEqual(mob.location, attachmentPose(p, mode).location);
+    p.velocity.x = -.2; p.location.x -= .2; core.tick(); pose = attachmentPose(p, mode);
+    assert(Math.abs(mob.location.x - pose.location.x + .15) < 1e-12);
+  }
 });
 console.log(`${count} Mokuro runtime checks passed`);

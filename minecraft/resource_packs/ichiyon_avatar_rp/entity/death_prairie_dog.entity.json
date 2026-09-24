@@ -1,0 +1,20 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "ichiyon:death_prairie_dog",
+      "materials": {"default": "entity_alphatest"},
+      "textures": {"default": "textures/entity/death_prairie_dog"},
+      "geometry": {"default": "geometry.death_prairie_dog"},
+      "animations": {
+        "transition": "animation.death_prairie_dog.transition",
+        "prairie4walk": "animation.death_prairie_dog.prairie4walk",
+        "prairie2walk": "animation.death_prairie_dog.prairie2walk",
+        "state": "controller.animation.death_prairie_dog.state"
+      },
+      "scripts": {"animate": ["state"]},
+      "render_controllers": ["controller.render.default"],
+      "spawn_egg": {"base_color": "#58d90e", "overlay_color": "#171717"}
+    }
+  }
+}

@@ -43,7 +43,7 @@ class PosterChecks(unittest.TestCase):
         }
 
     def test_versions(self):
-        for pack, version in ((BP, [1, 0, 37]), (RP, [1, 0, 42]), (IMPORT, [1, 0, 34])):
+        for pack, version in ((BP, [1, 0, 38]), (RP, [1, 0, 43]), (IMPORT, [1, 0, 35])):
             with self.subTest(pack=pack.name):
                 manifest = read_json(pack / "manifest.json")
                 self.assertEqual(manifest["header"]["version"], version)
@@ -179,6 +179,12 @@ class PosterChecks(unittest.TestCase):
         self.assertIn("const LARGE_POSTER_ROWS = 6;", script)
         registry = re.search(r"const LARGE_POSTERS = \[(.*?)\n\];", script, re.S)
         self.assertIsNotNone(registry)
+        self.assertIn("...managedPosters,", registry.group(1))
+        self.assertIn('import { cosmetics, cosmeticsDigest, managedPosters } from "./cosmetics.js";', script)
+        self.assertIn('import { createPosterRuntime } from "./poster_core.js";', script)
+        runtime = re.search(r"const posterRuntime = createPosterRuntime\(\{(.*?)\}\);", script, re.S)
+        self.assertIsNotNone(runtime)
+        self.assertIn("posters: LARGE_POSTERS, BlockPermutation, ItemStack, system,", runtime.group(1))
         entries = re.findall(r"\{([^{}]+)\}", registry.group(1))
         self.assertEqual(len(entries), 12)
         self.assertEqual(re.findall(r'baseId: "ichiyon:poster_(\w+)"', registry.group(1)), list(POSTERS))
@@ -224,10 +230,17 @@ class PosterChecks(unittest.TestCase):
         self.assertIn("if (!playerShouldReceivePosterDrop(player)) {\n    return;\n  }",
                       function("returnLargePosterItem"))
         self.assertIn("new ItemStack(poster.baseId, 1)", function("returnLargePosterItem"))
-        self.assertIn("world.afterEvents.playerPlaceBlock.subscribe", script)
-        self.assertIn("expandLargePoster(event.block, event.player);", script)
-        self.assertIn("world.afterEvents.playerBreakBlock.subscribe", script)
-        self.assertIn("cleanupLargePosterSegment(event.block, event.brokenBlockPermutation, event.player);", script)
+        for event_name, call in (
+            ("playerPlaceBlock", "posterRuntime.expand(event.block, event.player);"),
+            ("playerBreakBlock", "posterRuntime.cleanup(event.block, event.brokenBlockPermutation, event.player);"),
+        ):
+            subscription = f"world.afterEvents.{event_name}.subscribe"
+            self.assertEqual(script.count(subscription), 1)
+            callback = re.search(re.escape(subscription) + r"\(\(event\) => \{(.*?)\n\}\);", script, re.S)
+            self.assertIsNotNone(callback, event_name)
+            self.assertIn("system.run(() => {", callback.group(1))
+            self.assertIn(call, callback.group(1))
+            self.assertNotRegex(callback.group(1), r"\b(?:expandLargePoster|cleanupLargePosterSegment)\(")
         self.assertEqual(script.count("system.runInterval"), 2)
         self.assertIn("POLL_INTERVAL_TICKS", script)
         self.assertIn("Object.prototype.hasOwnProperty.call(ITEM_TYPES_BY_COMMAND, command.type)", script)

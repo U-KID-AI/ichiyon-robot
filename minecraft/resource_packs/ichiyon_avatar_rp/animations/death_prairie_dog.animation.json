@@ -1,0 +1,234 @@
+{
+  "format_version": "1.8.0",
+  "animations": {
+    "animation.death_prairie_dog.transition": {
+      "loop": "hold_on_last_frame",
+      "animation_length": 0.5,
+      "bones": {
+        "body": {
+          "relative_to": {
+            "rotation": "entity"
+          },
+          "rotation": [
+            0,
+            0,
+            0
+          ]
+        },
+        "head": {
+          "relative_to": {
+            "rotation": "entity"
+          },
+          "rotation": {
+            "0.0": [
+              -0.0,
+              -0.0,
+              0.0
+            ],
+            "0.5": [
+              -90.0,
+              -0.0,
+              0.0
+            ]
+          }
+        },
+        "tail": {
+          "relative_to": {
+            "rotation": "entity"
+          },
+          "rotation": {
+            "0.0": [
+              -0.0,
+              -0.0,
+              0.0
+            ],
+            "0.5": [
+              -90.0,
+              -0.0,
+              0.0
+            ]
+          }
+        },
+        "bone": {
+          "relative_to": {
+            "rotation": "entity"
+          },
+          "rotation": {
+            "0.5": [
+              90.0,
+              -0.0,
+              0.0
+            ],
+            "0.0": [
+              -0.0,
+              -0.0,
+              0.0
+            ]
+          }
+        }
+      }
+    },
+    "animation.death_prairie_dog.prairie4walk": {
+      "loop": true,
+      "animation_length": 1,
+      "bones": {
+        "regL": {
+          "position": {
+            "0.0": [
+              -0.0,
+              0.0,
+              1.0
+            ],
+            "0.5": [
+              -0.0,
+              0.0,
+              -1.0
+            ],
+            "1.0": [
+              -0.0,
+              0.0,
+              1.0
+            ]
+          }
+        },
+        "regR": {
+          "position": {
+            "0.5": [
+              -0.0,
+              0.0,
+              1.0
+            ],
+            "0.0": [
+              -0.0,
+              0.0,
+              -1.0
+            ],
+            "1.0": [
+              -0.0,
+              0.0,
+              -1.0
+            ]
+          }
+        },
+        "head": {
+          "relative_to": {
+            "rotation": "entity"
+          },
+          "rotation": {
+            "0.0": [
+              -90.0,
+              -0.0,
+              0.0
+            ]
+          }
+        },
+        "armL": {
+          "position": {
+            "0.0": [
+              -0.0,
+              1.0,
+              0.0
+            ],
+            "0.5": [
+              -0.0,
+              -1.0,
+              0.0
+            ],
+            "1.0": [
+              -0.0,
+              1.0,
+              0.0
+            ]
+          }
+        },
+        "armR": {
+          "position": {
+            "0.5": [
+              -0.0,
+              1.0,
+              0.0
+            ],
+            "0.0": [
+              -0.0,
+              -1.0,
+              0.0
+            ],
+            "1.0": [
+              -0.0,
+              -1.0,
+              0.0
+            ]
+          }
+        },
+        "tail": {
+          "relative_to": {
+            "rotation": "entity"
+          },
+          "rotation": {
+            "0.0": [
+              -90.0,
+              -0.0,
+              0.0
+            ]
+          }
+        },
+        "bone": {
+          "relative_to": {
+            "rotation": "entity"
+          },
+          "rotation": {
+            "0.0": [
+              90.0,
+              -0.0,
+              0.0
+            ]
+          }
+        }
+      }
+    },
+    "animation.death_prairie_dog.prairie2walk": {
+      "loop": true,
+      "animation_length": 1,
+      "bones": {
+        "regL": {
+          "position": {
+            "0.0": [
+              -0.0,
+              0.0,
+              1.0
+            ],
+            "1.0": [
+              -0.0,
+              0.0,
+              1.0
+            ],
+            "0.5": [
+              -0.0,
+              0.0,
+              -1.0
+            ]
+          }
+        },
+        "regR": {
+          "position": {
+            "0.0": [
+              -0.0,
+              0.0,
+              -1.0
+            ],
+            "1.0": [
+              -0.0,
+              0.0,
+              -1.0
+            ],
+            "0.5": [
+              -0.0,
+              0.0,
+              1.0
+            ]
+          }
+        }
+      }
+    }
+  }
+}

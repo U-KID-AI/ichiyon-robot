@@ -114,11 +114,40 @@ class AdminChecks(unittest.TestCase):
         preview = self.client.get("/minecraft/cosmetics/preview/skin/5")
         self.assertEqual(preview.status_code, 200); self.assertEqual(preview.headers["content-type"], "image/png")
 
-    def test_registration_accessory(self):
+    def test_accessory_addition_is_rejected_but_existing_assets_remain(self):
         self.sign_in()
         response = self.client.post("/minecraft/cosmetics/assets", data={"csrf": "test-csrf", "kind": "accessory", "name": "帽子", "slot": "hat"},
             files={"texture": ("t.png", png()), "geometry": ("a.json", json_bytes(geometry())), "icon": ("i.png", png((16, 16)))}, follow_redirects=False)
-        self.assertEqual(response.status_code, 303); self.assertEqual(FakeRepository.added[0]["slot"], "hat")
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(FakeRepository.added)
+        FakeRepository.added.append(asset("accessory", 1, "hat", "Existing hat", png(),
+                                          geometry=json_bytes(geometry()), icon=png(), slot="hat"))
+        page = self.client.get("/minecraft/cosmetics")
+        self.assertIn("Existing hat", page.text)
+        self.assertNotIn('name="kind" value="accessory"', page.text)
+        self.assertEqual(self.client.get("/minecraft/cosmetics/preview/accessory/1").status_code, 200)
+        self.assertEqual(self.client.post("/minecraft/cosmetics/export", data={"csrf": "test-csrf"}).status_code, 200)
+
+    def test_poster_upload_preview_and_dimensions(self):
+        from io import BytesIO
+        from PIL import Image
+        self.sign_in()
+        fields = {"csrf": "test-csrf", "kind": "poster", "name": "New poster", "width": "3", "height": "2"}
+        response = self.client.post("/minecraft/cosmetics/assets", data=fields,
+                                    files={"texture": ("photo.png", png((300, 300)))}, follow_redirects=False)
+        self.assertEqual(response.status_code, 303)
+        record = FakeRepository.added[0]
+        self.assertEqual((record["width"], record["height"]), (3, 2))
+        preview = self.client.get("/minecraft/cosmetics/preview/poster/1")
+        self.assertEqual(Image.open(BytesIO(preview.content)).size, (192, 128))
+        self.assertIn("3×2ブロック", self.client.get("/minecraft/cosmetics").text)
+        for field in ("width", "height"):
+            for value in ("", "0", "11", "1.5", "3.0", "True", "-1", "1e1", "３"):
+                with self.subTest(field=field, value=value):
+                    response = self.client.post("/minecraft/cosmetics/assets", data=fields | {field: value},
+                                                files={"texture": ("photo.png", png())})
+                    self.assertEqual(response.status_code, 400)
+        self.assertEqual(len(FakeRepository.added), 1)
 
     def test_invalid_upload_returns_readable_error(self):
         self.sign_in()

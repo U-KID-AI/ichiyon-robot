@@ -1,0 +1,66 @@
+{
+  "format_version": "1.8.0",
+  "render_controllers": {
+    "controller.render.ichiyon_video_black": {
+      "geometry": "Geometry.black",
+      "materials": [
+        {
+          "*": "Material.black"
+        }
+      ],
+      "textures": [
+        "Texture.black"
+      ],
+      "ignore_lighting": true
+    },
+    "controller.render.ichiyon_video_screen": {
+      "arrays": {
+        "textures": {
+          "Array.frames": [
+            "Texture.atlas_0",
+            "Texture.atlas_1",
+            "Texture.atlas_2",
+            "Texture.atlas_3",
+            "Texture.atlas_4",
+            "Texture.atlas_5",
+            "Texture.atlas_6",
+            "Texture.atlas_7",
+            "Texture.atlas_8",
+            "Texture.atlas_9",
+            "Texture.atlas_10",
+            "Texture.atlas_11",
+            "Texture.atlas_12",
+            "Texture.atlas_13",
+            "Texture.atlas_14",
+            "Texture.atlas_15",
+            "Texture.atlas_16",
+            "Texture.atlas_17",
+            "Texture.atlas_18",
+            "Texture.atlas_19",
+            "Texture.atlas_20"
+          ]
+        }
+      },
+      "geometry": "Geometry.default",
+      "materials": [
+        {
+          "*": "Material.default"
+        }
+      ],
+      "ignore_lighting": true,
+      "textures": [
+        "Array.frames[math.floor(math.max(0, q.property('ichiyon:frame')) / 100)]"
+      ],
+      "uv_anim": {
+        "offset": [
+          "(math.mod(math.max(0, q.property('ichiyon:frame')), 10) * 66 + 1) / 660",
+          "(math.floor(math.mod(math.max(0, q.property('ichiyon:frame')), 100) / 10) * 38 + 1) / 380"
+        ],
+        "scale": [
+          0.09696969696969697,
+          0.09473684210526316
+        ]
+      }
+    }
+  }
+}

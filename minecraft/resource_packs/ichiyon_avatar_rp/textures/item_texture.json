@@ -7,6 +7,9 @@
     "ichiyon:bartholomew_kuma_paw": {
       "textures": "textures/items/bartholomew_kuma_paw"
     },
+    "ichiyon:record_lets_cooking_molcar": {
+      "textures": "textures/items/record_lets_cooking_molcar"
+    },
     "ichiyon:softshell_crab": {
       "textures": "textures/items/softshell_crab"
     },

@@ -1,0 +1,24 @@
+{
+  "source": {
+    "filename": "3851.mp4",
+    "sha256": "8b48a89bbc008ed22cf9838c87285c24f12b9e055fbcf0b79e40f056d86876d3",
+    "width": 640,
+    "height": 360,
+    "fps": "30000/1001",
+    "duration": 104.420136,
+    "videoDuration": 104.4043,
+    "hasAudio": true
+  },
+  "output": {
+    "fps": 20,
+    "frameCount": 2088,
+    "duration": 104.4,
+    "sound": "ichiyon.video_screen.audio",
+    "atlasCount": 21,
+    "atlasWidth": 660,
+    "atlasHeight": 380,
+    "frameWidth": 64,
+    "frameHeight": 36,
+    "assetBytes": 9418693
+  }
+}

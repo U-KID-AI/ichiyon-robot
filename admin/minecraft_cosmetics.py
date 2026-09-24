@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import secrets
 import uuid
 
@@ -73,11 +74,19 @@ def register_minecraft_cosmetics_routes(templates):
         user = require_login(request)
         try:
             form = await bounded_form(request)
+            if form.get("kind") not in ("skin", "poster"):
+                raise ValueError("追加できる素材はスキンとポスターだけです。")
+            dimensions = {}
+            if form["kind"] == "poster":
+                for field in ("width", "height"):
+                    value = form.get(field)
+                    if not isinstance(value, str) or not re.fullmatch(r"(?:[1-9]|10)", value):
+                        raise ValueError("ポスターの幅・高さは1〜10ブロックの整数で指定してください。")
+                    dimensions[field] = int(value)
             with get_connection() as connection:
                 repository = MinecraftCosmeticsRepository(connection)
                 repository.add(kind=form.get("kind"), name=form.get("name"), texture=form.get("texture", b""),
-                               model=form.get("model", "classic"), slot=form.get("slot", "hat"),
-                               geometry=form.get("geometry"), icon=form.get("icon"), created_by=str(user["user_id"]))
+                               model=form.get("model", "classic"), created_by=str(user["user_id"]), **dimensions)
                 connection.commit()
         except ValueError as exc:
             return page(request, error=str(exc), code=400)

@@ -34,7 +34,8 @@ class DatabaseChecks(unittest.TestCase):
         with connection() as conn:
             conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(cls.schema)))
             conn.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(cls.schema)))
-            for name in ("065_add_minecraft_cosmetics.sql", "066_delete_minecraft_cosmetic_skins.sql"):
+            for name in ("065_add_minecraft_cosmetics.sql", "066_delete_minecraft_cosmetic_skins.sql",
+                         "069_add_minecraft_managed_posters.sql"):
                 migration = (ROOT / "migrations" / name).read_text(encoding="utf-8")
                 conn.execute(migration)
                 conn.execute(migration)  # Migration is additive/idempotent.
@@ -83,6 +84,53 @@ class DatabaseChecks(unittest.TestCase):
             record = MinecraftCosmeticsRepository(conn).add(kind="accessory", name="帽子", texture=png(), geometry=json_bytes(geometry()), icon=png((16, 16)), slot="hat", created_by="tester")
         with self.connect() as conn:
             self.assertEqual(MinecraftCosmeticsRepository(conn).assets(), [record])
+
+    def test_posters_are_durable_and_ids_are_serialized(self):
+        def add(i):
+            with self.connect() as conn:
+                return MinecraftCosmeticsRepository(conn).add(kind="poster", name=f"Poster {i}",
+                    texture=png(), width=i + 1, height=10, created_by="tester")
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            records = list(pool.map(add, range(4)))
+        self.assertEqual(sorted(record["id"] for record in records), [1, 2, 3, 4])
+        with self.connect() as conn:
+            self.assertEqual(MinecraftCosmeticsRepository(conn).assets(), sorted(records, key=lambda r: r["id"]))
+            conn.execute("INSERT INTO minecraft_cosmetic_deleted_assets (kind,asset_id,deleted_by) VALUES ('poster',20,'tester')")
+        with self.connect() as conn:
+            self.assertEqual(MinecraftCosmeticsRepository(conn).add(kind="poster", name="Next", texture=png(),
+                             width=1, height=1, created_by="tester")["id"], 21)
+
+    def test_poster_database_shape_constraints(self):
+        for width, height in ((None, 2), (2, None), (0, 2), (2, 11)):
+            with self.subTest(width=width, height=height), self.assertRaises(psycopg.errors.CheckViolation):
+                with self.connect() as conn:
+                    conn.execute("""INSERT INTO minecraft_cosmetic_assets
+                        (kind,asset_id,asset_key,name,texture,created_by,width,height)
+                        VALUES ('poster',1,'poster_1','Poster',%s,'tester',%s,%s)""", (png(), width, height))
+
+    def test_upgrade_preserves_legacy_rows_and_tombstones(self):
+        schema = self.schema + "_upgrade"
+        with connection() as conn:
+            conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+            conn.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+            for name in ("065_add_minecraft_cosmetics.sql", "066_delete_minecraft_cosmetic_skins.sql"):
+                conn.execute((ROOT / "migrations" / name).read_text(encoding="utf-8"))
+            conn.execute("""INSERT INTO minecraft_cosmetic_assets
+                (kind,asset_id,asset_key,name,texture,geometry,icon,slot,created_by)
+                VALUES ('accessory',1,'hat','Hat',%s,%s,%s,'hat','tester')""",
+                (png(), json_bytes(geometry()), png()))
+            conn.execute("""INSERT INTO minecraft_cosmetic_assets
+                (kind,asset_id,asset_key,name,texture,model,created_by,deleted_at)
+                VALUES ('skin',5,'skin_5','Deleted',%s,'classic','tester',NOW())""", (png(),))
+            conn.execute("INSERT INTO minecraft_cosmetic_deleted_assets (kind,asset_id,deleted_by) VALUES ('skin',5,'tester')")
+            before = conn.execute("SELECT kind,asset_id,asset_key,texture,geometry,icon,deleted_at FROM minecraft_cosmetic_assets ORDER BY kind").fetchall()
+            for _ in range(2):
+                conn.execute((ROOT / "migrations/069_add_minecraft_managed_posters.sql").read_text(encoding="utf-8"))
+            self.assertEqual(before, conn.execute("SELECT kind,asset_id,asset_key,texture,geometry,icon,deleted_at FROM minecraft_cosmetic_assets ORDER BY kind").fetchall())
+            repo = MinecraftCosmeticsRepository(conn)
+            self.assertEqual(repo.deleted_assets(), {("skin", 5)})
+            self.assertEqual([record["kind"] for record in repo.assets()], ["accessory"])
+            conn.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
 
     def test_invalid_asset_rolls_back_without_consuming_id(self):
         with self.assertRaises(ValueError):

@@ -21,6 +21,8 @@ Codexは開発作業、runnerは公開を担当する。Codexがcommit、push、
 
 ## runner設定
 
+Minecraft の通常配備と idle catch-up は exact SHA の app 配備後、production DB 素材を含む pack を Control API で反映する。HTTP 202 では完了せず、operation 成功・catalog/active/current DB digest・Docker/Bedrock health を確認する。既存 token と app deployment 設定を利用し、旧 Git pack SSH 経路へ fallback しない。親作業用 helper、既存 Windows launcher 更新、検証範囲は [Managed Minecraft Release](operations/managed-minecraft-release.md) を参照。
+
 runner設定はprocess environmentから読み取り、dotenvを暗黙に読み込まない。資格情報の値は文書やコマンドの共有出力へ記載しない。
 
 | 設定 | 用途 |

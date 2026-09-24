@@ -7,6 +7,9 @@ const GLIDE = "ichiyon:gliding";
 const CARRIED = "ichiyon:carried";
 const BOOST = "ichiyon:boosting";
 export const JUMP_ASSIST = 1.15;
+const SLOW_FALL_REFRESH = 6;
+const SLOW_FALL_DURATION = 8;
+const TURN_LIMIT = 12 * Math.PI / 180;
 
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 const point = (v) => ({ x: v.x, y: v.y, z: v.z });
@@ -24,15 +27,33 @@ export function attachmentPose(player, mode) {
     rotation: { x: 0, y: ((yaw + 360) % 360) - 180 } };
 }
 
-export function glideImpulse(velocity, view) {
+export function glideTarget(velocity, view, previous) {
   const horizontal = Math.hypot(view.x, view.z);
-  const speed = 0.32 + Math.max(0, -view.y) * 0.18;
-  const descent = -0.10 - Math.max(0, -view.y) * 0.20;
-  const clamp = (v, n) => Math.max(-n, Math.min(n, v));
+  const speed = 0.32 + Math.min(1, Math.max(0, -view.y)) * 0.18;
+  const initial = Math.hypot(velocity.x, velocity.z) > 0.02 ? velocity : view;
+  const oldAngle = Math.atan2((previous ?? initial).z, (previous ?? initial).x);
+  const angle = horizontal > 0.01 ? Math.atan2(view.z, view.x) : oldAngle;
+  const delta = Math.atan2(Math.sin(angle - oldAngle), Math.cos(angle - oldAngle));
+  const nextAngle = oldAngle + Math.max(-TURN_LIMIT, Math.min(TURN_LIMIT, delta * 0.2));
+  const nextSpeed = previous ? Math.hypot(previous.x, previous.z) * 0.8 + speed * 0.2 : speed;
+  return { x: Math.cos(nextAngle) * nextSpeed, z: Math.sin(nextAngle) * nextSpeed };
+}
+
+export function glideImpulse(velocity, view, target = glideTarget(velocity, view)) {
+  const dx = target.x - velocity.x, dz = target.z - velocity.z;
+  const error = Math.hypot(dx, dz);
+  const gain = error <= 0.02 ? 0 : Math.min(0.08, 0.04 / error);
+  return { x: dx * gain, y: 0, z: dz * gain };
+}
+
+export function attachmentPrediction(velocity, displacement) {
+  const speed = Math.hypot(velocity.x, velocity.z);
+  // Current displacement rejects stale velocity on a stop, reversal or collision.
+  if (speed <= 0.001 || (displacement && (Math.hypot(displacement.x, displacement.z) <= 0.001
+      || displacement.x * velocity.x + displacement.z * velocity.z <= 0))) return { x: 0, z: 0 };
+  const ahead = Math.min(0.75, 0.25 / speed);
   return {
-    x: horizontal > 0.01 ? clamp((view.x / horizontal * speed - velocity.x) * 0.08, 0.04) : 0,
-    y: clamp(descent - velocity.y, 0.12),
-    z: horizontal > 0.01 ? clamp((view.z / horizontal * speed - velocity.z) * 0.08, 0.04) : 0,
+    x: velocity.x * ahead, z: velocity.z * ahead,
   };
 }
 
@@ -58,7 +79,20 @@ export function createMokuro({ world, system, ActionFormData, report = console.w
   function emptyHand(player) {
     return heldType(player) === undefined;
   }
+  function clearFlight(state) {
+    state.glideTarget = undefined;
+    if (state.slowFallUntil !== undefined && state.player.isValid) {
+      const effect = state.player.getEffect("slow_falling");
+      // Do not remove a potion/beacon effect that replaced our short-lived effect.
+      if (effect?.amplifier === 0 && effect.duration >= 0 && effect.duration <= state.slowFallUntil - system.currentTick) {
+        state.player.removeEffect("slow_falling");
+      }
+    }
+    state.slowFallUntil = undefined;
+    state.slowFallTick = undefined;
+  }
   function forget(state) {
+    clearFlight(state);
     if (owners.get(state.playerId) === state) owners.delete(state.playerId);
     entities.delete(state.entity.id);
   }
@@ -211,6 +245,7 @@ export function createMokuro({ world, system, ActionFormData, report = console.w
         if (!alive(p) || p.dimension.id !== state.dimension || distance(p.location, state.last) > 16) {
           detach(state); continue;
         }
+        const displacement = { x: p.location.x - state.last.x, z: p.location.z - state.last.z };
         state.last = point(p.location);
         if (state.boosted) {
           if (!flightAllowed(state) || p.isSneaking) {
@@ -245,10 +280,25 @@ export function createMokuro({ world, system, ActionFormData, report = console.w
             state.gliding = false;
             entity.setProperty(GLIDE, false);
           } else {
-            p.applyImpulse(glideImpulse(p.getVelocity(), p.getViewDirection()));
+            const effect = p.getEffect("slow_falling");
+            const ownedEffect = effect?.amplifier === 0 && effect.duration >= 0
+              && effect.duration <= state.slowFallUntil - system.currentTick;
+            if (!effect || (ownedEffect && system.currentTick - state.slowFallTick >= SLOW_FALL_REFRESH)) {
+              p.addEffect("slow_falling", SLOW_FALL_DURATION, { amplifier: 0, showParticles: false });
+              state.slowFallUntil = system.currentTick + SLOW_FALL_DURATION;
+              state.slowFallTick = system.currentTick;
+            }
+            const velocity = p.getVelocity(), view = p.getViewDirection();
+            state.glideTarget = glideTarget(velocity, view, state.glideTarget);
+            const impulse = glideImpulse(velocity, view, state.glideTarget);
+            if (impulse.x !== 0 || impulse.z !== 0) p.applyImpulse(impulse);
           }
         }
+        if (!state.gliding) clearFlight(state);
         const pose = attachmentPose(p, state.mode);
+        const prediction = attachmentPrediction(p.getVelocity(), displacement);
+        pose.location.x += prediction.x;
+        pose.location.z += prediction.z;
         entity.teleport(pose.location, { rotation: pose.rotation, keepVelocity: false });
       } catch (e) {
         error("follow/flight; restoring normal Mob", e);

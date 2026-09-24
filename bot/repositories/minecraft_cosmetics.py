@@ -23,15 +23,18 @@ class MinecraftCosmeticsRepository:
             """)
             rows = fetch_all(cursor)
         return [asset(row["kind"], row["asset_id"], row["asset_key"], row["name"], bytes(row["texture"]),
-                      **({"model": row["model"]} if row["kind"] == "skin" else {"slot": row["slot"], "geometry": bytes(row["geometry"]), "icon": bytes(row["icon"])})) for row in rows]
+                      **({"model": row["model"]} if row["kind"] == "skin" else
+                         {"width": row["width"], "height": row["height"]} if row["kind"] == "poster" else
+                         {"slot": row["slot"], "geometry": bytes(row["geometry"]), "icon": bytes(row["icon"])})) for row in rows]
 
     def deleted_assets(self):
         with self.connection.cursor() as cursor:
             cursor.execute("SELECT kind, asset_id FROM minecraft_cosmetic_deleted_assets ORDER BY kind, asset_id")
             return {(row["kind"], row["asset_id"]) for row in fetch_all(cursor)}
 
-    def add(self, *, kind, name, texture, created_by, model="classic", slot="hat", geometry=None, icon=None):
-        if kind not in ("skin", "accessory"):
+    def add(self, *, kind, name, texture, created_by, model="classic", slot="hat", geometry=None, icon=None,
+            width=None, height=None):
+        if kind not in ("skin", "accessory", "poster"):
             raise ValueError("素材の種類が不正です。")
         with self.connection.cursor() as cursor:
             # Serialize assignment across workers, never recycle IDs or remap saved worlds.
@@ -45,11 +48,13 @@ class MinecraftCosmeticsRepository:
             asset_id = cursor.fetchone()[0]
             if asset_id > MAX_ID:
                 raise ValueError("この種類の素材の登録上限に達しました。")
-            record = asset(kind, asset_id, f"{kind}_{asset_id}", name, texture, model=model, slot=slot, geometry=geometry, icon=icon)
+            record = asset(kind, asset_id, f"{kind}_{asset_id}", name, texture, model=model, slot=slot,
+                           geometry=geometry, icon=icon, width=width, height=height)
             cursor.execute("""INSERT INTO minecraft_cosmetic_assets
-                (kind, asset_id, asset_key, name, model, slot, texture, geometry, icon, created_by)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (kind, asset_id, record["key"], record["name"], record.get("model"), record.get("slot"), record["texture"], record.get("geometry"), record.get("icon"), created_by))
+                (kind, asset_id, asset_key, name, model, slot, texture, geometry, icon, created_by, width, height)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (kind, asset_id, record["key"], record["name"], record.get("model"), record.get("slot"), record["texture"],
+                 record.get("geometry"), record.get("icon"), created_by, record.get("width"), record.get("height")))
         return record
 
     def delete_skin(self, asset_id, deleted_by):
