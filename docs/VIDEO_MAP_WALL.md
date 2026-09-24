@@ -2,15 +2,16 @@
 
 ## Parent Integration
 
-This change intentionally does not edit main.js, pack manifests, shared sounds,
-language files, or the item catalog. Parent integration must:
+Shared-worktree integration is complete as of 2026-09-24. The parent applied
+the shared-file changes; this feature task supplied the runtime, assets, builder,
+tests, and integration fragment. The current files confirm:
 
-1. Add `import "./wall_displays.js";` once to
+1. `import "./wall_displays.js";` is present once in
    `minecraft/behavior_packs/import_structures/scripts/main.js`.
-2. Merge `minecraft/video_screen/sound_definitions.fragment.json` into the
+2. `minecraft/video_screen/sound_definitions.fragment.json` is merged into the
    `sound_definitions` object of
    `minecraft/resource_packs/ichiyon_avatar_rp/sounds/sound_definitions.json`,
-   preserving every existing entry. Exact addition:
+   preserving the other sound entries. Integrated definition:
 
    ```json
    "ichiyon.video_screen.audio": {
@@ -21,15 +22,25 @@ language files, or the item catalog. Parent integration must:
    }
    ```
 
-3. Include the new files in the existing BP/RP pack builder and bump pack
-   versions through the existing release process. Existing import_structures
-   dependency `@minecraft/server` `2.11.0-beta` is sufficient for BDS 1.26.51.1.
-   No new manifest module, dependency, custom item, creative item, or lang entry
-   is needed. The one helper entity is not spawn-egg accessible.
+3. The parent has regenerated the video assets. The current build report records
+   2,088 frames, 21 atlases, a 104.4-second loop, and the real audio sound ID above.
+   Regeneration does not require adding the import or merging a duplicate sound
+   entry again.
 
-No Git staging, commits, remote operations, production changes, or world changes
-were performed by this implementation task. The parent owns integration and BDS
-smoke testing. Node mocks are not a Bedrock content-log or client-render test.
+The existing import_structures dependency `@minecraft/server` `2.11.0-beta`
+is sufficient for BDS 1.26.51.1. No additional manifest module, dependency,
+custom item, creative item, or lang entry is required for this feature. The one
+helper entity is not spawn-egg accessible. Pack versioning and final deployment
+remain part of the parent's combined release process.
+
+**Production status: not deployed or verified.** Completed integration and the
+isolated BDS result below are not proof of production installation, real-wall
+coordinates, or client rendering/audio.
+
+No Git staging, commits, or production changes were performed by this task.
+The parent owns the combined release and deployment. The initial implementation used only
+local checks; a later explicitly authorized isolated BDS smoke run is recorded
+below. Node mocks are not a Bedrock content-log or client-render test.
 
 ## Regeneration
 
@@ -124,10 +135,10 @@ Its `index.d.ts` declares:
 
 Local extracted evidence (not committed):
 `C:/Users/syoub/AppData/Local/Temp/ichiyon-video-api-12651/package/index.d.ts`.
-The local Docker daemon was unavailable, so this is declaration evidence only,
-not proof from the installed BDS image. Parent should validate the existing
-stopped `mokuro-smoke-20260923` environment when available. In particular check
-SoundInstance seek behavior, RP material/UV orientation, and the content log.
+The initial local Docker daemon was unavailable. The later authorized isolated
+BDS 1.26.51.1 run confirmed playSound returning a handle and executed seekTo,
+setVolume, and stop successfully. RP material/UV orientation and audible output
+still require a real client; see the isolated runtime evidence below.
 
 Primary references consulted 2026-09-24:
 
@@ -154,18 +165,79 @@ success indicator is used.
 
 ## Local Verification
 
-The tests cover actual FFmpeg decoding/encoding, source hash, original rebuild,
+The local suite passed **6 Python checks and 17 JavaScript runtime scenarios**.
+It covers actual FFmpeg decoding/encoding, source hash, original rebuild,
 PNG pixel identity, audio byte identity, non-silent mono PCM, loop duration,
 atlas padding, texture references, entity/geometry contracts, and seventeen
 dependency-injected runtime scenarios. No live-world success is claimed.
 
-Prepared outside the checkout, not executed:
+Prepared outside the checkout:
 `C:/Users/syoub/AppData/Local/Temp/ichiyon-wall-smoke-20260924/`.
 Its `prepare.py` snapshots a minimal standalone BP/RP and writes
 `wall-smoke-prepared.zip`; `README.md` contains coordinated disposable-world
-instructions. The pack is inert until the explicit
+instructions. The originally prepared pack is inert until the explicit
 `scriptevent ichiyon_wall_smoke:run disposable-only` command. It uses the
 version-matched top-level GameTest `spawnSimulatedPlayer` API and native button
 interaction, entity properties, SoundInstance methods, and synthetic frame
-permutations. Do not run while another worker owns the test container. A client
+permutations. For the authorized run, the staged test entry instead received the
+delayed auto-start described below. Do not run while another worker owns the test container. A client
 content-log/render check remains necessary for the RP material/controller.
+
+## Isolated BDS Verification
+
+On 2026-09-24, after the parent granted exclusive access following Wegener's
+release, `mokuro-smoke-20260923` ran this harness on BDS **1.26.51.1**.
+The network was `none`, published ports were empty, and the only mount was the
+dedicated `/home/ubuntu/mokuro-smoke-20260923/data` test directory. No live world
+or production service was changed.
+
+The first attempt stopped before assertions because the container's send-command
+helper could not inspect process files. The retry staged an explicit 120-tick
+automatic start in the test entry, matching the preceding runtime test method.
+The checkout's production entry was not changed. The retry completed with
+**20 PASS, 0 FAIL**, covering native SoundInstance calls, native buttonPush,
+actual screen/map block scans, entity properties, frame progression/loop, rear
+audience exclusion/reentry, button removal/replacement, and frame non-mutation.
+The synthetic fixture's ready logs proved these detected coordinates:
+
+```text
+[Video screen] ready dimension=minecraft:overworld bottom=80 wallPlaneZ=0 button=(-1,80,1)
+[Map wall] ready dimension=minecraft:overworld bottom=80 wallPlaneZ=21 framePlaneZ=20 button=(16,80,20) frames=8; automatic map recalculation unavailable
+```
+
+These are test-fixture coordinates, not measurements of production walls.
+The captured server content log contains no schema, Script, video material,
+controller, or texture errors. The server console includes the same NetherNet
+transport warning already present in Wegener's prior run. Headless BDS cannot
+validate client rendering or perceived sound, so those remain unverified.
+
+Additional limits of the 20 native assertions:
+
+- The frame fixture uses real Bedrock frame blocks with synthetic map-bit
+  permutations, not the eight production maps. Unchanged permutations prove
+  scanner non-mutation in the fixture, not saved-map NBT or terrain refresh.
+- The harness advances its injected media clock to exercise the loop boundary.
+  It does not listen through a complete 104.4-second cycle or measure client A/V
+  synchronization, audible attenuation, or network-induced drift.
+- Native SoundInstance methods completed without exceptions for a
+  SimulatedPlayer. That establishes runtime API support, not audible playback.
+- Absence of server content-log errors does not establish that a real client
+  parsed/rendered the custom material, controller, UVs, or textures correctly.
+- Production detection logs, production pack installation, and live-world
+  operation remain unverified. No production action was taken for this smoke.
+
+Evidence directory:
+`C:/Users/syoub/AppData/Local/Temp/ichiyon-wall-smoke-20260924/`
+
+- `r2.log`: full server log, including BDS version and 20 PASS lines.
+- `r2-content.log`: actual BDS content log.
+- `r2-release.json`: final inspection and completion counts.
+- `execute.py` / `setup_remote.py`: bounded run and isolated-path guards.
+
+The container was **STOPPED and RELEASED** for Epicurus, with `Running=false`,
+`ExitCode=0`, `FinishedAt=2026-09-24T11:28:35.363618447Z`. At that handoff its
+selected test entry was `scripts/wall_runtime_smoke.js` with delayed auto-start;
+Epicurus was instructed to select their own entry before starting. The synthetic
+fixture was left for inspection. This is the recorded release state, not a claim
+about subsequent owners' runs. No further container access occurred for this
+documentation update.
