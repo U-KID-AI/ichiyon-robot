@@ -36,6 +36,7 @@ jobs:
       - name: Validate catalog, UI and durable placement queue
         run: |
           python scripts/build_minecraft_cosmetics.py --check
+          python scripts/check_build_minecraft_cosmetics.py
           python scripts/check_minecraft_cosmetics.py
           python scripts/check_minecraft_cosmetics_admin.py
           python scripts/check_minecraft_cosmetics_apply.py
@@ -48,6 +49,14 @@ jobs:
           python scripts/check_minecraft_pikachu.py
           python scripts/check_minecraft_mokuro.py
           python scripts/check_minecraft_garbage_molcar.py
+          node scripts/check_minecraft_molcar_boost.mjs
+          node scripts/check_molcar_records.mjs
+          node scripts/check_narita_poll_serialization.mjs
+          python scripts/check_minecraft_managed_posters.py
+          node scripts/check_minecraft_managed_posters.mjs
+          python scripts/check_minecraft_wall_displays.py
+          python scripts/check_minecraft_death_prairie_dog.py
+          python scripts/check_taketumi_ai.py
 
   python-and-compose:
     runs-on: ubuntu-latest
@@ -86,6 +95,7 @@ jobs:
           python scripts/check_ai_task_process.py
           python scripts/check_ai_task_linux.py
           python scripts/check_ai_task_minecraft_deploy.py
+          python scripts/check_ai_task_minecraft_deploy_managed.py
           python scripts/check_ai_task_minecraft_runtime.py
           python scripts/check_resource_pack_versions_test.py
 
@@ -105,6 +115,7 @@ jobs:
           python scripts/check_spotify_playlist_support.py
           python scripts/check_voice_music_queue_runtime.py
           python scripts/check_youtube_home_vpn_proxy.py
+          python scripts/check_voice_music_pipeline.py
           python scripts/check_youtube_cookie_monitor.py
           python scripts/check_bot_scoped_guild_settings.py
           python scripts/check_admin_feature_flags.py

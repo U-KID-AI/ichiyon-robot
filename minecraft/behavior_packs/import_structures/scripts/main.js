@@ -2,9 +2,14 @@ import { BlockPermutation, EntityComponentTypes, ItemStack, system, world } from
 import { HttpHeader, HttpRequest, HttpRequestMethod, http } from "@minecraft/server-net";
 import { secrets, variables } from "@minecraft/server-admin";
 import { handleAvatarCommand } from "./avatar_commands.js";
-import { cosmetics, cosmeticsDigest } from "./cosmetics.js";
+import { cosmetics, cosmeticsDigest, managedPosters } from "./cosmetics.js";
+import { createPosterRuntime } from "./poster_core.js";
 import "./mokuro.js";
 import "./garbage_molcar.js";
+import "./molcar_boost.js";
+import "./molcar_records.js";
+import "./death_prairie_dog.js";
+import "./wall_displays.js";
 
 console.warn("[NaritaBridge] main.js loaded");
 
@@ -57,6 +62,7 @@ const CARDINAL_DIRECTION_STATE = "minecraft:cardinal_direction";
 const LARGE_POSTER_COLUMNS = 4;
 const LARGE_POSTER_ROWS = 6;
 const LARGE_POSTERS = [
+  ...managedPosters,
   { baseId: "ichiyon:poster_raio", segmentPrefix: "ichiyon:poster_raio", label: "ライオポスター" },
   { baseId: "ichiyon:poster_trent", segmentPrefix: "ichiyon:poster_trent", label: "トレントポスター" },
   { baseId: "ichiyon:poster_aurelia", segmentPrefix: "ichiyon:poster_aurelia", label: "オーレリアポスター" },
@@ -70,6 +76,9 @@ const LARGE_POSTERS = [
   { baseId: "ichiyon:poster_eyes_eden", segmentPrefix: "ichiyon:poster_eyes_eden", label: "アイズエデンポスター" },
   { baseId: "ichiyon:poster_akuki", segmentPrefix: "ichiyon:poster_akuki", label: "悪鬼ポスター", columns: 6, rows: 4 },
 ];
+const posterRuntime = createPosterRuntime({
+  posters: LARGE_POSTERS, BlockPermutation, ItemStack, system,
+});
 const LARGE_POSTER_BY_BASE_ID = Object.fromEntries(
   LARGE_POSTERS.map((poster) => [poster.baseId, poster])
 );
@@ -116,6 +125,11 @@ const ITEM_TYPES_BY_COMMAND = {
 };
 const joinDiagnostics = [];
 const httpDiagnostics = {
+  pollInFlight: false,
+  activePolls: 0,
+  skippedPolls: 0,
+  lastSkippedPollMs: null,
+  pollPhase: "idle",
   pendingHttpRequests: 0,
   lastPollStartMs: null,
   lastPollEndMs: null,
@@ -179,12 +193,27 @@ async function postResult(requestId, status, reason, message) {
   const request = new HttpRequest(resultUrl(requestId));
   request.method = HttpRequestMethod.Post;
   request.headers = jsonHeaders();
+  request.timeout = 15;
   request.body = JSON.stringify({
     status,
     reason,
     message: message || "",
   });
-  await http.request(request);
+  httpDiagnostics.pollPhase = "result_post";
+  httpDiagnostics.pendingHttpRequests += 1;
+  try {
+    const response = await http.request(request);
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error("result_post_failed");
+    }
+  } catch (error) {
+    httpDiagnostics.lastPollSuccess = false;
+    httpDiagnostics.lastPollFailure = "result_post_failed";
+    httpDiagnostics.lastError = "result_post_failed";
+    throw new Error("result_post_failed");
+  } finally {
+    httpDiagnostics.pendingHttpRequests -= 1;
+  }
 }
 
 function findOnlinePlayer(name) {
@@ -1076,6 +1105,36 @@ async function handleEntityRemoveNearPlayer(command, spec) {
 }
 
 async function pollOnce() {
+  if (httpDiagnostics.pollInFlight) {
+    httpDiagnostics.skippedPolls += 1;
+    httpDiagnostics.lastSkippedPollMs = Date.now();
+    return;
+  }
+  httpDiagnostics.pollInFlight = true;
+  httpDiagnostics.activePolls = 1;
+  httpDiagnostics.pollPhase = "get";
+  httpDiagnostics.lastPollStartMs = Date.now();
+  httpDiagnostics.lastPollSuccess = null;
+  httpDiagnostics.lastPollFailure = null;
+  httpDiagnostics.lastError = "";
+  try {
+    await pollCommand();
+  } catch (error) {
+    httpDiagnostics.lastPollSuccess = false;
+    httpDiagnostics.lastPollFailure = `${httpDiagnostics.pollPhase}_failed`;
+    // HTTP exceptions may contain request headers, URLs or response bodies.
+    httpDiagnostics.lastError = "poll_exception";
+    console.warn("[NaritaBridge] HTTP poll cycle failed");
+  } finally {
+    httpDiagnostics.lastPollEndMs = Date.now();
+    httpDiagnostics.lastPollLatencyMs = httpDiagnostics.lastPollEndMs - httpDiagnostics.lastPollStartMs;
+    httpDiagnostics.pollPhase = "idle";
+    httpDiagnostics.activePolls = 0;
+    httpDiagnostics.pollInFlight = false;
+  }
+}
+
+async function pollCommand() {
   const configuredGuildId = guildId();
   if (!configuredGuildId) {
     return;
@@ -1084,6 +1143,7 @@ async function pollOnce() {
   const request = new HttpRequest(url);
   request.method = HttpRequestMethod.Get;
   request.headers = [secretHeader()];
+  request.timeout = 15;
   let response;
   const pollStartMs = Date.now();
   httpDiagnostics.pendingHttpRequests += 1;
@@ -1097,8 +1157,8 @@ async function pollOnce() {
     httpDiagnostics.lastPollLatencyMs = httpDiagnostics.lastPollEndMs - pollStartMs;
     httpDiagnostics.lastPollSuccess = false;
     httpDiagnostics.lastPollFailure = "request_exception";
-    httpDiagnostics.lastError = String(error);
-    console.warn(`[NaritaBridge] HTTP poll failed: ${String(error)}`);
+    httpDiagnostics.lastError = "request_exception";
+    console.warn("[NaritaBridge] HTTP poll failed");
     return;
   } finally {
     httpDiagnostics.pendingHttpRequests = Math.max(0, httpDiagnostics.pendingHttpRequests - 1);
@@ -1112,12 +1172,13 @@ async function pollOnce() {
     return;
   }
   let payload;
+  httpDiagnostics.pollPhase = "parse";
   try {
     payload = JSON.parse(response.body);
   } catch (error) {
     httpDiagnostics.lastPollSuccess = false;
     httpDiagnostics.lastPollFailure = "json_parse_failed";
-    httpDiagnostics.lastError = String(error);
+    httpDiagnostics.lastError = "json_parse_failed";
     return;
   }
   httpDiagnostics.lastPollSuccess = true;
@@ -1129,6 +1190,7 @@ async function pollOnce() {
   }
   httpDiagnostics.lastCommandType = String(command.type || "");
   httpDiagnostics.lastCommandReceivedMs = Date.now();
+  httpDiagnostics.pollPhase = "execute";
   if (await cosmetics.handleCommand(command, {
     isValidPlayerName, findOnlinePlayer, playerForwardSpawnLocation, postResult,
   })) return;
@@ -1245,7 +1307,7 @@ world.afterEvents.playerSpawn.subscribe((event) => {
 
 system.runInterval(() => {
   pollOnce().catch((error) => {
-    console.warn(`[NaritaBridge] pollOnce failed: ${String(error)}`);
+    console.warn("[NaritaBridge] pollOnce failed");
   });
 }, POLL_INTERVAL_TICKS);
 
@@ -1254,13 +1316,13 @@ world.afterEvents.playerPlaceBlock.subscribe((event) => {
     return;
   }
   system.run(() => {
-    expandLargePoster(event.block, event.player);
+    posterRuntime.expand(event.block, event.player);
   });
 });
 
 world.afterEvents.playerBreakBlock.subscribe((event) => {
   system.run(() => {
-    cleanupLargePosterSegment(event.block, event.brokenBlockPermutation, event.player);
+    posterRuntime.cleanup(event.block, event.brokenBlockPermutation, event.player);
   });
 });
 
