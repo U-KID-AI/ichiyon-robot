@@ -5,9 +5,11 @@ import json
 import math
 import re
 
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 MAX_UPLOAD = 1024 * 1024
+MAX_TEXTURE = 4 * 1024 * 1024
+POSTER_PIXELS_PER_BLOCK = 64
 MAX_ID = 127
 SLOTS = ("hat", "face", "neck", "back")
 MOLCARS = ("molcar", "molcar2", "molcar3")
@@ -39,6 +41,9 @@ def png_bytes(data, *, skin=False):
             if not (1 <= width <= 1024 and 1 <= height <= 1024):
                 raise ValueError("画像サイズは最大1024×1024です。")
             image.load()
+            # Keep validated canonical blobs stable across Pillow/zlib versions.
+            if image.mode == "RGBA" and not image.info:
+                return data
             out = BytesIO()
             image.convert("RGBA").save(out, format="PNG")
             return out.getvalue()
@@ -142,16 +147,53 @@ def geometry_bytes(data, texture):
         raise ValueError(message) from exc
 
 
-def asset(kind, asset_id, key, name, texture, *, model="classic", slot="hat", geometry=None, icon=None):
+def poster_dimensions(width, height):
+    if any(type(value) is not int or not 1 <= value <= 10 for value in (width, height)):
+        raise ValueError("ポスターの幅・高さは1〜10ブロックの整数で指定してください。")
+    return width, height
+
+
+def poster_texture(data, width, height):
+    """Normalize uploads and persisted PNGs identically, including EXIF orientation."""
+    poster_dimensions(width, height)
+    if not isinstance(data, bytes) or len(data) > MAX_TEXTURE:
+        raise ValueError("ポスター画像のサイズが大きすぎます。")
+    try:
+        with Image.open(BytesIO(data)) as image:
+            if image.format not in ("PNG", "JPEG", "WEBP") or getattr(image, "n_frames", 1) != 1:
+                raise ValueError("静止PNG・JPEG・WebP画像を選んでください。")
+            if not all(1 <= size <= 4096 for size in image.size):
+                raise ValueError("ポスター画像は最大4096×4096です。")
+            image.load()
+            if (image.format == "PNG" and image.mode == "RGBA" and not image.info
+                    and image.size == (width * POSTER_PIXELS_PER_BLOCK, height * POSTER_PIXELS_PER_BLOCK)):
+                return data
+            fitted = ImageOps.fit(ImageOps.exif_transpose(image).convert("RGBA"),
+                                  (width * POSTER_PIXELS_PER_BLOCK, height * POSTER_PIXELS_PER_BLOCK),
+                                  method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
+            # Exclude metadata so database reloads and repeated builds have stable bytes.
+            clean = Image.frombytes("RGBA", fitted.size, fitted.tobytes())
+            output = BytesIO()
+            clean.save(output, format="PNG")
+            return output.getvalue()
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
+        raise ValueError("ポスター画像を読み込めませんでした。") from exc
+
+
+def asset(kind, asset_id, key, name, texture, *, model="classic", slot="hat", geometry=None, icon=None,
+          width=None, height=None):
     if type(asset_id) is not int or not 1 <= asset_id <= MAX_ID or not isinstance(key, str) or not KEY.fullmatch(key):
         raise ValueError("素材IDが不正です。")
-    if kind not in ("skin", "accessory"):
+    if kind not in ("skin", "accessory", "poster"):
         raise ValueError("素材の種類が不正です。")
-    record = {"kind": kind, "id": asset_id, "key": key, "name": validate_name(name), "texture": png_bytes(texture, skin=kind == "skin")}
+    record = {"kind": kind, "id": asset_id, "key": key, "name": validate_name(name),
+              "texture": poster_texture(texture, width, height) if kind == "poster" else png_bytes(texture, skin=kind == "skin")}
     if kind == "skin":
         if model not in ("classic", "slim"):
             raise ValueError("腕の種類を選んでください。")
         record["model"] = model
+    elif kind == "poster":
+        record.update(width=width, height=height)
     else:
         if slot not in SLOTS or geometry is None or icon is None:
             raise ValueError("装着部位・モデル・アイコンを指定してください。")

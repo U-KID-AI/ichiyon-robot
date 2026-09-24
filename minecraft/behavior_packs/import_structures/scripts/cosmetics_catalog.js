@@ -2,6 +2,7 @@
 export const catalog = {
   "accessories": [],
   "digest": "ce1cf3f31ed38b2a89f5ad42f25f65b22bd446b2b2dc8840b5b6ebe1a840b9bb",
+  "posters": [],
   "skins": [
     {
       "digest": "d44337eafa2c886fd5f19288dee656fc226d7d17cca8873528005a908365d047",

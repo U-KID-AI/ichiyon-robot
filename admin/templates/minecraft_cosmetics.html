@@ -1,6 +1,6 @@
 {% extends "layout.html" %}
-{% block title %}マネキンとモルカーの着せ替え{% endblock %}
-{% block heading %}マネキンとモルカーの着せ替え{% endblock %}
+{% block title %}Minecraft 素材管理{% endblock %}
+{% block heading %}Minecraft 素材管理{% endblock %}
 {% block content %}
 <style>
   .cosmetic-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:1rem; }
@@ -27,16 +27,14 @@
     </form>
   </section>
   <section class="cosmetic-card">
-    <h2>モルカーのアクセサリーを追加</h2>
-    <p>3種類のモルカーに共通で使えます。各ファイルは1MB以下です。</p>
+    <h2>ポスターを追加</h2>
     <form action="/minecraft/cosmetics/assets" method="post" enctype="multipart/form-data">
-      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="accessory">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="poster">
       <label>名前 <input name="name" maxlength="48" required></label>
-      <label>装着部位 <select name="slot"><option value="hat">頭（帽子など）</option><option value="face">顔（メガネなど）</option><option value="neck">首</option><option value="back">背中</option></select></label>
-      <label>モデル（.geo.json） <input type="file" name="geometry" accept=".json" required></label>
-      <label>モデルの画像 <input type="file" name="texture" accept="image/png,.png" required></label>
-      <label>持ち物アイコン <input type="file" name="icon" accept="image/png,.png" required></label>
-      <button type="submit">アクセサリーを登録</button>
+      <label>幅（ブロック） <input type="number" name="width" min="1" max="10" step="1" value="3" required></label>
+      <label>高さ（ブロック） <input type="number" name="height" min="1" max="10" step="1" value="2" required></label>
+      <label>画像（PNG・JPEG・WebP、1MB以下） <input type="file" name="texture" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" required></label>
+      <button type="submit">ポスターを登録</button>
     </form>
   </section>
   <section class="cosmetic-card">
@@ -52,7 +50,7 @@
 <h2>登録済みの素材</h2>
 <div class="cosmetic-grid">{% for asset in assets %}<article class="cosmetic-card">
   <img src="/minecraft/cosmetics/preview/{{ asset.kind }}/{{ asset.id }}" alt="{{ asset.name }}の画像">
-  <h3>{{ asset.name }}</h3><p>{{ 'スキン' if asset.kind == 'skin' else 'アクセサリー' }} #{{ asset.id }}{% if asset.model is defined %} ・ {{ 'スリム' if asset.model == 'slim' else '通常' }}{% endif %}{% if asset.slot is defined %} ・ {{ {'hat':'頭','face':'顔','neck':'首','back':'背中'}[asset.slot] }}{% endif %}</p>
+  <h3>{{ asset.name }}</h3><p>{{ {'skin':'スキン','accessory':'アクセサリー','poster':'ポスター'}[asset.kind] }} #{{ asset.id }}{% if asset.model is defined %} ・ {{ 'スリム' if asset.model == 'slim' else '通常' }}{% endif %}{% if asset.slot is defined %} ・ {{ {'hat':'頭','face':'顔','neck':'首','back':'背中'}[asset.slot] }}{% endif %}{% if asset.kind == 'poster' %} ・ {{ asset.width }}×{{ asset.height }}ブロック{% endif %}</p>
   {% if asset.kind == 'skin' %}
     <form action="/minecraft/cosmetics/assets/{{ asset.kind }}/{{ asset.id }}/delete" method="post" onsubmit="return confirm('{{ asset.name }} を削除します。このIDは再利用されず、ゲーム反映後は一覧から消えます。よろしいですか？');">
       <input type="hidden" name="csrf" value="{{ csrf }}">
