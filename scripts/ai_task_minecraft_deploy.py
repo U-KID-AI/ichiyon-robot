@@ -35,7 +35,10 @@ def required_targets(changed_files):
         if (not isinstance(path, str) or not path or "\0" in path
                 or any(part in ("", ".", "..") for part in path.split("/"))):
             reject()
-        if path.startswith("minecraft/"):
+        if (path.startswith("minecraft/")
+                or path.startswith("bot/services/minecraft_cosmetics")
+                or path in {"admin/minecraft_cosmetics.py", "admin/minecraft_release.py",
+                            "bot/repositories/minecraft_cosmetics.py"}):
             targets.add("minecraft")
     return frozenset(targets)
 
@@ -194,22 +197,31 @@ class TargetDeployAdapter:
             reject()
         app = self.apps.deploy(merge_sha, stop_event=stop_event)
         verify_deployment(app, merge_sha, frozenset({"apps"}))
+        if stop_event is not None and stop_event.is_set():
+            reject()
+        summaries = [app.summary]
         if "minecraft" in targets:
             minecraft = self.minecraft_factory().deploy(merge_sha, stop_event=stop_event)
             verify_deployment(minecraft, merge_sha, frozenset({"minecraft"}))
+            summaries.append(minecraft.summary)
         if stop_event is not None and stop_event.is_set():
             reject()
-        return DeploymentResult(merge_sha, "Required deployment targets verified.", targets)
+        return DeploymentResult(merge_sha, " ".join(summaries), targets)
 
     def catch_up(self, *, stop_event=None):
         """Independent best-effort operation; failure carries no completion proof.
 
-        The BDS adapter compares actual content and runtime state on retry;
-        a saved hash alone is insufficient. No success is cached by this layer.
+        Reconcile the exact app first, including migration/health, then ask that
+        app for DB-managed packs. The managed route rechecks terminal proof and
+        live health even when the operation was already applied.
         """
         try:
             sha = self.source.current_main_sha()
             validate_sha(sha)
+            if stop_event is not None and stop_event.is_set():
+                return False
+            app = self.apps.deploy(sha, stop_event=stop_event)
+            verify_deployment(app, sha, frozenset({"apps"}))
             if stop_event is not None and stop_event.is_set():
                 return False
             proof = self.minecraft_factory().deploy(

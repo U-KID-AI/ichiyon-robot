@@ -300,7 +300,7 @@ class MinecraftChecks(unittest.TestCase):
                     "refresh_source": False,
                 },
             )
-        self.assertEqual(apps.deploy.call_count, 1)
+        self.assertEqual(apps.deploy.call_count, 3)
 
     def test_stopped_never_deploys(self):
         adapter, apps, bds, _ = self.adapter([PACK + "manifest.json"])

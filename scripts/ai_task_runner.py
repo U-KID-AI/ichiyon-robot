@@ -23,9 +23,8 @@ from ai_task_review_merge import ReviewMergeGate
 from ai_task_deploy import ProductionDeployAdapter
 from ai_task_deploy_config import DeployConfig
 from ai_task_minecraft_deploy import TargetDeployAdapter
-from ai_task_minecraft_runtime import (
-    ExactMergeSource, MinecraftDeployConfig, ProductionMinecraftDeployAdapter,
-)
+from ai_task_minecraft_runtime import ExactMergeSource
+from ai_task_minecraft_deploy_managed import ManagedMinecraftDeployAdapter
 from ai_task_runner_config import RunnerConfig
 from ai_task_runtime import validate_claim_names
 from ai_task_test_registry import run_tests
@@ -425,9 +424,9 @@ def main() -> int:
         minecraft_source = ExactMergeSource(config.repo_root, config.git_path)
 
         def minecraft_factory():
-            minecraft_config = MinecraftDeployConfig.from_environment(
-                repo_root=config.repo_root, worktree_root=config.worktree_root)
-            return ProductionMinecraftDeployAdapter(minecraft_config, minecraft_source)
+            client = RunnerAPIClient(config.api_base_url, config.api_token,
+                                     config.runner_id, timeout=180)
+            return ManagedMinecraftDeployAdapter(client)
 
         deployer = TargetDeployAdapter(app_deployer, minecraft_source, minecraft_factory)
         runner = LocalRunner(config, deployer=deployer)

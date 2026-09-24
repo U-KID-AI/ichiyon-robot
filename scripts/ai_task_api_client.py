@@ -107,6 +107,18 @@ class RunnerAPIClient:
             raise self._error(method, path, f"invalid response object; body: {raw.decode('utf-8')}", payload)
         return value
 
+    def minecraft_release(self, sha: str, *, attempt: str | None = None) -> dict[str, Any]:
+        if not re.fullmatch(r"[0-9a-f]{40}", sha):
+            raise ValueError("invalid release SHA")
+        payload = {} if attempt is None else {"attempt": str(uuid.UUID(attempt))}
+        return self._json("POST", "/internal/minecraft-release/" + sha, payload)
+
+    def minecraft_release_status(self, sha: str, operation_id: str) -> dict[str, Any]:
+        if not re.fullmatch(r"[0-9a-f]{40}", sha):
+            raise ValueError("invalid release SHA")
+        operation_id = str(uuid.UUID(operation_id))
+        return self._json("GET", f"/internal/minecraft-release/{sha}/operations/{operation_id}")
+
     def claim(self) -> ClaimedTask | None:
         response = self._json("POST", "/internal/ai-tasks/claim", {"runner_id": self.runner_id})
         raw = response.get("task")
