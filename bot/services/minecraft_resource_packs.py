@@ -5,11 +5,20 @@ from bot.services.minecraft_cosmetics import json_bytes
 
 LEGACY = "resource_packs/ichiyon_avatar_rp/"
 LEGACY_UUID = "3e1bcf76-b5e3-465a-a184-d2d90cfa0d74"
-RESOURCE_PACKS = tuple("resource_packs/" + name + "/" for name in (
+SPLIT_RESOURCE_PACKS = tuple("resource_packs/" + name + "/" for name in (
     "ichiyon_core_rp", "ichiyon_mannequin_skins_rp", "ichiyon_accessories_rp",
     "ichiyon_posters_rp", "ichiyon_video_rp", "ichiyon_records_rp",
 ))
-CORE, SKINS, ACCESSORIES, POSTERS, VIDEO, RECORDS = RESOURCE_PACKS
+CORE, SKINS, ACCESSORIES, POSTERS, VIDEO, RECORDS = SPLIT_RESOURCE_PACKS
+VIDEO_BIG = "resource_packs/ichiyon_video_big_rp/"
+DIRECT_RESOURCE_PACKS = (VIDEO_BIG,)
+RESOURCE_PACKS = (*SPLIT_RESOURCE_PACKS, *DIRECT_RESOURCE_PACKS)
+
+# Mirrored by the standalone Control API; checked for agreement in archive tests.
+MAX_ARCHIVE = 192 * 1024 * 1024
+MAX_EXPANDED = 512 * 1024 * 1024
+MAX_FILE = 8 * 1024 * 1024
+MAX_FILES = 16384
 
 
 def owner(path):
@@ -73,7 +82,7 @@ def split_resource_packs(root, files):
             field = REGISTRIES[relative]
             entries = document[field] if field else {k: v for k, v in document.items() if k != "format_version"}
             metadata = {k: v for k, v in document.items() if k != field} if field else {"format_version": document["format_version"]}
-            for pack in RESOURCE_PACKS:
+            for pack in SPLIT_RESOURCE_PACKS:
                 subset = {k: v for k, v in entries.items() if entry_owner(k) == pack}
                 if subset:
                     value = dict(metadata)
@@ -85,7 +94,7 @@ def split_resource_packs(root, files):
                         value.update(subset)
                     result[pack + relative] = json_bytes(value)
         elif relative.startswith("texts/") and relative.endswith(".lang"):
-            buckets = {pack: [] for pack in RESOURCE_PACKS}
+            buckets = {pack: [] for pack in SPLIT_RESOURCE_PACKS}
             for line in data.decode("utf-8-sig").splitlines():
                 key = line.partition("=")[0]
                 if key in {"pack.name", "pack.description"}:
@@ -95,7 +104,7 @@ def split_resource_packs(root, files):
                 if lines:
                     result[pack + relative] = ("\n".join(lines) + "\n").encode("utf-8")
         elif relative == "texts/languages.json":
-            for pack in RESOURCE_PACKS:
+            for pack in SPLIT_RESOURCE_PACKS:
                 result[pack + relative] = data
         else:
             result[owner(relative) + relative] = data

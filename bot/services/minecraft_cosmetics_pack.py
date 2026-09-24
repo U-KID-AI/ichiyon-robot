@@ -2,6 +2,9 @@
 from copy import deepcopy
 from io import BytesIO
 import json
+from pathlib import Path
+import shutil
+from tempfile import TemporaryFile
 from zipfile import ZipFile, ZIP_DEFLATED, ZipInfo
 
 from PIL import Image
@@ -10,7 +13,10 @@ from bot.services.minecraft_cosmetics import (
     MOLCARS, SLOTS, MAX_ID, asset, json_bytes, public_asset,
 )
 from bot.services.minecraft_cosmetics_posters import compile_posters, poster_entry
-from bot.services.minecraft_resource_packs import RESOURCE_PACKS, LEGACY_UUID, split_resource_packs
+from bot.services.minecraft_resource_packs import (
+    RESOURCE_PACKS, DIRECT_RESOURCE_PACKS, LEGACY_UUID, split_resource_packs,
+    MAX_ARCHIVE, MAX_EXPANDED, MAX_FILE, MAX_FILES,
+)
 
 BP = "behavior_packs/ichiyon_avatar_bp/"
 RP = "resource_packs/ichiyon_avatar_rp/"
@@ -259,7 +265,7 @@ def compile_files(root, records, *, revision=None):
         files[path] = ("\n".join(lines) + "\n").encode("utf-8")
     put(RP + "render_controllers/cosmetics_accessories.render_controllers.json", {"format_version": "1.8.0", "render_controllers": accessory_controllers})
     compile_posters(root, [a for a in records if a["kind"] == "poster"], files)
-    for pack, patch in ((BP, 38), (RP, 44), (BRIDGE, 37)):
+    for pack, patch in ((BP, 39), (RP, 44), (BRIDGE, 38)):
         manifest = read(pack + "manifest.json")
         version = [1, 0, patch] if revision is None else [1, 1, revision]
         manifest["header"]["version"] = version
@@ -285,14 +291,35 @@ def pack_zip(root, records, revision):
              for pack in PACKS for p in (root / pack).rglob("*") if p.is_file()}
     files.update(compile_files(root, records, revision=revision))
     files = split_resource_packs(root, files)
+    # Direct media stays on disk until its ZIP entry is written, never in the split.
+    files.update({p.relative_to(root).as_posix(): p
+                  for pack in DIRECT_RESOURCE_PACKS for p in (root / pack).rglob("*") if p.is_file()})
     proof = {"revision": revision, "catalog_digest": catalog_digest(records),
              "packs": [p.rstrip("/") for p in (BP, BRIDGE, *RESOURCE_PACKS)],
              "retired_packs": [{"path": RP.rstrip("/"), "uuid": LEGACY_UUID}]}
     files["cosmetics-build.json"] = json_bytes(proof)
-    out = BytesIO()
-    with ZipFile(out, "w", compression=ZIP_DEFLATED) as archive:
-        for name, data in sorted(files.items()):
-            info = ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
-            info.compress_type = ZIP_DEFLATED
-            archive.writestr(info, data)
-    return out.getvalue()
+    if len(files) > MAX_FILES:
+        raise ValueError("too many files")
+    total = 0
+    # Keep only the returned archive in RAM, not another full compressed buffer.
+    with TemporaryFile() as out:
+        with ZipFile(out, "w", compression=ZIP_DEFLATED) as archive:
+            for name, data in sorted(files.items()):
+                size = data.stat().st_size if isinstance(data, Path) else len(data)
+                total += size
+                if size > MAX_FILE or total > MAX_EXPANDED:
+                    raise ValueError("expanded archive too large")
+                info = ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
+                info.compress_type = ZIP_DEFLATED
+                info.file_size = size
+                if isinstance(data, Path):
+                    with data.open("rb") as source, archive.open(info, "w") as target:
+                        shutil.copyfileobj(source, target, length=1024 * 1024)
+                else:
+                    archive.writestr(info, data)
+                if out.tell() > MAX_ARCHIVE:
+                    raise ValueError("archive too large")
+        if out.tell() > MAX_ARCHIVE:
+            raise ValueError("archive too large")
+        out.seek(0)
+        return out.read()

@@ -1,0 +1,17 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "Ichiyon Video Big",
+    "description": "Ichiyon big-screen video resources",
+    "uuid": "a9689c00-b236-53ec-b952-a5fa64cb0cbc",
+    "version": [1, 0, 0],
+    "min_engine_version": [1, 26, 0]
+  },
+  "modules": [
+    {
+      "type": "resources",
+      "uuid": "dce8cadf-c59a-59c6-9862-b590cd2cc461",
+      "version": [1, 0, 0]
+    }
+  ]
+}

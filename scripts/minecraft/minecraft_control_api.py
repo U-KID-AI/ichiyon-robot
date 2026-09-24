@@ -73,13 +73,27 @@ def cosmetics_status(x_minecraft_control_secret: Optional[str] = Header(default=
 @app.post('/cosmetics/{operation_id}', status_code=202)
 async def apply_cosmetics(operation_id: str, request: Request, x_minecraft_control_secret: Optional[str] = Header(default=None)):
     require_secret(x_minecraft_control_secret)
-    data = bytearray()
-    async for chunk in request.stream():
-        if len(data) + len(chunk) > MAX_ARCHIVE:
+    length = request.headers.get('content-length')
+    if length is not None:
+        try:
+            length = int(length)
+            if length < 0:
+                raise ValueError
+        except ValueError:
+            raise HTTPException(400, 'invalid content length') from None
+        if length > MAX_ARCHIVE:
             raise HTTPException(413, 'archive too large')
-        data.extend(chunk)
     try:
-        return await run_in_threadpool(cosmetic_applications.submit, operation_id, bytes(data))
+        # Bound disk usage without retaining bytearray + bytes + BytesIO copies.
+        with tempfile.TemporaryFile() as data:
+            size = 0
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > MAX_ARCHIVE:
+                    raise HTTPException(413, 'archive too large')
+                await run_in_threadpool(data.write, chunk)
+            data.seek(0)
+            return await run_in_threadpool(cosmetic_applications.submit, operation_id, data)
     except ValueError:
         raise HTTPException(400, 'invalid pack archive') from None
     except RuntimeError:

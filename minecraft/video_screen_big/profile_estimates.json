@@ -1,0 +1,72 @@
+{
+  "source": {
+    "filename": "3865.mp4",
+    "bytes": 24332100,
+    "width": 640,
+    "height": 360,
+    "fps": "24/1",
+    "frameCount": 12244,
+    "videoDuration": 510.166667,
+    "containerDuration": 510.188844
+  },
+  "method": "Eight distributed 3-second samples at output 20fps; RGB PNG atlases with 1-pixel extruded edges. PNG estimate is sample bytes/frame times estimated full frame count; audio and definitions excluded.",
+  "sampleStartsSeconds": [
+    0.0,
+    72.452381,
+    144.904762,
+    217.357143,
+    289.809524,
+    362.261905,
+    434.714286,
+    507.166667
+  ],
+  "sampleSecondsPerWindow": 3,
+  "memoryNote": "Decoded RGBA assumes every atlas resident, no GPU compression. Mipmaps add approximately one third. Engine overhead and the separate small-screen pack are excluded; actual device residency is implementation-dependent.",
+  "profiles": [
+    {
+      "profile": "big-192",
+      "fps": 20,
+      "frameWidth": 192,
+      "frameHeight": 108,
+      "sampleFrames": 480,
+      "samplePngBytes": 7331428,
+      "estimatedFrameCount": 10204,
+      "estimatedPngBytes": 155853940,
+      "atlasCount": 57,
+      "atlasWidth": 1940,
+      "atlasHeight": 1980,
+      "decodedRgbaBytes": 875793600,
+      "decodedRgbaWithMipmapsBytes": 1167724800
+    },
+    {
+      "profile": "big-160",
+      "fps": 20,
+      "frameWidth": 160,
+      "frameHeight": 90,
+      "sampleFrames": 480,
+      "samplePngBytes": 5442631,
+      "estimatedFrameCount": 10204,
+      "estimatedPngBytes": 115701264,
+      "atlasCount": 39,
+      "atlasWidth": 1944,
+      "atlasHeight": 2024,
+      "decodedRgbaBytes": 613806336,
+      "decodedRgbaWithMipmapsBytes": 818408448
+    },
+    {
+      "profile": "big-128",
+      "fps": 20,
+      "frameWidth": 128,
+      "frameHeight": 72,
+      "sampleFrames": 480,
+      "samplePngBytes": 3847270,
+      "estimatedFrameCount": 10204,
+      "estimatedPngBytes": 81786548,
+      "atlasCount": 26,
+      "atlasWidth": 1950,
+      "atlasHeight": 1998,
+      "decodedRgbaBytes": 405194400,
+      "decodedRgbaWithMipmapsBytes": 540259200
+    }
+  ]
+}

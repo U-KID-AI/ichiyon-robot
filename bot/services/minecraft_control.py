@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 import httpx
 
 from bot import config
+from bot.services.minecraft_resource_packs import MAX_ARCHIVE
 
 
 class MinecraftControlError(Exception):
@@ -52,8 +53,11 @@ async def cosmetics_control(operation_id=None, archive=None):
     """Fixed private API; credential and URL never come from form input."""
     if not control_api_configured():
         raise MinecraftControlError('反映先に接続できません。')
+    if operation_id is not None and (not isinstance(archive, bytes) or len(archive) > MAX_ARCHIVE):
+        raise MinecraftControlError('Managed archive exceeds the 192 MiB limit or is invalid.')
     try:
-        async with httpx.AsyncClient(timeout=60, trust_env=False) as client:
+        timeout = 60 if operation_id is None else httpx.Timeout(180, connect=10)
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
             if operation_id is None:
                 response = await client.get(_base_url() + '/cosmetics', headers=_headers())
             else:

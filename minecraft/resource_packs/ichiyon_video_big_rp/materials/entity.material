@@ -1,0 +1,10 @@
+{
+  "materials": {
+    "version": "1.0.0",
+    "ichiyon_video_big_uv:entity_alphatest": {
+      "+defines": [
+        "USE_UV_ANIM"
+      ]
+    }
+  }
+}
