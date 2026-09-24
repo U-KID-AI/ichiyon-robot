@@ -1,0 +1,29 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "Ichiyon Mannequin Skins",
+    "description": "Ichiyon Mannequin Skins resources",
+    "uuid": "9d41ab7e-a039-4bee-847f-032edae8d23c",
+    "version": [
+      1,
+      0,
+      0
+    ],
+    "min_engine_version": [
+      1,
+      26,
+      0
+    ]
+  },
+  "modules": [
+    {
+      "type": "resources",
+      "uuid": "06d39b64-7bae-4173-b579-e60f64b0dabc",
+      "version": [
+        1,
+        0,
+        0
+      ]
+    }
+  ]
+}

@@ -365,9 +365,13 @@ def create_backup() -> str:
     with tarfile.open(backup_file, "w:gz") as archive:
         archive.add(PROJECT_DIR / "docker-compose.yml", arcname="docker-compose.yml")
         archive.add(DATA_DIR / "worlds" / WORLD_NAME, arcname="data/worlds/{0}".format(WORLD_NAME))
-        for spec in PACK_SPECS:
-            if spec["destination"].exists():
-                archive.add(spec["destination"], arcname=str(spec["destination"].relative_to(PROJECT_DIR)))
+        for kind in ("behavior_packs", "resource_packs"):
+            for manifest in sorted((DATA_DIR / kind).glob("*/manifest.json")):
+                pack = manifest.parent
+                archive.add(pack, arcname=str(pack.relative_to(PROJECT_DIR)))
+        active = PROJECT_DIR / "cosmetics-applications" / "active.json"
+        if active.is_file():
+            archive.add(active, arcname=str(active.relative_to(PROJECT_DIR)))
         for pack_ref in (
             DATA_DIR / "worlds" / WORLD_NAME / "world_behavior_packs.json",
             DATA_DIR / "worlds" / WORLD_NAME / "world_resource_packs.json",

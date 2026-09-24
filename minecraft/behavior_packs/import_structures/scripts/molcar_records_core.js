@@ -19,9 +19,9 @@ export function createMolcarRecords({ world, system, tracks, report = console.wa
     playback.delete(entityId);
   }
 
-  function rider(player, molcar) {
-    return (molcar.getComponent("minecraft:rideable")?.getRiders() || [])
-      .some((value) => value.id === player.id);
+  function isMoving(molcar) {
+    const velocity = molcar.getVelocity();
+    return Math.hypot(velocity.x, velocity.z) >= 0.04;
   }
 
   function use(player, molcar, itemId) {
@@ -30,14 +30,13 @@ export function createMolcarRecords({ world, system, tracks, report = console.wa
     if (!player.isValid || !molcar.isValid || player.dimension.id !== molcar.dimension.id) return false;
     const delta = ["x", "y", "z"].map((axis) => player.location[axis] - molcar.location[axis]);
     if (Math.hypot(...delta) > 7) return false;
-    const velocity = molcar.getVelocity();
-    if (!rider(player, molcar) && Math.hypot(velocity.x, velocity.z) >= 0.04) {
-      player.sendMessage("停止中のモルカー、または乗車中にレコードを使ってください。");
-      return false;
-    }
     const previous = playback.get(molcar.id);
     stop(molcar.id);
     if (previous?.track.itemId === itemId) return true;
+    if (isMoving(molcar)) {
+      player.sendMessage("モルカーを停止してからレコードを使ってください。");
+      return false;
+    }
     playback.set(molcar.id, {
       track, started: now(), dimension: molcar.dimension.id, listeners: new Map(),
     });
@@ -53,7 +52,7 @@ export function createMolcarRecords({ world, system, tracks, report = console.wa
         const molcar = world.getEntity(id);
         // Native sound playback uses real seconds, even when server ticks lag.
         const elapsed = Math.max(0, (now() - state.started) / 1000);
-        if (!molcar?.isValid || molcar.dimension.id !== state.dimension || elapsed >= state.track.durationSeconds) {
+        if (!molcar?.isValid || molcar.dimension.id !== state.dimension || elapsed >= state.track.durationSeconds || isMoving(molcar)) {
           stop(id);
           continue;
         }
@@ -65,20 +64,15 @@ export function createMolcarRecords({ world, system, tracks, report = console.wa
           audible.add(player.id);
           const volume = (1 - distance / RECORD_RADIUS) ** 2;
           let listener = state.listeners.get(player.id);
-          if (listener && Math.hypot(...["x", "y", "z"].map((axis) => molcar.location[axis] - listener.anchor[axis])) >= 1.5) {
-            stopListener(listener);
-            state.listeners.delete(player.id);
-            listener = undefined;
-          }
           if (!listener) {
-            const anchor = { ...molcar.location };
-            const sound = player.playSound(state.track.soundId, { location: anchor, volume: 0, pitch: 1 });
+            // Keep a fixed car-location sound; movement stops playback instead of reanchoring.
+            const sound = player.playSound(state.track.soundId, { location: { ...molcar.location }, volume: 0, pitch: 1 });
             if (!sound || typeof sound.stop !== "function" || typeof sound.seekTo !== "function" || typeof sound.setVolume !== "function") {
               if (typeof sound?.stop === "function") sound.stop();
               else player.stopSound(state.track.soundId);
               throw new Error("Molcar records require the installed Script API SoundInstance handle");
             }
-            listener = { sound, anchor };
+            listener = { sound };
             state.listeners.set(player.id, listener);
             if (elapsed > 0) sound.seekTo(elapsed);
           }

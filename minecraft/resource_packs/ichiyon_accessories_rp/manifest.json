@@ -1,0 +1,29 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "Ichiyon Accessories",
+    "description": "Ichiyon Accessories resources",
+    "uuid": "fba2bbe5-091a-45b4-ac0a-8e92fba133fa",
+    "version": [
+      1,
+      0,
+      0
+    ],
+    "min_engine_version": [
+      1,
+      26,
+      0
+    ]
+  },
+  "modules": [
+    {
+      "type": "resources",
+      "uuid": "ad864fe9-52e6-4161-929e-ce028ae8271c",
+      "version": [
+        1,
+        0,
+        0
+      ]
+    }
+  ]
+}

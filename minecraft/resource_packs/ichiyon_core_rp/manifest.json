@@ -1,0 +1,29 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "Ichiyon Core",
+    "description": "Ichiyon Core resources",
+    "uuid": "0e8ee95f-3701-4753-87e0-7f7c217ae5c1",
+    "version": [
+      1,
+      0,
+      0
+    ],
+    "min_engine_version": [
+      1,
+      26,
+      0
+    ]
+  },
+  "modules": [
+    {
+      "type": "resources",
+      "uuid": "8b9fdd0d-48e5-4463-b8c6-db7da7adbe2d",
+      "version": [
+        1,
+        0,
+        0
+      ]
+    }
+  ]
+}

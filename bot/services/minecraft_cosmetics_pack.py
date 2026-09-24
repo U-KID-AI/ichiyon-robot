@@ -10,6 +10,7 @@ from bot.services.minecraft_cosmetics import (
     MOLCARS, SLOTS, MAX_ID, asset, json_bytes, public_asset,
 )
 from bot.services.minecraft_cosmetics_posters import compile_posters, poster_entry
+from bot.services.minecraft_resource_packs import RESOURCE_PACKS, LEGACY_UUID, split_resource_packs
 
 BP = "behavior_packs/ichiyon_avatar_bp/"
 RP = "resource_packs/ichiyon_avatar_rp/"
@@ -258,7 +259,7 @@ def compile_files(root, records, *, revision=None):
         files[path] = ("\n".join(lines) + "\n").encode("utf-8")
     put(RP + "render_controllers/cosmetics_accessories.render_controllers.json", {"format_version": "1.8.0", "render_controllers": accessory_controllers})
     compile_posters(root, [a for a in records if a["kind"] == "poster"], files)
-    for pack, patch in ((BP, 38), (RP, 44), (BRIDGE, 36)):
+    for pack, patch in ((BP, 38), (RP, 44), (BRIDGE, 37)):
         manifest = read(pack + "manifest.json")
         version = [1, 0, patch] if revision is None else [1, 1, revision]
         manifest["header"]["version"] = version
@@ -283,7 +284,10 @@ def pack_zip(root, records, revision):
     files = {str(p.relative_to(root)).replace("\\", "/"): p.read_bytes()
              for pack in PACKS for p in (root / pack).rglob("*") if p.is_file()}
     files.update(compile_files(root, records, revision=revision))
-    proof = {"revision": revision, "catalog_digest": catalog_digest(records)}
+    files = split_resource_packs(root, files)
+    proof = {"revision": revision, "catalog_digest": catalog_digest(records),
+             "packs": [p.rstrip("/") for p in (BP, BRIDGE, *RESOURCE_PACKS)],
+             "retired_packs": [{"path": RP.rstrip("/"), "uuid": LEGACY_UUID}]}
     files["cosmetics-build.json"] = json_bytes(proof)
     out = BytesIO()
     with ZipFile(out, "w", compression=ZIP_DEFLATED) as archive:

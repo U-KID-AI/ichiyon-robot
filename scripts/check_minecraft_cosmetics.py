@@ -207,9 +207,10 @@ class PackChecks(unittest.TestCase):
             self.assertEqual(len(names), len(set(names)))
             self.assertFalse(any(".." in n or n.startswith("/") for n in names))
             self.assertIn(BRIDGE + "scripts/main.js", names)
-            self.assertIn(RP + "textures/entity/pikachu.png", names)
+            self.assertIn("resource_packs/ichiyon_core_rp/textures/entity/pikachu.png", names)
+            self.assertFalse(any(name.startswith(RP) for name in names))
             self.assertEqual(json.loads(archive.read("cosmetics-build.json"))["catalog_digest"], catalog_digest(self.records))
-            for pack in (BP, RP, BRIDGE):
+            for pack in (BP, BRIDGE):
                 original = json.loads((self.minecraft / pack / "manifest.json").read_bytes())
                 manifest = json.loads(archive.read(pack + "manifest.json"))
                 self.assertEqual(manifest["header"]["uuid"], original["header"]["uuid"])

@@ -35,6 +35,8 @@ assert.equal(runtime.playback.size, 0);
 speed = 0.04;
 assert.equal(runtime.use(player, molcar, "record1"), false);
 riders = [player];
+assert.equal(runtime.use(player, molcar, "record1"), false, "riders must also stop before starting a record");
+speed = 0;
 assert.equal(runtime.use(player, molcar, "record1"), true);
 runtime.use(player, molcar, "record2");
 assert.equal(handles[1].stopped, true);
@@ -66,7 +68,7 @@ runtime.tick();
 assert.equal(runtime.playback.size, 0, "261-second recording expires");
 assert.equal(handles.at(-1).stopped, true);
 assert.equal(runtime.use(player, { ...molcar, typeId: "minecraft:player" }, "record1"), false);
-console.log("Molcar record playback: PASS (toggle/switch/moving rider/attenuation/late listener/multiple cars/logout/unload/261s)");
+console.log("Molcar record playback: PASS (toggle/switch/stationary rider/attenuation/late listener/multiple cars/logout/unload/261s)");
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log(`PASS ${name}`); }
@@ -88,11 +90,12 @@ function fixture() {
       return handle;
     } };
   const m = { ...molcar, location: { ...molcar.location }, getVelocity: () => ({ x: 0, y: 0, z: 0 }), getComponent: () => ({ getRiders: () => [] }) };
+  const entities = new Map([[m.id, m]]);
   const all = [p];
   const clock = { currentTick: 0, run: (fn) => pending.push(fn) };
-  const state = createMolcarRecords({ world: { getAllPlayers: () => all, getEntity: () => m }, system: clock,
+  const state = createMolcarRecords({ world: { getAllPlayers: () => all, getEntity: (id) => entities.get(id) }, system: clock,
     tracks, now: () => milliseconds, report: (message) => errors.push(message) });
-  return { state, p, m, all, clock, calls, errors, sounds,
+  return { state, p, m, all, entities, clock, calls, errors, sounds,
     advance(seconds) { milliseconds += seconds * 1000; },
     held: () => held, setHeld(item) { held = item; }, setMount(entity) { mount = entity; }, flush() { pending.splice(0).forEach((fn) => fn()); } };
 }
@@ -107,44 +110,118 @@ test("initial sound uses a copied car location and listener motion never reancho
   assert.equal(f.sounds.length, 1); assert(!f.sounds[0].stopped);
 });
 
-test("car travel accumulates to 1.5 blocks on every axis before stop, muted restart, seek and volume", () => {
-  for (const axis of ["x", "y", "z"]) {
-    const f = fixture(); f.state.use(f.p, f.m, "record1");
-    for (let i = 0; i < 2; i++) { f.m.location[axis] += 0.5; f.state.tick(); }
-    assert.equal(f.sounds.length, 1); assert(!f.sounds[0].stopped);
-    f.advance(12.75); f.calls.length = 0;
-    f.m.location[axis] += 0.5; f.state.tick();
-    assert.equal(f.clock.currentTick, 0); assert.equal(f.sounds.length, 2);
-    assert(f.sounds[0].stopped); assert(!f.sounds[1].stopped);
-    assert.deepEqual(f.sounds[1].options.location, f.m.location);
-    assert.deepEqual(f.calls.slice(0, 3), [["stop", "song1"], ["play", "song1", 0], ["seek", 12.75]]);
-    assert.equal(f.calls[3][0], "volume"); assert(f.calls[3][1] > 0);
-    f.m.location[axis] += 1; f.state.tick(); assert.equal(f.sounds.length, 2);
-    f.advance(2); f.m.location[axis] += 0.5; f.calls.length = 0; f.state.tick();
-    assert.equal(f.sounds.length, 3); assert(f.sounds[1].stopped);
-    assert.deepEqual(f.calls.slice(0, 3), [["stop", "song1"], ["play", "song1", 0], ["seek", 14.75]]);
+test("horizontal speed must be below 0.04 for riders and outside players", () => {
+  for (const mounted of [false, true]) {
+    for (const velocity of [
+      { x: 0.04, y: 0, z: 0 }, { x: -0.04, y: 0, z: 0 },
+      { x: 0, y: 0, z: 0.04 }, { x: 0, y: 0, z: -0.04 },
+      { x: 0.03, y: 0, z: 0.03 },
+    ]) {
+      const f = fixture();
+      f.m.getVelocity = () => velocity;
+      f.m.getComponent = () => ({ getRiders: () => mounted ? [f.p] : [] });
+      if (mounted) f.setMount(f.m);
+      assert.equal(f.state.use(f.p, f.m, "record1"), false);
+      assert.equal(f.sounds.length, 0); assert.equal(f.state.playback.size, 0);
+    }
+    for (const velocity of [{ x: 0.039999, y: 0, z: 0 }, { x: 0, y: 1, z: -0.039999 }]) {
+      const f = fixture();
+      f.m.getVelocity = () => velocity;
+      f.m.getComponent = () => ({ getRiders: () => mounted ? [f.p] : [] });
+      if (mounted) f.setMount(f.m);
+      assert.equal(f.state.use(f.p, f.m, "record1"), true);
+      f.state.tick(); assert.equal(f.sounds.length, 1); assert(!f.sounds[0].stopped);
+    }
   }
 });
 
-test("reanchoring uses each listener's own anchor and three-dimensional distance", () => {
-  const f = fixture(); f.state.use(f.p, f.m, "record1");
-  f.m.location.x += 0.9; f.advance(3);
-  f.all.push({ ...f.p, id: "p2" }); f.state.tick();
-  assert.equal(f.sounds.length, 2);
-  f.m.location.y += 1.2; f.state.tick();
-  assert.equal(f.sounds.length, 3); assert(f.sounds[0].stopped); assert(!f.sounds[1].stopped);
-  f.m.location.y += 0.3; f.state.tick();
-  assert.equal(f.sounds.length, 4); assert(f.sounds[1].stopped); assert(!f.sounds[2].stopped);
+test("subthreshold car displacement never reanchors or seeks an existing handle", () => {
+  for (const axis of ["x", "y", "z"]) {
+    const f = fixture(); f.state.use(f.p, f.m, "record1");
+    const origin = { ...f.m.location };
+    f.m.getVelocity = () => ({ x: 0, y: 0, z: 0, [axis]: 0.039 });
+    f.calls.length = 0;
+    for (let i = 0; i < 100; i++) {
+      f.m.location[axis] += 0.039; f.advance(0.05); f.state.tick();
+    }
+    assert.equal(f.sounds.length, 1); assert(!f.sounds[0].stopped);
+    assert.deepEqual(f.sounds[0].options.location, origin);
+    assert(f.calls.every(([method]) => method === "volume"));
+  }
 });
 
-test("reanchored handles retain the original lifetime and clearPlayer cleanup", () => {
+test("late listeners use the current car location without replacing existing handles", () => {
+  const f = fixture(); f.state.use(f.p, f.m, "record1");
+  const origin = { ...f.m.location };
+  f.m.location.x += 2; f.advance(3); f.calls.length = 0;
+  f.all.push({ ...f.p, id: "p2" }); f.state.tick();
+  assert.equal(f.sounds.length, 2); assert(f.sounds.every((sound) => !sound.stopped));
+  assert.deepEqual(f.sounds[0].options.location, origin);
+  assert.deepEqual(f.sounds[1].options.location, f.m.location);
+  assert.notStrictEqual(f.sounds[1].options.location, f.m.location);
+  assert.deepEqual(f.calls.slice(1, 3), [["play", "song1", 0], ["seek", 3]]);
+});
+
+test("motion stops every listener on the next tick before starting any late listener", () => {
+  for (const mounted of [false, true]) {
+    for (const velocity of [{ x: 0.04, y: 0, z: 0 }, { x: 0, y: 0, z: -0.04 }, { x: 0.03, y: 0, z: 0.03 }]) {
+      const f = fixture(); f.all.push({ ...f.p, id: "p2" });
+      f.m.getComponent = () => ({ getRiders: () => mounted ? [f.p] : [] });
+      if (mounted) f.setMount(f.m);
+      f.state.use(f.p, f.m, "record1"); assert.equal(f.sounds.length, 2);
+      f.m.getVelocity = () => velocity; f.all.push({ ...f.p, id: "p3" });
+      f.calls.length = 0; f.state.tick();
+      assert.equal(f.state.playback.size, 0); assert(f.sounds.every((sound) => sound.stopped));
+      assert.deepEqual(f.calls, [["stop", "song1"], ["stop", "song1"]]);
+      f.m.getVelocity = () => ({ x: 0, y: 0, z: 0 });
+      f.state.tick(); assert.equal(f.sounds.length, 2, "parking does not automatically restart playback");
+      assert.equal(f.state.use(f.p, f.m, "record1"), true);
+      assert.equal(f.sounds.length, 5, "a fresh stationary use can start playback again");
+    }
+  }
+});
+
+test("motion clears playback even with no listeners", () => {
+  const f = fixture(); f.all.length = 0; f.state.use(f.p, f.m, "record1");
+  f.m.getVelocity = () => ({ x: 0.04, y: 0, z: 0 }); f.state.tick();
+  assert.equal(f.state.playback.size, 0); assert.equal(f.sounds.length, 0);
+  f.m.getVelocity = () => ({ x: 0, y: 0, z: 0 }); f.all.push(f.p); f.state.tick();
+  assert.equal(f.sounds.length, 0);
+});
+
+test("motion stops only that car even when another car plays the same track", () => {
+  const f = fixture(), other = { ...f.m, id: "m2" }; f.entities.set(other.id, other);
+  f.state.use(f.p, f.m, "record1"); f.state.use(f.p, other, "record1");
+  f.m.getVelocity = () => ({ x: 0.04, y: 0, z: 0 }); f.calls.length = 0; f.state.tick();
+  assert(!f.state.playback.has(f.m.id)); assert(f.state.playback.has(other.id));
+  assert.equal(f.sounds.length, 2); assert(f.sounds[0].stopped); assert(!f.sounds[1].stopped);
+  assert(!f.calls.some(([method]) => method === "stopSound"));
+});
+
+test("failed velocity reads stop retained handles instead of leaving long playback active", () => {
+  const f = fixture(); f.state.use(f.p, f.m, "record1");
+  f.m.getVelocity = () => { throw Error("velocity unavailable"); }; f.state.tick();
+  assert.equal(f.state.playback.size, 0); assert(f.sounds[0].stopped);
+  assert.match(f.errors[0], /velocity unavailable/);
+});
+
+test("a moving use can stop the current track but cannot replace it", () => {
+  for (const itemId of ["record1", "record2"]) {
+    const f = fixture(); f.state.use(f.p, f.m, "record1");
+    f.m.getVelocity = () => ({ x: 0.04, y: 0, z: 0 });
+    assert.equal(f.state.use(f.p, f.m, itemId), itemId === "record1");
+    assert.equal(f.state.playback.size, 0); assert.equal(f.sounds.length, 1); assert(f.sounds[0].stopped);
+  }
+});
+
+test("fixed handles retain the original lifetime and clearPlayer cleanup", () => {
   for (const clear of [false, true]) {
     const f = fixture(); f.state.use(f.p, f.m, "record1");
     f.advance(260); f.m.location.x += 1.5; f.state.tick();
-    assert.equal(f.sounds.length, 2); assert(f.sounds[0].stopped);
+    assert.equal(f.sounds.length, 1); assert(!f.sounds[0].stopped);
     if (clear) f.state.clearPlayer(f.p.id);
     else { f.advance(1); f.state.tick(); assert.equal(f.state.playback.size, 0); }
-    assert(f.sounds[1].stopped);
+    assert(f.sounds[0].stopped);
     assert.equal(f.state.playback.get(f.m.id)?.listeners.size ?? 0, 0);
   }
 });
@@ -205,6 +282,20 @@ test("rider itemUse resolves only their native mount and never consumes record",
   assert.equal(f.held().amount, 1); f.clock.currentTick++;
   f.state.itemUse({ ...event, cancel: false }); f.flush(); assert.equal(f.state.playback.size, 0);
   assert.equal(f.held().amount, 1);
+});
+
+test("queued mounted and outside uses recheck speed without consuming the record", () => {
+  for (const mounted of [false, true]) {
+    const f = fixture(), original = f.held();
+    f.m.getComponent = () => ({ getRiders: () => mounted ? [f.p] : [] });
+    const event = { source: f.p, player: f.p, target: f.m, itemStack: original, cancel: false };
+    if (mounted) { f.setMount(f.m); f.state.itemUse(event); }
+    else f.state.interact(event);
+    assert(event.cancel);
+    f.m.getVelocity = () => ({ x: 0.04, y: 0, z: 0 }); f.flush();
+    assert.equal(f.state.playback.size, 0); assert.equal(f.sounds.length, 0);
+    assert.strictEqual(f.held(), original); assert.equal(original.amount, 1);
+  }
 });
 test("itemUse plus interaction in the same tick does not toggle twice", () => {
   const f = fixture(); f.setMount(f.m);

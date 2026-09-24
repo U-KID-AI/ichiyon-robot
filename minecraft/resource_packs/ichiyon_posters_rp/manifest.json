@@ -1,0 +1,29 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "Ichiyon Posters",
+    "description": "Ichiyon Posters resources",
+    "uuid": "c425c4f6-aa03-4dc5-bf1e-04bb61317967",
+    "version": [
+      1,
+      0,
+      0
+    ],
+    "min_engine_version": [
+      1,
+      26,
+      0
+    ]
+  },
+  "modules": [
+    {
+      "type": "resources",
+      "uuid": "fc05c2dd-e118-4b9c-be5a-ceb40cd79ec9",
+      "version": [
+        1,
+        0,
+        0
+      ]
+    }
+  ]
+}
