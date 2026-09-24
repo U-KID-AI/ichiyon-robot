@@ -14,6 +14,6 @@ if (molcarRecords.length) {
     if (initialSpawn) records.resetPlayer(player);
   });
   system.run(() => world.getAllPlayers().forEach((player) => records.resetPlayer(player)));
-  system.runInterval(() => records.tick(), 4);
+  system.runInterval(() => records.tick(), 1);
   console.warn(`[MolcarRecords] loaded ${molcarRecords.length} tracks`);
 }

@@ -42,6 +42,7 @@ jobs:
           python scripts/build_minecraft_cosmetics.py --check
           python scripts/check_build_minecraft_cosmetics.py
           python scripts/check_minecraft_cosmetics.py
+          python scripts/check_minecraft_resource_packs.py
           python scripts/check_minecraft_cosmetics_admin.py
           python scripts/check_minecraft_cosmetics_apply.py
           python scripts/check_minecraft_cosmetics_db.py

@@ -309,7 +309,8 @@ class PreservationChecks(unittest.TestCase):
         from zipfile import ZipFile
         from admin.minecraft_cosmetics import records
         from bot.services.minecraft_cosmetics import asset, public_asset
-        from bot.services.minecraft_cosmetics_pack import catalog_digest, RP
+        from bot.services.minecraft_cosmetics_pack import catalog_digest
+        from bot.services.minecraft_resource_packs import ACCESSORIES
         from check_minecraft_cosmetics import fixture_assets, png
 
         stored = fixture_assets() + [asset("poster", 1, "poster_1", "Stored poster",
@@ -341,7 +342,7 @@ class PreservationChecks(unittest.TestCase):
                         self.assertTrue(any(zip_file.read(name) == record[blob] for name in zip_file.namelist()),
                                         f"{record['kind']} {record['id']} {blob} missing")
                 if "geometry" in record:
-                    model = json.loads(zip_file.read(RP + "models/entity/cosmetics/molcar_cosmetic_1.geo.json"))
+                    model = json.loads(zip_file.read(ACCESSORIES + "models/entity/cosmetics/molcar_cosmetic_1.geo.json"))
                     actual_bones = model["minecraft:geometry"][0]["bones"]
                     for bone in json.loads(record["geometry"])["minecraft:geometry"][0]["bones"]:
                         actual = next(b for b in actual_bones if b["name"] == "cosmetic_1_" + bone["name"])

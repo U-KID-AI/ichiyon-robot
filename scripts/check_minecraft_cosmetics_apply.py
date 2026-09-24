@@ -6,9 +6,11 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from zipfile import ZipFile
 import json
+from copy import deepcopy
 import shutil
 import sys
 import tempfile
+import tarfile
 import unittest
 import uuid
 
@@ -128,12 +130,359 @@ class ApplyChecks(unittest.TestCase):
         with self.assertRaises(ValueError): self.manager.submit(self.identifier, stream.getvalue())
         self.assertFalse(self.api.commands)
 
-    def test_next_runtime_version_increases_even_with_same_export_revision(self):
+    def test_identical_export_keeps_runtime_version(self):
         job = self.submit(); self.manager._run(job)
         first = json.loads((self.api.DATA_DIR / deploy.PACKS[1] / 'manifest.json').read_text(encoding='utf-8'))['header']['version']
         job = self.manager.submit(str(uuid.uuid4()), self.archive); self.manager._run(job)
         second = json.loads((self.api.DATA_DIR / deploy.PACKS[1] / 'manifest.json').read_text(encoding='utf-8'))['header']['version']
-        self.assertGreater(second, first)
+        self.assertEqual(second, first)
+
+
+SPLIT_RPS = tuple('resource_packs/ichiyon_' + name + '_rp' for name in
+                  ('core', 'mannequin_skins', 'accessories', 'posters', 'video', 'records'))
+
+
+class SplitApplyChecks(unittest.TestCase):
+    """Small independent fixtures keep transaction checks separate from the compiler."""
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.api = API(Path(temporary.name))
+        self.manager = deploy.PackApplications(self.api)
+        self.files = {}
+        self.digest = 'a' * 64
+        self.packs = [*deploy.BEHAVIOR_PACKS, *SPLIT_RPS]
+        for pack in self.packs:
+            manifest = self.manifest(pack)
+            self.files[pack + '/manifest.json'] = manifest
+            self.files[pack + '/content.txt'] = pack.encode()
+        self.files[deploy.CATALOG] = ('export const digest = "' + self.digest + '";').encode()
+        self.files['cosmetics/catalog.lock.json'] = {'digest': self.digest}
+        self.files['cosmetics-build.json'] = {
+            'revision': 1, 'catalog_digest': self.digest, 'packs': self.packs,
+            'retired_packs': [{'path': deploy.PACKS[2], 'uuid': deploy.RETIRED_PACKS[deploy.PACKS[2]]}]}
+        dependent = self.files[deploy.BEHAVIOR_PACKS[1] + '/manifest.json']
+        dependent['dependencies'] = [{'uuid': self.pack_id(SPLIT_RPS[1]), 'version': [1, 0, 1]},
+                                     {'module_name': '@minecraft/server', 'version': '2.0.0'}]
+        for pack in deploy.PACKS:
+            deploy.atomic_json(self.api.DATA_DIR / pack / 'manifest.json', self.manifest(pack))
+        for kind in ('behavior', 'resource'):
+            refs = [{'pack_id': 'keep-other-pack', 'version': [2, 0, 0], 'extra': 'preserve'}]
+            if kind == 'resource':
+                refs.append({'pack_id': self.pack_id(deploy.PACKS[2]), 'version': [1, 0, 1]})
+            deploy.atomic_json(self.api.DATA_DIR / 'worlds/test-world' / f'world_{kind}_packs.json', refs)
+        deploy.atomic_json(self.api.DATA_DIR / deploy.PERMISSIONS, {'allowed_modules': ['@minecraft/server']})
+        deploy.atomic_json(self.manager.root / 'active.json', {'catalog_digest': 'b' * 64, 'operation_id': str(uuid.uuid4())})
+        self.old_active = (self.manager.root / 'active.json').read_bytes()
+        self.original = self.snapshot()
+        for p in (patch.object(deploy, 'deployment_lock', nullcontext), patch.object(deploy.threading, 'Thread', NoThread)):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def pack_id(self, pack):
+        return deploy.RETIRED_PACKS.get(pack, str(uuid.uuid5(uuid.NAMESPACE_URL, pack)))
+
+    def manifest(self, pack):
+        return {'format_version': 2,
+                'header': {'name': pack, 'uuid': self.pack_id(pack), 'version': [1, 0, 1], 'min_engine_version': [1, 26, 0]},
+                'modules': [{'uuid': str(uuid.uuid5(uuid.NAMESPACE_URL, pack + '/module')), 'version': [1, 0, 1],
+                             'type': 'resources' if pack.startswith('resource') else 'data'}]}
+
+    def archive(self, files=None):
+        output = BytesIO()
+        with ZipFile(output, 'w') as archive:
+            for name, data in (self.files if files is None else files).items():
+                archive.writestr(name, json.dumps(data).encode() if isinstance(data, dict) else data)
+        return output.getvalue()
+
+    def submit(self, files=None):
+        return self.manager.submit(str(uuid.uuid4()), self.archive(files))
+
+    def apply(self, files=None):
+        job = self.submit(files)
+        self.manager._run(job)
+        self.assertEqual(self.manager.status()['status'], 'succeeded')
+        return job
+
+    def versions(self):
+        return {pack: deploy.read_json(self.api.DATA_DIR / pack / 'manifest.json')['header']['version'] for pack in self.packs}
+
+    def snapshot(self):
+        return {p.relative_to(self.api.DATA_DIR).as_posix(): p.read_bytes() for p in self.api.DATA_DIR.rglob('*') if p.is_file()}
+
+    def refs(self):
+        return deploy.read_json(self.api.DATA_DIR / 'worlds/test-world/world_resource_packs.json')
+
+    def assert_restored(self):
+        self.assertEqual(self.manager.status()['status'], 'failed')
+        self.assertEqual(self.snapshot(), self.original)
+        self.assertEqual((self.manager.root / 'active.json').read_bytes(), self.old_active)
+        self.assertTrue(all(not (self.api.DATA_DIR / pack).exists() for pack in SPLIT_RPS))
+
+    def test_migration_preserves_foreign_refs_and_orders_six_verified_resources(self):
+        self.assertEqual(self.manager.status()['active_digest'], 'b' * 64)
+        job = self.apply()
+        self.assertEqual([ref['pack_id'] for ref in self.refs()], ['keep-other-pack', *(self.pack_id(p) for p in SPLIT_RPS)])
+        self.assertEqual(self.refs()[0]['extra'], 'preserve')
+        self.assertFalse((self.api.DATA_DIR / deploy.PACKS[2]).exists())
+        backup = self.manager.root / job['operation_id'] / 'original'
+        self.assertEqual((backup / deploy.PACKS[2] / 'manifest.json').read_bytes(), self.original[deploy.PACKS[2] + '/manifest.json'])
+        self.assertEqual((backup / 'active.json').read_bytes(), self.old_active)
+        self.assertEqual((backup / 'worlds/test-world/world_resource_packs.json').read_bytes(),
+                         self.original['worlds/test-world/world_resource_packs.json'])
+        self.assertEqual(len(deploy.read_json(self.manager.root / 'active.json')['packs']), 8)
+        for pack in deploy.BEHAVIOR_PACKS:
+            self.assertEqual(deploy.read_json(self.api.DATA_DIR / pack / 'manifest.json')['header']['uuid'], self.pack_id(pack))
+
+    def test_export_revision_and_pack_dependency_versions_do_not_bump_unchanged_packs(self):
+        self.apply()
+        versions = self.versions()
+        original = self.snapshot()
+        self.files['cosmetics-build.json']['revision'] = 999
+        for pack in self.packs:
+            manifest = self.files[pack + '/manifest.json']
+            manifest['header']['version'] = [9, 9, 9]
+            for module in manifest['modules']:
+                module['version'] = [9, 9, 9]
+            for dep in manifest.get('dependencies', []):
+                if 'uuid' in dep:
+                    dep['version'] = [9, 9, 9]
+        self.apply()
+        self.assertEqual(self.versions(), versions)
+        self.assertEqual(self.snapshot(), original)
+
+    def test_cosmetic_content_bumps_only_one_rp_and_keeps_video_records_bytes(self):
+        self.apply()
+        first = self.versions()
+        original = self.snapshot()
+        self.files[SPLIT_RPS[1] + '/content.txt'] = b'new skin texture'
+        self.apply()
+        second = self.versions()
+        self.assertEqual([p for p in self.packs if first[p] != second[p]], [SPLIT_RPS[1]])
+        self.assertGreater(second[SPLIT_RPS[1]], first[SPLIT_RPS[1]])
+        dependent = deploy.read_json(self.api.DATA_DIR / deploy.BEHAVIOR_PACKS[1] / 'manifest.json')
+        self.assertEqual(dependent['dependencies'][0]['version'], second[SPLIT_RPS[1]])
+        self.assertEqual(dependent['dependencies'][1]['version'], '2.0.0')
+        for name, data in self.snapshot().items():
+            if name.startswith((SPLIT_RPS[4] + '/', SPLIT_RPS[5] + '/')):
+                self.assertEqual(data, original[name])
+        self.apply()
+        self.assertEqual(self.versions(), second)
+
+    def test_module_dependency_and_engine_versions_are_real_content(self):
+        self.apply()
+        first = self.versions()
+        self.files[deploy.BEHAVIOR_PACKS[1] + '/manifest.json']['dependencies'][1]['version'] = '2.1.0'
+        self.files[SPLIT_RPS[0] + '/manifest.json']['header']['min_engine_version'] = [1, 26, 1]
+        self.apply()
+        second = self.versions()
+        self.assertEqual([p for p in self.packs if first[p] != second[p]], [deploy.BEHAVIOR_PACKS[1], SPLIT_RPS[0]])
+
+    def test_catalog_update_keeps_video_and_records_versions(self):
+        self.apply()
+        first = self.versions()
+        self.files['cosmetics-build.json']['catalog_digest'] = 'c' * 64
+        self.files['cosmetics/catalog.lock.json']['digest'] = 'c' * 64
+        self.files[deploy.CATALOG] = ('export const digest = "' + 'c' * 64 + '";').encode()
+        self.files[SPLIT_RPS[3] + '/content.txt'] = b'new poster'
+        self.apply()
+        second = self.versions()
+        self.assertEqual([p for p in self.packs if first[p] != second[p]], [deploy.BEHAVIOR_PACKS[0], SPLIT_RPS[3]])
+        self.assertEqual(self.manager.status()['active_digest'], 'c' * 64)
+
+    def test_failed_health_restores_legacy_refs_active_and_absent_new_directories(self):
+        job = self.submit()
+        self.api.health_failures = 1
+        self.manager._run(job)
+        self.assert_restored()
+
+    def test_retired_directory_is_removed_only_after_verification_and_both_reference_writes(self):
+        remove = shutil.rmtree
+        verify = self.manager._verify
+        verified = []
+        def record_verification(stage, packs):
+            self.assertTrue((self.api.DATA_DIR / deploy.PACKS[2]).exists())
+            verify(stage, packs)
+            verified.append(True)
+        def check_retirement(target, *args, **kwargs):
+            if target == self.api.DATA_DIR / deploy.PACKS[2]:
+                self.assertTrue(verified)
+                for kind in ('behavior', 'resource'):
+                    refs = deploy.read_json(self.api.DATA_DIR / 'worlds/test-world' / f'world_{kind}_packs.json')
+                    wanted = [self.pack_id(p) for p in self.packs if p.startswith(kind)]
+                    self.assertEqual([ref['pack_id'] for ref in refs], ['keep-other-pack', *wanted])
+            return remove(target, *args, **kwargs)
+        with patch.object(self.manager, '_verify', side_effect=record_verification), patch.object(shutil, 'rmtree', side_effect=check_retirement):
+            self.apply()
+        self.assertFalse((self.api.DATA_DIR / deploy.PACKS[2]).exists())
+
+    def test_retirement_failure_rolls_back_references_and_new_directories(self):
+        remove = shutil.rmtree
+        failed = []
+        def fail_retirement(target, *args, **kwargs):
+            if target == self.api.DATA_DIR / deploy.PACKS[2] and not failed:
+                failed.append(True)
+                raise OSError('simulated retirement failure')
+            return remove(target, *args, **kwargs)
+        job = self.submit()
+        with patch.object(shutil, 'rmtree', side_effect=fail_retirement):
+            self.manager._run(job)
+        self.assertTrue(failed)
+        self.assert_restored()
+
+    def test_verification_failure_leaves_legacy_reference_before_rollback(self):
+        job = self.submit()
+        original_refs = self.refs()
+        verify = self.manager._verify
+        def corrupt(stage, packs):
+            self.assertEqual(self.refs(), original_refs)
+            (self.api.DATA_DIR / SPLIT_RPS[-1] / 'content.txt').write_bytes(b'corrupt')
+            verify(stage, packs)
+        with patch.object(self.manager, '_verify', side_effect=corrupt):
+            self.manager._run(job)
+        self.assert_restored()
+
+    def test_restart_recovery_restores_original_active_even_after_active_was_written(self):
+        job = self.submit()
+        directory = self.manager.root / job['operation_id']
+        self.manager._backup(directory)
+        self.manager._save(job, status='starting')
+        self.manager._install(directory)
+        deploy.atomic_json(self.manager.root / 'active.json', {'catalog_digest': self.digest, 'operation_id': job['operation_id']})
+        shutil.rmtree(directory / 'stage')
+        recovered = deploy.PackApplications(self.api)
+        recovered._run(recovered.status(), recovering=True)
+        self.assert_restored()
+
+    def test_failure_after_active_write_restores_original_active(self):
+        save = self.manager._save
+        def fail_success(job, **changes):
+            if changes.get('status') == 'succeeded':
+                raise OSError('simulated final journal failure')
+            save(job, **changes)
+        job = self.submit()
+        with patch.object(self.manager, '_save', side_effect=fail_success):
+            self.manager._run(job)
+        self.assert_restored()
+
+    def test_recovery_removes_active_when_originally_absent(self):
+        (self.manager.root / 'active.json').unlink()
+        job = self.submit()
+        directory = self.manager.root / job['operation_id']
+        self.manager._backup(directory)
+        self.manager._install(directory)
+        self.manager._save(job, status='starting')
+        deploy.atomic_json(self.manager.root / 'active.json', {'catalog_digest': self.digest, 'operation_id': job['operation_id']})
+        self.manager._run(job, recovering=True)
+        self.assertFalse(self.manager.managed())
+        self.assertEqual(self.snapshot(), self.original)
+
+    def test_old_three_pack_archive_without_metadata_remains_supported(self):
+        files = {name: deepcopy(data) for name, data in self.files.items()
+                 if not name.startswith('resource_packs/')}
+        files['cosmetics-build.json'].pop('packs')
+        files['cosmetics-build.json'].pop('retired_packs')
+        files[deploy.PACKS[2] + '/manifest.json'] = self.manifest(deploy.PACKS[2])
+        files[deploy.PACKS[2] + '/content.txt'] = b'legacy'
+        files[deploy.BEHAVIOR_PACKS[1] + '/manifest.json']['dependencies'][0]['uuid'] = self.pack_id(deploy.PACKS[2])
+        self.apply(files)
+        self.assertEqual([ref['pack_id'] for ref in self.refs()], ['keep-other-pack', self.pack_id(deploy.PACKS[2])])
+
+    def test_additional_rp_is_discovered_without_fixed_count(self):
+        pack = 'resource_packs/ichiyon_future_rp'
+        self.packs.append(pack)
+        self.files[pack + '/manifest.json'] = self.manifest(pack)
+        self.files[pack + '/content.txt'] = b'future pack'
+        self.apply()
+        self.assertEqual(self.refs()[-1]['pack_id'], self.pack_id(pack))
+
+    def test_object_pack_metadata_also_supported(self):
+        self.files['cosmetics-build.json']['packs'] = [{'path': p, 'uuid': self.pack_id(p)} for p in self.packs]
+        self.apply()
+
+    def test_invalid_lists_retirement_and_duplicate_identities_never_stop_server(self):
+        variants = []
+        for key, value in (
+            ('packs', self.packs[:-1]), ('packs', self.packs + [self.packs[0]]),
+            ('packs', ['worlds/test-world'] + self.packs[1:]),
+            ('retired_packs', [{'path': deploy.PACKS[2], 'uuid': str(uuid.uuid4())}]),
+            ('retired_packs', [{'path': 'resource_packs/foreign_pack', 'uuid': self.pack_id(deploy.PACKS[2])}]),
+        ):
+            files = deepcopy(self.files)
+            files['cosmetics-build.json'][key] = value
+            variants.append(files)
+        files = deepcopy(self.files)
+        files[SPLIT_RPS[0] + '/manifest.json']['header']['uuid'] = self.pack_id(SPLIT_RPS[1])
+        variants.append(files)
+        for identity in (self.pack_id(SPLIT_RPS[0]), self.pack_id(SPLIT_RPS[1]),
+                         self.files[deploy.BEHAVIOR_PACKS[0] + '/manifest.json']['modules'][0]['uuid']):
+            files = deepcopy(self.files)
+            files[SPLIT_RPS[0] + '/manifest.json']['modules'][0]['uuid'] = identity
+            variants.append(files)
+        files = deepcopy(self.files)
+        files[deploy.BEHAVIOR_PACKS[1] + '/manifest.json']['dependencies'][0]['uuid'] = self.pack_id(deploy.PACKS[2])
+        variants.append(files)
+        for files in variants:
+            with self.subTest(proof=files['cosmetics-build.json']), self.assertRaises(ValueError):
+                self.submit(files)
+        self.assertFalse(self.api.commands)
+
+    def test_hostile_paths_cannot_write_outside_managed_roots(self):
+        for name in ('worlds/test-world/level.dat', 'resource_packs/foreign_pack/manifest.json',
+                     'behavior_packs/foreign_pack/manifest.json', SPLIT_RPS[0] + '/../outside',
+                     SPLIT_RPS[0] + '/x/../../outside', SPLIT_RPS[0] + '/CON', SPLIT_RPS[0] + '/file:stream'):
+            files = deepcopy(self.files)
+            files[name] = b'invalid'
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                self.submit(files)
+        self.assertFalse(self.api.commands)
+        self.assertEqual(self.snapshot(), self.original)
+
+
+class ControlBackupChecks(unittest.TestCase):
+    def test_raw_restart_backup_uses_live_manifests_and_preserves_world_and_active(self):
+        import minecraft_control_api as api
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            data = project / 'data'
+            (project / 'docker-compose.yml').write_text('services: {}', encoding='utf-8')
+            world = data / 'worlds/test-world'
+            deploy.atomic_json(world / 'world_resource_packs.json', [{'pack_id': 'foreign', 'version': [1, 0, 1]}])
+            deploy.atomic_json(world / 'world_behavior_packs.json', [])
+            (world / 'level.dat').write_bytes(b'world-data')
+            packs = [*deploy.BEHAVIOR_PACKS, *SPLIT_RPS, 'resource_packs/foreign_pack']
+            for pack in packs:
+                deploy.atomic_json(data / pack / 'manifest.json', {'header': {'uuid': str(uuid.uuid4())}})
+                (data / pack / 'asset.bin').write_bytes(pack.encode())
+            (data / deploy.PACKS[2]).mkdir()
+            source = project / 'source' / SPLIT_RPS[0]
+            source.mkdir(parents=True)
+            (source / 'authoring-only.txt').write_bytes(b'not deployed')
+            active = project / 'cosmetics-applications/active.json'
+            deploy.atomic_json(active, {'catalog_digest': 'a' * 64, 'operation_id': str(uuid.uuid4())})
+            before = {p.relative_to(data).as_posix(): p.read_bytes() for p in data.rglob('*') if p.is_file()}
+            with patch.multiple(api, PROJECT_DIR=project, DATA_DIR=data, BACKUP_DIR=project / 'backups',
+                                WORLD_NAME='test-world', PACK_SOURCE_DIR=project / 'source'):
+                backup = api.create_backup()
+            with tarfile.open(backup) as archive:
+                names = archive.getnames()
+                for pack in packs:
+                    self.assertIn('data/' + pack + '/manifest.json', names)
+                    self.assertEqual(archive.extractfile('data/' + pack + '/asset.bin').read(), pack.encode())
+                self.assertNotIn('data/' + deploy.PACKS[2], names)
+                self.assertFalse(any('authoring-only' in name for name in names))
+                self.assertEqual(archive.extractfile('data/worlds/test-world/level.dat').read(), b'world-data')
+                self.assertEqual(archive.extractfile('data/worlds/test-world/world_resource_packs.json').read(),
+                                 before['worlds/test-world/world_resource_packs.json'])
+                self.assertEqual(archive.extractfile('cosmetics-applications/active.json').read(), active.read_bytes())
+            self.assertEqual({p.relative_to(data).as_posix(): p.read_bytes() for p in data.rglob('*') if p.is_file()}, before)
+
+    def test_raw_sync_does_not_touch_managed_pack_references(self):
+        import minecraft_control_api as api
+        with patch.object(api, 'cosmetic_applications') as manager, patch.object(api, 'update_world_pack_reference') as update:
+            manager.managed.return_value = True
+            self.assertEqual(api.sync_packs(), {'status': 'managed_by_cosmetics', 'changed_packs': []})
+            update.assert_not_called()
 
 
 class ReadinessChecks(unittest.TestCase):

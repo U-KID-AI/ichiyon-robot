@@ -1,0 +1,29 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "Ichiyon Records",
+    "description": "Ichiyon Records resources",
+    "uuid": "64400678-c214-4ed3-a06d-097986c023a4",
+    "version": [
+      1,
+      0,
+      0
+    ],
+    "min_engine_version": [
+      1,
+      26,
+      0
+    ]
+  },
+  "modules": [
+    {
+      "type": "resources",
+      "uuid": "436439a0-39e9-48f6-b0a8-fa81b4b83ef1",
+      "version": [
+        1,
+        0,
+        0
+      ]
+    }
+  ]
+}
