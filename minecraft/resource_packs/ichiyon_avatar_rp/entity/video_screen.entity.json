@@ -1,0 +1,46 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "ichiyon:video_screen",
+      "materials": {
+        "default": "ichiyon_video_uv",
+        "black": "entity_alphatest"
+      },
+      "textures": {
+        "atlas_0": "textures/entity/video_screen/atlas_000",
+        "atlas_1": "textures/entity/video_screen/atlas_001",
+        "atlas_2": "textures/entity/video_screen/atlas_002",
+        "atlas_3": "textures/entity/video_screen/atlas_003",
+        "atlas_4": "textures/entity/video_screen/atlas_004",
+        "atlas_5": "textures/entity/video_screen/atlas_005",
+        "atlas_6": "textures/entity/video_screen/atlas_006",
+        "atlas_7": "textures/entity/video_screen/atlas_007",
+        "atlas_8": "textures/entity/video_screen/atlas_008",
+        "atlas_9": "textures/entity/video_screen/atlas_009",
+        "atlas_10": "textures/entity/video_screen/atlas_010",
+        "atlas_11": "textures/entity/video_screen/atlas_011",
+        "atlas_12": "textures/entity/video_screen/atlas_012",
+        "atlas_13": "textures/entity/video_screen/atlas_013",
+        "atlas_14": "textures/entity/video_screen/atlas_014",
+        "atlas_15": "textures/entity/video_screen/atlas_015",
+        "atlas_16": "textures/entity/video_screen/atlas_016",
+        "atlas_17": "textures/entity/video_screen/atlas_017",
+        "atlas_18": "textures/entity/video_screen/atlas_018",
+        "atlas_19": "textures/entity/video_screen/atlas_019",
+        "atlas_20": "textures/entity/video_screen/atlas_020",
+        "black": "textures/entity/video_screen/black"
+      },
+      "geometry": {
+        "default": "geometry.ichiyon_video_screen",
+        "black": "geometry.ichiyon_video_black"
+      },
+      "render_controllers": [
+        "controller.render.ichiyon_video_black",
+        {
+          "controller.render.ichiyon_video_screen": "q.property('ichiyon:frame') >= 0"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,105 @@
+{
+  "format_version": "1.12.0",
+  "minecraft:geometry": [
+    {
+      "description": {
+        "identifier": "geometry.ichiyon_video_screen",
+        "texture_width": 64,
+        "texture_height": 36,
+        "visible_bounds_width": 12,
+        "visible_bounds_height": 5,
+        "visible_bounds_offset": [
+          0,
+          2,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "screen",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -56.888888888888886,
+                0,
+                0.5
+              ],
+              "size": [
+                113.77777777777777,
+                64,
+                0
+              ],
+              "uv": {
+                "south": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    64,
+                    36
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.ichiyon_video_black",
+        "texture_width": 1,
+        "texture_height": 1,
+        "visible_bounds_width": 12,
+        "visible_bounds_height": 5,
+        "visible_bounds_offset": [
+          0,
+          2,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "screen",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -88.0,
+                0,
+                0
+              ],
+              "size": [
+                176,
+                64,
+                0
+              ],
+              "uv": {
+                "south": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    1,
+                    1
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
