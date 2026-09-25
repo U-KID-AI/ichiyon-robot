@@ -82,14 +82,15 @@ def generated_files(root=ROOT / "minecraft"):
     put(RP + "block_culling/aquarium_glass.json", culling)
     put(RP + "manifest.json", {"format_version": 2, "header": {
         "name": "Ichiyon Aquarium Glass", "description": "Original clear glass with connected edge culling",
-        "uuid": HEADER_UUID, "version": [1, 0, 1], "min_engine_version": [1, 26, 0]},
-        "modules": [{"type": "resources", "uuid": MODULE_UUID, "version": [1, 0, 1]}]})
+        "uuid": HEADER_UUID, "version": [1, 0, 2], "min_engine_version": [1, 26, 0]},
+        "modules": [{"type": "resources", "uuid": MODULE_UUID, "version": [1, 0, 2]}]})
     terrain, blocks = {}, {"format_version": [1, 1, 0]}
     labels = {"en_US": [GROUP + "=Aquarium Glass"], "ja_JP": [GROUP + "=アクアリウムガラス"]}
     for color, japanese, rgb in COLORS:
         stem = "aquarium_glass_" + color
         block_id = identifier(color)
         diagnostic_red = color == "red"
+        diagnostic_clear = color == "clear"
         for material, alpha in (("body", 8 if color == "clear" else 24), ("edge", 104)):
             key = stem + "_" + material
             tint = rgb if material == "body" else tuple(round(c * 0.55 + 255 * 0.45) for c in rgb)
@@ -99,6 +100,10 @@ def generated_files(root=ROOT / "minecraft"):
                 alpha = 235
             if diagnostic_red and material == "edge":
                 alpha = 255
+            if diagnostic_clear and material == "body":
+                # Diagnostic only: exercise the known-good full-block/blend
+                # path with a visible but genuinely translucent clear surface.
+                alpha = 64
             image = Image.new("RGBA", (32, 32), (*tint, alpha))
             out = BytesIO()
             image.save(out, format="PNG", optimize=False, compress_level=9)
@@ -107,15 +112,16 @@ def generated_files(root=ROOT / "minecraft"):
         english = "Aquarium Glass" + ("" if color == "clear" else " " + color.replace("_", " ").title())
         for locale, text in (("en_US", english), ("ja_JP", "アクアリウムガラス（" + japanese + "）")):
             labels[locale].append(f"tile.{block_id}.name={text}")
+        diagnostic_full_block = diagnostic_red or diagnostic_clear
         components = {
-            # The red-only field diagnostic intentionally uses the supported
-            # full-block path and no data-driven culling. It isolates texture /
-            # material / pack resolution from the custom zero-thickness geometry.
-            "minecraft:geometry": "minecraft:geometry.full_block" if diagnostic_red else {
+            # The red and clear field diagnostics intentionally use the
+            # supported full-block path and no data-driven culling. They
+            # isolate texture/material/pack resolution from custom geometry.
+            "minecraft:geometry": "minecraft:geometry.full_block" if diagnostic_full_block else {
                 "identifier": "geometry.ichiyon.aquarium_glass", "culling": "ichiyon:aquarium_glass"},
             "minecraft:material_instances": {"*": {"texture": stem + "_body",
                 "render_method": "blend", "face_dimming": False, "ambient_occlusion": False}}
-                if diagnostic_red else {material: {"texture": stem + "_" + material,
+                if diagnostic_full_block else {material: {"texture": stem + "_" + material,
                 "render_method": "blend", "face_dimming": False, "ambient_occlusion": False}
                 for material in ("body", "edge")},
             "minecraft:collision_box": True, "minecraft:selection_box": True,

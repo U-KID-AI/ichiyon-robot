@@ -34,7 +34,10 @@ class GlassChecks(unittest.TestCase):
                 im = Image.open(BytesIO(self.files[RP + f'textures/blocks/aquarium_glass_{color}_{material}.png']))
                 self.assertEqual(im.mode, 'RGBA')
                 self.assertEqual(len(set(im.getdata())), 1)
-                expected = 255 if color == 'red' and material == 'edge' else 235 if color == 'red' and material == 'body' else 104 if material == 'edge' else (8 if color == 'clear' else 24)
+                expected = (255 if color == 'red' and material == 'edge' else
+                            235 if color == 'red' and material == 'body' else
+                            64 if color == 'clear' and material == 'body' else
+                            104 if material == 'edge' else 24 if color != 'clear' else 8)
                 self.assertEqual(im.getpixel((16, 16))[3], expected)
 
     def test_six_faces_and_twenty_four_thin_separate_rims(self):
@@ -81,6 +84,18 @@ class GlassChecks(unittest.TestCase):
         other = self.doc(BP + 'blocks/aquarium_glass_blue.json')['minecraft:block']['components']
         self.assertIsInstance(other['minecraft:geometry'], dict)
         self.assertEqual(other['minecraft:geometry']['culling'], 'ichiyon:aquarium_glass')
+
+    def test_clear_diagnostic_uses_translucent_full_block_without_custom_culling(self):
+        c = self.doc(BP + 'blocks/aquarium_glass_clear.json')['minecraft:block']['components']
+        self.assertEqual(c['minecraft:geometry'], 'minecraft:geometry.full_block')
+        self.assertEqual(set(c['minecraft:material_instances']), {'*'})
+        self.assertEqual(c['minecraft:material_instances']['*']['texture'], 'aquarium_glass_clear_body')
+        self.assertEqual(c['minecraft:material_instances']['*']['render_method'], 'blend')
+        self.assertNotIn('culling', c['minecraft:geometry'] if isinstance(c['minecraft:geometry'], dict) else {})
+        image = Image.open(BytesIO(self.files[RP + 'textures/blocks/aquarium_glass_clear_body.png']))
+        self.assertEqual(image.getpixel((16, 16))[3], 64)
+        red = self.doc(BP + 'blocks/aquarium_glass_red.json')['minecraft:block']['components']
+        self.assertEqual(red['minecraft:geometry'], 'minecraft:geometry.full_block')
 
     def test_inventory_order_and_managed_compiler_preservation(self):
         compiled = compile_files(ROOT / 'minecraft', builtin_assets(ROOT / 'minecraft'))
