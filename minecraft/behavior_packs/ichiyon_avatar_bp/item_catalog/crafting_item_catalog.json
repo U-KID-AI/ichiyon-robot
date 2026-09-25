@@ -25,6 +25,31 @@
               "ichiyon:poster_eyes_eden",
               "ichiyon:poster_akuki"
             ]
+          },
+          {
+            "group_identifier": {
+              "icon": "ichiyon:aquarium_glass_clear",
+              "name": "ichiyon:itemGroup.aquarium_glass"
+            },
+            "items": [
+              "ichiyon:aquarium_glass_clear",
+              "ichiyon:aquarium_glass_white",
+              "ichiyon:aquarium_glass_light_gray",
+              "ichiyon:aquarium_glass_gray",
+              "ichiyon:aquarium_glass_black",
+              "ichiyon:aquarium_glass_red",
+              "ichiyon:aquarium_glass_orange",
+              "ichiyon:aquarium_glass_yellow",
+              "ichiyon:aquarium_glass_lime",
+              "ichiyon:aquarium_glass_green",
+              "ichiyon:aquarium_glass_light_blue",
+              "ichiyon:aquarium_glass_cyan",
+              "ichiyon:aquarium_glass_blue",
+              "ichiyon:aquarium_glass_purple",
+              "ichiyon:aquarium_glass_magenta",
+              "ichiyon:aquarium_glass_pink",
+              "ichiyon:aquarium_glass_brown"
+            ]
           }
         ]
       }

@@ -1,0 +1,47 @@
+{
+  "format_version": "1.26.0",
+  "minecraft:block": {
+    "components": {
+      "minecraft:collision_box": true,
+      "minecraft:connection_rule": {
+        "accepts_connections_from": "all"
+      },
+      "minecraft:destructible_by_explosion": {
+        "explosion_resistance": 1.5
+      },
+      "minecraft:destructible_by_mining": {
+        "seconds_to_destroy": 0.3
+      },
+      "minecraft:friction": 0.6,
+      "minecraft:geometry": {
+        "culling": "ichiyon:aquarium_glass",
+        "identifier": "geometry.ichiyon.aquarium_glass"
+      },
+      "minecraft:light_dampening": 0,
+      "minecraft:loot": "loot_tables/blocks/aquarium_glass_yellow.json",
+      "minecraft:map_color": "#e9d457",
+      "minecraft:material_instances": {
+        "body": {
+          "ambient_occlusion": false,
+          "face_dimming": false,
+          "render_method": "blend",
+          "texture": "aquarium_glass_yellow_body"
+        },
+        "edge": {
+          "ambient_occlusion": false,
+          "face_dimming": false,
+          "render_method": "blend",
+          "texture": "aquarium_glass_yellow_edge"
+        }
+      },
+      "minecraft:selection_box": true
+    },
+    "description": {
+      "identifier": "ichiyon:aquarium_glass_yellow",
+      "menu_category": {
+        "category": "construction",
+        "group": "ichiyon:itemGroup.aquarium_glass"
+      }
+    }
+  }
+}

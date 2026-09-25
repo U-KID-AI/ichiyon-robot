@@ -1,0 +1,29 @@
+{
+  "format_version": 2,
+  "header": {
+    "description": "Original clear glass with connected edge culling",
+    "min_engine_version": [
+      1,
+      26,
+      0
+    ],
+    "name": "Ichiyon Aquarium Glass",
+    "uuid": "fe55c87e-d7a2-4e3c-88fb-43009f65df75",
+    "version": [
+      1,
+      0,
+      0
+    ]
+  },
+  "modules": [
+    {
+      "type": "resources",
+      "uuid": "a3d30f1b-8445-4e46-a670-e53433ec8d7a",
+      "version": [
+        1,
+        0,
+        0
+      ]
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "format_version": [
+    1,
+    1,
+    0
+  ],
+  "ichiyon:aquarium_glass_black": {
+    "sound": "glass"
+  },
+  "ichiyon:aquarium_glass_blue": {
+    "sound": "glass"
+  },
+  "ichiyon:aquarium_glass_brown": {
+    "sound": "glass"
+  },
+  "ichiyon:aquarium_glass_clear": {
+    "sound": "glass"
+  },
+  "ichiyon:aquarium_glass_cyan": {
+    "sound": "glass"
+  },
+  "ichiyon:aquarium_glass_gray": {
+    "sound": "glass"
+  },
+  "ichiyon:aquarium_glass_green": {
+    "sound": "glass"
+  },
+  "ichiyon:aquarium_glass_light_blue": {
+    "sound": "glass"
+  },
+  "ichiyon:aquarium_glass_light_gray": {
+    "sound": "glass"
+  },
+  "ichiyon:aquarium_glass_lime": {
+    "sound": "glass"
+  },
+  "ichiyon:aquarium_glass_magenta": {
+    "sound": "glass"
+  },
+  "ichiyon:aquarium_glass_orange": {
+    "sound": "glass"
+  },
+  "ichiyon:aquarium_glass_pink": {
+    "sound": "glass"
+  },
+  "ichiyon:aquarium_glass_purple": {
+    "sound": "glass"
+  },
+  "ichiyon:aquarium_glass_red": {
+    "sound": "glass"
+  },
+  "ichiyon:aquarium_glass_white": {
+    "sound": "glass"
+  },
+  "ichiyon:aquarium_glass_yellow": {
+    "sound": "glass"
+  }
+}

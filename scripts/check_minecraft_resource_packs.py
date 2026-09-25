@@ -77,7 +77,7 @@ class SplitChecks(unittest.TestCase):
         with ZipFile(BytesIO(pack_zip(self.root, self.records, 12))) as archive:
             proof = json.loads(archive.read("cosmetics-build.json"))
             self.assertEqual(proof["packs"], [p.rstrip("/") for p in (BP, BRIDGE, *RESOURCE_PACKS)])
-            self.assertEqual(len(RESOURCE_PACKS), 8)
+            self.assertEqual(len(RESOURCE_PACKS), 9)
             self.assertEqual(proof["retired_packs"], [{"path": LEGACY.rstrip("/"), "uuid": LEGACY_UUID}])
             direct = {p.relative_to(self.root).as_posix(): p for pack in DIRECT_RESOURCE_PACKS
                       for p in (self.root / pack).rglob("*") if p.is_file()}

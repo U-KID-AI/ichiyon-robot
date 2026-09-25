@@ -63,6 +63,8 @@ jobs:
           python scripts/check_minecraft_wall_displays.py
           python scripts/check_minecraft_big_video.py
           python scripts/check_minecraft_akki_video.py
+          python scripts/build_aquarium_glass.py --check
+          python scripts/check_aquarium_glass.py
           python scripts/check_minecraft_death_prairie_dog.py
           python scripts/check_taketumi_ai.py
 
