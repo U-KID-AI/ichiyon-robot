@@ -16,7 +16,8 @@ Blockbench and Bedrock use different X/rotation conventions. Export mirrors the
 coordinate basis (cube X origin, pivot X, rotation X/Y, animation position X),
 not the appearance. Box UV offsets and per-face UV rectangles are preserved in
 the corresponding Bedrock representation. Global rotation becomes
-`relative_to.rotation = entity`. No epsilon, optimization, re-timing, or extra
+`relative_to.rotation = entity`. Global default/zero rotations use Blockbench v5.2.1's Z=0.01 correction;
+nonzero rotations are unchanged. No optimization, re-timing, or extra
 keyframes are inserted.
 
 The four original animation names, lengths, and keyframes remain:
