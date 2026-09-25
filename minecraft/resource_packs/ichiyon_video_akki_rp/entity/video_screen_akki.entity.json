@@ -1,0 +1,28 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "ichiyon:video_screen_akki",
+      "materials": {
+        "default": "ichiyon_video_akki_uv",
+        "black": "entity_alphatest"
+      },
+      "textures": {
+        "atlas_0": "textures/entity/video_screen_akki/atlas_000",
+        "atlas_1": "textures/entity/video_screen_akki/atlas_001",
+        "atlas_2": "textures/entity/video_screen_akki/atlas_002",
+        "black": "textures/entity/video_screen_akki/black"
+      },
+      "geometry": {
+        "default": "geometry.ichiyon_video_screen_akki",
+        "black": "geometry.ichiyon_video_akki_black"
+      },
+      "render_controllers": [
+        "controller.render.ichiyon_video_akki_black",
+        {
+          "controller.render.ichiyon_video_screen_akki": "q.property('ichiyon:frame') >= 0"
+        }
+      ]
+    }
+  }
+}

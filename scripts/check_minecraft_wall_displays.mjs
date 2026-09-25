@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { createWallDisplays, createVideoDisplays, detectVideoScreen, detectFloorButton, detectMapWall, isVanillaButton, audienceGain } from "../minecraft/behavior_packs/import_structures/scripts/wall_displays_core.js";
-import { WALL_DISPLAYS as config, BIG_VIDEO_DISPLAY as bigConfig } from "../minecraft/behavior_packs/import_structures/scripts/wall_displays_config.js";
+import { createWallDisplays, createVideoDisplays, detectVideoScreen, detectFloorButton, detectControlButton, detectMapWall, isVanillaButton, audienceGain } from "../minecraft/behavior_packs/import_structures/scripts/wall_displays_core.js";
+import { WALL_DISPLAYS as config, BIG_VIDEO_DISPLAY as bigConfig, AKKI_VIDEO_DISPLAY as akkiConfig } from "../minecraft/behavior_packs/import_structures/scripts/wall_displays_config.js";
 import { VIDEO_MEDIA as media } from "../minecraft/behavior_packs/import_structures/scripts/video_media.generated.js";
+
+import { VIDEO_AKKI_MEDIA as akkiMedia } from "../minecraft/behavior_packs/import_structures/scripts/video_akki_media.generated.js";
 
 let passed = 0;
 function test(name, run) { run(); passed++; console.log(`PASS ${name}`); }
@@ -136,9 +138,9 @@ test("reload clears persisted helper and sound; unloaded entity resets OFF", () 
   f.core.scan(); assert.equal(f.entities.filter((e) => e.isValid).length, 1); assert(!f.core.status().on);
   assert(f.sounds.some((s) => s.action === "stopSound" && s.sound === media.sound));
 });
-test("missing SoundInstance API fails explicitly and stops the started sound", () => {
+test("missing SoundInstance API stops audio but preserves video playback", () => {
   const f = fixture(); f.video(); f.core.scan(); f.players[0].playSound = () => undefined;
-  assert.throws(() => f.press(), /SoundInstance API/); f.core.reset(); assert(!f.core.status().on);
+  assert.doesNotThrow(() => f.press()); f.advance(1); assert(f.core.status().on); assert.equal(f.core.status().frame, 20);
   assert(f.sounds.some((s) => s.action === "stopSound"));
 });
 test("map detection uses eight facing map BLOCKS with relative Y and missing upper-right", () => {
@@ -293,5 +295,109 @@ test("one display failure/unload never resets the other and reload creates no du
   const large = f.entities.find(e => e.typeId === bigConfig.video.entity && e.isValid);
   large.setProperty = () => { throw new Error("fixture big failure"); };
   f.group.recover(large); assert(small.isValid); assert(f.group.status().small.on);
+});
+
+function akkiWall(f, z = 232) {
+  for (let x = -26; x <= -14; x++) for (let y = 102; y <= 105; y++) f.put(x, y, z);
+}
+function akkiButton(f, x = -20, facing = 2, type = "minecraft:polished_blackstone_button") {
+  f.put(x, 104, 238, "minecraft:stone");
+  return f.put(x, 104, 237, type, { facing_direction: facing });
+}
+function threeFixture() {
+  const f = fixture(); f.video(); bigWall(f); floorButton(f); akkiWall(f); akkiButton(f);
+  const group = createVideoDisplays({ world: f.world, system: f.system, now: f.now, log: m => f.logs.push(m), displays: [
+    { id: "small", config, media }, { id: "big", config: bigConfig, media },
+    { id: "akki", config: akkiConfig, media: akkiMedia },
+  ] });
+  group.scan();
+  const press = id => { f.system.currentTick++; group.button({block: {
+    typeId: "minecraft:polished_blackstone_button", location: group.status()[id].screen.button, dimension: f.dimension }}); };
+  return { ...f, group, pressDisplay: press };
+}
+test("Akki observed white 13x4 Z plane, south audience and remote wall button", () => {
+  const f = threeFixture(), s = f.group.status().akki;
+  assert.equal(s.videoStatus, "ready"); assert.equal(s.buttonStatus, "ready");
+  assert.deepEqual([s.screen.left, s.screen.right, s.screen.bottom, s.screen.top, s.screen.z], [-26, -14, 102, 105, 232]);
+  assert.deepEqual(s.screen.origin, { x: -19.5, y: 102, z: 233.02 });
+  assert.deepEqual(s.screen.button, { x: -20, y: 104, z: 237 });
+  assert.deepEqual(f.entities.find(e => e.typeId === akkiConfig.video.entity).rotation, { x: 0, y: 0 });
+  const before = [...f.blocks.entries()]; f.group.scan(); assert.deepEqual([...f.blocks.entries()], before);
+});
+test("Akki wall rejects partial, wrong material, larger, occluded, ambiguous and unloaded", () => {
+  for (const mutate of [f => f.blocks.delete("-20,104,232"), f => f.put(-20,104,232,"minecraft:stone"),
+    f => f.put(-27,104,232), f => f.put(-20,106,232), f => f.put(-20,104,233),
+    f => { f.dimension.unloaded = true; }]) {
+    const f = fixture(); akkiWall(f); mutate(f);
+    assert.notEqual(detectVideoScreen(f.dimension, akkiConfig.video).status, "ready");
+  }
+  const f = fixture(); akkiWall(f,231); akkiWall(f,233);
+  assert.equal(detectVideoScreen(f.dimension, akkiConfig.video).status, "ambiguous");
+});
+test("Akki control needs unique supported wall button with correctly oriented backing", () => {
+  const c = akkiConfig.video.controlButton, f = fixture();
+  assert.equal(detectControlButton(f.dimension,c).status,"not_found");
+  akkiButton(f); assert.equal(detectControlButton(f.dimension,c).status,"ready");
+  akkiButton(f,-19); assert.equal(detectControlButton(f.dimension,c).status,"ambiguous");
+  for (const [facing,type] of [[1,"minecraft:stone_button"],[0,"minecraft:stone_button"],[2,"custom:stone_button"],[3,"minecraft:stone_button"]]) {
+    f.blocks.clear(); akkiButton(f,-20,facing,type); assert.equal(detectControlButton(f.dimension,c).status,"not_found");
+  }
+  f.blocks.clear(); akkiButton(f); f.blocks.delete("-20,104,238");
+  assert.equal(detectControlButton(f.dimension,c).status,"not_found");
+  f.dimension.unloaded=true; assert.equal(detectControlButton(f.dimension,c).status,"unloaded");
+});
+test("three displays have independent clocks/toggles/recovery and failure isolation", () => {
+  const f=threeFixture(); f.pressDisplay("small"); f.advance(1); f.group.tick();
+  f.pressDisplay("big"); f.advance(1); f.group.tick(); f.pressDisplay("akki");
+  assert.deepEqual(Object.values(f.group.status()).map(s=>s.frame),[40,20,0]);
+  f.advance(1); f.group.tick(); assert.deepEqual(Object.values(f.group.status()).map(s=>s.frame),[60,40,20]);
+  f.pressDisplay("akki"); assert.deepEqual(Object.values(f.group.status()).map(s=>s.on),[true,true,false]);
+  f.pressDisplay("akki");
+  f.entities.find(e=>e.typeId===akkiConfig.video.entity).isValid=false;
+  f.group.tick(); assert.deepEqual(Object.values(f.group.status()).map(s=>s.on),[true,true,false]);
+  f.group.scan(); assert.equal(f.entities.filter(e=>e.isValid).length,3);
+  const old=f.dimension.spawnEntity(akkiConfig.video.entity,{x:0,y:100,z:0}); f.group.recover(old);
+  assert(!old.isValid); assert(f.group.status().small.on && f.group.status().big.on);
+  f.blocks.delete("-20,104,232"); f.group.scan();
+  assert(!f.group.status().akki.screen); assert(f.group.status().small.on && f.group.status().big.on);
+});
+test("Akki listeners stay inside the room in front of the observed wall", () => {
+  const f=threeFixture(), s=f.group.status().akki.screen,p=f.players[0];
+  p.location={x:-20,y:103,z:237};assert.equal(audienceGain(p,s,akkiConfig),1);
+  for(const loc of [{x:-20,y:103,z:231},{x:-20,y:103,z:240},{x:-30,y:103,z:235},{x:-20,y:110,z:235}]){
+    p.location=loc; assert.equal(audienceGain(p,s,akkiConfig),0);
+  }
+  p.location={x:-20,y:103,z:237};p.dimension={id:"minecraft:nether"};assert.equal(audienceGain(p,s,akkiConfig),0);
+});
+test("play/handle/seek/volume/stop audio failures never stop any video clock", () => {
+  for(const failure of ["play","handle","seek","volume","stop"]){
+    const f=threeFixture(),p=f.players[0];p.location={x:-20,y:103,z:237};
+    const play=p.playSound.bind(p);
+    p.playSound=(sound,options)=>{
+      if(failure==="play")throw Error("audio failure");
+      if(failure==="handle")return undefined;
+      const h=play(sound,options);
+      h[{seek:"seekTo",volume:"setVolume",stop:"stop"}[failure]]=()=>{throw Error("audio failure");};
+      return h;
+    };
+    p.stopSound=()=>{throw Error("cleanup failure");};
+    for(const id of ["small","big","akki"])f.pressDisplay(id);
+    f.advance(2); f.group.tick();
+    assert.deepEqual(Object.values(f.group.status()).map(s=>s.on),[true,true,true]);
+    assert.deepEqual(Object.values(f.group.status()).map(s=>s.frame),[40,40,40]);
+    f.pressDisplay("akki");assert(f.group.status().small.on && f.group.status().big.on);
+    assert.equal(f.entities.filter(e=>e.isValid).length,3);
+  }
+});
+test("exact production map target/button rescans without refresh or writes; other walls ignored", () => {
+  const f=fixture(); f.map(95,243); f.video();f.core.scan();
+  const wall=f.core.status().mapWall;assert.deepEqual(wall.button,{x:16,y:95,z:243});
+  assert.equal(wall.frames.length,8);assert.deepEqual(wall.frames[0],{x:15,y:95,z:243});
+  const before=[...f.blocks.entries()];
+  for(let i=0;i<3;i++)f.press("minecraft:pale_oak_button",wall.button);
+  assert.equal(f.players[0].messages.length,3);assert(f.players[0].messages.every(m=>m.includes("8/8")&&m.includes("no existing-filled-map")));
+  assert.deepEqual([...f.blocks.entries()],before);
+  f.press("minecraft:pale_oak_button",{x:17,y:95,z:243});assert.equal(f.players[0].messages.length,3);
+  const other=fixture();other.map(95,246);assert.equal(detectMapWall(other.dimension).status,"not_found");
 });
 console.log(`${passed} wall display runtime tests passed`);

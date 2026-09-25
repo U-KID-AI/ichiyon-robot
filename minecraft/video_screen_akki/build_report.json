@@ -1,0 +1,56 @@
+{
+  "source": {
+    "filename": "\u60aa\u9b3c.mp4",
+    "sha256": "bab5cb8f68e0ed19de85efa8379804cd23a69648baf451b2929d26277d106835",
+    "width": 3840,
+    "height": 2160,
+    "fps": "12390000/411769",
+    "duration": 13.738646,
+    "videoDuration": 13.725633,
+    "hasAudio": true,
+    "bytes": 60102747,
+    "frameCount": 413,
+    "audio": {
+      "codec": "aac",
+      "channels": 2,
+      "sampleRate": 48000
+    }
+  },
+  "output": {
+    "fps": 20,
+    "frameCount": 275,
+    "duration": 13.75,
+    "sound": "ichiyon.video_screen_akki.audio",
+    "atlasCount": 3,
+    "atlasWidth": 660,
+    "atlasHeight": 380,
+    "frameWidth": 64,
+    "frameHeight": 36,
+    "assetBytes": 1309851,
+    "profile": "akki",
+    "gridColumns": 10,
+    "gridRows": 10,
+    "framesPerAtlas": 100,
+    "paddingPixels": 1,
+    "atlasPngBytes": 1193395,
+    "audioBytes": 116387,
+    "decodedRgbaBytes": 3009600,
+    "decodedRgbaWithMipmapsBytes": 4012800,
+    "decodedRgbaPerAtlasBytes": 1003200,
+    "audio": {
+      "codec": "vorbis",
+      "channels": 1,
+      "sampleRate": 44100,
+      "stream": false,
+      "duration": 13.75,
+      "minDistance": 1,
+      "maxDistance": 12,
+      "runtimeGain": 1,
+      "unstreamedPcm16Bytes": 1212750,
+      "unstreamedFloat32Bytes": 2425500
+    },
+    "resourcePack": "ichiyon_video_akki_rp",
+    "generatedPackBytesExcludingManifest": 1314712
+  },
+  "memoryNote": "RGBA assumes all atlases resident with no GPU compression; mipmaps add about one third. Audio uses the small profile's unstreamed Vorbis mode; decoded audio buffer estimates are listed separately. Engine overhead, other packs and actual device residency require an in-game check."
+}

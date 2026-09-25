@@ -43,13 +43,17 @@ export function detectVideoScreen(dimension, config = WALL_DISPLAYS.video) {
       if (valid) matches.push({ left: x, right: x + config.width - 1, bottom: y, top: y + config.height - 1, z, material,
         origin: position(x + config.width / 2, y, z + 1.02),
         center: position(x + config.width / 2, y + config.height / 2, z + 1.02),
-        button: config.floorButton ? undefined : position(x - 1, y, z + 1) });
+        button: config.floorButton || config.controlButton ? undefined : position(x - 1, y, z + 1) });
     }
     return { status: matches.length === 1 ? "ready" : matches.length ? "ambiguous" : "not_found", screen: matches.length === 1 ? matches[0] : undefined };
   } catch (error) { return { status: "unloaded", error: String(error) }; }
 }
 
 export function detectFloorButton(dimension, config) {
+  return detectControlButton(dimension, { ...config, mode: "floor" });
+}
+
+export function detectControlButton(dimension, config) {
   const read = reader(dimension), matches = [], { anchor, radius } = config;
   try {
     for (let x = anchor.x - radius; x <= anchor.x + radius; x++)
@@ -59,7 +63,12 @@ export function detectFloorButton(dimension, config) {
           const block = read(x, y, z);
           if (!isVanillaButton(block.typeId)) continue;
           const facing = block.permutation.getState("facing_direction");
-          if ((facing === 1 || facing === "up") && read(x, y - 1, z).isSolid) matches.push(position(x, y, z));
+          const support = config.mode === "floor"
+            ? ((facing === 1 || facing === "up") ? [0, -1, 0] : undefined)
+            : config.mode === "wall" ? ({ 2: [0, 0, 1], 3: [0, 0, -1],
+                4: [1, 0, 0], 5: [-1, 0, 0], north: [0, 0, 1], south: [0, 0, -1],
+                west: [1, 0, 0], east: [-1, 0, 0] })[facing] : undefined;
+          if (support && read(x + support[0], y + support[1], z + support[2]).isSolid) matches.push(position(x, y, z));
         }
     return { status: matches.length === 1 ? "ready" : matches.length ? "ambiguous" : "not_found",
       button: matches.length === 1 ? matches[0] : undefined };
@@ -102,7 +111,10 @@ export function createWallDisplays({ world, system, media, now = () => Date.now(
   let screen, mapWall, entity, on = false, started = 0, frame = -1, lastCycle = -1;
   let videoStatus = "cold", mapStatus = "cold", buttonStatus = "cold", lastButtonTick = -100;
   let controlButton;
+  const buttonConfig = config.video.controlButton ?? (config.video.floorButton
+    ? { ...config.video.floorButton, mode: "floor" } : undefined);
   const listeners = new Map(), cleanedPlayers = new Set();
+  const audioRetryAfter = new Map();
   const dimension = () => world.getDimension(config.dimension);
   function stopPlayer(player) {
     const previous = listeners.get(player.id);
@@ -138,11 +150,11 @@ export function createWallDisplays({ world, system, media, now = () => Date.now(
   }
   function scan() {
     const result = detectVideoScreen(dimension(), config.video);
-    if (config.video.floorButton) {
-      const found = detectFloorButton(dimension(), config.video.floorButton);
+    if (buttonConfig) {
+      const found = detectControlButton(dimension(), buttonConfig);
       if (found.button && (buttonStatus !== found.status || !samePosition(controlButton, found.button))) {
         const { x, y, z } = found.button;
-        log(`[Video screen:${config.id}] button=(${x},${y},${z}) floor=true`);
+        log(`[Video screen:${config.id}] button=(${x},${y},${z}) ${buttonConfig.mode}=true`);
       } else if (buttonStatus !== found.status) log(`[Video screen:${config.id}] button ${found.status}`);
       buttonStatus = found.status;
       // A removed button does not stop playback. Only a uniquely detected button can operate it.
@@ -186,8 +198,8 @@ export function createWallDisplays({ world, system, media, now = () => Date.now(
       log(message);
     }
     // Replacing a broken floor button works immediately, before the periodic scan.
-    if (config.video.floorButton) {
-      const { anchor, radius } = config.video.floorButton;
+    if (buttonConfig) {
+      const { anchor, radius } = buttonConfig;
       if (Math.hypot(block.location.x - anchor.x, block.location.y - anchor.y, block.location.z - anchor.z) > radius) return;
       scan();
     }
@@ -203,8 +215,10 @@ export function createWallDisplays({ world, system, media, now = () => Date.now(
     const players = world.getAllPlayers();
     // Reload can leave client audio alive briefly. Clear only our sound IDs.
     for (const player of players) if (!cleanedPlayers.has(player.id)) {
-      if (media.sound) player.stopSound(media.sound);
-      cleanedPlayers.add(player.id);
+      try {
+        if (media.sound) player.stopSound(media.sound);
+        cleanedPlayers.add(player.id);
+      } catch { /* Audio cleanup must never interrupt the frame clock. */ }
     }
     if (!on) return;
     if (!entity?.isValid || !screen) { reset(); return; }
@@ -222,31 +236,40 @@ export function createWallDisplays({ world, system, media, now = () => Date.now(
       if (!ids.has(player.id) || audienceGain(player, screen, config) <= 0) stopPlayer(player);
     }
     if (media.sound) for (const player of players) {
-      const gain = audienceGain(player, screen, config);
-      if (gain <= 0) continue;
-      const previous = listeners.get(player.id);
-      if (!previous) {
-        // 2.11.0-beta.1.26.51-stable exposes seekTo/setVolume/stop. Start muted
-        // so late arrivals do not hear the opening before the current position.
-        const handle = player.playSound(media.sound, { location: screen.center, volume: 0, pitch: 1 });
-        if (!handle || typeof handle.seekTo !== "function" || typeof handle.setVolume !== "function" || typeof handle.stop !== "function") {
-          player.stopSound(media.sound);
-          throw new Error("Video requires the 2.11-beta SoundInstance API");
+      if (system.currentTick < (audioRetryAfter.get(player.id) ?? 0)) continue;
+      try {
+        const gain = audienceGain(player, screen, config);
+        if (gain <= 0) continue;
+        const previous = listeners.get(player.id);
+        if (!previous) {
+          // 2.11.0-beta.1.26.51-stable exposes seekTo/setVolume/stop. Start muted
+          // so late arrivals do not hear the opening before the current position.
+          const handle = player.playSound(media.sound, { location: screen.center, volume: 0, pitch: 1 });
+          if (!handle || typeof handle.seekTo !== "function" || typeof handle.setVolume !== "function" || typeof handle.stop !== "function") {
+            player.stopSound(media.sound);
+            throw new Error("Video requires the 2.11-beta SoundInstance API");
+          }
+          listeners.set(player.id, { player, handle, gain });
+          handle.seekTo(time);
+          handle.setVolume(gain);
+        } else if (Math.abs(previous.gain - gain) >= 0.02) {
+          previous.handle.setVolume(gain);
+          previous.gain = gain;
         }
-        listeners.set(player.id, { player, handle, gain });
-        handle.seekTo(time);
-        handle.setVolume(gain);
-      } else if (Math.abs(previous.gain - gain) >= 0.02) {
-        previous.handle.setVolume(gain);
-        previous.gain = gain;
+      } catch {
+        stopPlayer(player);
+        // Retry this recipient only; muted/failed audio must not reset video,
+        // its helper, the other listeners, or any other display.
+        audioRetryAfter.set(player.id, system.currentTick + 100);
       }
     }
   }
-  function release(player) { stopPlayer(player); cleanedPlayers.delete(player.id); }
+  function release(player) { stopPlayer(player); cleanedPlayers.delete(player.id); audioRetryAfter.delete(player.id); }
   function leave(id) {
     const previous = listeners.get(id);
     if (previous) stopPlayer(previous.player);
     cleanedPlayers.delete(id);
+    audioRetryAfter.delete(id);
   }
   return { scan, scanMap, tick, button, reset, recover, release, leave,
     status: () => ({ on, frame, videoStatus, mapStatus, buttonStatus, screen, mapWall, listeners: listeners.size }) };

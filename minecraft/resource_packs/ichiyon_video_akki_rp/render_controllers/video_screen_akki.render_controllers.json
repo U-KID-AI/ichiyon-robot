@@ -1,0 +1,48 @@
+{
+  "format_version": "1.8.0",
+  "render_controllers": {
+    "controller.render.ichiyon_video_akki_black": {
+      "geometry": "Geometry.black",
+      "materials": [
+        {
+          "*": "Material.black"
+        }
+      ],
+      "textures": [
+        "Texture.black"
+      ],
+      "ignore_lighting": true
+    },
+    "controller.render.ichiyon_video_screen_akki": {
+      "arrays": {
+        "textures": {
+          "Array.frames": [
+            "Texture.atlas_0",
+            "Texture.atlas_1",
+            "Texture.atlas_2"
+          ]
+        }
+      },
+      "geometry": "Geometry.default",
+      "materials": [
+        {
+          "*": "Material.default"
+        }
+      ],
+      "ignore_lighting": true,
+      "textures": [
+        "Array.frames[math.floor(math.max(0, q.property('ichiyon:frame')) / 100)]"
+      ],
+      "uv_anim": {
+        "offset": [
+          "(math.mod(math.max(0, q.property('ichiyon:frame')), 10) * 66 + 1) / 660",
+          "(math.floor(math.mod(math.max(0, q.property('ichiyon:frame')), 100) / 10) * 38 + 1) / 380"
+        ],
+        "scale": [
+          0.09696969696969697,
+          0.09473684210526316
+        ]
+      }
+    }
+  }
+}
