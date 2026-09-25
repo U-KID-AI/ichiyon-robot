@@ -8,6 +8,8 @@
       "geometry": {"default": "geometry.death_prairie_dog"},
       "animations": {
         "transition": "animation.death_prairie_dog.transition",
+        "transition_reverse": "animation.death_prairie_dog.transition_reverse",
+        "prairie4pose": "animation.death_prairie_dog.prairie4pose",
         "prairie4walk": "animation.death_prairie_dog.prairie4walk",
         "prairie2walk": "animation.death_prairie_dog.prairie2walk",
         "state": "controller.animation.death_prairie_dog.state"

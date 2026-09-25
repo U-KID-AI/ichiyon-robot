@@ -6,25 +6,77 @@
       "states": {
         "wander": {
           "blend_transition": 0.1,
-          "animations": [{"prairie2walk": "query.ground_speed > 0.01"}],
+          "animations": [
+            "prairie4pose"
+          ],
           "transitions": [
-            {"transition": "query.property('ichiyon:prairie_state') == 'transition' || query.property('ichiyon:prairie_state') == 'chase'"}
+            {
+              "transition": "query.property('ichiyon:prairie_state') == 'transition' || query.property('ichiyon:prairie_state') == 'chase'"
+            },
+            {
+              "wander_walk": "query.ground_speed > 0.01"
+            }
+          ]
+        },
+        "wander_walk": {
+          "blend_transition": 0.1,
+          "animations": [
+            "prairie4walk"
+          ],
+          "transitions": [
+            {
+              "transition": "query.property('ichiyon:prairie_state') == 'transition' || query.property('ichiyon:prairie_state') == 'chase'"
+            },
+            {
+              "wander": "query.ground_speed <= 0.01"
+            }
           ]
         },
         "transition": {
           "blend_transition": 0.1,
-          "animations": ["transition"],
+          "animations": [
+            "transition_reverse"
+          ],
           "transitions": [
-            {"wander": "query.property('ichiyon:prairie_state') == 'wander' || query.property('ichiyon:prairie_state') == 'flee'"},
-            {"chase": "query.state_time >= 0.5 && query.property('ichiyon:prairie_state') == 'chase'"}
+            {
+              "return_transition": "query.property('ichiyon:prairie_state') == 'wander' || query.property('ichiyon:prairie_state') == 'flee'"
+            },
+            {
+              "chase": "query.state_time >= 0.5 && query.property('ichiyon:prairie_state') == 'chase'"
+            }
           ]
         },
         "chase": {
           "blend_transition": 0.1,
-          "animations": ["prairie4walk"],
+          "animations": [
+            {
+              "prairie2walk": "query.ground_speed > 0.01"
+            }
+          ],
           "transitions": [
-            {"wander": "query.property('ichiyon:prairie_state') == 'wander' || query.property('ichiyon:prairie_state') == 'flee'"},
-            {"transition": "query.property('ichiyon:prairie_state') == 'transition'"}
+            {
+              "return_transition": "query.property('ichiyon:prairie_state') == 'wander' || query.property('ichiyon:prairie_state') == 'flee'"
+            },
+            {
+              "transition": "query.property('ichiyon:prairie_state') == 'transition'"
+            }
+          ]
+        },
+        "return_transition": {
+          "blend_transition": 0.1,
+          "animations": [
+            "transition"
+          ],
+          "transitions": [
+            {
+              "transition": "query.property('ichiyon:prairie_state') == 'transition' || query.property('ichiyon:prairie_state') == 'chase'"
+            },
+            {
+              "wander_walk": "query.state_time >= 0.5 && (query.property('ichiyon:prairie_state') == 'wander' || query.property('ichiyon:prairie_state') == 'flee') && query.ground_speed > 0.01"
+            },
+            {
+              "wander": "query.state_time >= 0.5 && (query.property('ichiyon:prairie_state') == 'wander' || query.property('ichiyon:prairie_state') == 'flee')"
+            }
           ]
         }
       }

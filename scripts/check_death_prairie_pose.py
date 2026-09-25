@@ -11,7 +11,7 @@ import math
 from pathlib import Path
 import unittest
 
-from export_death_prairie_dog import ANIMATION_IDS, ROOT, RP, SOURCE, SOURCE_SHA, quat_from_zyx, quat_to_zyx
+from export_death_prairie_dog import ANIMATION_IDS, FOUR_LEG_POSE_ID, REVERSE_TRANSITION_ID, ROOT, RP, SOURCE, SOURCE_SHA, quat_from_zyx, quat_to_zyx
 
 I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
 
@@ -185,6 +185,22 @@ class DeathPrairiePoseChecks(unittest.TestCase):
         for animation in self.animations.values():
             self.assertNotIn('relative_to', json.dumps(animation))
             self.assertNotIn('0.01', json.dumps(animation))
+
+    def test_synthetic_reverse_and_four_leg_idle_pose(self):
+        forward = self.animations[ANIMATION_IDS["animation.model.new"]]
+        reverse = self.animations[REVERSE_TRANSITION_ID]
+        pose = self.animations[FOUR_LEG_POSE_ID]
+        self.assertEqual(reverse["animation_length"], forward["animation_length"])
+        self.assertEqual(reverse["loop"], forward["loop"])
+        length = float(forward["animation_length"])
+        for index in range(101):
+            time = length * index / 100
+            reverse_pose = world_pose(self.source, decode_bedrock(reverse["bones"], time))
+            forward_pose = world_pose(self.source, decode_bedrock(forward["bones"], length - time))
+            self.assertPose(reverse_pose, forward_pose)
+        expected_idle = world_pose(self.source, decode_bedrock(forward["bones"], length))
+        actual_idle = world_pose(self.source, decode_bedrock(pose["bones"], 0))
+        self.assertPose(actual_idle, expected_idle)
 
     def test_transition_boundary_rotations_and_blended_full_transform(self):
         end = self.baked('animation.model.new', .5)

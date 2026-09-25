@@ -6,6 +6,7 @@ Only the verified green embedded PNG is exported; no pixel re-encoding.
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import base64
 from collections import Counter
 import hashlib
@@ -25,6 +26,8 @@ ANIMATION_IDS = {
     "prairie4walk": "animation.death_prairie_dog.prairie4walk",
     "prairie2walk": "animation.death_prairie_dog.prairie2walk",
 }
+REVERSE_TRANSITION_ID = "animation.death_prairie_dog.transition_reverse"
+FOUR_LEG_POSE_ID = "animation.death_prairie_dog.prairie4pose"
 
 
 def position(v):
@@ -249,6 +252,45 @@ def export():
                 target[channel][time] = vector
             anim["bones"][groups[uuid]["name"]] = target
         animations[ANIMATION_IDS[src["name"]]] = anim
+
+    # Synthetic clips are derived only from the verified baked transition.
+    # The source bbmodel remains immutable.
+    forward = animations[ANIMATION_IDS["animation.model.new"]]
+    length = float(forward["animation_length"])
+
+    reverse = deepcopy(forward)
+    for bone in reverse["bones"].values():
+        for channel in ("rotation", "position", "scale"):
+            track = bone.get(channel)
+            if not isinstance(track, dict):
+                continue
+            remapped = {}
+            for time, value in track.items():
+                mirrored = round(length - float(time), 10)
+                key = str(float(mirrored))
+                assert key not in remapped, "Reverse keyframe collision"
+                remapped[key] = value
+            bone[channel] = dict(sorted(remapped.items(), key=lambda item: float(item[0])))
+    animations[REVERSE_TRANSITION_ID] = reverse
+
+    pose_bones = {}
+    for bone_name, bone in forward["bones"].items():
+        target = {}
+        for channel in ("rotation", "position", "scale"):
+            track = bone.get(channel)
+            if isinstance(track, dict):
+                last = max(track, key=lambda item: float(item))
+                target[channel] = deepcopy(track[last])
+            elif track is not None:
+                target[channel] = deepcopy(track)
+        if target:
+            pose_bones[bone_name] = target
+    animations[FOUR_LEG_POSE_ID] = {
+        "loop": True,
+        "animation_length": 1,
+        "bones": pose_bones,
+    }
+
     _, png = green_texture(source)
     encode = lambda obj: (json.dumps(obj, ensure_ascii=False, indent=2) + "\n").encode()
     return {
