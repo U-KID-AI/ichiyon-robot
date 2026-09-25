@@ -2,7 +2,8 @@
 
 Coordinate conversion follows Blockbench's bedrock.js / bedrock_animation.js:
 https://github.com/JannisX11/blockbench/tree/master/js/formats/bedrock
-No animation optimization, resampling, or zero-angle epsilon is applied.
+No animation optimization or resampling is applied. Global zero rotations use
+Blockbench v5.2.1's Z=0.01 compatibility correction.
 """
 from __future__ import annotations
 
@@ -26,6 +27,14 @@ def position(v):
 
 def rotation(v):
     return [-v[0], -v[1], v[2]]
+
+
+def animation_rotation(v, rotation_global):
+    """Match Blockbench v5.2.1 bedrock_animation.js global-zero handling."""
+    vector = rotation(v)
+    if rotation_global and all(value == 0 for value in vector):
+        vector[2] = 0.01
+    return vector
 
 
 def export():
@@ -103,13 +112,13 @@ def export():
                 continue
             target = {}
             if animator.get("rotation_global"):
-                target.update(relative_to={"rotation": "entity"}, rotation=[0, 0, 0])
+                target.update(relative_to={"rotation": "entity"}, rotation=[0, 0, 0.01])
             for key in keys:
                 assert key["interpolation"] == "linear" and len(key["data_points"]) == 1
                 channel = key["channel"]
                 vector = [float(key["data_points"][0][axis]) for axis in "xyz"]
                 if channel == "rotation":
-                    vector = rotation(vector)
+                    vector = animation_rotation(vector, animator.get("rotation_global", False))
                 elif channel == "position":
                     vector = position(vector)
                 if not isinstance(target.get(channel), dict):

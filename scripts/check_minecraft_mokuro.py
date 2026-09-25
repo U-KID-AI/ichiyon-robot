@@ -5,7 +5,7 @@ import json
 import subprocess
 import unittest
 
-from export_mokuro import ANIMATION_IDS, ROOT, RP, SOURCE, SOURCE_SHA, export, position, rotation
+from export_mokuro import ANIMATION_IDS, ROOT, RP, SOURCE, SOURCE_SHA, export, position, rotation, animation_rotation
 
 BP = ROOT / "minecraft/behavior_packs/ichiyon_avatar_bp"
 
@@ -51,7 +51,12 @@ class MokuroChecks(unittest.TestCase):
                 for key in animator.get("keyframes", []):
                     value = dst["bones"][animator["name"]][key["channel"]][str(float(key["time"]))]
                     restored = rotation(value) if key["channel"] == "rotation" else position(value)
-                    self.assertEqual(restored, [float(key["data_points"][0][a]) for a in "xyz"])
+                    original = [float(key["data_points"][0][a]) for a in "xyz"]
+                    if (key["channel"] == "rotation" and animator.get("rotation_global")
+                            and original == [0, 0, 0]):
+                        self.assertEqual(value, [0, 0, 0.01])
+                    else:
+                        self.assertEqual(restored, original)
 
     def test_friendly_mobile_and_carried_components(self):
         entity = read(BP / "entities/mokuro.json")["minecraft:entity"]
@@ -102,6 +107,40 @@ class MokuroChecks(unittest.TestCase):
             text = (RP / f"texts/{lang}.lang").read_text(encoding="utf-8")
             for key in ("entity.ichiyon:mokuro.name", "item.spawn_egg.entity.ichiyon:mokuro.name", "action.interact.ichiyon_mokuro"):
                 self.assertEqual(sum(line.startswith(key + "=") for line in text.splitlines()), 1)
+
+    def test_official_global_zero_rotation(self):
+        self.assertEqual(animation_rotation([0, 0, 0], True), [0, 0, 0.01])
+        self.assertEqual(animation_rotation([0, 0, 0], False), [0, 0, 0])
+        for global_rotation in (False, True):
+            for source, expected in (([90, 0, 0], [-90, 0, 0]),
+                                     ([-90, 0, 0], [90, 0, 0]),
+                                     ([0, 90, 0], [0, -90, 0]),
+                                     ([0, 0, -90], [0, 0, -90]),
+                                     ([0.000001, 0, 0], [-0.000001, 0, 0])):
+                self.assertEqual(animation_rotation(source, global_rotation), expected)
+        src = read(SOURCE)
+        exported = read(RP / "animations/mokuro.animation.json")["animations"]
+        defaults = []
+        corrected = 0
+        for anim in src["animations"]:
+            dst = exported[ANIMATION_IDS[anim["name"]]]["bones"]
+            for animator in anim["animators"].values():
+                if not animator.get("rotation_global"):
+                    continue
+                target = dst[animator["name"]]
+                self.assertEqual(target["relative_to"], {"rotation": "entity"})
+                rotations = [k for k in animator.get("keyframes", []) if k["channel"] == "rotation"]
+                if not rotations:
+                    self.assertEqual(target["rotation"], [0, 0, 0.01])
+                    defaults.append((anim["name"], animator["name"]))
+                    corrected += 1
+                for key in rotations:
+                    original = [float(key["data_points"][0][axis]) for axis in "xyz"]
+                    if original == [0, 0, 0]:
+                        self.assertEqual(target["rotation"][str(float(key["time"]))], [0, 0, 0.01])
+                        corrected += 1
+        self.assertEqual(defaults, [('mocro_walk', 'wingL'), ('mocro_walk', 'wingR')])
+        self.assertEqual(corrected, 9)
 
     def test_runtime_regressions(self):
         subprocess.run(["node", str(ROOT / "scripts/check_minecraft_mokuro.mjs")], check=True)

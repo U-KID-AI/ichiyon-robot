@@ -30,8 +30,9 @@ three textures remain solely in the immutable development source.
 | prairie2walk | prairie2walk | 1 s | true |
 
 All 27 original position/rotation keyframes, times, values and global rotations
-are preserved after coordinate conversion. No resampling, optimization, retiming,
-epsilon or extra keyframes. One empty Blockbench effect animator has no runtime
+are preserved after coordinate conversion, except Blockbench v5.2.1's global-zero
+rotation compatibility correction: Z=0.01 for global default/zero rotations only.
+Nonzero rotations are unchanged. No resampling, optimization, retiming or extra keyframes. One empty Blockbench effect animator has no runtime
 content; nonempty unsupported effect tracks fail export rather than disappear.
 Animation identifiers alone are namespaced to avoid global collisions.
 

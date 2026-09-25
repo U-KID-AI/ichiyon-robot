@@ -6,7 +6,7 @@ import json
 import subprocess
 import unittest
 
-from export_death_prairie_dog import ANIMATION_IDS, ROOT, RP, SOURCE, SOURCE_SHA, export, green_texture
+from export_death_prairie_dog import ANIMATION_IDS, ROOT, RP, SOURCE, SOURCE_SHA, export, green_texture, animation_rotation
 from build_death_prairie_dog_behavior import behavior
 
 
@@ -109,7 +109,12 @@ class DeathPrairieDogChecks(unittest.TestCase):
                     value = dst["bones"][animator["name"]][channel][str(float(key["time"]))]
                     x, y, z = value
                     restored = [-x, -y, z] if channel == "rotation" else [-x, y, z] if channel == "position" else value
-                    self.assertEqual(restored, [float(key["data_points"][0][a]) for a in "xyz"])
+                    original = [float(key["data_points"][0][a]) for a in "xyz"]
+                    if (key["channel"] == "rotation" and animator.get("rotation_global")
+                            and original == [0, 0, 0]):
+                        self.assertEqual(value, [0, 0, 0.01])
+                    else:
+                        self.assertEqual(restored, original)
                     expected_keys += 1
             actual_keys = sum(len(b[c]) for b in dst["bones"].values() for c in ("position", "rotation", "scale") if isinstance(b.get(c), dict))
             self.assertEqual(actual_keys, expected_keys)
@@ -136,6 +141,40 @@ class DeathPrairieDogChecks(unittest.TestCase):
             self.assertIn("item.spawn_egg.entity.ichiyon:death_prairie_dog.name", integration["localization"][lang])
         self.assertEqual(integration["localization"]["ja_JP"]["entity.ichiyon:death_prairie_dog.name"], "\u30c7\u30b9\u30d7\u30ec\u30fc\u30ea\u30fc\u30c9\u30c3\u30b0")
         self.assertEqual(integration["main_import"], 'import "./death_prairie_dog.js";')
+
+    def test_official_global_zero_rotation(self):
+        self.assertEqual(animation_rotation([0, 0, 0], True), [0, 0, 0.01])
+        self.assertEqual(animation_rotation([0, 0, 0], False), [0, 0, 0])
+        for global_rotation in (False, True):
+            for source, expected in (([90, 0, 0], [-90, 0, 0]),
+                                     ([-90, 0, 0], [90, 0, 0]),
+                                     ([0, 90, 0], [0, -90, 0]),
+                                     ([0, 0, -90], [0, 0, -90]),
+                                     ([0.000001, 0, 0], [-0.000001, 0, 0])):
+                self.assertEqual(animation_rotation(source, global_rotation), expected)
+        src = read(SOURCE)
+        exported = read(RP / "animations/death_prairie_dog.animation.json")["animations"]
+        defaults = []
+        corrected = 0
+        for anim in src["animations"]:
+            dst = exported[ANIMATION_IDS[anim["name"]]]["bones"]
+            for animator in anim["animators"].values():
+                if not animator.get("rotation_global"):
+                    continue
+                target = dst[animator["name"]]
+                self.assertEqual(target["relative_to"], {"rotation": "entity"})
+                rotations = [k for k in animator.get("keyframes", []) if k["channel"] == "rotation"]
+                if not rotations:
+                    self.assertEqual(target["rotation"], [0, 0, 0.01])
+                    defaults.append((anim["name"], animator["name"]))
+                    corrected += 1
+                for key in rotations:
+                    original = [float(key["data_points"][0][axis]) for axis in "xyz"]
+                    if original == [0, 0, 0]:
+                        self.assertEqual(target["rotation"][str(float(key["time"]))], [0, 0, 0.01])
+                        corrected += 1
+        self.assertEqual(defaults, [('animation.model.new', 'body')])
+        self.assertEqual(corrected, 4)
 
     def test_runtime_and_controller_regressions(self):
         subprocess.run(["node", str(ROOT / "scripts/check_minecraft_death_prairie_dog.mjs")], check=True)
