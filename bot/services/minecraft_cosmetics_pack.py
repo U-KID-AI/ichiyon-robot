@@ -265,7 +265,7 @@ def compile_files(root, records, *, revision=None):
         files[path] = ("\n".join(lines) + "\n").encode("utf-8")
     put(RP + "render_controllers/cosmetics_accessories.render_controllers.json", {"format_version": "1.8.0", "render_controllers": accessory_controllers})
     compile_posters(root, [a for a in records if a["kind"] == "poster"], files)
-    for pack, patch in ((BP, 40), (RP, 46), (BRIDGE, 38)):
+    for pack, patch in ((BP, 40), (RP, 47), (BRIDGE, 38)):
         manifest = read(pack + "manifest.json")
         version = [1, 0, patch] if revision is None else [1, 1, revision]
         manifest["header"]["version"] = version
