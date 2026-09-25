@@ -1,4 +1,4 @@
-"""Connected aquarium glass: low-opacity body with same-color seam culling."""
+"""Canonical connected Aquarium Glass using one custom full cube."""
 import argparse
 from io import BytesIO
 import json
@@ -31,159 +31,86 @@ COLORS = [
     ("brown", "茶", (141, 105, 80)),
 ]
 
-DIRECTIONS = {
-    "west": (0, -1),
-    "east": (0, 1),
-    "down": (1, -1),
-    "up": (1, 1),
-    "north": (2, -1),
-    "south": (2, 1),
-}
+DIRECTIONS = (
+    "down",
+    "up",
+    "north",
+    "south",
+    "west",
+    "east",
+)
 
 HEADER_UUID = "fe55c87e-d7a2-4e3c-88fb-43009f65df75"
 MODULE_UUID = "a3d30f1b-8445-4e46-a670-e53433ec8d7a"
 
-PACK_VERSION = [1, 1, 0]
+PACK_VERSION = [1, 2, 0]
 
-CLEAR_ALPHA = 8
-COLORED_ALPHA = 18
-RIM_ALPHA = 128
-
-RIM_WIDTH = 0.5
-RIM_DEPTH = 0.0625
-RIM_OFFSET = 0.002
-
-BLOCK_MIN = [-8, 0, -8]
-BLOCK_MAX = [8, 16, 8]
-BLOCK_SIZE = [16, 16, 16]
+# No separate rim in this canonical rendering pass.
+# These are intentionally far below the previous 64/255 diagnostic.
+CLEAR_ALPHA = 24
+COLORED_ALPHA = 36
 
 
 def encoded(value):
-    return (json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    return (
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
 
 
 def identifier(color):
     return "ichiyon:aquarium_glass_" + color
 
 
-def face_uv(face, material):
-    return {
-        face: {
-            "uv": [0, 0],
-            "uv_size": [32, 32],
-            "material_instance": material,
-        }
-    }
-
-
 def geometry_and_culling():
-    # One real full-volume body cube. Each face can be culled independently.
-    body_uv = {
-        face: {
-            "uv": [0, 0],
-            "uv_size": [32, 32],
-            "material_instance": "body",
-        }
-        for face in DIRECTIONS
+    # Match the current canonical custom-glass structure:
+    # one ordinary full cube, no material_instance names in the geometry.
+    uv = {
+        "north": {"uv": [0, 0], "uv_size": [16, 16]},
+        "east":  {"uv": [0, 0], "uv_size": [16, 16]},
+        "south": {"uv": [0, 0], "uv_size": [16, 16]},
+        "west":  {"uv": [0, 0], "uv_size": [16, 16]},
+        "up":    {"uv": [16, 16], "uv_size": [-16, -16]},
+        "down":  {"uv": [16, 16], "uv_size": [-16, -16]},
     }
-
-    bones = [{
-        "name": "body",
-        "pivot": [0, 0, 0],
-        "cubes": [{
-            "origin": BLOCK_MIN.copy(),
-            "size": BLOCK_SIZE.copy(),
-            "uv": body_uv,
-        }],
-    }]
-
-    rules = []
-
-    # Hide only the touching face when the exact same Aquarium Glass block
-    # identifier exists in that direction.
-    for face in DIRECTIONS:
-        rules.append({
-            "geometry_part": {
-                "bone": "body",
-                "cube": 0,
-                "face": face,
-            },
-            "direction": face,
-            "condition": "same_block",
-            "cull_against_full_and_opaque": True,
-        })
-
-    # Four positive-volume rims on each of the six faces.
-    for face, (normal_axis, face_sign) in DIRECTIONS.items():
-        for edge, (edge_axis, edge_sign) in DIRECTIONS.items():
-            if edge_axis == normal_axis:
-                continue
-
-            name = f"{face}_{edge}"
-            origin = BLOCK_MIN.copy()
-            size = BLOCK_SIZE.copy()
-
-            # Positive volume: zero-thickness cubes are forbidden.
-            size[normal_axis] = RIM_DEPTH
-
-            # Keep almost all of the rim depth inside the block, but put
-            # the rendered outward face 0.002 model units in front of the
-            # body face to avoid coplanar z-fighting.
-            if face_sign > 0:
-                origin[normal_axis] = (
-                    BLOCK_MAX[normal_axis] - RIM_DEPTH + RIM_OFFSET
-                )
-            else:
-                origin[normal_axis] = (
-                    BLOCK_MIN[normal_axis] - RIM_OFFSET
-                )
-
-            size[edge_axis] = RIM_WIDTH
-
-            if edge_sign > 0:
-                origin[edge_axis] = BLOCK_MAX[edge_axis] - RIM_WIDTH
-            else:
-                origin[edge_axis] = BLOCK_MIN[edge_axis]
-
-            bones.append({
-                "name": name,
-                "pivot": [0, 0, 0],
-                "cubes": [{
-                    "origin": origin,
-                    "size": size,
-                    # Only the outward-facing surface is visible.
-                    "uv": face_uv(face, "edge"),
-                }],
-            })
-
-            # Same block in face-normal direction -> this face is internal.
-            rules.append({
-                "geometry_part": {"bone": name},
-                "direction": face,
-                "condition": "same_block",
-                "cull_against_full_and_opaque": True,
-            })
-
-            # Same block through this edge -> remove per-block grid line.
-            # Opaque non-glass framing must not remove the outside rim.
-            rules.append({
-                "geometry_part": {"bone": name},
-                "direction": edge,
-                "condition": "same_block",
-                "cull_against_full_and_opaque": False,
-            })
 
     geometry = {
-        "format_version": "1.12.0",
+        "format_version": "1.26.50",
         "minecraft:geometry": [{
             "description": {
                 "identifier": "geometry.ichiyon.aquarium_glass",
-                "texture_width": 32,
-                "texture_height": 32,
+                "texture_width": 16,
+                "texture_height": 16,
             },
-            "bones": bones,
+            "bones": [{
+                "name": "glass",
+                "pivot": [0, 0, 0],
+                "cubes": [{
+                    "origin": [-8, 0, -8],
+                    "size": [16, 16, 16],
+                    "uv": uv,
+                }],
+            }],
         }],
     }
+
+    rules = [
+        {
+            "condition": "same_block",
+            "direction": face,
+            "geometry_part": {
+                "bone": "glass",
+                "cube": 0,
+                "face": face,
+            },
+        }
+        for face in DIRECTIONS
+    ]
 
     culling = {
         "format_version": "1.21.80",
@@ -206,24 +133,35 @@ def generated_files(root=ROOT / "minecraft"):
 
     geometry, culling = geometry_and_culling()
 
-    put(RP + "models/blocks/aquarium_glass.geo.json", geometry)
-    put(RP + "block_culling/aquarium_glass.json", culling)
+    put(
+        RP + "models/blocks/aquarium_glass.geo.json",
+        geometry,
+    )
 
-    put(RP + "manifest.json", {
-        "format_version": 2,
-        "header": {
-            "name": "Ichiyon Aquarium Glass",
-            "description": "Connected low-opacity aquarium glass with outer-only rims",
-            "uuid": HEADER_UUID,
-            "version": PACK_VERSION,
-            "min_engine_version": [1, 26, 0],
+    put(
+        RP + "block_culling/aquarium_glass.json",
+        culling,
+    )
+
+    put(
+        RP + "manifest.json",
+        {
+            "format_version": 2,
+            "header": {
+                "name": "Ichiyon Aquarium Glass",
+                "description":
+                    "Canonical connected translucent aquarium glass",
+                "uuid": HEADER_UUID,
+                "version": PACK_VERSION,
+                "min_engine_version": [1, 26, 50],
+            },
+            "modules": [{
+                "type": "resources",
+                "uuid": MODULE_UUID,
+                "version": PACK_VERSION,
+            }],
         },
-        "modules": [{
-            "type": "resources",
-            "uuid": MODULE_UUID,
-            "version": PACK_VERSION,
-        }],
-    })
+    )
 
     terrain = {}
     blocks = {"format_version": [1, 1, 0]}
@@ -237,45 +175,43 @@ def generated_files(root=ROOT / "minecraft"):
         stem = "aquarium_glass_" + color
         block_id = identifier(color)
 
-        body_alpha = CLEAR_ALPHA if color == "clear" else COLORED_ALPHA
-
-        edge_rgb = tuple(
-            round(channel * 0.55 + 255 * 0.45)
-            for channel in rgb
+        alpha = (
+            CLEAR_ALPHA
+            if color == "clear"
+            else COLORED_ALPHA
         )
 
-        for material, tint, alpha in (
-            ("body", rgb, body_alpha),
-            ("edge", edge_rgb, RIM_ALPHA),
-        ):
-            key = stem + "_" + material
+        key = stem + "_body"
 
-            image = Image.new(
-                "RGBA",
-                (32, 32),
-                (*tint, alpha),
-            )
+        image = Image.new(
+            "RGBA",
+            (16, 16),
+            (*rgb, alpha),
+        )
 
-            output = BytesIO()
-            image.save(
-                output,
-                format="PNG",
-                optimize=False,
-                compress_level=9,
-            )
+        output = BytesIO()
 
-            files[
-                RP + "textures/blocks/" + key + ".png"
-            ] = output.getvalue()
+        image.save(
+            output,
+            format="PNG",
+            optimize=False,
+            compress_level=9,
+        )
 
-            terrain[key] = {
-                "textures": "textures/blocks/" + key
-            }
+        files[
+            RP + "textures/blocks/" + key + ".png"
+        ] = output.getvalue()
+
+        terrain[key] = {
+            "textures": "textures/blocks/" + key
+        }
 
         english = (
             "Aquarium Glass"
             if color == "clear"
-            else "Aquarium Glass " + color.replace("_", " ").title()
+            else
+            "Aquarium Glass "
+            + color.replace("_", " ").title()
         )
 
         labels["en_US"].append(
@@ -283,108 +219,151 @@ def generated_files(root=ROOT / "minecraft"):
         )
 
         labels["ja_JP"].append(
-            f"tile.{block_id}.name=アクアリウムガラス（{japanese}）"
+            f"tile.{block_id}.name="
+            f"アクアリウムガラス（{japanese}）"
         )
 
         components = {
+            "minecraft:light_dampening": 0,
+
             "minecraft:geometry": {
-                "identifier": "geometry.ichiyon.aquarium_glass",
-                "culling": "ichiyon:aquarium_glass",
+                "identifier":
+                    "geometry.ichiyon.aquarium_glass",
+                "culling":
+                    "ichiyon:aquarium_glass",
             },
+
+            # Deliberately use only the wildcard material,
+            # matching the canonical custom-glass pattern.
             "minecraft:material_instances": {
-                "body": {
-                    "texture": stem + "_body",
+                "*": {
+                    "texture": key,
                     "render_method": "blend",
-                    "face_dimming": False,
-                    "ambient_occlusion": False,
-                },
-                "edge": {
-                    "texture": stem + "_edge",
-                    "render_method": "blend",
-                    "face_dimming": False,
-                    "ambient_occlusion": False,
-                },
+                }
             },
+
             "minecraft:collision_box": True,
             "minecraft:selection_box": True,
-            "minecraft:light_dampening": 0,
             "minecraft:friction": 0.6,
+
             "minecraft:destructible_by_mining": {
-                "seconds_to_destroy": 0.3
+                "seconds_to_destroy": 0.3,
             },
+
             "minecraft:destructible_by_explosion": {
-                "explosion_resistance": 1.5
+                "explosion_resistance": 1.5,
             },
-            "minecraft:map_color": "#" + "".join(
-                f"{channel:02x}" for channel in rgb
-            ),
+
+            "minecraft:map_color":
+                "#"
+                + "".join(
+                    f"{channel:02x}"
+                    for channel in rgb
+                ),
+
             "minecraft:connection_rule": {
                 "accepts_connections_from": "all"
             },
-            "minecraft:loot": f"loot_tables/blocks/{stem}.json",
+
+            "minecraft:loot":
+                f"loot_tables/blocks/{stem}.json",
         }
 
-        put(BP + f"blocks/{stem}.json", {
-            "format_version": "1.26.0",
-            "minecraft:block": {
-                "description": {
-                    "identifier": block_id,
-                    "menu_category": {
-                        "category": "construction",
-                        "group": GROUP,
+        put(
+            BP + f"blocks/{stem}.json",
+            {
+                "format_version": "1.26.50",
+                "minecraft:block": {
+                    "description": {
+                        "identifier": block_id,
+                        "menu_category": {
+                            "category": "construction",
+                            "group": GROUP,
+                        },
                     },
+                    "components": components,
                 },
-                "components": components,
             },
-        })
+        )
 
-        put(BP + f"loot_tables/blocks/{stem}.json", {
-            "pools": [{
-                "rolls": 1,
-                "entries": [{
-                    "type": "item",
-                    "name": block_id,
-                    "conditions": [{
-                        "condition": "match_tool",
-                        "enchantments": [{
-                            "enchantment": "silk_touch",
-                            "levels": {"min": 1},
+        put(
+            BP
+            + f"loot_tables/blocks/{stem}.json",
+            {
+                "pools": [{
+                    "rolls": 1,
+                    "entries": [{
+                        "type": "item",
+                        "name": block_id,
+                        "conditions": [{
+                            "condition":
+                                "match_tool",
+                            "enchantments": [{
+                                "enchantment":
+                                    "silk_touch",
+                                "levels": {
+                                    "min": 1
+                                },
+                            }],
                         }],
                     }],
                 }],
-            }],
-        })
+            },
+        )
 
-        blocks[block_id] = {"sound": "glass"}
+        blocks[block_id] = {
+            "sound": "glass"
+        }
 
-    put(RP + "textures/terrain_texture.json", {
-        "resource_pack_name": "ichiyon_aquarium_glass_rp",
-        "texture_name": "atlas.terrain",
-        "padding": 8,
-        "num_mip_levels": 4,
-        "texture_data": terrain,
-    })
+    put(
+        RP + "textures/terrain_texture.json",
+        {
+            "resource_pack_name":
+                "ichiyon_aquarium_glass_rp",
+            "texture_name": "atlas.terrain",
+            "padding": 8,
+            "num_mip_levels": 4,
+            "texture_data": terrain,
+        },
+    )
 
-    put(RP + "blocks.json", blocks)
-    put(RP + "texts/languages.json", list(labels))
+    put(
+        RP + "blocks.json",
+        blocks,
+    )
+
+    put(
+        RP + "texts/languages.json",
+        list(labels),
+    )
 
     for locale, lines in labels.items():
-        files[RP + f"texts/{locale}.lang"] = (
+        files[
+            RP + f"texts/{locale}.lang"
+        ] = (
             "\n".join(lines) + "\n"
         ).encode("utf-8")
 
-    path = BP + "item_catalog/crafting_item_catalog.json"
+    path = (
+        BP
+        + "item_catalog/"
+        + "crafting_item_catalog.json"
+    )
 
     catalog = json.loads(
-        (root / path).read_text(encoding="utf-8")
+        (root / path).read_text(
+            encoding="utf-8"
+        )
     )
 
     construction = next(
         category
-        for category in catalog[
+        for category
+        in catalog[
             "minecraft:crafting_items_catalog"
         ]["categories"]
-        if category["category_name"] == "construction"
+        if category["category_name"]
+        == "construction"
     )
 
     groups = construction["groups"]
@@ -392,7 +371,10 @@ def generated_files(root=ROOT / "minecraft"):
     groups[:] = [
         group
         for group in groups
-        if group.get("group_identifier", {}).get("name") != GROUP
+        if group
+        .get("group_identifier", {})
+        .get("name")
+        != GROUP
     ]
 
     groups.append({
@@ -412,33 +394,71 @@ def generated_files(root=ROOT / "minecraft"):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true")
+    parser = argparse.ArgumentParser(
+        description=__doc__
+    )
+
+    parser.add_argument(
+        "--check",
+        action="store_true",
+    )
+
     args = parser.parse_args()
 
     files = generated_files()
+
+    # Remove obsolete rim textures from 1.1.0.
+    texture_dir = (
+        ROOT
+        / "minecraft"
+        / RP
+        / "textures"
+        / "blocks"
+    )
+
+    for obsolete in texture_dir.glob(
+        "aquarium_glass_*_edge.png"
+    ):
+        if args.check:
+            assert not obsolete.exists(), obsolete
+        else:
+            obsolete.unlink()
 
     for name, data in files.items():
         path = ROOT / "minecraft" / name
 
         if args.check:
             assert path.exists(), name
+
             actual = path.read_bytes()
+
             assert (
                 actual
                 if name.endswith(".png")
-                else actual.replace(b"\r\n", b"\n")
+                else actual.replace(
+                    b"\r\n",
+                    b"\n",
+                )
             ) == data, name
 
         elif (
             not path.exists()
-            or path.read_bytes().replace(b"\r\n", b"\n") != data
+            or path.read_bytes().replace(
+                b"\r\n",
+                b"\n",
+            )
+            != data
         ):
-            path.parent.mkdir(parents=True, exist_ok=True)
+            path.parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+
             path.write_bytes(data)
 
     print(
-        f"Aquarium glass: {len(COLORS)} blocks, "
+        f"Aquarium glass: "
+        f"{len(COLORS)} blocks, "
         f"{len(files)} files "
         f"{'verified' if args.check else 'generated'}"
     )

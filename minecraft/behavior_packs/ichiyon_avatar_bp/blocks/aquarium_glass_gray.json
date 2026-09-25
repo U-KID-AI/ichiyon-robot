@@ -1,5 +1,5 @@
 {
-  "format_version": "1.26.0",
+  "format_version": "1.26.50",
   "minecraft:block": {
     "components": {
       "minecraft:collision_box": true,
@@ -21,17 +21,9 @@
       "minecraft:loot": "loot_tables/blocks/aquarium_glass_gray.json",
       "minecraft:map_color": "#5b6c77",
       "minecraft:material_instances": {
-        "body": {
-          "ambient_occlusion": false,
-          "face_dimming": false,
+        "*": {
           "render_method": "blend",
           "texture": "aquarium_glass_gray_body"
-        },
-        "edge": {
-          "ambient_occlusion": false,
-          "face_dimming": false,
-          "render_method": "blend",
-          "texture": "aquarium_glass_gray_edge"
         }
       },
       "minecraft:selection_box": true

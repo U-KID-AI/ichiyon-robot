@@ -7,446 +7,56 @@
     "rules": [
       {
         "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "west",
-        "geometry_part": {
-          "bone": "body",
-          "cube": 0,
-          "face": "west"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "east",
-        "geometry_part": {
-          "bone": "body",
-          "cube": 0,
-          "face": "east"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
         "direction": "down",
         "geometry_part": {
-          "bone": "body",
+          "bone": "glass",
           "cube": 0,
           "face": "down"
         }
       },
       {
         "condition": "same_block",
-        "cull_against_full_and_opaque": true,
         "direction": "up",
         "geometry_part": {
-          "bone": "body",
+          "bone": "glass",
           "cube": 0,
           "face": "up"
         }
       },
       {
         "condition": "same_block",
-        "cull_against_full_and_opaque": true,
         "direction": "north",
         "geometry_part": {
-          "bone": "body",
+          "bone": "glass",
           "cube": 0,
           "face": "north"
         }
       },
       {
         "condition": "same_block",
-        "cull_against_full_and_opaque": true,
         "direction": "south",
         "geometry_part": {
-          "bone": "body",
+          "bone": "glass",
           "cube": 0,
           "face": "south"
         }
       },
       {
         "condition": "same_block",
-        "cull_against_full_and_opaque": true,
         "direction": "west",
         "geometry_part": {
-          "bone": "west_down"
+          "bone": "glass",
+          "cube": 0,
+          "face": "west"
         }
       },
       {
         "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "down",
-        "geometry_part": {
-          "bone": "west_down"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "west",
-        "geometry_part": {
-          "bone": "west_up"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "up",
-        "geometry_part": {
-          "bone": "west_up"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "west",
-        "geometry_part": {
-          "bone": "west_north"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "north",
-        "geometry_part": {
-          "bone": "west_north"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "west",
-        "geometry_part": {
-          "bone": "west_south"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "south",
-        "geometry_part": {
-          "bone": "west_south"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
         "direction": "east",
         "geometry_part": {
-          "bone": "east_down"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "down",
-        "geometry_part": {
-          "bone": "east_down"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "east",
-        "geometry_part": {
-          "bone": "east_up"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "up",
-        "geometry_part": {
-          "bone": "east_up"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "east",
-        "geometry_part": {
-          "bone": "east_north"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "north",
-        "geometry_part": {
-          "bone": "east_north"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "east",
-        "geometry_part": {
-          "bone": "east_south"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "south",
-        "geometry_part": {
-          "bone": "east_south"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "down",
-        "geometry_part": {
-          "bone": "down_west"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "west",
-        "geometry_part": {
-          "bone": "down_west"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "down",
-        "geometry_part": {
-          "bone": "down_east"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "east",
-        "geometry_part": {
-          "bone": "down_east"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "down",
-        "geometry_part": {
-          "bone": "down_north"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "north",
-        "geometry_part": {
-          "bone": "down_north"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "down",
-        "geometry_part": {
-          "bone": "down_south"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "south",
-        "geometry_part": {
-          "bone": "down_south"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "up",
-        "geometry_part": {
-          "bone": "up_west"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "west",
-        "geometry_part": {
-          "bone": "up_west"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "up",
-        "geometry_part": {
-          "bone": "up_east"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "east",
-        "geometry_part": {
-          "bone": "up_east"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "up",
-        "geometry_part": {
-          "bone": "up_north"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "north",
-        "geometry_part": {
-          "bone": "up_north"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "up",
-        "geometry_part": {
-          "bone": "up_south"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "south",
-        "geometry_part": {
-          "bone": "up_south"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "north",
-        "geometry_part": {
-          "bone": "north_west"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "west",
-        "geometry_part": {
-          "bone": "north_west"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "north",
-        "geometry_part": {
-          "bone": "north_east"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "east",
-        "geometry_part": {
-          "bone": "north_east"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "north",
-        "geometry_part": {
-          "bone": "north_down"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "down",
-        "geometry_part": {
-          "bone": "north_down"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "north",
-        "geometry_part": {
-          "bone": "north_up"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "up",
-        "geometry_part": {
-          "bone": "north_up"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "south",
-        "geometry_part": {
-          "bone": "south_west"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "west",
-        "geometry_part": {
-          "bone": "south_west"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "south",
-        "geometry_part": {
-          "bone": "south_east"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "east",
-        "geometry_part": {
-          "bone": "south_east"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "south",
-        "geometry_part": {
-          "bone": "south_down"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "down",
-        "geometry_part": {
-          "bone": "south_down"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": true,
-        "direction": "south",
-        "geometry_part": {
-          "bone": "south_up"
-        }
-      },
-      {
-        "condition": "same_block",
-        "cull_against_full_and_opaque": false,
-        "direction": "up",
-        "geometry_part": {
-          "bone": "south_up"
+          "bone": "glass",
+          "cube": 0,
+          "face": "east"
         }
       }
     ]

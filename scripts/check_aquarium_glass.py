@@ -11,8 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from scripts.build_aquarium_glass import (
     BP, RP, GROUP, COLORS, DIRECTIONS,
-    CLEAR_ALPHA, COLORED_ALPHA, RIM_ALPHA,
-    RIM_WIDTH, RIM_DEPTH, PACK_VERSION,
+    CLEAR_ALPHA, COLORED_ALPHA, PACK_VERSION,
     generated_files, identifier,
 )
 from bot.services.minecraft_cosmetics_pack import builtin_assets, compile_files
@@ -35,152 +34,150 @@ class GlassChecks(unittest.TestCase):
 
     def test_uniform_translucency_no_texture_grid(self):
         for color, _, _ in COLORS:
-            body = Image.open(BytesIO(self.files[
-                RP + f'textures/blocks/aquarium_glass_{color}_body.png'
-            ]))
-            edge = Image.open(BytesIO(self.files[
-                RP + f'textures/blocks/aquarium_glass_{color}_edge.png'
-            ]))
+            image = Image.open(
+                BytesIO(
+                    self.files[
+                        RP
+                        + f'textures/blocks/'
+                        f'aquarium_glass_{color}_body.png'
+                    ]
+                )
+            )
 
-            self.assertEqual(body.mode, 'RGBA')
-            self.assertEqual(edge.mode, 'RGBA')
-            self.assertEqual(len(set(body.getdata())), 1)
-            self.assertEqual(len(set(edge.getdata())), 1)
+            self.assertEqual(image.mode, 'RGBA')
+            self.assertEqual(
+                image.size,
+                (16, 16),
+            )
 
             self.assertEqual(
-                body.getpixel((16, 16))[3],
-                CLEAR_ALPHA if color == 'clear' else COLORED_ALPHA,
+                len(set(image.getdata())),
+                1,
             )
+
             self.assertEqual(
-                edge.getpixel((16, 16))[3],
-                RIM_ALPHA,
+                image.getpixel((8, 8))[3],
+                (
+                    CLEAR_ALPHA
+                    if color == 'clear'
+                    else COLORED_ALPHA
+                ),
             )
-    def test_one_body_and_twenty_four_positive_volume_rims(self):
-        bones = self.doc(
-            RP + 'models/blocks/aquarium_glass.geo.json'
-        )['minecraft:geometry'][0]['bones']
 
-        self.assertEqual(len(bones), 25)
-
-        body_bone = bones[0]
-        self.assertEqual(body_bone['name'], 'body')
-
-        body = body_bone['cubes'][0]
-        self.assertEqual(body['size'], [16, 16, 16])
-        self.assertEqual(
-            set(body['uv']),
-            {'west', 'east', 'down', 'up', 'north', 'south'},
+            self.assertNotIn(
+                RP
+                + f'textures/blocks/'
+                f'aquarium_glass_{color}_edge.png',
+                self.files,
+            )
+    def test_canonical_single_full_cube_geometry(self):
+        geometry = self.doc(
+            RP
+            + 'models/blocks/'
+            + 'aquarium_glass.geo.json'
         )
-        self.assertTrue(all(
-            face['material_instance'] == 'body'
-            for face in body['uv'].values()
-        ))
 
-        rims = bones[1:]
-        self.assertEqual(len(rims), 24)
+        self.assertEqual(
+            geometry['format_version'],
+            '1.26.50',
+        )
 
-        for bone in rims:
-            cube = bone['cubes'][0]
+        bones = geometry[
+            'minecraft:geometry'
+        ][0]['bones']
 
-            self.assertTrue(
-                all(value > 0 for value in cube['size']),
-                bone['name'],
+        self.assertEqual(len(bones), 1)
+        self.assertEqual(
+            bones[0]['name'],
+            'glass',
+        )
+
+        cubes = bones[0]['cubes']
+        self.assertEqual(len(cubes), 1)
+
+        cube = cubes[0]
+
+        self.assertEqual(
+            cube['origin'],
+            [-8, 0, -8],
+        )
+
+        self.assertEqual(
+            cube['size'],
+            [16, 16, 16],
+        )
+
+        self.assertEqual(
+            set(cube['uv']),
+            {
+                'down',
+                'up',
+                'north',
+                'south',
+                'west',
+                'east',
+            },
+        )
+
+        for face in cube['uv'].values():
+            self.assertNotIn(
+                'material_instance',
+                face,
             )
-
-            self.assertEqual(
-                sorted(cube['size']),
-                sorted([RIM_DEPTH, RIM_WIDTH, 16]),
-                bone['name'],
-            )
-
-            face = bone['name'].split('_', 1)[0]
-
-            self.assertEqual(set(cube['uv']), {face})
-            self.assertEqual(
-                cube['uv'][face]['material_instance'],
-                'edge',
-            )
-
     def test_no_zero_size_cube_anywhere(self):
         bones = self.doc(
-            RP + 'models/blocks/aquarium_glass.geo.json'
+            RP
+            + 'models/blocks/'
+            + 'aquarium_glass.geo.json'
         )['minecraft:geometry'][0]['bones']
 
         for bone in bones:
             for cube in bone['cubes']:
                 self.assertTrue(
-                    all(value > 0 for value in cube['size']),
-                    f"{bone['name']}: {cube['size']}",
+                    all(
+                        value > 0
+                        for value
+                        in cube['size']
+                    )
                 )
-    def test_adjacent_same_color_removes_internal_faces_and_rims(self):
+    def test_canonical_six_face_same_block_culling(self):
         rules = self.doc(
-            RP + 'block_culling/aquarium_glass.json'
-        )['minecraft:block_culling_rules']['rules']
+            RP
+            + 'block_culling/'
+            + 'aquarium_glass.json'
+        )[
+            'minecraft:block_culling_rules'
+        ]['rules']
 
-        self.assertEqual(len(rules), 54)
+        self.assertEqual(
+            len(rules),
+            6,
+        )
 
-        for face, (face_axis, _) in DIRECTIONS.items():
-            body_part = {
-                'bone': 'body',
-                'cube': 0,
-                'face': face,
-            }
+        self.assertEqual(
+            {
+                rule['direction']
+                for rule in rules
+            },
+            set(DIRECTIONS),
+        )
 
-            body_rules = [
-                rule for rule in rules
-                if rule['geometry_part'] == body_part
-            ]
+        for rule in rules:
+            face = rule['direction']
 
-            self.assertEqual(len(body_rules), 1)
-
-            body_rule = body_rules[0]
-            self.assertEqual(body_rule['direction'], face)
-            self.assertEqual(body_rule['condition'], 'same_block')
-            self.assertTrue(
-                body_rule['cull_against_full_and_opaque']
+            self.assertEqual(
+                rule['condition'],
+                'same_block',
             )
 
-            for edge, (edge_axis, _) in DIRECTIONS.items():
-                if edge_axis == face_axis:
-                    continue
-
-                name = f'{face}_{edge}'
-
-                paired = [
-                    rule for rule in rules
-                    if rule['geometry_part'] == {'bone': name}
-                ]
-
-                self.assertEqual(len(paired), 2, name)
-
-                self.assertEqual(
-                    {rule['direction'] for rule in paired},
-                    {face, edge},
-                    name,
-                )
-
-                self.assertTrue(all(
-                    rule['condition'] == 'same_block'
-                    for rule in paired
-                ))
-
-                normal = next(
-                    rule for rule in paired
-                    if rule['direction'] == face
-                )
-
-                lateral = next(
-                    rule for rule in paired
-                    if rule['direction'] == edge
-                )
-
-                self.assertTrue(
-                    normal['cull_against_full_and_opaque']
-                )
-
-                self.assertFalse(
-                    lateral['cull_against_full_and_opaque']
-                )
+            self.assertEqual(
+                rule['geometry_part'],
+                {
+                    'bone': 'glass',
+                    'cube': 0,
+                    'face': face,
+                },
+            )
     def test_building_behavior_and_silk_touch_loot(self):
         for color, _, _ in COLORS:
             stem = 'aquarium_glass_' + color
@@ -193,23 +190,41 @@ class GlassChecks(unittest.TestCase):
             self.assertEqual(entry['name'], identifier(color))
             self.assertEqual(entry['conditions'][0]['enchantments'][0]['enchantment'], 'silk_touch')
 
-    def test_all_17_colors_use_same_connected_geometry(self):
-        self.assertEqual(len(COLORS), 17)
+    def test_all_17_colors_use_canonical_wildcard_material(self):
+        self.assertEqual(
+            len(COLORS),
+            17,
+        )
 
         for color, _, _ in COLORS:
             stem = 'aquarium_glass_' + color
 
-            components = self.doc(
-                BP + f'blocks/{stem}.json'
-            )['minecraft:block']['components']
+            block = self.doc(
+                BP
+                + f'blocks/{stem}.json'
+            )['minecraft:block']
 
             self.assertEqual(
-                components['minecraft:geometry'],
+                block['format_version']
+                if 'format_version' in block
+                else '1.26.50',
+                '1.26.50',
+            )
+
+            components = block[
+                'components'
+            ]
+
+            self.assertEqual(
+                components[
+                    'minecraft:geometry'
+                ],
                 {
-                    'identifier': 'geometry.ichiyon.aquarium_glass',
-                    'culling': 'ichiyon:aquarium_glass',
+                    'identifier':
+                        'geometry.ichiyon.aquarium_glass',
+                    'culling':
+                        'ichiyon:aquarium_glass',
                 },
-                color,
             )
 
             materials = components[
@@ -218,36 +233,22 @@ class GlassChecks(unittest.TestCase):
 
             self.assertEqual(
                 set(materials),
-                {'body', 'edge'},
-                color,
+                {'*'},
             )
 
-            for material in ('body', 'edge'):
-                instance = materials[material]
+            self.assertEqual(
+                materials['*']['texture'],
+                f'aquarium_glass_{color}_body',
+            )
 
-                self.assertEqual(
-                    instance['render_method'],
-                    'blend',
-                    color,
-                )
-
-                self.assertFalse(
-                    instance['face_dimming'],
-                    color,
-                )
-
-                self.assertFalse(
-                    instance['ambient_occlusion'],
-                    color,
-                )
-
-                self.assertEqual(
-                    instance['texture'],
-                    f'aquarium_glass_{color}_{material}',
-                    color,
-                )
+            self.assertEqual(
+                materials['*']['render_method'],
+                'blend',
+            )
     def test_pack_version_and_uuid_stability(self):
-        manifest = self.doc(RP + 'manifest.json')
+        manifest = self.doc(
+            RP + 'manifest.json'
+        )
 
         self.assertEqual(
             manifest['header']['version'],
