@@ -5,12 +5,14 @@
       "initial_state": "wander",
       "states": {
         "wander": {
+          "blend_transition": 0.1,
           "animations": [{"prairie2walk": "query.ground_speed > 0.01"}],
           "transitions": [
             {"transition": "query.property('ichiyon:prairie_state') == 'transition' || query.property('ichiyon:prairie_state') == 'chase'"}
           ]
         },
         "transition": {
+          "blend_transition": 0.1,
           "animations": ["transition"],
           "transitions": [
             {"wander": "query.property('ichiyon:prairie_state') == 'wander' || query.property('ichiyon:prairie_state') == 'flee'"},
@@ -18,6 +20,7 @@
           ]
         },
         "chase": {
+          "blend_transition": 0.1,
           "animations": ["prairie4walk"],
           "transitions": [
             {"wander": "query.property('ichiyon:prairie_state') == 'wander' || query.property('ichiyon:prairie_state') == 'flee'"},

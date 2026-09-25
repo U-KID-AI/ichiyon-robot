@@ -6,24 +6,18 @@
       "animation_length": 0.5,
       "bones": {
         "body": {
-          "relative_to": {
-            "rotation": "entity"
-          },
           "rotation": [
-            0,
-            0,
-            0.01
+            -0.0,
+            -0.0,
+            0.0
           ]
         },
         "head": {
-          "relative_to": {
-            "rotation": "entity"
-          },
           "rotation": {
             "0.0": [
               -0.0,
               -0.0,
-              0.01
+              0.0
             ],
             "0.5": [
               -90.0,
@@ -33,14 +27,11 @@
           }
         },
         "tail": {
-          "relative_to": {
-            "rotation": "entity"
-          },
           "rotation": {
             "0.0": [
               -0.0,
               -0.0,
-              0.01
+              0.0
             ],
             "0.5": [
               -90.0,
@@ -50,9 +41,6 @@
           }
         },
         "bone": {
-          "relative_to": {
-            "rotation": "entity"
-          },
           "rotation": {
             "0.5": [
               90.0,
@@ -62,7 +50,7 @@
             "0.0": [
               -0.0,
               -0.0,
-              0.01
+              0.0
             ]
           }
         }
@@ -111,9 +99,6 @@
           }
         },
         "head": {
-          "relative_to": {
-            "rotation": "entity"
-          },
           "rotation": {
             "0.0": [
               -90.0,
@@ -161,9 +146,6 @@
           }
         },
         "tail": {
-          "relative_to": {
-            "rotation": "entity"
-          },
           "rotation": {
             "0.0": [
               -90.0,
@@ -173,9 +155,6 @@
           }
         },
         "bone": {
-          "relative_to": {
-            "rotation": "entity"
-          },
           "rotation": {
             "0.0": [
               90.0,
