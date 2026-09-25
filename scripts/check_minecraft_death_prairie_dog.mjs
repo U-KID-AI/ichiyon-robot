@@ -263,29 +263,44 @@ test("all 16 matching bits are represented; no duplicate group per player", () =
 
 const controller = read("../minecraft/resource_packs/ichiyon_avatar_rp/animation_controllers/death_prairie_dog.controller.json")
   .animation_controllers["controller.animation.death_prairie_dog.state"];
-function controllerStep(state, property, time = 0) {
+function controllerStep(state, property, time = 0, groundSpeed = 0) {
   for (const transition of controller.states[state].transitions ?? []) {
     const [next, expression] = Object.entries(transition)[0];
     const js = expression.replaceAll("query.property('ichiyon:prairie_state')", JSON.stringify(property))
-      .replaceAll("query.state_time", String(time));
+      .replaceAll("query.state_time", String(time))
+      .replaceAll("query.ground_speed", String(groundSpeed));
     if (Function(`return (${js});`)()) return next;
   }
   return state;
 }
-test("all original clips are reachable; held transition exits once after 0.5 seconds", () => {
+test("day is quadruped, night chase is biped, and both transition directions are reachable", () => {
   assert.equal(controller.initial_state, "wander");
+  assert.deepEqual(controller.states.wander.animations, ["prairie4pose"]);
+  assert.deepEqual(controller.states.wander_walk.animations, ["prairie4walk"]);
+  assert("prairie2walk" in controller.states.chase.animations[0]);
+  assert.deepEqual(controller.states.transition.animations, ["transition_reverse"]);
+  assert.deepEqual(controller.states.return_transition.animations, ["transition"]);
+
+  assert.equal(controllerStep("wander", "wander", 0, 0.2), "wander_walk");
+  assert.equal(controllerStep("wander_walk", "wander", 0, 0), "wander");
   assert.equal(controllerStep("wander", "transition"), "transition");
+  assert.equal(controllerStep("wander_walk", "transition", 0, 0.2), "transition");
   assert.equal(controllerStep("transition", "chase", 0.49), "transition");
   assert.equal(controllerStep("transition", "chase", 0.5), "chase");
   assert.equal(controllerStep("chase", "chase", 50), "chase");
-  assert.deepEqual(controller.states.transition.animations, ["transition"]);
-  assert.deepEqual(controller.states.chase.animations, ["prairie4walk"]);
-  assert("prairie2walk" in controller.states.wander.animations[0]);
+
+  assert.equal(controllerStep("chase", "wander", 0.1), "return_transition");
+  assert.equal(controllerStep("return_transition", "wander", 0.49, 0), "return_transition");
+  assert.equal(controllerStep("return_transition", "wander", 0.5, 0), "wander");
+  assert.equal(controllerStep("return_transition", "wander", 0.5, 0.2), "wander_walk");
 });
-test("late client arrival plays transition once; sleep/day override it immediately", () => {
+test("late client arrival and interrupted transitions select the correct direction", () => {
   assert.equal(controllerStep("wander", "chase"), "transition");
   for (const property of ["wander", "flee"]) {
-    assert.equal(controllerStep("transition", property, 0.1), "wander");
-    assert.equal(controllerStep("chase", property, 0.1), "wander");
+    assert.equal(controllerStep("transition", property, 0.1), "return_transition");
+    assert.equal(controllerStep("chase", property, 0.1), "return_transition");
+    assert.equal(controllerStep("return_transition", property, 0.49, 0), "return_transition");
+    assert.equal(controllerStep("return_transition", property, 0.5, 0), "wander");
   }
+  assert.equal(controllerStep("return_transition", "chase", 0.1), "transition");
 });

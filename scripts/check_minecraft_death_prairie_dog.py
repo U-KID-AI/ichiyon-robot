@@ -6,7 +6,7 @@ import json
 import subprocess
 import unittest
 
-from export_death_prairie_dog import ANIMATION_IDS, ROOT, RP, SOURCE, SOURCE_SHA, export, green_texture
+from export_death_prairie_dog import ANIMATION_IDS, FOUR_LEG_POSE_ID, REVERSE_TRANSITION_ID, ROOT, RP, SOURCE, SOURCE_SHA, export, green_texture
 from build_death_prairie_dog_behavior import behavior
 from check_death_prairie_pose import DeathPrairiePoseChecks
 
@@ -94,7 +94,7 @@ class DeathPrairieDogChecks(unittest.TestCase):
     def test_every_animation_keyframe_and_global_rotation(self):
         src = read(SOURCE)
         exported = read(RP / "animations/death_prairie_dog.animation.json")["animations"]
-        self.assertEqual(set(exported), set(ANIMATION_IDS.values()))
+        self.assertEqual(set(exported), set(ANIMATION_IDS.values()) | {REVERSE_TRANSITION_ID, FOUR_LEG_POSE_ID})
         total = 0
         for anim in src["animations"]:
             dst = exported[ANIMATION_IDS[anim["name"]]]
@@ -130,7 +130,7 @@ class DeathPrairieDogChecks(unittest.TestCase):
         self.assertEqual(client["textures"], {"default": "textures/entity/death_prairie_dog"})
         self.assertEqual(client["geometry"], {"default": "geometry.death_prairie_dog"})
         self.assertIn("spawn_egg", client)
-        self.assertEqual(set(client["animations"].values()) - {"controller.animation.death_prairie_dog.state"}, set(ANIMATION_IDS.values()))
+        self.assertEqual(set(client["animations"].values()) - {"controller.animation.death_prairie_dog.state"}, set(ANIMATION_IDS.values()) | {REVERSE_TRANSITION_ID, FOUR_LEG_POSE_ID})
         integration = read(ROOT / "docs/death_prairie_dog_integration.json")
         for lang in ("ja_JP", "en_US"):
             self.assertEqual(len(integration["localization"][lang]), 2)

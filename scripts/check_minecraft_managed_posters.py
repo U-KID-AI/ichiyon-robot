@@ -145,7 +145,7 @@ class PackChecks(unittest.TestCase):
         records = builtin_assets(ROOT / "minecraft")
         for revision in (None, 22):
             files = compile_files(ROOT / "minecraft", records, revision=revision)
-            for pack, patch in ((BP, 41), (RP, 47), (BRIDGE, 39)):
+            for pack, patch in ((BP, 41), (RP, 48), (BRIDGE, 39)):
                 manifest = json.loads(files[pack + "manifest.json"])
                 expected = [1, 0, patch] if revision is None else [1, 1, revision]
                 self.assertEqual(manifest["header"]["version"], expected)
