@@ -229,7 +229,7 @@ class DeathPrairiePoseChecks(unittest.TestCase):
     def test_preserved_geometry_texture_and_source(self):
         for path, sha in ((SOURCE, SOURCE_SHA),
                           (RP/'models/entity/death_prairie_dog.geo.json', '386738a98e458205242d1757c60128383f7e4e164a838441f881cf176e38fe1f'),
-                          (RP/'textures/entity/death_prairie_dog.png', '2e93d3a2968a9897261b4e5b7c0a36fb07028539f2754b0a8798a1d210ad3315')):
+                          (RP/'textures/entity/death_prairie_dog.png', 'b3da75b19dd10d0e010dd5bd0157d93f70bd83a4ceb6f9535472a8921df27498')):
             data = path.read_bytes()
             # Git checkouts may use CRLF; canonical Git/installed JSON is LF.
             if path.suffix == '.json':

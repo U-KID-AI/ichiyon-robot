@@ -18,7 +18,7 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "minecraft/source_assets/death_prairie_dog/deathprairie.bbmodel"
-SOURCE_SHA = "03a67110f3dae8c1ba2b86f6325438b32f49f613018471358032bfe279c3d4ad"
+SOURCE_SHA = "5a96a764fcc95353118a2feef4116229ff7de59c8472f374d5c41c74a424b43c"
 RP = ROOT / "minecraft/resource_packs/ichiyon_avatar_rp"
 ANIMATION_IDS = {
     "animation.model.new": "animation.death_prairie_dog.transition",
