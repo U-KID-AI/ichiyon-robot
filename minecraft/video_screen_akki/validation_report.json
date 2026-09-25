@@ -1,0 +1,10 @@
+{
+  "akkiRpBytes": 1315210,
+  "builtinArchiveBytes": 122376533,
+  "builtinExpandedBytes": 132232386,
+  "builtinFileCount": 871,
+  "largestFileBytes": 5961369,
+  "productionBaselineArchiveBytes": 121458824,
+  "productionArchiveEstimateBytes": 122760609,
+  "note": "Exact production DB-managed archive is measured after deployment; pre-merge estimate adds the measured builtin archive delta to the production baseline."
+}

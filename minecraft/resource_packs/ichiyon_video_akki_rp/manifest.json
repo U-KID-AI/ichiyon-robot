@@ -1,0 +1,29 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "Ichiyon Akki Video RP",
+    "description": "Independent Akki video screen",
+    "uuid": "c2de9f3f-7956-4c7a-b6a1-63b264a9a059",
+    "version": [
+      1,
+      0,
+      0
+    ],
+    "min_engine_version": [
+      1,
+      26,
+      0
+    ]
+  },
+  "modules": [
+    {
+      "type": "resources",
+      "uuid": "4e49c6a4-2f67-4e31-9c5c-5946ec3ec437",
+      "version": [
+        1,
+        0,
+        0
+      ]
+    }
+  ]
+}

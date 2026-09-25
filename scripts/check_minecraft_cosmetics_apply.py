@@ -83,6 +83,10 @@ class ApplyChecks(unittest.TestCase):
         self.assertEqual(len(self.api.commands), 2)
         refs = json.loads((self.api.DATA_DIR / 'worlds/test-world/world_behavior_packs.json').read_text(encoding='utf-8'))
         self.assertEqual(refs[0]['pack_id'], 'keep-other-pack'); self.assertEqual(len(refs), 3)
+        resources = json.loads((self.api.DATA_DIR / 'worlds/test-world/world_resource_packs.json').read_text(encoding='utf-8'))
+        self.assertIn({'pack_id': 'c2de9f3f-7956-4c7a-b6a1-63b264a9a059', 'version': [1, 0, 0]}, resources)
+        active = json.loads((self.manager.root / 'active.json').read_text(encoding='utf-8'))
+        self.assertIn('resource_packs/ichiyon_video_akki_rp', [p['path'] for p in active['packs']])
         permission = json.loads((self.api.DATA_DIR / deploy.PERMISSIONS).read_text(encoding='utf-8'))
         self.assertTrue(permission['module_permissions']['preserve']); self.assertIn('@minecraft/server-ui', permission['allowed_modules'])
 

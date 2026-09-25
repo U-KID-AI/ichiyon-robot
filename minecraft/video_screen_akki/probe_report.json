@@ -1,0 +1,34 @@
+{
+  "sourcePath": "C:\\Users\\syoub\\Desktop\\\u795e\u793e\\mp4\\\u60aa\u9b3c.mp4",
+  "sha256": "bab5cb8f68e0ed19de85efa8379804cd23a69648baf451b2929d26277d106835",
+  "bytes": 60102747,
+  "width": 3840,
+  "height": 2160,
+  "fps": "12390000/411769",
+  "videoDuration": 13.725633,
+  "containerDuration": 13.738646,
+  "audio": {
+    "codec": "aac",
+    "channels": 2,
+    "sampleRate": 48000
+  },
+  "estimateBeforeGeneration": {
+    "frames": 275,
+    "atlases": 3,
+    "atlasPngUpperBytes": 2269488,
+    "audioExpectedBytes": 150000,
+    "audioPcmUpperBytes": 1212750,
+    "definitionsBudgetBytes": 32768,
+    "rpConservativeBytes": 3515006,
+    "productionArchiveBaselineBytes": 121458824,
+    "productionExpandedBaselineBytes": 132629521,
+    "productionFileBaselineCount": 1006,
+    "archiveConservativeBytes": 125039366,
+    "limits": {
+      "MAX_ARCHIVE": 201326592,
+      "MAX_EXPANDED": 536870912,
+      "MAX_FILE": 8388608,
+      "MAX_FILES": 16384
+    }
+  }
+}

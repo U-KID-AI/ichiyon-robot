@@ -62,6 +62,7 @@ jobs:
           node scripts/check_minecraft_managed_posters.mjs
           python scripts/check_minecraft_wall_displays.py
           python scripts/check_minecraft_big_video.py
+          python scripts/check_minecraft_akki_video.py
           python scripts/check_minecraft_death_prairie_dog.py
           python scripts/check_taketumi_ai.py
 

@@ -1,0 +1,17 @@
+{
+  "format_version": "1.20.20",
+  "sound_definitions": {
+    "ichiyon.video_screen_akki.audio": {
+      "category": "record",
+      "min_distance": 1,
+      "max_distance": 12,
+      "sounds": [
+        {
+          "name": "sounds/video_screen_akki/audio",
+          "stream": false,
+          "is3D": true
+        }
+      ]
+    }
+  }
+}

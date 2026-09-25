@@ -20,3 +20,16 @@ export const BIG_VIDEO_DISPLAY = Object.freeze({
     entity: "ichiyon:video_screen_big",
   },
 });
+
+// Observed via read-only vanilla block queries on 2026-09-25. The observer's
+// position is not a wall coordinate; keep a bounded unique detector around it.
+export const AKKI_VIDEO_DISPLAY = Object.freeze({
+  id: "akki", dimension: "minecraft:overworld",
+  video: {
+    minX: -27, maxX: -25, width: 13, height: 4, minBottom: 101, maxBottom: 103,
+    planes: [231, 232, 233], materials: ["minecraft:white_concrete"],
+    controlButton: { mode: "wall", anchor: { x: -20, y: 104, z: 237 }, radius: 2 },
+    audience: { marginX: 0, near: 0, far: 5, minY: -1, maxY: 5 },
+    entity: "ichiyon:video_screen_akki",
+  },
+});

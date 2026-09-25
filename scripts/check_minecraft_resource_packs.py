@@ -77,7 +77,7 @@ class SplitChecks(unittest.TestCase):
         with ZipFile(BytesIO(pack_zip(self.root, self.records, 12))) as archive:
             proof = json.loads(archive.read("cosmetics-build.json"))
             self.assertEqual(proof["packs"], [p.rstrip("/") for p in (BP, BRIDGE, *RESOURCE_PACKS)])
-            self.assertEqual(len(RESOURCE_PACKS), 7)
+            self.assertEqual(len(RESOURCE_PACKS), 8)
             self.assertEqual(proof["retired_packs"], [{"path": LEGACY.rstrip("/"), "uuid": LEGACY_UUID}])
             direct = {p.relative_to(self.root).as_posix(): p for pack in DIRECT_RESOURCE_PACKS
                       for p in (self.root / pack).rglob("*") if p.is_file()}
@@ -92,7 +92,7 @@ class SplitChecks(unittest.TestCase):
         from bot.services import minecraft_resource_packs as packs
         with patch.object(packs, "RESOURCE_PACKS", SPLIT_RESOURCE_PACKS):
             previous = split_resource_packs(self.root, self.source)
-        self.assertEqual(previous, {p: data for p, data in self.split.items() if not p.startswith(VIDEO_BIG)})
+        self.assertEqual(previous, {p: data for p, data in self.split.items() if not p.startswith(DIRECT_RESOURCE_PACKS)})
 
     def test_direct_content_only_bumps_its_pack_after_six_pack_install(self):
         from scripts.minecraft.minecraft_cosmetics_apply import unpack, content_hash
@@ -120,6 +120,7 @@ class SplitChecks(unittest.TestCase):
             self.assertEqual(json.loads((second / VIDEO_BIG / "manifest.json").read_bytes())["header"]["version"], [1, 0, 0])
             for pack in (BP, BRIDGE, *RESOURCE_PACKS):
                 shutil.copytree(second / pack, live / pack, dirs_exist_ok=True)
+            original.update({pack: content_hash(live / pack) for pack in DIRECT_RESOURCE_PACKS})
             media.write_bytes(b"changed direct media")
             third = root / "third"
             unpack(pack_zip(source, self.records, 14), third, live)

@@ -38,6 +38,9 @@ class VideoProfile:
     generated_name: str = "video_media.generated.js"
     stream: bool = False
     min_distance: int = 8
+    max_distance: int = 64
+    direct_pack: bool = False
+    black_stem: str = "video_black"
 
     @property
     def cell_width(self):
@@ -68,8 +71,13 @@ BIG_PROFILES = {f"big-{width}": VideoProfile(
     black_width=384, bounds_width=26, bounds_height=13, bounds_y=5.5,
     material="ichiyon_video_big_uv", export_name="VIDEO_BIG_MEDIA",
     generated_name="video_big_media.generated.js", stream=True, min_distance=32,
+    direct_pack=True, black_stem="video_big_black",
 ) for width, height in [(192, 108), (160, 90), (128, 72)]}
-PROFILES = {SMALL.name: SMALL, **BIG_PROFILES}
+AKKI = VideoProfile(name="akki", stem="video_screen_akki", rp_name="ichiyon_video_akki_rp",
+    black_width=208, bounds_width=14, material="ichiyon_video_akki_uv",
+    export_name="VIDEO_AKKI_MEDIA", generated_name="video_akki_media.generated.js",
+    direct_pack=True, black_stem="video_akki_black", min_distance=1, max_distance=12)
+PROFILES = {SMALL.name: SMALL, **BIG_PROFILES, AKKI.name: AKKI}
 
 
 def run(args):
@@ -177,7 +185,7 @@ def geometry(identifier, width, z, texture_width, texture_height, profile=SMALL)
 
 def write_definitions(root, media, atlas_count, profile=SMALL):
     stem = profile.stem
-    black = "video_black" if profile == SMALL else "video_big_black"
+    black = profile.black_stem
     video_geometry, black_geometry = f"geometry.ichiyon_{stem}", f"geometry.ichiyon_{black}"
     video_controller, black_controller = f"controller.render.ichiyon_{stem}", f"controller.render.ichiyon_{black}"
     frame = "math.max(0, q.property('ichiyon:frame'))"
@@ -254,7 +262,7 @@ def build(source, root=ROOT, profile=SMALL):
             sound = f"ichiyon.{profile.stem}.audio"
             run(["ffmpeg", "-v", "error", "-i", str(pcm), "-c:a", "libvorbis", "-q:a", "3",
                  "-fflags", "+bitexact", "-flags:a", "+bitexact", "-y", str(sound_dir / "audio.ogg")])
-            definitions[sound] = {"category": "record", "min_distance": profile.min_distance, "max_distance": 64,
+            definitions[sound] = {"category": "record", "min_distance": profile.min_distance, "max_distance": profile.max_distance,
                 "sounds": [{"name": f"sounds/{profile.stem}/audio", "stream": profile.stream, "is3D": True}]}
         # Remove only this builder's previous segmented implementation outputs.
         for path in sound_dir.glob("segment_*.ogg"):
@@ -266,7 +274,7 @@ def build(source, root=ROOT, profile=SMALL):
     write_definitions(root, media, atlas_count, profile)
     report_dir = root / "minecraft" / profile.stem
     write_json(report_dir / "sound_definitions.fragment.json", definitions)
-    if profile != SMALL:
+    if profile.direct_pack:
         write_json(rp / "sounds/sound_definitions.json", {"format_version": "1.20.20", "sound_definitions": definitions})
     report = {"source": {"filename": source.name, "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
         "width": video["width"], "height": video["height"], "fps": video["avg_frame_rate"],
@@ -274,7 +282,7 @@ def build(source, root=ROOT, profile=SMALL):
         "output": {**media, "atlasCount": atlas_count, "atlasWidth": profile.atlas_width, "atlasHeight": profile.atlas_height,
             "frameWidth": profile.width, "frameHeight": profile.height,
             "assetBytes": sum(p.stat().st_size for directory in [sound_dir, texture_dir] for p in directory.iterdir() if p.is_file())}}
-    if profile != SMALL:
+    if profile.direct_pack:
         rgba_bytes = atlas_count * profile.atlas_width * profile.atlas_height * 4
         audio = next((s for s in metadata["streams"] if s["codec_type"] == "audio"), None)
         report["source"].update({"bytes": source.stat().st_size, "frameCount": int(video.get("nb_frames", 0)),
@@ -286,8 +294,8 @@ def build(source, root=ROOT, profile=SMALL):
             "audioBytes": (sound_dir / "audio.ogg").stat().st_size if has_audio else 0,
             "decodedRgbaBytes": rgba_bytes, "decodedRgbaWithMipmapsBytes": math.ceil(rgba_bytes * 4 / 3),
             "decodedRgbaPerAtlasBytes": profile.atlas_width * profile.atlas_height * 4,
-            "audio": {"codec": "vorbis", "channels": 1, "sampleRate": 44100, "stream": True,
-                "duration": duration, "minDistance": 32, "maxDistance": 64,
+            "audio": {"codec": "vorbis", "channels": 1, "sampleRate": 44100, "stream": profile.stream,
+                "duration": duration, "minDistance": profile.min_distance, "maxDistance": profile.max_distance,
                 "runtimeGain": 1, "unstreamedPcm16Bytes": round(duration * 44100) * 2,
                 "unstreamedFloat32Bytes": round(duration * 44100) * 4} if has_audio else None,
             "resourcePack": profile.rp_name,
@@ -296,6 +304,10 @@ def build(source, root=ROOT, profile=SMALL):
         report["memoryNote"] = ("RGBA assumes all atlases resident with no GPU compression; mipmaps add about one third. "
             "Engine overhead, other packs and streaming audio buffers are excluded. Streaming audio avoids requiring "
             "the full decoded PCM buffer; actual device memory and stream seeking still require an in-game check.")
+        if not profile.stream:
+            report["memoryNote"] = ("RGBA assumes all atlases resident with no GPU compression; mipmaps add about one third. "
+                "Audio uses the small profile's unstreamed Vorbis mode; decoded audio buffer estimates are listed separately. "
+                "Engine overhead, other packs and actual device residency require an in-game check.")
     write_json(report_dir / "build_report.json", report)
     print(json.dumps({"frames": frame_count, "duration": duration, "atlases": atlas_count,
                       "hasAudio": has_audio, "assetBytes": report["output"]["assetBytes"]}))
