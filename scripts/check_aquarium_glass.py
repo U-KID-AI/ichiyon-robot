@@ -34,7 +34,8 @@ class GlassChecks(unittest.TestCase):
                 im = Image.open(BytesIO(self.files[RP + f'textures/blocks/aquarium_glass_{color}_{material}.png']))
                 self.assertEqual(im.mode, 'RGBA')
                 self.assertEqual(len(set(im.getdata())), 1)
-                self.assertEqual(im.getpixel((16, 16))[3], 104 if material == 'edge' else (8 if color == 'clear' else 24))
+                expected = 255 if color == 'red' and material == 'edge' else 235 if color == 'red' and material == 'body' else 104 if material == 'edge' else (8 if color == 'clear' else 24)
+                self.assertEqual(im.getpixel((16, 16))[3], expected)
 
     def test_six_faces_and_twenty_four_thin_separate_rims(self):
         bones = self.doc(RP + 'models/blocks/aquarium_glass.geo.json')['minecraft:geometry'][0]['bones']
@@ -70,6 +71,16 @@ class GlassChecks(unittest.TestCase):
             entry = self.doc(BP + f'loot_tables/blocks/{stem}.json')['pools'][0]['entries'][0]
             self.assertEqual(entry['name'], identifier(color))
             self.assertEqual(entry['conditions'][0]['enchantments'][0]['enchantment'], 'silk_touch')
+
+    def test_red_diagnostic_uses_full_block_without_custom_culling(self):
+        c = self.doc(BP + 'blocks/aquarium_glass_red.json')['minecraft:block']['components']
+        self.assertEqual(c['minecraft:geometry'], 'minecraft:geometry.full_block')
+        self.assertEqual(set(c['minecraft:material_instances']), {'*'})
+        self.assertEqual(c['minecraft:material_instances']['*']['render_method'], 'blend')
+        self.assertNotIn('culling', c['minecraft:geometry'] if isinstance(c['minecraft:geometry'], dict) else {})
+        other = self.doc(BP + 'blocks/aquarium_glass_blue.json')['minecraft:block']['components']
+        self.assertIsInstance(other['minecraft:geometry'], dict)
+        self.assertEqual(other['minecraft:geometry']['culling'], 'ichiyon:aquarium_glass')
 
     def test_inventory_order_and_managed_compiler_preservation(self):
         compiled = compile_files(ROOT / 'minecraft', builtin_assets(ROOT / 'minecraft'))
