@@ -1,0 +1,26 @@
+{
+  "pools": [
+    {
+      "entries": [
+        {
+          "conditions": [
+            {
+              "condition": "match_tool",
+              "enchantments": [
+                {
+                  "enchantment": "silk_touch",
+                  "levels": {
+                    "min": 1
+                  }
+                }
+              ]
+            }
+          ],
+          "name": "ichiyon:aquarium_glass_red",
+          "type": "item"
+        }
+      ],
+      "rolls": 1
+    }
+  ]
+}

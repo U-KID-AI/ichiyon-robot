@@ -12,7 +12,8 @@ SPLIT_RESOURCE_PACKS = tuple("resource_packs/" + name + "/" for name in (
 CORE, SKINS, ACCESSORIES, POSTERS, VIDEO, RECORDS = SPLIT_RESOURCE_PACKS
 VIDEO_BIG = "resource_packs/ichiyon_video_big_rp/"
 VIDEO_AKKI = "resource_packs/ichiyon_video_akki_rp/"
-DIRECT_RESOURCE_PACKS = (VIDEO_BIG, VIDEO_AKKI)
+AQUARIUM_GLASS = "resource_packs/ichiyon_aquarium_glass_rp/"
+DIRECT_RESOURCE_PACKS = (VIDEO_BIG, VIDEO_AKKI, AQUARIUM_GLASS)
 RESOURCE_PACKS = (*SPLIT_RESOURCE_PACKS, *DIRECT_RESOURCE_PACKS)
 
 # Mirrored by the standalone Control API; checked for agreement in archive tests.

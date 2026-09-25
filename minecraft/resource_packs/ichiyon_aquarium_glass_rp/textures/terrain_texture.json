@@ -1,0 +1,110 @@
+{
+  "num_mip_levels": 4,
+  "padding": 8,
+  "resource_pack_name": "ichiyon_aquarium_glass_rp",
+  "texture_data": {
+    "aquarium_glass_black_body": {
+      "textures": "textures/blocks/aquarium_glass_black_body"
+    },
+    "aquarium_glass_black_edge": {
+      "textures": "textures/blocks/aquarium_glass_black_edge"
+    },
+    "aquarium_glass_blue_body": {
+      "textures": "textures/blocks/aquarium_glass_blue_body"
+    },
+    "aquarium_glass_blue_edge": {
+      "textures": "textures/blocks/aquarium_glass_blue_edge"
+    },
+    "aquarium_glass_brown_body": {
+      "textures": "textures/blocks/aquarium_glass_brown_body"
+    },
+    "aquarium_glass_brown_edge": {
+      "textures": "textures/blocks/aquarium_glass_brown_edge"
+    },
+    "aquarium_glass_clear_body": {
+      "textures": "textures/blocks/aquarium_glass_clear_body"
+    },
+    "aquarium_glass_clear_edge": {
+      "textures": "textures/blocks/aquarium_glass_clear_edge"
+    },
+    "aquarium_glass_cyan_body": {
+      "textures": "textures/blocks/aquarium_glass_cyan_body"
+    },
+    "aquarium_glass_cyan_edge": {
+      "textures": "textures/blocks/aquarium_glass_cyan_edge"
+    },
+    "aquarium_glass_gray_body": {
+      "textures": "textures/blocks/aquarium_glass_gray_body"
+    },
+    "aquarium_glass_gray_edge": {
+      "textures": "textures/blocks/aquarium_glass_gray_edge"
+    },
+    "aquarium_glass_green_body": {
+      "textures": "textures/blocks/aquarium_glass_green_body"
+    },
+    "aquarium_glass_green_edge": {
+      "textures": "textures/blocks/aquarium_glass_green_edge"
+    },
+    "aquarium_glass_light_blue_body": {
+      "textures": "textures/blocks/aquarium_glass_light_blue_body"
+    },
+    "aquarium_glass_light_blue_edge": {
+      "textures": "textures/blocks/aquarium_glass_light_blue_edge"
+    },
+    "aquarium_glass_light_gray_body": {
+      "textures": "textures/blocks/aquarium_glass_light_gray_body"
+    },
+    "aquarium_glass_light_gray_edge": {
+      "textures": "textures/blocks/aquarium_glass_light_gray_edge"
+    },
+    "aquarium_glass_lime_body": {
+      "textures": "textures/blocks/aquarium_glass_lime_body"
+    },
+    "aquarium_glass_lime_edge": {
+      "textures": "textures/blocks/aquarium_glass_lime_edge"
+    },
+    "aquarium_glass_magenta_body": {
+      "textures": "textures/blocks/aquarium_glass_magenta_body"
+    },
+    "aquarium_glass_magenta_edge": {
+      "textures": "textures/blocks/aquarium_glass_magenta_edge"
+    },
+    "aquarium_glass_orange_body": {
+      "textures": "textures/blocks/aquarium_glass_orange_body"
+    },
+    "aquarium_glass_orange_edge": {
+      "textures": "textures/blocks/aquarium_glass_orange_edge"
+    },
+    "aquarium_glass_pink_body": {
+      "textures": "textures/blocks/aquarium_glass_pink_body"
+    },
+    "aquarium_glass_pink_edge": {
+      "textures": "textures/blocks/aquarium_glass_pink_edge"
+    },
+    "aquarium_glass_purple_body": {
+      "textures": "textures/blocks/aquarium_glass_purple_body"
+    },
+    "aquarium_glass_purple_edge": {
+      "textures": "textures/blocks/aquarium_glass_purple_edge"
+    },
+    "aquarium_glass_red_body": {
+      "textures": "textures/blocks/aquarium_glass_red_body"
+    },
+    "aquarium_glass_red_edge": {
+      "textures": "textures/blocks/aquarium_glass_red_edge"
+    },
+    "aquarium_glass_white_body": {
+      "textures": "textures/blocks/aquarium_glass_white_body"
+    },
+    "aquarium_glass_white_edge": {
+      "textures": "textures/blocks/aquarium_glass_white_edge"
+    },
+    "aquarium_glass_yellow_body": {
+      "textures": "textures/blocks/aquarium_glass_yellow_body"
+    },
+    "aquarium_glass_yellow_edge": {
+      "textures": "textures/blocks/aquarium_glass_yellow_edge"
+    }
+  },
+  "texture_name": "atlas.terrain"
+}
