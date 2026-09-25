@@ -1,4 +1,4 @@
-"""Lossless Blockbench export, using Mokuro's coordinate/UV/keyframe method.
+"""Blockbench export with Death Prairie Dog's preview rotations baked locally.
 
 Independent exporter: never imports, edits, or reconfigures export_mokuro.py.
 Only the verified green embedded PNG is exported; no pixel re-encoding.
@@ -11,6 +11,7 @@ from collections import Counter
 import hashlib
 import io
 import json
+import math
 from pathlib import Path
 
 from PIL import Image
@@ -34,12 +35,98 @@ def rotation(v):
     return [-v[0], -v[1], v[2]]
 
 
-def animation_rotation(v, rotation_global):
-    """Match Blockbench v5.2.1 bedrock_animation.js global-zero handling."""
-    vector = rotation(v)
-    if rotation_global and all(value == 0 for value in vector):
-        vector[2] = 0.01
-    return vector
+IDENTITY = (0.0, 0.0, 0.0, 1.0)
+
+
+def quat_mul(a, b):
+    x, y, z, w = a
+    X, Y, Z, W = b
+    return (w*X+x*W+y*Z-z*Y, w*Y-x*Z+y*W+z*X,
+            w*Z+x*Y-y*X+z*W, w*W-x*X-y*Y-z*Z)
+
+
+def quat_inverse(q):
+    # All inputs are unit rotations (no animated scale in this immutable model).
+    return (-q[0], -q[1], -q[2], q[3])
+
+
+def quat_from_zyx(degrees):
+    x, y, z = (math.radians(v)/2 for v in degrees)
+    return quat_mul(quat_mul((0, 0, math.sin(z), math.cos(z)),
+                             (0, math.sin(y), 0, math.cos(y))),
+                    (math.sin(x), 0, 0, math.cos(x)))
+
+
+def quat_to_zyx(q):
+    """THREE.Euler.setFromRotationMatrix's ZYX convention, in degrees."""
+    x, y, z, w = q
+    m11, m21, m31 = 1-2*(y*y+z*z), 2*(x*y+z*w), 2*(x*z-y*w)
+    m12, m22 = 2*(x*y-z*w), 1-2*(x*x+z*z)
+    m32, m33 = 2*(y*z+x*w), 1-2*(x*x+y*y)
+    ry = math.asin(max(-1, min(1, -m31)))
+    if abs(m31) < 0.9999999:
+        rx, rz = math.atan2(m32, m33), math.atan2(m21, m11)
+    else:
+        rx, rz = 0, math.atan2(-m12, m22)
+    return [round(math.degrees(v), 10) + 0.0 for v in (rx, ry, rz)]
+
+
+def bone_parents(source):
+    parents = {}
+    def visit(node, parent=None):
+        parents[node['uuid']] = parent
+        for child in node['children']:
+            if isinstance(child, dict):
+                visit(child, node['uuid'])
+    for node in source['outliner']:
+        visit(node)
+    return parents
+
+
+def sample_rotation(animator, time):
+    keys = sorted((k for k in animator.get('keyframes', [])
+                   if k['channel'] == 'rotation'), key=lambda k: k['time'])
+    if not keys:
+        return [0, 0, 0]
+    before = next((k for k in reversed(keys) if k['time'] <= time), keys[0])
+    after = next((k for k in keys if k['time'] >= time), keys[-1])
+    alpha = (time-before['time'])/(after['time']-before['time']) if after != before else 0
+    return [float(before['data_points'][0][a])*(1-alpha)
+            + float(after['data_points'][0][a])*alpha for a in 'xyz']
+
+
+def preview_world_rotations(source, animation, time):
+    """Blockbench 5.2.1 single-clip preview, including saved Group.all order.
+
+    bbmodel.js initializes groups in source array order; loading the outliner
+    changes parenting, not that order. Animator.stackAnimations visits Group.all
+    in that order. BoneAnimator.displayRotation cancels the parent's world
+    quaternion *at that point*, before later groups have been animated. Sorting
+    parents first here would change this model's visible Blockbench pose.
+    """
+    assert all(not any(g['rotation']) for g in source['groups'])
+    parents = bone_parents(source)
+    local = {g['uuid']: IDENTITY for g in source['groups']}
+    def world(uuid):
+        if uuid is None:
+            return IDENTITY
+        return quat_mul(world(parents[uuid]), local[uuid])
+    for group in source['groups']:
+        uuid = group['uuid']
+        animator = animation['animators'].get(uuid, {})
+        local[uuid] = quat_from_zyx(sample_rotation(animator, time))
+        if animator.get('rotation_global'):
+            local[uuid] = quat_mul(quat_inverse(world(parents[uuid])), local[uuid])
+    return {uuid: world(uuid) for uuid in local}
+
+
+def baked_rotation(source, animation, uuid, time):
+    desired = preview_world_rotations(source, animation, time)
+    parent = bone_parents(source)[uuid]
+    local = quat_mul(quat_inverse(desired[parent] if parent else IDENTITY), desired[uuid])
+    # Retain the existing Blockbench -> Bedrock signs and ZYX Euler order.
+    # Ordinary local zero rotation needs no relative_to/entity epsilon workaround.
+    return rotation(quat_to_zyx(local))
 
 
 def green_texture(source):
@@ -144,14 +231,15 @@ def export():
                 continue
             target = {}
             if animator.get("rotation_global"):
-                target.update(relative_to={"rotation": "entity"}, rotation=[0, 0, 0.01])
+                target['rotation'] = baked_rotation(source, src, uuid, 0)
             for key in keys:
                 assert key["interpolation"] == "linear" and len(key["data_points"]) == 1
                 channel = key["channel"]
                 assert channel in ("rotation", "position", "scale")
                 vector = [float(key["data_points"][0][axis]) for axis in "xyz"]
                 if channel == "rotation":
-                    vector = animation_rotation(vector, animator.get("rotation_global", False))
+                    vector = (baked_rotation(source, src, uuid, key['time'])
+                              if animator.get('rotation_global') else rotation(vector))
                 elif channel == "position":
                     vector = position(vector)
                 if not isinstance(target.get(channel), dict):
