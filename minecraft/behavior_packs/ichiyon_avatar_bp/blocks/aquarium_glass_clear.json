@@ -13,16 +13,25 @@
         "seconds_to_destroy": 0.3
       },
       "minecraft:friction": 0.6,
-      "minecraft:geometry": "minecraft:geometry.full_block",
+      "minecraft:geometry": {
+        "culling": "ichiyon:aquarium_glass",
+        "identifier": "geometry.ichiyon.aquarium_glass"
+      },
       "minecraft:light_dampening": 0,
       "minecraft:loot": "loot_tables/blocks/aquarium_glass_clear.json",
       "minecraft:map_color": "#ccebf0",
       "minecraft:material_instances": {
-        "*": {
+        "body": {
           "ambient_occlusion": false,
           "face_dimming": false,
           "render_method": "blend",
           "texture": "aquarium_glass_clear_body"
+        },
+        "edge": {
+          "ambient_occlusion": false,
+          "face_dimming": false,
+          "render_method": "blend",
+          "texture": "aquarium_glass_clear_edge"
         }
       },
       "minecraft:selection_box": true

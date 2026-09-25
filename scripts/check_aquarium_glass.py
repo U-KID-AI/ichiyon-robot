@@ -9,7 +9,12 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from scripts.build_aquarium_glass import BP, RP, GROUP, COLORS, DIRECTIONS, generated_files, identifier
+from scripts.build_aquarium_glass import (
+    BP, RP, GROUP, COLORS, DIRECTIONS,
+    CLEAR_ALPHA, COLORED_ALPHA, RIM_ALPHA,
+    RIM_WIDTH, RIM_DEPTH, PACK_VERSION,
+    generated_files, identifier,
+)
 from bot.services.minecraft_cosmetics_pack import builtin_assets, compile_files
 from bot.services.minecraft_resource_packs import DIRECT_RESOURCE_PACKS
 from scripts.aquarium_glass_migration import PLAN, MAPPING, cells, commands, verify
@@ -30,39 +35,152 @@ class GlassChecks(unittest.TestCase):
 
     def test_uniform_translucency_no_texture_grid(self):
         for color, _, _ in COLORS:
-            for material in ('body', 'edge'):
-                im = Image.open(BytesIO(self.files[RP + f'textures/blocks/aquarium_glass_{color}_{material}.png']))
-                self.assertEqual(im.mode, 'RGBA')
-                self.assertEqual(len(set(im.getdata())), 1)
-                expected = (255 if color == 'red' and material == 'edge' else
-                            235 if color == 'red' and material == 'body' else
-                            64 if color == 'clear' and material == 'body' else
-                            104 if material == 'edge' else 24 if color != 'clear' else 8)
-                self.assertEqual(im.getpixel((16, 16))[3], expected)
+            body = Image.open(BytesIO(self.files[
+                RP + f'textures/blocks/aquarium_glass_{color}_body.png'
+            ]))
+            edge = Image.open(BytesIO(self.files[
+                RP + f'textures/blocks/aquarium_glass_{color}_edge.png'
+            ]))
 
-    def test_six_faces_and_twenty_four_thin_separate_rims(self):
-        bones = self.doc(RP + 'models/blocks/aquarium_glass.geo.json')['minecraft:geometry'][0]['bones']
-        self.assertEqual(len(bones), 30)
-        for bone in bones:
+            self.assertEqual(body.mode, 'RGBA')
+            self.assertEqual(edge.mode, 'RGBA')
+            self.assertEqual(len(set(body.getdata())), 1)
+            self.assertEqual(len(set(edge.getdata())), 1)
+
+            self.assertEqual(
+                body.getpixel((16, 16))[3],
+                CLEAR_ALPHA if color == 'clear' else COLORED_ALPHA,
+            )
+            self.assertEqual(
+                edge.getpixel((16, 16))[3],
+                RIM_ALPHA,
+            )
+    def test_one_body_and_twenty_four_positive_volume_rims(self):
+        bones = self.doc(
+            RP + 'models/blocks/aquarium_glass.geo.json'
+        )['minecraft:geometry'][0]['bones']
+
+        self.assertEqual(len(bones), 25)
+
+        body_bone = bones[0]
+        self.assertEqual(body_bone['name'], 'body')
+
+        body = body_bone['cubes'][0]
+        self.assertEqual(body['size'], [16, 16, 16])
+        self.assertEqual(
+            set(body['uv']),
+            {'west', 'east', 'down', 'up', 'north', 'south'},
+        )
+        self.assertTrue(all(
+            face['material_instance'] == 'body'
+            for face in body['uv'].values()
+        ))
+
+        rims = bones[1:]
+        self.assertEqual(len(rims), 24)
+
+        for bone in rims:
             cube = bone['cubes'][0]
-            self.assertEqual(len(cube['uv']), 1)
-            if '_' in bone['name']:
-                self.assertEqual(sorted(cube['size']), [0, 0.25, 16])
 
-    def test_adjacent_glass_removes_internal_faces_and_rims_only(self):
-        rules = self.doc(RP + 'block_culling/aquarium_glass.json')['minecraft:block_culling_rules']['rules']
+            self.assertTrue(
+                all(value > 0 for value in cube['size']),
+                bone['name'],
+            )
+
+            self.assertEqual(
+                sorted(cube['size']),
+                sorted([RIM_DEPTH, RIM_WIDTH, 16]),
+                bone['name'],
+            )
+
+            face = bone['name'].split('_', 1)[0]
+
+            self.assertEqual(set(cube['uv']), {face})
+            self.assertEqual(
+                cube['uv'][face]['material_instance'],
+                'edge',
+            )
+
+    def test_no_zero_size_cube_anywhere(self):
+        bones = self.doc(
+            RP + 'models/blocks/aquarium_glass.geo.json'
+        )['minecraft:geometry'][0]['bones']
+
+        for bone in bones:
+            for cube in bone['cubes']:
+                self.assertTrue(
+                    all(value > 0 for value in cube['size']),
+                    f"{bone['name']}: {cube['size']}",
+                )
+    def test_adjacent_same_color_removes_internal_faces_and_rims(self):
+        rules = self.doc(
+            RP + 'block_culling/aquarium_glass.json'
+        )['minecraft:block_culling_rules']['rules']
+
         self.assertEqual(len(rules), 54)
-        for face, (axis, _) in DIRECTIONS.items():
-            self.assertEqual([r['direction'] for r in rules if r['geometry_part']['bone'] == face], [face])
-            for edge, (edge_axis, _) in DIRECTIONS.items():
-                if edge_axis == axis:
-                    continue
-                paired = [r for r in rules if r['geometry_part']['bone'] == face + '_' + edge]
-                self.assertEqual({r['direction'] for r in paired}, {face, edge})
-                self.assertTrue(all(r['condition'] == 'same_block' for r in paired))
-                lateral = next(r for r in paired if r['direction'] == edge)
-                self.assertFalse(lateral['cull_against_full_and_opaque'])
 
+        for face, (face_axis, _) in DIRECTIONS.items():
+            body_part = {
+                'bone': 'body',
+                'cube': 0,
+                'face': face,
+            }
+
+            body_rules = [
+                rule for rule in rules
+                if rule['geometry_part'] == body_part
+            ]
+
+            self.assertEqual(len(body_rules), 1)
+
+            body_rule = body_rules[0]
+            self.assertEqual(body_rule['direction'], face)
+            self.assertEqual(body_rule['condition'], 'same_block')
+            self.assertTrue(
+                body_rule['cull_against_full_and_opaque']
+            )
+
+            for edge, (edge_axis, _) in DIRECTIONS.items():
+                if edge_axis == face_axis:
+                    continue
+
+                name = f'{face}_{edge}'
+
+                paired = [
+                    rule for rule in rules
+                    if rule['geometry_part'] == {'bone': name}
+                ]
+
+                self.assertEqual(len(paired), 2, name)
+
+                self.assertEqual(
+                    {rule['direction'] for rule in paired},
+                    {face, edge},
+                    name,
+                )
+
+                self.assertTrue(all(
+                    rule['condition'] == 'same_block'
+                    for rule in paired
+                ))
+
+                normal = next(
+                    rule for rule in paired
+                    if rule['direction'] == face
+                )
+
+                lateral = next(
+                    rule for rule in paired
+                    if rule['direction'] == edge
+                )
+
+                self.assertTrue(
+                    normal['cull_against_full_and_opaque']
+                )
+
+                self.assertFalse(
+                    lateral['cull_against_full_and_opaque']
+                )
     def test_building_behavior_and_silk_touch_loot(self):
         for color, _, _ in COLORS:
             stem = 'aquarium_glass_' + color
@@ -75,28 +193,81 @@ class GlassChecks(unittest.TestCase):
             self.assertEqual(entry['name'], identifier(color))
             self.assertEqual(entry['conditions'][0]['enchantments'][0]['enchantment'], 'silk_touch')
 
-    def test_red_diagnostic_uses_full_block_without_custom_culling(self):
-        c = self.doc(BP + 'blocks/aquarium_glass_red.json')['minecraft:block']['components']
-        self.assertEqual(c['minecraft:geometry'], 'minecraft:geometry.full_block')
-        self.assertEqual(set(c['minecraft:material_instances']), {'*'})
-        self.assertEqual(c['minecraft:material_instances']['*']['render_method'], 'blend')
-        self.assertNotIn('culling', c['minecraft:geometry'] if isinstance(c['minecraft:geometry'], dict) else {})
-        other = self.doc(BP + 'blocks/aquarium_glass_blue.json')['minecraft:block']['components']
-        self.assertIsInstance(other['minecraft:geometry'], dict)
-        self.assertEqual(other['minecraft:geometry']['culling'], 'ichiyon:aquarium_glass')
+    def test_all_17_colors_use_same_connected_geometry(self):
+        self.assertEqual(len(COLORS), 17)
 
-    def test_clear_diagnostic_uses_translucent_full_block_without_custom_culling(self):
-        c = self.doc(BP + 'blocks/aquarium_glass_clear.json')['minecraft:block']['components']
-        self.assertEqual(c['minecraft:geometry'], 'minecraft:geometry.full_block')
-        self.assertEqual(set(c['minecraft:material_instances']), {'*'})
-        self.assertEqual(c['minecraft:material_instances']['*']['texture'], 'aquarium_glass_clear_body')
-        self.assertEqual(c['minecraft:material_instances']['*']['render_method'], 'blend')
-        self.assertNotIn('culling', c['minecraft:geometry'] if isinstance(c['minecraft:geometry'], dict) else {})
-        image = Image.open(BytesIO(self.files[RP + 'textures/blocks/aquarium_glass_clear_body.png']))
-        self.assertEqual(image.getpixel((16, 16))[3], 64)
-        red = self.doc(BP + 'blocks/aquarium_glass_red.json')['minecraft:block']['components']
-        self.assertEqual(red['minecraft:geometry'], 'minecraft:geometry.full_block')
+        for color, _, _ in COLORS:
+            stem = 'aquarium_glass_' + color
 
+            components = self.doc(
+                BP + f'blocks/{stem}.json'
+            )['minecraft:block']['components']
+
+            self.assertEqual(
+                components['minecraft:geometry'],
+                {
+                    'identifier': 'geometry.ichiyon.aquarium_glass',
+                    'culling': 'ichiyon:aquarium_glass',
+                },
+                color,
+            )
+
+            materials = components[
+                'minecraft:material_instances'
+            ]
+
+            self.assertEqual(
+                set(materials),
+                {'body', 'edge'},
+                color,
+            )
+
+            for material in ('body', 'edge'):
+                instance = materials[material]
+
+                self.assertEqual(
+                    instance['render_method'],
+                    'blend',
+                    color,
+                )
+
+                self.assertFalse(
+                    instance['face_dimming'],
+                    color,
+                )
+
+                self.assertFalse(
+                    instance['ambient_occlusion'],
+                    color,
+                )
+
+                self.assertEqual(
+                    instance['texture'],
+                    f'aquarium_glass_{color}_{material}',
+                    color,
+                )
+    def test_pack_version_and_uuid_stability(self):
+        manifest = self.doc(RP + 'manifest.json')
+
+        self.assertEqual(
+            manifest['header']['version'],
+            PACK_VERSION,
+        )
+
+        self.assertEqual(
+            manifest['modules'][0]['version'],
+            PACK_VERSION,
+        )
+
+        self.assertEqual(
+            manifest['header']['uuid'],
+            'fe55c87e-d7a2-4e3c-88fb-43009f65df75',
+        )
+
+        self.assertEqual(
+            manifest['modules'][0]['uuid'],
+            'a3d30f1b-8445-4e46-a670-e53433ec8d7a',
+        )
     def test_inventory_order_and_managed_compiler_preservation(self):
         compiled = compile_files(ROOT / 'minecraft', builtin_assets(ROOT / 'minecraft'))
         path = BP + 'item_catalog/crafting_item_catalog.json'
