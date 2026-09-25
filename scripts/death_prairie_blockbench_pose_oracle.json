@@ -1,5 +1,5 @@
 {
-  "source_sha256": "03a67110f3dae8c1ba2b86f6325438b32f49f613018471358032bfe279c3d4ad",
+  "source_sha256": "5a96a764fcc95353118a2feef4116229ff7de59c8472f374d5c41c74a424b43c",
   "upstream": [
     {
       "url": "https://raw.githubusercontent.com/JannisX11/blockbench/v5.2.1/js/animations/timeline_animators.js",

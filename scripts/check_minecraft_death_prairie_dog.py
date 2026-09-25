@@ -30,7 +30,7 @@ class DeathPrairieDogChecks(unittest.TestCase):
         texture, png = green_texture(src)
         self.assertEqual(texture["uuid"], "b6f63003-076c-39f0-aebb-f621d82f6216")
         self.assertEqual(texture["id"], "3")
-        self.assertEqual(hashlib.sha256(png).hexdigest(), "2e93d3a2968a9897261b4e5b7c0a36fb07028539f2754b0a8798a1d210ad3315")
+        self.assertEqual(hashlib.sha256(png).hexdigest(), "b3da75b19dd10d0e010dd5bd0157d93f70bd83a4ceb6f9535472a8921df27498")
         self.assertEqual((RP / "textures/entity/death_prairie_dog.png").read_bytes(), png)
         src["textures"].reverse()
         for i, t in enumerate(src["textures"]):
