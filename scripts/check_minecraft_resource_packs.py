@@ -73,7 +73,7 @@ class SplitChecks(unittest.TestCase):
                 self.assertNotIn(section["uuid"], uuids)
                 self.assertNotEqual(section["uuid"], LEGACY_UUID)
                 uuids.add(section["uuid"])
-                self.assertEqual(section["version"], [1, 0, 1] if pack == AQUARIUM_GLASS else [1, 0, 0])
+                self.assertEqual(section["version"], [1, 0, 2] if pack == AQUARIUM_GLASS else [1, 0, 0])
         with ZipFile(BytesIO(pack_zip(self.root, self.records, 12))) as archive:
             proof = json.loads(archive.read("cosmetics-build.json"))
             self.assertEqual(proof["packs"], [p.rstrip("/") for p in (BP, BRIDGE, *RESOURCE_PACKS)])
@@ -126,7 +126,7 @@ class SplitChecks(unittest.TestCase):
             unpack(pack_zip(source, self.records, 14), third, live)
             for pack in RESOURCE_PACKS:
                 version = json.loads((third / pack / "manifest.json").read_bytes())["header"]["version"]
-                self.assertEqual(version, [1, 0, 1] if pack in {VIDEO_BIG, "resource_packs/ichiyon_aquarium_glass_rp/"} else [1, 0, 0])
+                self.assertEqual(version, [1, 0, 2] if pack == "resource_packs/ichiyon_aquarium_glass_rp/" else [1, 0, 1] if pack == VIDEO_BIG else [1, 0, 0])
                 if pack != VIDEO_BIG:
                     self.assertEqual(content_hash(third / pack), original[pack])
                 shutil.copytree(third / pack, live / pack, dirs_exist_ok=True)
