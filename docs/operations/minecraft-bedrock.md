@@ -4,6 +4,8 @@
 
 ## 現在確認した構成
 
+以下は過去の棚卸し記録であり、現在の稼働状態・バージョンの証拠ではありません。
+
 - ホスト: `ichiyon-robot-stg`
 - OS: Ubuntu 20.04
 - CPU: 2 vCPU 相当
@@ -133,3 +135,50 @@ Windows からの実行例:
 ## Discord 連携の将来案
 
 Bot から Docker socket を直接操作させる設計は避けます。将来実装する場合は、許可された Minecraft 操作だけを受け付ける小さな管理サービス、または sudo command allow-list 方式で、状態表示・オンライン人数・バックアップ・起動/停止/再起動通知を実装します。
+
+## フレンド経由接続失敗の切り分け（2026-09-21）
+
+Android 1.26.51 / Pixel 9a / Wi-Fi での `InitialConnection-I15`、
+`NetherNet:2193`、world `ichiyon-creative-flat` の報告について、原因は未確定。
+本調査では本番・stagingへ接続していない。MCXboxBroadcastの配備定義・実装は
+このリポジトリ内に見つからず、稼働buildを決めつけて変更しない。
+
+上流の [Build 154の変更](https://github.com/MCXboxBroadcast/Broadcaster/commit/5dc1f86)
+には、26.50対応としてcodecのprotocolVersionを2193にする変更が含まれる。
+[Build 155](https://github.com/MCXboxBroadcast/Broadcaster/releases/tag/155)
+にはlibdatachannelへの移行が含まれる。これらは稼働buildやAndroid 1.26.51との
+実接続成功を証明しない。古いbuildが稼働していれば互換性調査の候補になるが、
+エラー番号だけで原因や更新先を確定しない。
+
+Control APIの `bds.version` はコンテナ内loopbackに対するmc-monitorの
+成功応答から取得する。設定値 `VERSION=LATEST` や残存バイナリ名からの推測は廃止。
+[上流出力形式](https://github.com/itzg/mc-monitor/blob/master/bedrock_status.go)
+と一致しない応答・失敗・停止時はnullとする。これはサーバーが広告するversionであり、
+インストール済みartifactのbuild番号やNetherNet protocolの証明ではない。
+`bridge.probe_scope=container_loopback` と `connectivity` で確認範囲を示す。
+`server_status=ONLINE` やhealth成功だけで、外部ゲームポート、直接IPログイン、
+フレンド経由接続の成功と解釈しない。後二者は `not_tested` のままとする。
+生のstdout/stderrは状態レスポンスへ返さない。
+
+人間の運用担当者が次の証拠を同じ再現時刻に揃える必要がある。認証情報や完全な
+Docker inspect、signaling payload、候補IP一覧をタスクへ貼り付けず、非秘密の要約にする。
+
+| 確認対象 | 必要な証拠・判定限界 |
+| --- | --- |
+| BDS実バージョンと更新 | 現在の起動ログのversion、直近再起動の前後のversion・時刻、ダウンロード記録。コンテナimageタグだけではBDS更新を確定しない |
+| MCXboxBroadcast | 起動ログのversion/buildと配備artifact識別情報を上流commitと照合 |
+| 接続ログ | 同一試行のCONNECTREQUEST / CONNECTRESPONSE / CANDIDATEADDの有無・順序、ICE状態、signalingエラー種別と時刻。行の存在だけで成功と判断しない |
+| コンテナ・BDSログ | 両コンテナのstate/health/restart count/起動時刻、BDSの同時刻の接続・切断・エラー要約 |
+| ゲームポート | 管理対象の実ポートへの外部UDP/RakNet応答。TCP疎通や内部loopback成功で代替しない |
+| 直接IP接続 | 同じPixel・同じWi-Fi・同じゲームversionで対象worldへのログイン成功/失敗を実測。未実施なら不明 |
+| フレンド経由 | 直接IPと同条件で比較。直接IP成功かつフレンド失敗ならbroadcast/転送経路を優先調査 |
+
+現在の結論は `needs_human`。この診断修正は接続障害そのものの復旧を意味しない。
+Runnerによる本番確認、更新、再起動、world操作は行わない。BDS変更・ダウングレードは
+既存worldの互換性と検証済み復旧手段が未確認のため実施しない。
+ローカル回帰テストは `python3 scripts/check_minecraft_control_status.py`。
+FastAPIやprocess設定を読み込まず、実装から抽出した状態取得関数に合成応答を与える。
+回帰テスト7件、変更したPythonファイルの `py_compile`、`git diff --check` は成功。
+保護対象の `.github/workflows/checks.yml` は変更しない。この回帰テストは既存CIの
+実行対象には追加しておらず、CIでの実行確認は未実施。PR・merge・deploy・再起動も
+このRunnerの許可範囲外のため未実施。
