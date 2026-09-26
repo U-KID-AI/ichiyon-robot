@@ -268,6 +268,23 @@ class ChannelChecks(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(mentions.users)
         self.assertFalse(mentions.roles)
 
+    async def test_publication_failure_redacts_exception_details(self):
+        from ai_task_publish import PublishSafetyError
+        from ai_task_runner import failure_reason
+        # The protected publisher/runner currently expose only a generic reason.
+        # Keep this disclosure regression check independent of the deferred codes.
+        private_detail = "PRIVATE_PATH_TOKEN_STDERR"
+        error = failure_reason(PublishSafetyError(private_detail))
+        self.assertNotIn(private_detail, error)
+        self.assertTrue(error)
+        self.connection.rows = [dict(task_id=uuid.uuid4(), status="failed", error_message=error)]
+        await ai_tasks.notify_ai_task_terminal_updates_once(self.bot)
+        self.assertEqual(len(self.channel.sent), 1)
+        text, kwargs = self.channel.sent[0]
+        self.assertIn(error, text)
+        self.assertNotIn(private_detail, text)
+        self.assert_mentions_disabled(kwargs)
+
     async def test_all_response_mentions_and_terminal_formats(self):
         await ai_tasks.handle_ai_task_channel_message(self.message("text"))
         self.assert_mentions_disabled(self.channel.sent[-1][1])
