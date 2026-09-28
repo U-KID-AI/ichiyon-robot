@@ -54,6 +54,8 @@ Runnerに追加する新しい診断fileは10 MiB × current + 5 rotated files�
 
 deploymentのdurable receiptはログrotation対象にしない。個々のreceipt/eventのsizeをboundedにしても、完了operationの保持・削除方針はP1c-2Bの参照検証とexecutorに委ねる。monitorのevidence総量・件数はその判断用であり、自動回収triggerではない。
 
+same-SHA reconcileも実行したoperationとしてactiveとterminalの2文書を残す。15〜16秒間隔を仮定すると1日5,400〜5,760 operationとなる。現collectorの一括inventory上限8,192件は約34〜36時間で達し、その後はevidence採取をfail closedしてSAFE_TO_CLEANを許可しない。writerと容量監視は継続するが、証拠の総量は無期限にはboundedでない。この短い採取上限はP1c-2Bの優先課題であり、paged/indexed collectorと参照を保持したreceipt archive/retentionを実装する。上限だけの引上げや、実行したoperationのreceipt省略を解決策としない。
+
 既存Codex stdout/stderr捕捉は64 KiBの上限を維持する。過去taskの最終出力・diff・診断artifactの世代保持は変更しない。host journalには今回明示的な新上限を配備せず、既存のsystemd管理を維持する。receipt総数と既存task artifactの総量まで一定にするには、P1c-2Bで保持graphと別の承認された回収処理が必要になる。
 
 ## Deployment evidence契約

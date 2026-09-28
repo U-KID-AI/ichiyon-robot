@@ -432,7 +432,12 @@ e._runtime=lambda target:dict(target_release=None,target_image=None,migration_co
 op=e.begin(sys.argv[4],int(sys.argv[3]));e.observe(op,int(sys.argv[3]),'health');e.finish(op,int(sys.argv[3]),'succeeded','not_needed')
 print('VERIFIED')
 ''', encoding='utf8')
-            command = 'exec 9>>"$1/ichiyon-deploy.lock"; chmod 600 "$1/ichiyon-deploy.lock"; flock -x 9; "$2" "$3" "$4" "$1" "$$" "$5"'
+            # Keep the owner shell alive while its Python child checks /proc.
+            # A final external command can otherwise replace bash via exec,
+            # unlike the real deployment shell with its EXIT trap and tail.
+            command = ('exec 9>>"$1/ichiyon-deploy.lock"; chmod 600 "$1/ichiyon-deploy.lock"; '
+                       'flock -x 9; "$2" "$3" "$4" "$1" "$$" "$5"; '
+                       'evidence_status=$?; exit "$evidence_status"')
             result = subprocess.run(['bash', '-c', command, 'evidence-fixture', str(host.home), sys.executable,
                 str(helper), str(Path(__file__).resolve().parent), TARGET], stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, text=True, timeout=30)
