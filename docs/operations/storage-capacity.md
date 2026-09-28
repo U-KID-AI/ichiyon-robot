@@ -99,6 +99,8 @@ CIの`.github/workflows/checks.yml`でもstorage checkを実行する。これ�
 
 ## P1設計メモ: backup scopeとretention
 
+P1aのread-only planner、参照graph、提案policyと`data/backups`の実測調査は[storage-retention.md](storage-retention.md)を参照する。P1aは削除もproduction deployも行わない。
+
 P0ではbackup内容も保持世代も変更しない。現行のtar対象は `data`、`assets/images`、`secrets`、`.env`。`data/backups`もそのまま含める。調査では同directoryのpayloadが286,769,111 bytes、全tar payloadの約86.8%であり、354,109,440-byte tarがmanifest上22コピーあった。この重複量を、そのまま安全に削除可能な量とは扱わない。
 
 `data/backups`を除外できるかは、以下をP1で確認してから決める。
