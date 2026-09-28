@@ -408,6 +408,21 @@ class CleanupEvidenceTests(unittest.TestCase):
         json.dumps(result, allow_nan=False)
         self.assertEqual(node(result)['classification'], 'SAFE_TO_CLEAN')
 
+    def test_indexed_lossless_source_requires_binding_and_never_accepts_c_summary(self):
+        snapshot = fixture()
+        item = record(snapshot)
+        item.update(source_format='indexed-v2',
+            source_path='/home/ubuntu/ichiyon-storage-evidence/v2/index.sqlite3',
+            source_operation_id=item['operation']['id'], source_index_verified=True, source_classification='A')
+        self.assertEqual(node(plan(snapshot))['classification'], 'SAFE_TO_CLEAN')
+        for key, value in [('source_classification', 'C'), ('source_index_verified', False),
+                           ('source_operation_id', 'f' * 32), ('source_format', 'rollup'),
+                           ('source_path', '/tmp/index.sqlite3')]:
+            changed = copy.deepcopy(snapshot)
+            record(changed)[key] = value
+            with self.subTest(key=key):
+                self.assertEqual(node(plan(changed))['classification'], 'NEEDS_REVIEW')
+
 
 if __name__ == '__main__':
     unittest.main()

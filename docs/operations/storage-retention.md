@@ -24,7 +24,7 @@ $bundle = @'
 from pathlib import Path
 collector = Path("scripts/ai_task_storage_retention.py").read_text(encoding="utf-8")
 print("import sys, types")
-for name in ("ai_task_storage_cleanup", "ai_task_backup", "ai_task_storage_evidence", "ai_task_storage_retention_graph"):
+for name in ("ai_task_storage_cleanup", "ai_task_backup", "ai_task_storage_evidence_store", "ai_task_storage_evidence_classification", "ai_task_storage_evidence", "ai_task_storage_retention_graph"):
     source = Path("scripts", name + ".py").read_text(encoding="utf-8")
     print("m = types.ModuleType(" + repr(name) + ")")
     print("sys.modules[m.__name__] = m")

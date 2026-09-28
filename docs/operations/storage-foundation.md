@@ -2,6 +2,8 @@
 
 P1c-2Aは将来のcleanupに必要な証拠と容量監視を追加する。backup/release/image/stagingの自動削除、Docker prune、空き容量を理由にした自動cleanupは行わない。[P0容量guard](storage-capacity.md)が引き続き新規Runner作業・deployを許可または拒否する。[cleanup planner](storage-retention.md)はplan/eligibilityまでで、monitorのWARNING/CRITICALは削除許可ではない。
 
+P1c-2A.1では、頻繁なsame-SHA成功receiptの増加を[durable indexとsuccess rollup](storage-evidence-index.md)で扱う。以下のv1説明は既存receiptの契約として残し、新operationはv2 indexへ記録する。既存v1 fileを移動・書換え・削除しない。
+
 ## 監視の起動・固定path
 
 production source root `/home/ubuntu/ichiyon-ai-runner-src` から起動するLinux Runnerだけが [`ai_task_storage_monitor.py`](../../scripts/ai_task_storage_monitor.py) のworkerを開始する。新しいtimerやserviceは作らず、既存Runner invocationの間で監視を継続する。短いidle巡回間は次のinvocationに引き継ぎ、長いtask中も300秒周期で観測する。Windows/local checkoutではworkerを起動しない。
@@ -27,7 +29,7 @@ P0の`measure('runner', None)`から、未知の新imageを必要とするRunner
 
 - root、Docker root、releases、backups、shared、Runner source/worktrees、temp/controlのtotal/available bytes、available inode、使用率を記録する。
 - reportの`usage_percent`は`(total - available) / total`であり、reserved blockも使用側に含む。`filesystem_usage_semantics`を添える。通常の`df`のusedとreserved扱いが異なることに注意する。
-- backup/release/shared/worktree/temp/evidenceの`du -sx -B1`による割当bytesと、evidenceのoperation entry件数を記録する。mountを横断せず、scope外のfileを辿らない。permissionや走査中変化で取得不能なら0と捏造せず`supplementary_errors`に固定categoryを出す。
+- backup/release/shared/worktree/temp/evidenceの`du -sx -B1`による割当bytesと、evidenceのlegacy entry件数・v2 index countersを記録する。`operation_entries`はv1 terminal件数の意味を維持する。v2はread-onlyで検証し、破損・読取り不能時は`index_status=unavailable`と`supplementary_errors=evidence_index`を出し、未検証counterを掲載しない。mountを横断せず、scope外のfileを辿らない。permissionや走査中変化で取得不能なら0と捏造しない。
 - `docker system df`のimage/container/volume/build cache size/countを取得する。CLIの丸めたdecimal sizeをbytesへ換算した**logical estimate**であり、filesystem実割当・reclaimableと区別する。共有layer/cacheを足して回収可能容量にしない。
 
 | status | 条件 |
@@ -52,9 +54,9 @@ appのadmin/bot/bot-irsiaだけにDocker `json-file`の`max-size=10m` / `max-fil
 
 Runnerに追加する新しい診断fileは10 MiB × current + 5 rotated files、1 messageは32 KiB程度までに制限する。directory 0700、file 0600、symlink/hardlink/異なるownerを拒否する。新しいstream内だけをrotationし、既存journal・過去Codexログ・障害資料を削除しない。既存system journalのrotation方針はhost設定の確認・別の適用記録と合わせて扱う。
 
-deploymentのdurable receiptはログrotation対象にしない。個々のreceipt/eventのsizeをboundedにしても、完了operationの保持・削除方針はP1c-2Bの参照検証とexecutorに委ねる。monitorのevidence総量・件数はその判断用であり、自動回収triggerではない。
+deploymentのdurable receiptはログrotation対象にしない。P1c-2A.1はobjectを残さないと検証できたsuccessful reconciliationだけを直近64件のrawと累積rollupにまとめ、object/incidentのlossless receiptと既存v1は保持する。monitorのevidence総量・件数は運用判断用であり、自動回収triggerではない。
 
-same-SHA reconcileも実行したoperationとしてactiveとterminalの2文書を残す。15〜16秒間隔を仮定すると1日5,400〜5,760 operationとなる。現collectorの一括inventory上限8,192件は約34〜36時間で達し、その後はevidence採取をfail closedしてSAFE_TO_CLEANを許可しない。writerと容量監視は継続するが、証拠の総量は無期限にはboundedでない。この短い採取上限はP1c-2Bの優先課題であり、paged/indexed collectorと参照を保持したreceipt archive/retentionを実装する。上限だけの引上げや、実行したoperationのreceipt省略を解決策としない。
+P1c-2Aのv1 writerはsame-SHA reconcileでもactiveとterminalの2文書を残し、一括inventoryの上限8,192件に到達する問題があった。P1c-2A.1の2026-09-28実測では、timerはservice終了後15秒、実際の直近operation開始間隔は平均152.453秒であった。この窓からの外挿は空から上限まで346.916時間（14.455日）であり、15〜16秒をoperation間隔とする旧仮定は現在の実測値ではない。新方式の分類、限界、atomic compaction、legacy互換性は[専用設計](storage-evidence-index.md)を参照する。
 
 既存Codex stdout/stderr捕捉は64 KiBの上限を維持する。過去taskの最終出力・diff・診断artifactの世代保持は変更しない。host journalには今回明示的な新上限を配備せず、既存のsystemd管理を維持する。receipt総数と既存task artifactの総量まで一定にするには、P1c-2Bで保持graphと別の承認された回収処理が必要になる。
 
@@ -62,7 +64,7 @@ same-SHA reconcileも実行したoperationとしてactiveとterminalの2文書�
 
 固定rootは`/home/ubuntu/ichiyon-storage-evidence`。deploymentのubuntu owner、directory 0700、file 0600を強制し、symlink・別owner・hardlink・不正な親pathを拒否する。taskやCLIからrootを変更できない。新しい正式deploymentは既存FD9のexclusive flockとP0 admissionを通った後にoperationを開始する。LOCK_BUSYや初回P0拒否はoperation開始前なのでreceiptを作らない。
 
-`active/<operation_id>.json`をatomic更新し、最後に`operations/<operation_id>.json`へterminal receiptを一度だけpublishする。envelopeは`schema=ichiyon-deployment-evidence` / `version=1` / `payload` / canonical payloadの`sha256`。1文書256 KiB、eventは最大32件。途中のpending file、activeだけの状態、READY単独はterminal receiptではない。checksumは破損検知であり、同じprivileged deployment userによる書換えに対する署名ではない。
+既存v1は`active/<operation_id>.json`をatomic更新し、最後に`operations/<operation_id>.json`へterminal receiptを一度だけpublishした。envelopeは`schema=ichiyon-deployment-evidence` / `version=1` / `payload` / canonical payloadの`sha256`。1文書256 KiB、eventは最大32件。P1c-2A.1の新operationは同じpayload/bindingをv2 index内に保存する。途中のpending file、activeだけの状態、READY単独はterminal receiptではない。checksumは破損検知であり、同じprivileged deployment userによる書換えに対する署名ではない。
 
 payloadはoperation ID、boot ID、owner PID/start ticks、target/previous SHA、created/completed時刻、phase、terminal state、rollback result、lockのdevice/inode、各stage/releaseのdevice/inode/ctime、image ID、migration container ID、reference snapshot digestを保持する。env、credentials、task本文は保持しない。ownerの生存・開始tick・親process chain・FD9の実FLOCKを更新ごとに照合する。PIDの一致だけでは受理しない。
 
