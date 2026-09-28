@@ -59,6 +59,40 @@ It does not load dotenv, print tokens, create runners or select hosts from task
 text. API requests have a 180-second bound and operation polling a 30-minute
 bound. Timeouts/lease loss do not cancel a server transaction or prove rollback.
 
+For an explicit `http://127.0.0.1:<port>` or `http://localhost:<port>` API base,
+the helper checks `GET /openapi.json` for HTTP 200 before deploying either target.
+An available endpoint is reused without taking ownership of its tunnel. Otherwise,
+the helper starts a temporary foreground SSH tunnel using the existing validated
+`AI_TASK_RUNNER_DEPLOY_SSH_PATH`, `SSH_HOST`, `SSH_USER`, `SSH_KEY_PATH` and
+`KNOWN_HOSTS_PATH` settings (all with the `AI_TASK_RUNNER_DEPLOY_` prefix).
+The only forward is `127.0.0.1:<port>` to remote `127.0.0.1:8000`; neither task
+text nor an additional environment setting can choose the remote destination.
+HTTPS, remote hosts and URLs without an explicit port retain existing behavior.
+
+Readiness has a 30-second deadline after launch, with HTTP probes bounded to two
+seconds. Probes send no token, use no proxy and follow no redirects. SSH uses an
+argv list with `shell=False`, `-F none -N -T`, batch mode, identities only, strict
+host-key checking with the configured known-hosts file, exit on forwarding failure,
+15-second connect/keepalive intervals, and three missed keepalives. Agent forwarding,
+local commands, connection sharing and background forking are disabled. SSH output
+is discarded; start/exit/timeout errors report safe diagnostics instead of raw SSH
+output or credentials.
+
+The context wraps both app and managed Minecraft deployment. Its `finally` stops
+only its own SSH process on success, failure or Ctrl+C (terminate, bounded wait,
+then kill that same process if needed). Existing tunnels are never stopped. This
+does not cancel any remote deployment transaction. If startup fails, neither app
+nor Minecraft deployment begins; inspect credentials, known hosts and the local
+port before retrying. No automatic deployment retry or lock override is added.
+
+An app deployment lock timeout now reports `DEPLOY_ERROR=LOCK_BUSY` and
+`production deployment is already in progress`. Wait for the existing deployment
+to finish; do not remove its lock file or kill its holder. Actual preflight errors
+report `DEPLOY_ERROR=PREFLIGHT_FAILED`; other flock errors are also preflight
+failures, not contention. The exclusive inherited lock and 30-second acquisition
+wait remain unchanged. Retrying the exact SHA still reconciles an already healthy
+app release before the managed Minecraft operation.
+
 After inspecting a terminal failure/recovery and retained backups, retry with a
 new attempt UUID. Reuse that UUID when observing/reissuing the same attempt:
 
@@ -91,7 +125,8 @@ an active task. Server/app first, runner second:
 ```
 
 This starts the existing normal `--once` loop, not a one-shot release command.
-For the helper, use the existing protected environment setup and tunnel; the
+For the helper, use the existing protected environment setup; localhost tunnel
+access is checked and, when needed, created temporarily as described above. The
 launcher's child-process environment is not automatically inherited by a separate
 PowerShell window. Never print/decrypt the DPAPI token into logs or CLI arguments.
 
@@ -120,6 +155,7 @@ python scripts/check_ai_task_minecraft_deploy_managed.py
 python scripts/check_ai_task_minecraft_deploy.py
 python scripts/check_ai_task_minecraft_runtime.py
 python scripts/check_ai_task_deploy.py
+python scripts/check_ai_task_control_tunnel.py
 python scripts/check_ai_task_local_runner.py
 python scripts/check_minecraft_cosmetics_apply.py
 ```
