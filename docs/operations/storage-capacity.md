@@ -2,6 +2,8 @@
 
 対象は、いちよんロボ本体のproduction app OCIと、そこに同居するLinux AI Runner。Minecraft BDSホストの容量判定ではない。
 
+backup scopeの分離と復元契約は[storage-recovery.md](storage-recovery.md)、参照を維持した保持判定は[storage-retention.md](storage-retention.md)を参照。P1c-1は契約・隔離restore試験・plan-only判定までを追加し、現行deployのbackup scope、P0の必要容量、production上のデータ配置は変更しない。
+
 ## 障害から守る境界
 
 2026-09-28の障害では、10:57 JSTにRunnerのJDK展開とDockerログで最初のENOSPCが起きた。10:59にもavailableは約233 MiBしかなかったが、11:10のdeploymentはappを停止し、約338 MiB必要なpersistence backupを約242 MiBで中断した。その後のcontainer再作成もENOSPCで失敗した。backupが最初にdiskを満杯にした、という順序ではない。
