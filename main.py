@@ -5,6 +5,7 @@ from bot import config, hayusu, messages, scheduler
 from bot.message_routing import build_message_router, dispatch_message
 from bot.services.auto_posts import run_db_auto_posts_once
 from bot.services.ai_tasks import notify_ai_task_terminal_updates_once
+from bot.services.storage_monitor import notify_storage_once
 from bot.services.reaction_thresholds import handle_db_reaction_threshold
 from bot.services.interaction_panel import register_persistent_views
 from bot.services.runtime_db import expire_db_modes_once
@@ -54,6 +55,9 @@ async def on_ready():
 
     await hayusu.restore_hayusu_auto_exit()
 
+    if config.BOT_INSTANCE_ID == "ichiyon" and not storage_notification_task.is_running():
+        storage_notification_task.start()
+
 
 @bot.event
 async def on_guild_join(guild: discord.Guild):
@@ -82,6 +86,21 @@ async def annual_message_task():
         await scheduler.maybe_send_annual_message()
     except Exception as e:
         print(f"[WARN] annual_message_task failed: {e}")
+
+
+@tasks.loop(minutes=1)
+async def storage_notification_task():
+    # The service boundary also catches errors; keep the loop isolated if its
+    # implementation fails before entering that boundary.
+    try:
+        await notify_storage_once(bot)
+    except Exception as exc:
+        print("[WARN] Storage notification failed: " + type(exc).__name__)
+
+
+@storage_notification_task.before_loop
+async def before_storage_notification_task():
+    await bot.wait_until_ready()
 
 
 @annual_message_task.before_loop

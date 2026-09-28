@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from bot import config as bot_config
+from bot.recovery_history import write_legacy_snapshot
 
 from admin.auto_reactions import (
     register_auto_reaction_routes,
@@ -188,16 +189,10 @@ def load_json_file(path: Path, default):
 
 
 def backup_json_file(path: Path) -> None:
-    if not path.exists():
-        return
-
-    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_path = BACKUP_DIR / f"{timestamp}_{path.name}"
     try:
-        backup_path.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
-    except OSError as e:
-        print(f"[WARN] Failed to backup {path}: {e}")
+        write_legacy_snapshot(path)
+    except (OSError, ValueError) as exc:
+        print('[WARN] JSON history snapshot failed: ' + type(exc).__name__)
 
 
 def save_quotes_data(data: dict) -> None:

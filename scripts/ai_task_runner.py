@@ -29,6 +29,7 @@ from ai_task_minecraft_deploy_managed import ManagedMinecraftDeployAdapter
 from ai_task_runner_config import RunnerConfig
 from ai_task_runtime import validate_claim_names
 from ai_task_storage import StorageError, check_storage
+from ai_task_storage_monitor import configure_diagnostics, start_monitor
 from ai_task_test_registry import run_tests
 
 
@@ -456,8 +457,11 @@ def main() -> int:
     parser.add_argument("--once", action="store_true", help="process one task and exit")
     parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    monitor_stop = None
     try:
         config = RunnerConfig.from_environment()
+        configure_diagnostics(config.repo_root)
+        monitor_stop = start_monitor(config.repo_root)
         deploy_config = DeployConfig.from_environment(repo_root=config.repo_root, worktree_root=config.worktree_root)
         app_deployer = ProductionDeployAdapter(deploy_config)
         minecraft_source = ExactMergeSource(config.repo_root, config.git_path)
@@ -475,6 +479,9 @@ def main() -> int:
     except Exception as exc:
         logger.error("Runner startup: %s", failure_reason(exc))
         return 2
+    finally:
+        if monitor_stop is not None:
+            monitor_stop.finish()
 
 
 if __name__ == "__main__":

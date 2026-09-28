@@ -17,8 +17,10 @@ import os
 from pathlib import Path
 import socket
 import subprocess
+import sys
 import tarfile
 import tempfile
+import types
 import unittest
 from unittest.mock import patch
 
@@ -66,8 +68,10 @@ def inventory(files):
     return sorted(result, key=lambda item: item['path'])
 
 
-def write_tar(path, files, *, recovery=False, extra=None):
+def write_tar(path, files, *, recovery=False, extra=None, omit_assets_parent=False):
     directories, names = paths_for(files)
+    if omit_assets_parent:
+        directories = [name for name in directories if name != 'assets']
     if recovery:
         directories = [name for name in directories
                        if name == 'data/backups' or name.startswith('data/backups/')]
@@ -160,6 +164,23 @@ class BackupFixture:
         return backup.restore_files(self.path, destination, releases_root=self.releases,
                                     recovery_root=self.recovery,
                                     dump_validator=validator or (lambda path: True))
+
+    def make_writer_stage(self):
+        """Convert only this synthetic fixture to deployment's four-file input."""
+        if self.version != 1:
+            raise ValueError('writer fixture must originate from full v1')
+        (self.path / 'READY').unlink()
+        (self.path / 'checksums.sha256').unlink()
+        stage = self.path.parent / ('.backup-' + TARGET + '.Abc123xy')
+        self.path.rename(stage)
+        self.path = stage
+        self.path.chmod(0o700)
+        return self
+
+    def write_full(self, validator=None):
+        return backup.write_full_backup_metadata(self.path, TARGET,
+                    backups_root=self.path.parent, releases_root=self.releases,
+                    dump_validator=validator or (lambda path: True))
 
 
 def file_map(root):
@@ -499,13 +520,193 @@ class BackupContractTests(unittest.TestCase):
                          'metadata_checksums_tar_scope_dump_header_not_full_restore')
         self.assertNotIn('backup_format_version', result)
 
-    def test_deployment_keeps_full_v1_scope_and_does_not_activate_v2(self):
+    def test_deployment_keeps_full_scope_and_never_writes_split_archive(self):
         remote = Path(__file__).resolve().parent / 'ai_task_deploy_remote.sh'
         script = remote.read_text(encoding='utf-8')
         self.assertIn('tar --dereference -C "$shared_root" -cf "$backup_stage/persistence.tar" '
                       'data assets/images secrets .env', script)
-        self.assertNotIn('ai_task_backup', script)
-        self.assertNotIn('ichiyon-recovery-archives', script)
+        # FULL v2 metadata may now be emitted; the tar producer still preserves
+        # every data subtree, including active JSON history under data/backups.
+        self.assertNotIn('--exclude', next(line for line in script.splitlines()
+                                          if '"$backup_stage/persistence.tar" data' in line))
+
+    def test_full_writer_generates_exact_manifest_and_keeps_all_history(self):
+        fixture = self.fixture(version=1).make_writer_stage()
+        original = file_map(fixture.path)
+        proof = fixture.write_full()
+        manifest = json.loads((fixture.path / 'manifest.json').read_bytes())
+        self.assertEqual(manifest['persistence'], {'include': backup.SCOPE, 'exclude': []})
+        self.assertIsNone(manifest['recovery'])
+        self.assertEqual(manifest['inventory'], inventory(FILES))
+        self.assertEqual({name: (fixture.path / name).read_bytes() for name in original}, original)
+        self.assertEqual((fixture.path / 'READY').read_bytes(), b'')
+        self.assertEqual([line.split('  ')[1] for line in
+                          (fixture.path / 'checksums.sha256').read_text().splitlines()],
+                         list(backup.V2_CHECKSUM_FILES))
+        self.assertEqual(proof['format_version'], 2)
+        self.assertEqual(proof['target_release'], TARGET)
+        self.assertEqual(proof['previous_release'], PREVIOUS)
+        staged = backup.validate_staged_backup(fixture.path, TARGET,
+                    backups_root=fixture.path.parent, releases_root=fixture.releases,
+                    recovery_root=fixture.recovery, dump_validator=lambda path: True)
+        self.assertEqual(staged, proof)
+        published = fixture.path.parent / TARGET
+        fixture.path.rename(published)
+        fixture.path = published
+        self.assertEqual(fixture.validate(), proof)
+
+    def test_full_writer_has_no_scope_or_recovery_switch(self):
+        fixture = self.fixture(version=1).make_writer_stage()
+        with self.assertRaises(TypeError):
+            backup.write_full_backup_metadata(fixture.path, TARGET, exclude=['data/backups'])
+        self.assertFalse((fixture.path / 'READY').exists())
+
+    def test_full_writer_rejects_wrong_target_or_untrusted_stage_parent(self):
+        fixture = self.fixture(version=1).make_writer_stage()
+        original = state(fixture.root)
+        with self.assertRaises(backup.BackupError):
+            backup.write_full_backup_metadata(fixture.path, PREVIOUS,
+                backups_root=fixture.path.parent, releases_root=fixture.releases)
+        other_root = self.root / 'other-backups'
+        other_root.mkdir()
+        with self.assertRaises(backup.BackupError):
+            backup.write_full_backup_metadata(fixture.path, TARGET,
+                backups_root=other_root, releases_root=fixture.releases)
+        self.assertEqual(state(fixture.root), original)
+
+    def test_full_writer_never_replaces_existing_ready_or_metadata(self):
+        fixture = self.fixture(version=1).make_writer_stage()
+        (fixture.path / 'READY').write_bytes(b'foreign marker')
+        original = state(fixture.root)
+        with self.assertRaises(backup.BackupError):
+            fixture.write_full()
+        self.assertEqual(state(fixture.root), original)
+
+    def test_full_writer_invalid_dump_never_creates_ready(self):
+        fixture = self.fixture(version=1).make_writer_stage()
+        original = file_map(fixture.path)
+        with self.assertRaises(backup.BackupError):
+            fixture.write_full(lambda path: False)
+        self.assertFalse((fixture.path / 'READY').exists())
+        self.assertEqual({name: (fixture.path / name).read_bytes() for name in original}, original)
+        with self.assertRaises(backup.BackupError):
+            backup.validate_staged_backup(fixture.path, TARGET,
+                backups_root=fixture.path.parent, releases_root=fixture.releases,
+                dump_validator=lambda path: True)
+
+    def test_full_writer_incomplete_persistence_never_creates_ready(self):
+        fixture = self.fixture(version=1).make_writer_stage()
+        write_tar(fixture.path / 'persistence.tar', {name: data for name, data in FILES.items()
+                                                  if not name.startswith('secrets/')})
+        with self.assertRaises(backup.BackupError):
+            fixture.write_full()
+        self.assertFalse((fixture.path / 'READY').exists())
+
+    def test_full_writer_manifest_stays_within_p0_metadata_allowance(self):
+        fixture = self.fixture(version=1).make_writer_stage()
+        self.assertLess(backup.WRITER_MANIFEST_LIMIT, 16 * 1024 * 1024)
+        with patch('ai_task_backup.WRITER_MANIFEST_LIMIT', 1):
+            with self.assertRaises(backup.BackupError):
+                fixture.write_full()
+        self.assertFalse((fixture.path / 'READY').exists())
+
+    def test_full_writer_input_change_during_validation_never_creates_ready(self):
+        fixture = self.fixture(version=1).make_writer_stage()
+
+        def changed_dump(path):
+            path.write_bytes(b'PGDMP-changed-after-checksum')
+            return True
+
+        with self.assertRaises(backup.BackupError):
+            fixture.write_full(changed_dump)
+        self.assertFalse((fixture.path / 'READY').exists())
+
+    def test_full_writer_post_ready_fsync_failure_retracts_only_own_marker(self):
+        fixture = self.fixture(version=1).make_writer_stage()
+        original = file_map(fixture.path)
+        calls = []
+
+        def failed_second_sync(path):
+            calls.append(path)
+            if len(calls) == 2:
+                raise OSError('synthetic fsync failure')
+
+        with patch('ai_task_backup.sync_directory', side_effect=failed_second_sync):
+            with self.assertRaises(backup.BackupError):
+                fixture.write_full()
+        self.assertFalse((fixture.path / 'READY').exists())
+        self.assertEqual({name: (fixture.path / name).read_bytes() for name in original}, original)
+        self.assertTrue((fixture.path / 'manifest.json').is_file())
+        self.assertTrue((fixture.path / 'checksums.sha256').is_file())
+
+    def test_full_writer_rejects_shared_inode_input(self):
+        fixture = self.fixture(version=1).make_writer_stage()
+        os.link(str(fixture.path / 'production.dump'), str(self.root / 'other-dump-reference'))
+        with self.assertRaises(backup.BackupError):
+            fixture.write_full()
+        self.assertFalse((fixture.path / 'READY').exists())
+
+    def test_rendered_remote_helper_writes_and_validates_full_v2_and_reads_v1(self):
+        from ai_task_deploy import render_remote_script
+        fixture = self.fixture(version=1).make_writer_stage()
+        snapshot = fixture.root / 'infra-snapshot.json'
+        snapshot.write_bytes((fixture.path / 'infra.json').read_bytes())
+        rendered = render_remote_script()
+        source = rendered.split('cat >"$helper" <<\'PY\'\n', 1)[1].split('\nPY\n', 1)[0]
+        calls = []
+
+        class PreviousReference:
+            # Production Linux str(Path) is POSIX. Use that contract text also
+            # when running these entirely local fixtures on Windows.
+            def __init__(self, path):
+                self.text = path.as_posix()
+
+            def __str__(self):
+                return self.text
+
+        def fake_docker_list(argv, **kwargs):
+            self.assertEqual(argv, ['docker', 'exec', '-i', 'ichiyon-robot-db', 'pg_restore', '--list'])
+            self.assertEqual(kwargs['stdin'].read(5), b'PGDMP')
+            calls.append(argv)
+            return b'fixture custom-format TOC\n'
+
+        # Rendering embeds separate reviewed modules. Keep their sys.modules
+        # entries scoped to this test so later tests use their original modules.
+        with patch.dict(sys.modules):
+            helper = types.ModuleType('offline_rendered_backup_helper')
+            exec(compile(source, '<rendered fixed remote helper>', 'exec'), helper.__dict__)
+            module = helper.ai_task_backup
+            for name in ('write_full_backup_metadata', 'validate_staged_backup', 'validate_backup'):
+                defaults = getattr(module, name).__kwdefaults__
+                defaults['releases_root'] = fixture.releases
+                if 'backups_root' in defaults:
+                    defaults['backups_root'] = fixture.path.parent
+                if 'recovery_root' in defaults:
+                    defaults['recovery_root'] = fixture.recovery
+            helper.run = fake_docker_list
+            with patch.object(sys, 'argv', ['fixture-helper', 'backup-full', str(fixture.path), TARGET]):
+                helper.main()
+            previous = PreviousReference(fixture.releases / PREVIOUS)
+            helper.backup_validate(fixture.path, previous, snapshot)
+            manifest = json.loads((fixture.path / 'manifest.json').read_bytes())
+            self.assertEqual(manifest['persistence']['exclude'], [])
+            self.assertEqual(manifest['inventory'], inventory(FILES))
+            published = fixture.path.parent / TARGET
+            fixture.path.rename(published)
+            fixture.path = published
+            helper.backup_validate(published, previous, snapshot)
+            legacy = BackupFixture(self.root / 'legacy-reader', version=1)
+            # GNU tar's literal `assets/images` operand does not emit its
+            # implicit `assets` parent; match the production v1 producer.
+            write_tar(legacy.path / 'persistence.tar', legacy.files, omit_assets_parent=True)
+            legacy.refresh()
+            legacy_snapshot = legacy.root / 'infra-snapshot.json'
+            legacy_snapshot.write_bytes((legacy.path / 'infra.json').read_bytes())
+            helper.backup_validate(legacy.path, PreviousReference(legacy.releases / PREVIOUS), legacy_snapshot)
+            self.assertGreaterEqual(len(calls), 4)
+            (published / 'production.dump').write_bytes(b'PGDMP-rendered-helper-corruption')
+            with self.assertRaises(module.BackupError):
+                helper.backup_validate(published, previous, snapshot)
 
 
 class DisposablePostgres:
@@ -636,6 +837,33 @@ class PostgreSQLRestoreRehearsalTests(unittest.TestCase):
                                           'fixture_restored'), migration_set)
             self.assertEqual(postgres.sql("INSERT INTO restore_probe(label) VALUES ('after-restore') RETURNING id;",
                                           'fixture_restored').splitlines()[0], b'3')
+            # Exercise the actual FULL writer, not only a manually authored v2
+            # fixture. Its output must restore the same source DB/files/history.
+            full = BackupFixture(root / 'writer-full', version=1, dump=dump).make_writer_stage()
+            written = full.write_full(postgres.dump_validator)
+            staged = backup.validate_staged_backup(full.path, TARGET,
+                backups_root=full.path.parent, releases_root=full.releases,
+                recovery_root=full.recovery, dump_validator=postgres.dump_validator)
+            self.assertEqual(written, staged)
+            published = full.path.parent / TARGET
+            full.path.rename(published)
+            full.path = published
+            self.assertEqual(full.validate(postgres.dump_validator), written)
+            full_destination = root / 'writer-restored'
+            full_destination.mkdir()
+            restored = full.restore(full_destination, postgres.dump_validator)
+            self.assertEqual(file_map(Path(restored['persistence'])), FILES)
+            self.assertEqual((Path(restored['metadata']) / 'previous').read_bytes(),
+                             (full.path / 'previous').read_bytes())
+            postgres.sql('CREATE DATABASE fixture_writer_restored;')
+            postgres.run('pg_restore', postgres.connection('fixture_writer_restored') +
+                         ['--no-owner', '--no-privileges', '--exit-on-error',
+                          str(Path(restored['metadata']) / 'production.dump')])
+            self.assertEqual(postgres.sql(query, 'fixture_writer_restored'), expected)
+            self.assertEqual(postgres.sql('SELECT version FROM schema_migrations ORDER BY version;',
+                                          'fixture_writer_restored'), migration_set)
+            self.assertEqual(postgres.sql("INSERT INTO restore_probe(label) VALUES ('writer-after-restore') RETURNING id;",
+                                          'fixture_writer_restored').splitlines()[0], b'3')
 
 
 if __name__ == '__main__':

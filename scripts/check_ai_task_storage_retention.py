@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import shutil
 import stat
+import subprocess
 import tarfile
 import tempfile
 import types
@@ -590,6 +591,98 @@ class RetentionCollectorTests(unittest.TestCase):
     def setUpClass(cls):
         import ai_task_storage_retention as collector
         cls.collector = collector
+
+    def v2_fixture(self, root, split=False):
+        from check_ai_task_backup_restore import BackupFixture
+        fixture = BackupFixture(root, split=split)
+        recovery = root / 'ichiyon-recovery-archives'
+        fixture.recovery.rename(recovery)
+        fixture.recovery = recovery
+        if fixture.archive is not None:
+            fixture.archive = recovery / fixture.archive.name
+        return fixture, dict(home=root, releases=fixture.releases,
+            backups=fixture.path.parent, shared=root / 'shared', current=root / 'current')
+
+    def test_production_v2_uses_only_fixed_docker_dump_list_without_mutation(self):
+        for split in (False, True):
+            with self.subTest(split=split), tempfile.TemporaryDirectory() as directory:
+                fixture, paths = self.v2_fixture(Path(directory), split)
+                before = filesystem_state(fixture.root)
+                calls = []
+                def list_only(argv, **options):
+                    self.assertEqual(argv, ['docker', 'exec', '-i', 'ichiyon-robot-db',
+                                            'pg_restore', '--list'])
+                    self.assertIs(options['shell'], False)
+                    self.assertIs(options['check'], False)
+                    self.assertEqual(options['timeout'], 120)
+                    self.assertEqual(options['stderr'], subprocess.DEVNULL)
+                    self.assertEqual(options['stdin'].read(5), b'PGDMP')
+                    calls.append(argv)
+                    return types.SimpleNamespace(returncode=0, stdout=b'fixture TOC must not be reported')
+                tripwire = forbid_mutations()
+                with patch.object(self.collector, 'DEFAULT_PATHS', paths), tripwire, \
+                        patch('subprocess.run', side_effect=list_only):
+                    result = self.collector.read_backup(fixture.path, dict(paths), {})
+                self.assertEqual(result['validation'], 'verified')
+                self.assertTrue(result['checksum_verified'])
+                self.assertTrue(result['ready'])
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(tripwire.attempts, [])
+                self.assertEqual(filesystem_state(fixture.root), before)
+                self.assertNotIn('must not be reported', json.dumps(result))
+                self.assertEqual(result['recovery_archive_ids'], [fixture.archive.name] if split else [])
+
+    def test_alternate_v2_roots_preserve_local_pg_restore_validation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture, paths = self.v2_fixture(Path(directory))
+            with patch('subprocess.run', return_value=types.SimpleNamespace(
+                    returncode=0, stdout=b'fixture TOC')) as command, \
+                    patch.object(self.collector, 'production_dump_list',
+                                 side_effect=AssertionError('must not use production')):
+                result = self.collector.read_backup(fixture.path, paths, {})
+            self.assertEqual(result['validation'], 'verified')
+            self.assertEqual(command.call_args.args[0], ['pg_restore', '--list'])
+
+    def test_production_v2_dump_parser_failure_never_verifies_backup(self):
+        failures = [types.SimpleNamespace(returncode=1, stdout=b'failed'),
+                    types.SimpleNamespace(returncode=0, stdout=b''),
+                    FileNotFoundError('secret local tool failure'),
+                    subprocess.TimeoutExpired('secret timeout command', 120)]
+        for failure in failures:
+            with self.subTest(failure=type(failure).__name__), tempfile.TemporaryDirectory() as directory:
+                fixture, paths = self.v2_fixture(Path(directory))
+                options = {'side_effect': failure} if isinstance(failure, Exception) else {'return_value': failure}
+                with patch.object(self.collector, 'DEFAULT_PATHS', paths), patch('subprocess.run', **options):
+                    result = self.collector.read_backup(fixture.path, paths, {})
+                self.assertEqual(result['validation'], 'invalid')
+                self.assertFalse(result['checksum_verified'])
+                self.assertFalse(result['ready'])
+                self.assertNotIn('secret', json.dumps(result))
+
+    def test_production_v2_never_skips_checksum_or_disabled_validation(self):
+        for corrupt in (False, True):
+            with self.subTest(corrupt=corrupt), tempfile.TemporaryDirectory() as directory:
+                fixture, paths = self.v2_fixture(Path(directory))
+                if corrupt:
+                    (fixture.path / 'production.dump').write_bytes(b'PGDMP-corrupted')
+                with patch.object(self.collector, 'DEFAULT_PATHS', paths), \
+                        patch('subprocess.run', side_effect=AssertionError('must not list unverified dump')) as command:
+                    result = self.collector.read_backup(fixture.path, paths, {}, verify_checksums=corrupt)
+                self.assertEqual(result['validation'], 'invalid' if corrupt else 'incomplete')
+                self.assertFalse(result['checksum_verified'])
+                command.assert_not_called()
+
+    def test_production_v2_dump_changed_during_parser_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture, paths = self.v2_fixture(Path(directory))
+            def raced_parser(*args, **kwargs):
+                (fixture.path / 'production.dump').write_bytes(b'PGDMP-replaced-during-parse')
+                return types.SimpleNamespace(returncode=0, stdout=b'fixture TOC')
+            with patch.object(self.collector, 'DEFAULT_PATHS', paths), \
+                    patch('subprocess.run', side_effect=raced_parser):
+                result = self.collector.read_backup(fixture.path, paths, {})
+            self.assertEqual(result['validation'], 'invalid')
+            self.assertFalse(result['checksum_verified'])
 
     def test_actual_collection_and_planning_change_no_files_or_docker_state(self):
         with tempfile.TemporaryDirectory() as directory:

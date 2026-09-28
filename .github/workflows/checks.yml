@@ -112,6 +112,9 @@ jobs:
           python scripts/check_ai_task_storage.py
           python scripts/check_ai_task_storage_retention.py
           python scripts/check_ai_task_storage_cleanup.py
+          python scripts/check_ai_task_storage_evidence.py
+          python scripts/check_ai_task_storage_monitor.py
+          python scripts/check_recovery_history.py
           python scripts/check_ai_task_recovery_plan.py
           python scripts/check_ai_task_backup_restore.py --postgres-bin /usr/lib/postgresql/16/bin -v
           python scripts/check_ai_task_control_tunnel.py

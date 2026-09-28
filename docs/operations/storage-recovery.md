@@ -1,5 +1,7 @@
 # Production storage recovery contract (P1c-1)
 
+この文書はP1c-1時点の設計・観測記録。後続P1c-2Aでは承認されたrolloutによりv2 FULL writerとdurable evidenceを有効化する。[現在のproduction基盤契約](storage-foundation.md)を併読する。FULL scope維持、producer移行plan-only、cleanup executor未導入という境界は継続する。
+
 P1c-1はbackupの復元契約とcleanupの判定を実装する。productionのmove/copy/delete、scheduler変更、merge、deployを行わない。**現行deploymentのtar scopeは `data`、`assets/images`、`secrets`、`.env` のまま維持し、`data/backups`を除外しない。** 以下の履歴調査とfixtureの成功は、productionの全データを復旧できる証明とは区別する。
 
 関連文書: [容量guard](storage-capacity.md)、[参照graphとretention](storage-retention.md)。P0の容量guardを回収executorに変えず、P1aの参照保護を緩めない。
