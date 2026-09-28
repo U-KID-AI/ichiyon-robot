@@ -7,6 +7,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import stat
 import tarfile
 import tempfile
@@ -618,6 +619,51 @@ class RetentionCollectorTests(unittest.TestCase):
             (host.backup_path / 'production.dump').write_bytes(b'PGDMP\x01changed')
             result = plan(host.collect(self.collector))
             self.assertEqual(node(result, 'backups', CURRENT)['classification'], 'NEEDS_REVIEW')
+
+    def test_identical_archive_cache_still_hashes_every_copy_and_rejects_corruption(self):
+        with tempfile.TemporaryDirectory() as directory:
+            host = HostFixture(Path(directory))
+            second = host.paths['backups'] / OLD
+            shutil.copytree(host.backup_path, second)
+            cache, allocations = set(), {}
+            with patch.object(self.collector, 'digest_file', wraps=self.collector.digest_file) as digest, \
+                    patch.object(self.collector, 'validate_archive',
+                                 wraps=self.collector.validate_archive) as archive:
+                first_result = self.collector.read_backup(
+                    host.backup_path, host.paths, allocations, validated_tar_hashes=cache)
+                second_result = self.collector.read_backup(
+                    second, host.paths, allocations, validated_tar_hashes=cache)
+                self.assertEqual(first_result['validation'], 'verified')
+                self.assertEqual(second_result['validation'], 'verified')
+                self.assertEqual(digest.call_count, 4)
+                self.assertEqual(archive.call_count, 1)
+                self.assertEqual(len(cache), 1)
+                target = second / 'persistence.tar'
+                target.write_bytes(target.read_bytes() + b'changed-after-validation')
+                corrupt_result = self.collector.read_backup(
+                    second, host.paths, allocations, validated_tar_hashes=cache)
+                self.assertEqual(corrupt_result['validation'], 'invalid')
+                self.assertFalse(corrupt_result['checksum_verified'])
+                self.assertEqual(digest.call_count, 6)
+                self.assertEqual(archive.call_count, 1)
+
+    def test_invalid_archive_never_populates_validation_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            host = HostFixture(Path(directory))
+            with tarfile.open(str(host.backup_path / 'persistence.tar'), 'w') as archive:
+                entry = tarfile.TarInfo('data')
+                entry.type = tarfile.DIRTYPE
+                archive.addfile(entry)
+            host.write_checksums()
+            cache = set()
+            with patch.object(self.collector, 'validate_archive',
+                              wraps=self.collector.validate_archive) as validate:
+                for _ in range(2):
+                    result = self.collector.read_backup(
+                        host.backup_path, host.paths, {}, validated_tar_hashes=cache)
+                    self.assertEqual(result['validation'], 'invalid')
+                self.assertEqual(validate.call_count, 2)
+                self.assertEqual(cache, set())
 
     def test_backup_null_infrastructure_metadata_is_not_verified(self):
         with tempfile.TemporaryDirectory() as directory:

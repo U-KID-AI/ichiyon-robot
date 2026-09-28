@@ -286,7 +286,8 @@ def validate_archive(path):
         raise ValueError('archive_scope_incomplete')
 
 
-def read_backup(path, paths, allocations, verify_checksums=True, related=False):
+def read_backup(path, paths, allocations, verify_checksums=True, related=False,
+                validated_tar_hashes=None):
     identifier = 'related:' + path.relative_to(paths['home']).as_posix() if related else safe_name(path)
     node = base_node(path, 'backups', allocations, identifier)
     node.update(target_release=path.name if SHA.fullmatch(path.name) else None,
@@ -337,7 +338,14 @@ def read_backup(path, paths, allocations, verify_checksums=True, related=False):
         with regular_stream(path / 'production.dump') as stream:
             if stream.read(5) != b'PGDMP':
                 raise ValueError('dump_header_invalid')
-        validate_archive(path / 'persistence.tar')
+        tar_hash = node['checksums']['persistence.tar']
+        # Every physical copy is still hashed above. Byte-identical verified
+        # archives share only the expensive member/scope validation in this
+        # single observation; no cache is persisted or trusted across runs.
+        if validated_tar_hashes is None or tar_hash not in validated_tar_hashes:
+            validate_archive(path / 'persistence.tar')
+            if validated_tar_hashes is not None:
+                validated_tar_hashes.add(tar_hash)
         node['validation'] = 'verified'
         node['checksum_verified'] = True
         node['restore_validation'] = 'metadata_checksums_tar_scope_dump_header_not_full_restore'
@@ -410,6 +418,7 @@ def collect_snapshot(paths=None, docker=None, proc_root=None, verify_checksums=T
         containers=[], staging=[], explicit_pins=dict(releases=[], backups=[], images=[]),
         references_complete=True, collection_errors=[], filesystem_allocations_complete=False)
     allocations = {}
+    validated_tar_hashes = set()
     def problem(code):
         snapshot['references_complete'] = False
         if code not in snapshot['collection_errors']:
@@ -488,7 +497,8 @@ def collect_snapshot(paths=None, docker=None, proc_root=None, verify_checksums=T
                     continue
                 try:
                     node = reader(path, paths, tags, allocations) if kind == 'releases' else reader(
-                        path, paths, allocations, verify_checksums=verify_checksums)
+                        path, paths, allocations, verify_checksums=verify_checksums,
+                        validated_tar_hashes=validated_tar_hashes)
                     snapshot[kind].append(node)
                 except (OSError, ValueError):
                     problem(kind + '_entry_unavailable')

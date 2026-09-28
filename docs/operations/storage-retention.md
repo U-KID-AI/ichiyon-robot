@@ -12,6 +12,8 @@ collectorは固定したproduction pathとDockerの参照用interfaceを読む�
 
 `validation=verified`のbackupは、決められたfile集合、previous参照、infra metadata形式、dump/tar全体のchecksum、dumpの`PGDMP` header、tar memberの型/pathと必要scopeを検証済みという意味。DBを復元したり、previous imageで起動したりする完全なrestore試験ではない。`restore_validation=metadata_checksums_tar_scope_dump_header_not_full_restore`を併記する。releaseもmetadata/layout/image参照を検証し、保存されたvalidatorやCompose codeを実行しない。
 
+各backupのdump/tarはコピーごとに全体hashを計算する。同じSHA256と確認したtarのmember/scope検証だけを、その1回の採取中に共有する。異なるコピーのhash確認を省かず、次回実行へcacheを持ち越さない。
+
 production測定は、PCでreviewしたsourceをSSH stdinで実行する。remoteへplannerをinstallせず、`python3 -B`相当でbytecodeも書かない。plannerの配備を目的とする新releaseやDocker imageは作らない。Discord AI Task経由でheavy taskを開始しない。通常サービスの書込みやSSH監査ログは観測中も進むため、採取時刻と観測間の変化を記録する。
 
 CLIに削除modeやpolicy書換えoptionはない。出力はstdoutのJSONのみ。以下はrepo rootのPowerShellで2 moduleをmemory上に束ねる例。`APP_OCI_READ_ONLY_ALIAS`を既存の承認済みapp OCI用SSH aliasへ置き換える。認証やhost keyを新しく設定する例ではなく、BDSのaliasを使わない。`sudo -n`はDocker layer metadataと全processの参照を読むために用い、権限不足を推定で補わない。
