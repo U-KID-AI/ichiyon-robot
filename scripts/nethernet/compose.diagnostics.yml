@@ -1,0 +1,14 @@
+# Opt-in override for the inspected service. Runner/operator applies after merge.
+# Keeps the base image, network, ports, mounts, auth cache and config unchanged.
+services:
+  mcxboxbroadcast:
+    # Local immutable image ID from the inspected running container. Do not upgrade
+    # transport implicitly if the mutable master tag moves before the trial.
+    image: sha256:d4b03ab4a5b046c5ac2b19afabb329157d3d417f61d92c114c96f912ffa4f0fe
+    command:
+      - java
+      - -Dichiyon.nethernet.diagnostics=/opt/app/config/nethernet-diagnostics
+      - -Dichiyon.nethernet.seconds=86400
+      - -cp
+      - /opt/app/config/nethernet-diagnostics.jar:/opt/app/MCXboxBroadcastStandalone.jar
+      - com.rtm516.mcxboxbroadcast.bootstrap.standalone.StandaloneMain

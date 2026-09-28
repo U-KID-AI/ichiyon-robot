@@ -96,6 +96,7 @@ jobs:
         run: |
           python scripts/check_ai_task_deploy.py
           python scripts/check_ai_task_control_tunnel.py
+          python scripts/check_nethernet_diagnostics.py
           bash -n scripts/ai_task_deploy_remote.sh
           python scripts/check_ai_tasks.py
           python scripts/check_ai_task_discord_channel.py
