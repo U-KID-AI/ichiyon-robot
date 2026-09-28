@@ -4,8 +4,7 @@ set -euo pipefail
 umask 077
 exec 3>&1
 exec 4>&2
-diagnostics=$(mktemp)
-exec >"$diagnostics" 2>&1
+diagnostics=
 report_diagnostics() {
     # Keep stdout reserved for the proof; the local adapter redacts stderr.
     if [[ -f $diagnostics ]]; then
@@ -34,6 +33,25 @@ infra_file=
 stage=
 prepared=
 pointer=
+storage_failed=0
+
+# Replaced only by the installed adapter with its sibling reviewed module.
+# Running an unrendered template fails closed before staging or app mutation.
+storage_check() {
+    local phase=$1
+    if python3 -I - "$phase" "$sha" >&3 <<'STORAGE_PY'
+# __ICHIYON_STORAGE_MODULE__
+raise SystemExit(1)  # A missing trusted module must never permit deployment.
+STORAGE_PY
+    then
+        return 0
+    else
+        storage_failed=1
+        printf 'STORAGE_CHECK_PHASE=%s\n' "$phase" >&3
+        printf '%s\n' 'DEPLOY_ERROR=INSUFFICIENT_STORAGE' >&3
+        exit 1
+    fi
+}
 
 fail() { printf '%s\n' 'DEPLOY_ERROR=FAILED' >&3; printf '%s\n' 'Deployment safety check failed' >&2; exit 1; }
 preflight_failed() { printf '%s\n' 'DEPLOY_ERROR=PREFLIGHT_FAILED' >&3; printf '%s\n' 'Deployment preflight failed' >&2; exit 1; }
@@ -77,6 +95,9 @@ fi
 probe || preflight_failed
 
 # This helper comes from SSH stdin, never from target/previous release code.
+storage_check deploy-start
+diagnostics=$(mktemp)
+exec >"$diagnostics" 2>&1
 helper=$(mktemp /home/ubuntu/.ichiyon-deploy-helper.XXXXXXXX.py)
 cat >"$helper" <<'PY'
 import hashlib
@@ -622,7 +643,7 @@ on_exit() {
             else
                 printf '%s\n' 'DEPLOY_ERROR=ROLLBACK_FAILED' >&3
             fi
-        else
+        elif (( storage_failed == 0 )); then
             printf '%s\n' 'DEPLOY_ERROR=FAILED' >&3
         fi
     fi
@@ -669,6 +690,8 @@ else
         done
         mv -T -- "$prepared" "$release"
     fi
+    # Refine the estimate with the actual fetched source before a new build.
+    storage_check pre-build
     if ! docker image inspect "$image"; then
         docker build --label "org.opencontainers.image.revision=$sha" --tag "$image" "$release/src"
     fi
@@ -683,6 +706,9 @@ else
     if [[ -e $backup ]]; then
         python3 -I "$helper" backup "$backup" "$previous" "$infra_file"
     fi
+    # Re-measure after build, immediately before accepting rollback obligation.
+    # Failure exits with quiesced=0: no app stop and no rollback recreation.
+    storage_check pre-stop
     # Set rollback obligation before the first operation that can stop an app.
     quiesced=1
     compose "$previous" stop admin bot bot-irsia

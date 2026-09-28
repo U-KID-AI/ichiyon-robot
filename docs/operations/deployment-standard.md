@@ -20,6 +20,10 @@
 6. `docker volume ls`
 7. memory / disk
 
+production app OCIのimmutable deploymentでは、[storage capacity](storage-capacity.md) の容量判定を必須とする。`df`の割合だけで進行を決めず、staging/build前とapp停止直前にavailable bytes、inode、停止後backupとrollbackの必要量を測定する。不足または測定不能ならappを停止しない。`DEPLOY_ERROR=INSUFFICIENT_STORAGE` を通常の一時的な失敗として無条件に繰り返さない。
+
+容量guard自体を初めて導入するときも、正式なdeploy経路を始める直前にread-onlyで同じ必要量を再計算する。過去の調査値は流用しない。十分なheadroomが証明できる場合だけexact merge SHAを配備し、不足・不明ならproductionを変更せず人の判断を待つ。容量確保のためのprune、backup/release/log削除はこの手順に含めない。
+
 ## 更新方針
 
 - `origin/main` を取得する。

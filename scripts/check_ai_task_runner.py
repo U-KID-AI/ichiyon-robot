@@ -12,6 +12,7 @@ from ai_task_auto_merge import AutoMergeError, MergeOutcomeUnknownError
 from ai_task_codex import CodexResult
 from ai_task_git import GitAdapter, GitOperationError
 from ai_task_runner import LocalRunner, RunOutcome, RunnerAPIError
+from ai_task_storage import StorageError
 
 
 class TrackingGit(GitAdapter):
@@ -250,6 +251,7 @@ class InitialFetchTests(unittest.TestCase):
         self.runner.git = Mock()
         self.runner.client = Mock()
         self.runner.codex = Mock()
+        self.runner.storage_guard = Mock()
         self.heartbeat = Mock()
         self.heartbeat.lost.is_set.return_value = False
         self.heartbeat.lost.wait.return_value = False
@@ -288,6 +290,26 @@ class InitialFetchTests(unittest.TestCase):
         self.runner.git.add_worktree.assert_not_called()
         self.runner.codex.run.assert_not_called()
         self.heartbeat.stop.assert_called_once()
+
+    def test_capacity_loss_between_fetch_retries_prevents_another_fetch(self):
+        self.runner.git.fetch_main.side_effect = self.fetch_error()
+        self.runner.storage_guard.side_effect = [None, StorageError("runner", "BYTES")]
+        with self.assertRaises(StorageError):
+            self.runner._process(self.task)
+        self.runner.git.fetch_main.assert_called_once()
+        self.runner.git.add_worktree.assert_not_called()
+        self.runner.codex.run.assert_not_called()
+        self.heartbeat.stop.assert_called_once()
+
+    def test_lease_loss_during_storage_measurement_prevents_fetch(self):
+        def lose_lease():
+            self.heartbeat.lost.is_set.return_value = True
+        self.runner.storage_guard.side_effect = lose_lease
+        with self.assertRaises(RunnerAPIError):
+            self.runner._process(self.task)
+        self.runner.git.fetch_main.assert_not_called()
+        self.runner.git.add_worktree.assert_not_called()
+        self.runner.codex.run.assert_not_called()
 
     def test_lease_loss_during_fetch_backoff_stops_retry(self):
         self.runner.git.fetch_main.side_effect = self.fetch_error()

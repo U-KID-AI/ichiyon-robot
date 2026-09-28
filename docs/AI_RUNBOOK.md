@@ -60,6 +60,7 @@ python scripts/check_ai_task_publish.py
 python scripts/check_ai_task_github.py
 python scripts/check_ai_task_auto_merge.py
 python scripts/check_ai_task_deploy.py
+python scripts/check_ai_task_storage.py
 python scripts/check_ai_task_control_plane.py
 python scripts/check_ai_task_phase3c_control_plane.py
 ```
@@ -79,6 +80,14 @@ leaseを維持できない場合やキャンセル時はprocess treeを停止し
 ## deploymentと状態
 
 実運用への反映は構成された対象別adapterが担当し、merge SHAと実際に反映されたSHAを一致させる。Control Planeへの `deploying` 記録とdeploymentの完了記録を分け、完了証明を得てから `completed` にする。設定不足やhealth/migration失敗は実行エラーとして報告する。
+
+### production appの容量判定
+
+production app OCIと同居するLinux runnerは、新しい重い作業を始める前にavailable bytesとinodeを確認する。production deploymentもrelease staging/build前とapp停止直前に再測定する。停止直前にbackup、container再作成、rollbackと安全余裕の合計を満たさなければ、`quiesced=1`にもapp stopにも進まない。取得失敗も処理を中止する。
+
+容量不足は `INSUFFICIENT_STORAGE` とphase、available/requiredの数値で報告する。容量の確保や取得原因の解消前に同じ重い作業を再実行しない。閾値はinstalled runnerのtrusted codeで管理し、task本文から変更しない。Windowsなどproductionと同居しないrunnerの通常処理はこのホスト用の判定対象外。計算式、同一filesystemの集計、初回rolloutとP1課題は [production storage capacity](operations/storage-capacity.md) を参照する。
+
+この容量判定はbackup/release/imageのretentionを実装しない。失敗したstaging、既存worktree、backupを自動削除せず、Docker pruneもしない。必要な容量が足りない場合は現在動くappを維持し、診断をもとに運用者へ引き渡す。既存のtask status、lease、retry、成功証明の契約は変更しない。
 
 ### deployment lease
 

@@ -19,6 +19,10 @@ class DeploymentError(RuntimeOperationError):
         super().__init__(redact_secrets(message))
 
 
+class DeploymentStorageError(DeploymentError):
+    """Capacity admission failed; retrying edits or deployment cannot repair it."""
+
+
 def diagnostic_text(value):
     if isinstance(value, bytes):
         value = value.decode("utf-8", errors="replace")

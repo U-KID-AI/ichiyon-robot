@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ai_task_deploy_config import (
-    DeployConfig, DeploymentError, exception_detail, normal_file,
+    DeployConfig, DeploymentError, DeploymentStorageError, exception_detail, normal_file,
     process_failure, proof_error, proof_fields,
 )
 from ai_task_process import communicate_bounded, managed_process_options
@@ -15,6 +15,17 @@ from ai_task_process import communicate_bounded, managed_process_options
 
 SUMMARY = "Immutable app deployment verified."
 SCRIPT = Path(__file__).absolute().with_name("ai_task_deploy_remote.sh")
+STORAGE_SCRIPT = Path(__file__).absolute().with_name("ai_task_storage.py")
+STORAGE_MARKER = "# __ICHIYON_STORAGE_MODULE__"
+
+
+def render_remote_script() -> str:
+    """Transport installed reviewed policy; never load code from a task checkout."""
+    script = normal_file(SCRIPT, ()).read_text(encoding="utf-8")
+    policy = normal_file(STORAGE_SCRIPT, ()).read_text(encoding="utf-8")
+    if script.count(STORAGE_MARKER) != 1 or "\nSTORAGE_PY\n" in policy:
+        raise DeploymentError("trusted storage protocol unavailable")
+    return script.replace(STORAGE_MARKER, policy)
 
 
 @dataclass(frozen=True)
@@ -45,7 +56,7 @@ class ProductionDeployAdapter:
             if stop_event is not None and stop_event.is_set():
                 raise DeploymentError("deployment stopped")
             # The installed protocol is sent on stdin, independent of task cwd.
-            script = normal_file(SCRIPT, ()).read_text(encoding="utf-8")
+            script = render_remote_script()
             c = self.config
             argv = [str(c.ssh_path), "-F", "none", "-T",
                     "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
@@ -82,6 +93,10 @@ class ProductionDeployAdapter:
                     or result.returncode != 0
                     or (stop_event is not None and stop_event.is_set())):
                 fields = proof_fields(result.stdout, {"DEPLOY_ERROR"}, stderr=result.stderr)
+                if fields.get("DEPLOY_ERROR") == "INSUFFICIENT_STORAGE":
+                    # Do not forward arbitrary build logs or paths for this category.
+                    from ai_task_storage import safe_diagnostics
+                    raise DeploymentStorageError(safe_diagnostics(result.stdout))
                 label = {
                     "LOCK_BUSY": "production deployment is already in progress (LOCK_BUSY)",
                     "PREFLIGHT_FAILED": "production deployment preflight failed (PREFLIGHT_FAILED)",
@@ -91,6 +106,8 @@ class ProductionDeployAdapter:
                     detail += "; deployment lease lost"
                 raise DeploymentError(detail)
             return parse_proof(result.stdout, merge_sha, stderr=result.stderr)
+        except DeploymentStorageError:
+            raise
         except Exception as exc:
             # Suppress the raw exception chain, but retain its operational cause.
             raise DeploymentError(exception_detail(exc)) from None
