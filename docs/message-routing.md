@@ -92,3 +92,5 @@ panelの送信入口だけがmessage registryに属する。componentのbutton/s
 `check_message_router.py`はproduction registryを逆順に渡しても順序が不変であること、全routeの短絡、False fallback、重複登録/不正戻り値/例外、AI channel所有、bot除外、両instance、DM、空mention、Minecraft/Voice/Music等の接続、TTS observer、DB terminal、NG/mode/通常mentionを検証する。
 
 `check_ai_task_discord_channel.py`は実AI serviceとfake DBで受付・拒否・role mention・通知・redactionを検証する。既存mention routing checkと各serviceのcheckも実行する。以前のソース行番号依存checkにはpanel/shortcutの旧順序と廃止されたAI入口参照が残っていたため、実registry/dispatchを検証する形へ移行した。
+
+`check_message_router_db.py`はCI専用の固定localhost PostgreSQLにfixtureを作り、production registryと実DB runtimeで両Botの応答分離・未一致時のlegacy抑止を確認する。既存`check_v2_db_integration.py`も実行したが、migration 031以前の`ON CONFLICT (guild_id, count_key)`等を前提としており、現行schemaではfixture準備時に失敗する。Phase 1ではschemaやこの旧データ依存checkを作り直さず、専用checkをCIへ追加する。

@@ -144,7 +144,7 @@ jobs:
         run: |
           python scripts/migrate.py
           python scripts/check_guild_repository.py
-          python scripts/check_v2_db_integration.py --database-url "$DATABASE_URL" --guild-id 123456789012345678 --upsert-guild
+          python scripts/check_message_router_db.py
 
       - name: Run message routing regression checks
         run: |
