@@ -185,11 +185,9 @@ class ChannelChecks(unittest.IsolatedAsyncioTestCase):
         source = (ROOT_DIR / "main.py").read_text(encoding="utf-8")
         node = next(n for n in ast.parse(source).body if isinstance(n, ast.AsyncFunctionDef) and n.name == "on_message")
         node.decorator_list = []
-        namespace = dict(discord=SimpleNamespace(Message=object), messages=messages,
-                         config=config,
-                         parse_ai_command=ai_tasks.parse_ai_command,
-                         is_ai_task_channel=ai_tasks.is_ai_task_channel,
-                         handle_ai_task_channel_message=ai_tasks.handle_ai_task_channel_message)
+        from bot.message_routing import dispatch_message, build_message_router
+        namespace = dict(discord=SimpleNamespace(Message=object),
+                         dispatch_message=dispatch_message, message_router=build_message_router())
         # Only this event function is compiled: no main imports, bot.run or other features.
         exec(compile(ast.Module(body=[node], type_ignores=[]), "<offline on_message>", "exec"), namespace)
         with patch.object(messages, "_bot", SimpleNamespace(user=SimpleNamespace(id=88))):
@@ -311,18 +309,16 @@ class StaticAndSQLChecks(unittest.TestCase):
             self.assertIn("ADD COLUMN " + column, migration)
         self.assertIn("TIMESTAMPTZ", migration)
         source = (ROOT_DIR / "main.py").read_text(encoding="utf-8")
-        tree = ast.parse(source)
-        handler = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "on_message")
-        text = ast.get_source_segment(source, handler)
+        from bot.message_routing import build_message_router
+        routes = build_message_router().routes
+        self.assertEqual(routes[0].name, "ai_task")
+        routing_source = (ROOT_DIR / "bot/message_routing.py").read_text(encoding="utf-8")
+        tree = ast.parse(routing_source)
+        handler = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "dispatch_message")
+        text = ast.get_source_segment(routing_source, handler)
         self.assertLess(text.index("if message.author.bot:"), text.index("get_mention_command_text"))
         self.assertLess(text.index("<AI development prompt redacted>"), text.index('content={debug_content'))
-        irsia_guard = text.index('config.BOT_INSTANCE_ID != "ichiyon"')
-        route = text.index("await handle_ai_task_channel_message")
-        self.assertLess(irsia_guard, route)
-        for feature in ("handle_empty_mention_message", "handle_context_panel_command", "handle_mention_music_links",
-                        "handle_voice_command", "handle_minecraft_command", "handle_horoscope_command", "handle_db_runtime_message",
-                        "hayusu.", "handle_mention_message", "handle_word_response", "maybe_enqueue_tts"):
-            self.assertLess(route, text.index(feature))
+        self.assertLess(text.index('config.BOT_INSTANCE_ID != "ichiyon"'), text.index("await router.dispatch"))
         self.assertIn("@tasks.loop(seconds=5)", source)
         self.assertIn('config.BOT_INSTANCE_ID == "ichiyon" and not ai_task_notification_task.is_running()', source)
         self.assertIn("type(exc).__name__", source)

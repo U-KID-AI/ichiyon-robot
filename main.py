@@ -2,34 +2,13 @@ import discord
 from discord.ext import commands, tasks
 
 from bot import config, hayusu, messages, scheduler
-from bot.dev_guard import handle_developer_command
-from bot.kuji import draw_kuji_message
-from bot.ng_words import contains_ng_word
-from bot.quotes import draw_quote_message
-from bot.reactions import handle_word_response
+from bot.message_routing import build_message_router, dispatch_message
 from bot.services.auto_posts import run_db_auto_posts_once
-from bot.services.ai_tasks import (
-    handle_ai_task_channel_message, is_ai_task_channel,
-    notify_ai_task_terminal_updates_once, parse_ai_command,
-)
+from bot.services.ai_tasks import notify_ai_task_terminal_updates_once
 from bot.services.reaction_thresholds import handle_db_reaction_threshold
-from bot.services.interaction_panel import handle_context_panel_command, mention_text_is_empty, register_persistent_views
-from bot.services.mention_shortcuts import handle_mention_shortcut_command
-from bot.services.mezamashi_horoscope import handle_horoscope_command
-from bot.services.minecraft_bridge import handle_minecraft_command
-from bot.services.runtime_db import (
-    RANDOM_DRAW_PULL_BLOCKED,
-    RANDOM_DRAW_PULL_INVALID_MESSAGE,
-    expire_db_modes_once,
-    get_message_guild_id,
-    handle_db_runtime_message,
-    parse_random_draw_pull_for_keyword,
-)
-from bot.services.voice_control import handle_voice_command
-from bot.services.voice.tts import maybe_enqueue_tts
-from bot.services.voice_music import handle_mention_music_links
+from bot.services.interaction_panel import register_persistent_views
+from bot.services.runtime_db import expire_db_modes_once
 from bot.services.x_update_notifications import run_x_update_notifications_once
-from bot.services.youtube_n_pull import handle_youtube_n_pull_command
 from bot.services.youtube_cookie_monitor import maybe_run_scheduled_cookie_check
 
 
@@ -43,55 +22,7 @@ messages.configure(bot)
 hayusu.configure(bot)
 scheduler.configure(bot)
 _PERSISTENT_VIEWS_REGISTERED = False
-
-
-async def handle_mention_message(message: discord.Message) -> bool:
-    if bot.user is None or bot.user not in message.mentions:
-        return False
-
-    command_text = messages.get_mention_command_text(message) or ""
-    for legacy_keyword in ("おみくじ", "くじ"):
-        parsed, error = parse_random_draw_pull_for_keyword(command_text, legacy_keyword)
-        if error == RANDOM_DRAW_PULL_BLOCKED:
-            return False
-        if error:
-            await message.channel.send(RANDOM_DRAW_PULL_INVALID_MESSAGE)
-            return True
-        if parsed is None:
-            continue
-        for index in range(parsed.count):
-            kuji_result = draw_kuji_message()
-            text = kuji_result.get("text", "")
-            if parsed.count > 1:
-                text = "{0}/{1}\n{2}".format(index + 1, parsed.count, text).strip()
-            await messages.send_text_or_image(
-                message.channel,
-                text,
-                kuji_result.get("image_path", ""),
-            )
-        return True
-
-    quote = draw_quote_message()
-    if quote is not None:
-        await messages.send_text_or_image(
-            message.channel,
-            quote.get("text", ""),
-            quote.get("image_path", ""),
-        )
-    return True
-
-
-async def handle_empty_mention_message(message: discord.Message, command_text: str | None) -> bool:
-    if getattr(message, "guild", None) is None:
-        return False
-    if not mention_text_is_empty(command_text):
-        return False
-
-    if config.DATA_BACKEND == "db" and get_message_guild_id(message) is not None:
-        if await handle_db_runtime_message(message):
-            return True
-
-    return False
+message_router = build_message_router()
 
 
 @bot.event
@@ -186,72 +117,7 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
 
 @bot.event
 async def on_message(message: discord.Message):
-    if message.author.bot:
-        print("[DEBUG] ignored bot message")
-        return
-
-    command_text = messages.get_mention_command_text(message)
-    _ai_action, _ai_argument, is_ai_command = parse_ai_command(command_text)
-    debug_content = "<AI command redacted>" if is_ai_command else message.content
-    if is_ai_task_channel(message):
-        debug_content = "<AI development prompt redacted>"
-    print(f"[DEBUG] on_message: author={message.author} content={debug_content!r}")
-
-    if is_ai_task_channel(message) and config.BOT_INSTANCE_ID != "ichiyon":
-        print("[DEBUG] ignored AI development channel for non-Ichiyon bot")
-        return
-
-    if await handle_ai_task_channel_message(message, command_text):
-        return
-
-    if await handle_empty_mention_message(message, command_text):
-        return
-
-    if await handle_context_panel_command(message, command_text):
-        return
-
-    if await handle_mention_music_links(message, command_text):
-        return
-
-    if await handle_youtube_n_pull_command(message, command_text):
-        return
-
-    if await handle_voice_command(message, command_text):
-        return
-
-    if await handle_developer_command(message, command_text):
-        return
-
-    if await handle_minecraft_command(message, command_text):
-        return
-
-    if await handle_mention_shortcut_command(message, command_text):
-        return
-
-    if await handle_horoscope_command(message, command_text):
-        return
-
-    await maybe_enqueue_tts(message, command_text)
-
-    if config.DATA_BACKEND == "db" and get_message_guild_id(message) is not None:
-        await handle_db_runtime_message(message)
-        return
-
-    if contains_ng_word(message.content):
-        print("[DEBUG] ignored by ng word")
-        return
-
-    if await hayusu.handle_mode_message(message):
-        return
-
-    if await hayusu.maybe_start_hayusu_mode(message):
-        return
-
-    if await handle_mention_message(message):
-        return
-
-    if await handle_word_response(message):
-        return
+    await dispatch_message(message, message_router)
 
 
 if not config.TOKEN:

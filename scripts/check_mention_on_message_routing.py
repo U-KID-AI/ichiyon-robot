@@ -1,4 +1,3 @@
-import ast
 import asyncio
 import sys
 from pathlib import Path
@@ -10,18 +9,11 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from bot import messages
-from bot.services.interaction_panel import mention_text_is_empty
-from bot.services.runtime_db import get_message_guild_id
 
 
 def check(name, ok, detail=""):
     print("[{0}] {1}{2}".format("OK" if ok else "NG", name, " - {0}".format(detail) if detail else ""))
     return ok
-
-
-class FakeBot:
-    def event(self, func):
-        return func
 
 
 class FakeUser:
@@ -56,22 +48,16 @@ class FakeMessage:
 
 
 def load_main_routing_functions():
-    source = (ROOT_DIR / "main.py").read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    selected = []
-    for node in tree.body:
-        if isinstance(node, ast.AsyncFunctionDef) and node.name in {"handle_empty_mention_message", "on_message"}:
-            selected.append(ast.get_source_segment(source, node))
-    namespace = {
-        "bot": FakeBot(),
-        "discord": SimpleNamespace(Message=object),
-        "messages": messages,
-        "parse_ai_command": lambda value: (None, None, str(value or "").startswith("AI")),
-        "mention_text_is_empty": mention_text_is_empty,
-        "get_message_guild_id": get_message_guild_id,
-        "config": SimpleNamespace(DATA_BACKEND="db"),
-    }
-    exec("\n\n".join(selected), namespace)
+    from bot import message_routing as routing
+    from unittest.mock import patch
+    namespace = {"config": SimpleNamespace(DATA_BACKEND="db", BOT_INSTANCE_ID="ichiyon"),
+                 "is_ai_task_channel": lambda message: False}
+
+    async def on_message(message):
+        overrides = {key: value for key, value in namespace.items() if key != "on_message"}
+        with patch.multiple(routing, **overrides):
+            await routing.dispatch_message(message, routing.build_message_router())
+    namespace["on_message"] = on_message
     return namespace
 
 
@@ -90,9 +76,7 @@ async def main_async():
         return False
 
     async def fake_ai_task(message, command_text):
-        if str(command_text or "").startswith("AI"):
-            events.append(("ai_task", command_text))
-            return True
+        # These fixtures are outside the reserved AI development channel.
         return False
 
     async def fake_youtube_n_pull(message, command_text):
@@ -154,7 +138,7 @@ async def main_async():
     namespace.update(
         {
             "handle_mention_music_links": fake_music_links,
-            "handle_ai_task_command": fake_ai_task,
+            "handle_ai_task_channel_message": fake_ai_task,
             "handle_youtube_n_pull_command": fake_youtube_n_pull,
             "handle_voice_command": fake_voice,
             "handle_developer_command": fake_developer,
@@ -167,7 +151,6 @@ async def main_async():
             "contains_ng_word": lambda content: False,
             "handle_mention_message": fake_false_message,
             "handle_word_response": fake_false_word,
-            "handle_db_reaction_threshold": lambda reaction: None,
             "hayusu": SimpleNamespace(handle_mode_message=fake_false_mode, maybe_start_hayusu_mode=fake_false_mode),
         }
     )
@@ -189,7 +172,7 @@ async def main_async():
     results.append(check("empty mention sends existing DB response only", len(message.channel.sent) == 1 and "森羅万象" in message.channel.sent[0][0][0]))
 
     message, trace = await run("AI 一覧")
-    results.append(check("AI command is consumed before general mention routing", trace == [("ai_task", "AI 一覧")] and message.channel.sent == [], trace))
+    results.append(check("AI text outside development channel reaches normal routing", ("db_runtime", "AI 一覧") in trace and message.channel.sent == [], trace))
 
     _, trace = await run("入って")
     results.append(check("non-empty voice text reaches voice handler", ("voice", "入って") in trace and ("db_runtime", "入って") not in trace, trace))

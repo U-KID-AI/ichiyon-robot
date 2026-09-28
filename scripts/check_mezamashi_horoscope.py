@@ -192,6 +192,7 @@ def run_parse_checks(results):
 
 
 async def run_cache_checks(results):
+    original_today = horoscope.today_jst
     original_fetch = horoscope.fetch_official_horoscope
     original_backend = horoscope.config.DATA_BACKEND
     horoscope._memory_cache.clear()
@@ -206,6 +207,7 @@ async def run_cache_checks(results):
 
     try:
         horoscope.config.DATA_BACKEND = "json"
+        horoscope.today_jst = lambda: "2026-09-11"  # Match the fixed fixture date on any run date.
         horoscope.fetch_official_horoscope = fake_fetch
         first = await horoscope.get_horoscope_bundle(force_refresh=True)
         second = await horoscope.get_horoscope_bundle()
@@ -229,6 +231,7 @@ async def run_cache_checks(results):
         results.append(check("fetch failure falls back to latest memory cache", fallback.stale is True and fallback.target_date == "2026-09-10", fallback))
         results.append(check("stale memory cache does not block today's fetch attempt", calls[-1:] == ["failed-fetch"], calls))
     finally:
+        horoscope.today_jst = original_today
         horoscope.fetch_official_horoscope = original_fetch
         horoscope.config.DATA_BACKEND = original_backend
 

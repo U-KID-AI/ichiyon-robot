@@ -339,7 +339,7 @@ async def run_checks() -> int:
             failed_safely = effect_log == []
         check.add("effects are not applied before send succeeds", failed_safely, str(effect_log))
 
-        main_text = (PROJECT_ROOT / "main.py").read_text(encoding="utf-8")
+        main_text = (PROJECT_ROOT / "bot/message_routing.py").read_text(encoding="utf-8")
         check.add(
             "legacy kuji path uses common n-pull parser",
             "parse_random_draw_pull_for_keyword(command_text, legacy_keyword)" in main_text

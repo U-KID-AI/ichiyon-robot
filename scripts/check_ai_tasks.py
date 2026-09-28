@@ -199,11 +199,12 @@ async def run() -> int:
         ai_tasks.AITaskRepository = original_repository
         config.DATA_BACKEND = original_backend
 
-    main_source = (ROOT_DIR / "main.py").read_text(encoding="utf-8")
+    routing_source = (ROOT_DIR / "bot/message_routing.py").read_text(encoding="utf-8")
     messages_source = (ROOT_DIR / "bot" / "messages.py").read_text(encoding="utf-8")
-    on_message_source = main_source[main_source.index("async def on_message("):]
-    check.add("AI channel is routed before DB runtime", on_message_source.index("handle_ai_task_channel_message") < on_message_source.index("handle_db_runtime_message(message)"))
-    check.add("AI command debug text is redacted", "<AI command redacted>" in main_source and "<AI command redacted>" in messages_source and "parse_ai_command" in messages_source)
+    from bot.message_routing import build_message_router
+    route_names = [route.name for route in build_message_router().routes]
+    check.add("AI channel is routed before DB runtime", route_names.index("ai_task") < route_names.index("db_runtime"))
+    check.add("AI command debug text is redacted", "<AI command redacted>" in routing_source and "<AI command redacted>" in messages_source and "parse_ai_command" in messages_source)
     check.add("no arbitrary subprocess was added", "subprocess" not in (ROOT_DIR / "bot" / "services" / "ai_tasks.py").read_text(encoding="utf-8"))
     check.add("Discord response has a safety cap", ai_tasks.MAX_DISCORD_RESPONSE_LENGTH < 2000)
 
