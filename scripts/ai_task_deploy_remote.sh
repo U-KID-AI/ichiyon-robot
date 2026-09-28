@@ -35,8 +35,10 @@ stage=
 prepared=
 pointer=
 
-fail() { printf '%s\n' 'DEPLOY_ERROR=FAILED' >&3; printf '%s\n' 'Deployment preflight or lock failed' >&2; exit 1; }
-[[ $# == 1 && $1 =~ ^[0-9a-f]{40}$ ]] || fail
+fail() { printf '%s\n' 'DEPLOY_ERROR=FAILED' >&3; printf '%s\n' 'Deployment safety check failed' >&2; exit 1; }
+preflight_failed() { printf '%s\n' 'DEPLOY_ERROR=PREFLIGHT_FAILED' >&3; printf '%s\n' 'Deployment preflight failed' >&2; exit 1; }
+lock_busy() { printf '%s\n' 'DEPLOY_ERROR=LOCK_BUSY' >&3; printf '%s\n' 'An existing deployment is in progress; lock retained. Wait for it to finish before retrying.' >&2; exit 1; }
+[[ $# == 1 && $1 =~ ^[0-9a-f]{40}$ ]] || preflight_failed
 sha=$1
 release=$releases_root/$sha
 image=ichiyon-robot-app:$sha
@@ -60,12 +62,19 @@ probe() {
     fi
     command -v flock git docker python3 curl tar sha256sum >/dev/null
 }
-probe || fail
-releases_root=$(realpath -e "$releases_root")
+probe || preflight_failed
+releases_root=$(realpath -e "$releases_root") || preflight_failed
 release=$releases_root/$sha
-exec 9>>"$lock_path"
-flock -x -w 30 9 || fail
-probe || fail
+exec 9>>"$lock_path" || preflight_failed
+# Reserve a distinct contention exit code; other flock errors are preflight failures.
+if flock -x -w 30 -E 75 9; then
+    :
+else
+    lock_status=$?
+    if [[ $lock_status == 75 ]]; then lock_busy; fi
+    preflight_failed
+fi
+probe || preflight_failed
 
 # This helper comes from SSH stdin, never from target/previous release code.
 helper=$(mktemp /home/ubuntu/.ichiyon-deploy-helper.XXXXXXXX.py)

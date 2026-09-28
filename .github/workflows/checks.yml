@@ -95,6 +95,7 @@ jobs:
       - name: Run AI task execution checks
         run: |
           python scripts/check_ai_task_deploy.py
+          python scripts/check_ai_task_control_tunnel.py
           bash -n scripts/ai_task_deploy_remote.sh
           python scripts/check_ai_tasks.py
           python scripts/check_ai_task_discord_channel.py

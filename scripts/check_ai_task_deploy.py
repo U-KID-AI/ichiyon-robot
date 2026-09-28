@@ -126,6 +126,43 @@ class DeploymentTests(unittest.TestCase):
                 'ai_task_deploy.communicate_bounded', return_value=ProcessResult(0, PROOF, 'SSH warning')):
             self.assertEqual(self.adapter.deploy(SHA).deployed_commit_sha, SHA)
 
+    def test_lock_busy_and_preflight_have_distinct_diagnostics(self):
+        for code, message in (("LOCK_BUSY", "production deployment is already in progress"),
+                              ("PREFLIGHT_FAILED", "production deployment preflight failed")):
+            with self.subTest(code=code), patch('ai_task_deploy.subprocess.Popen'), patch(
+                    'ai_task_deploy.communicate_bounded',
+                    return_value=ProcessResult(1, 'DEPLOY_ERROR=' + code + '\n', 'password=fixture-secret')):
+                with self.assertRaisesRegex(DeploymentError, message) as caught:
+                    self.adapter.deploy(SHA)
+                detail = str(caught.exception)
+                self.assertIn('DEPLOY_ERROR=' + code, detail)
+                self.assertNotIn('fixture-secret', detail)
+                self.assertNotIn('PREFLIGHT_FAILED' if code == 'LOCK_BUSY' else 'LOCK_BUSY', detail)
+
+    def test_remote_lock_classification_with_fake_flock(self):
+        # Execute only the diagnostic/decision fragment, with fake probe/flock.
+        # No remote paths, production protocol, SSH, Docker or real lock touched.
+        bash = shutil.which('bash')
+        git_bash = Path('C:/Program Files/Git/bin/bash.exe')
+        if os.name == 'nt' and git_bash.is_file():
+            bash = str(git_bash)
+        if not bash:
+            self.skipTest('bash unavailable; CI runs this check on Linux')
+        functions = SCRIPT.split('fail() {', 1)[1].split('[[ $#', 1)[0]
+        decision = SCRIPT.split('if flock -x', 1)[1].split('\n# This helper', 1)[0]
+        for probe_status, flock_status, expected in ((0, 75, 'LOCK_BUSY'), (1, 0, 'PREFLIGHT_FAILED'),
+                                                    (0, 1, 'PREFLIGHT_FAILED'), (0, 0, 'READY')):
+            fragment = ('set -euo pipefail\nexec 3>&1\nfail() {' + functions +
+                        f'\nprobe() {{ return {probe_status}; }}\nflock() {{ return {flock_status}; }}\n' +
+                        'probe || preflight_failed\nif flock -x' + decision + '\necho READY\n')
+            result = subprocess.run([bash, '-s'], input=fragment, text=True, capture_output=True,
+                                    timeout=10, check=False)
+            self.assertIn(expected, result.stdout, result.stderr)
+            self.assertEqual(result.returncode, 0 if expected == 'READY' else 1)
+            if expected == 'LOCK_BUSY':
+                self.assertIn('existing deployment is in progress', result.stderr)
+                self.assertNotIn('PREFLIGHT_FAILED', result.stdout)
+
     def test_transport_preserves_full_stderr_and_rollback_result(self):
         diagnostic = ('BEGIN host=example.invalid key=' + str(self.config.ssh_key_path) + '\n' +
                       'migration output\n' * 10000 + 'END password=fixture-secret\n')

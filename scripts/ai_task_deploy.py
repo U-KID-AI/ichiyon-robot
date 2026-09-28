@@ -81,7 +81,12 @@ class ProductionDeployAdapter:
             if (result.timed_out or result.stopped or result.stdin_cleanup_failed
                     or result.returncode != 0
                     or (stop_event is not None and stop_event.is_set())):
-                detail = process_failure("deployment transport failed", result)
+                fields = proof_fields(result.stdout, {"DEPLOY_ERROR"}, stderr=result.stderr)
+                label = {
+                    "LOCK_BUSY": "production deployment is already in progress (LOCK_BUSY)",
+                    "PREFLIGHT_FAILED": "production deployment preflight failed (PREFLIGHT_FAILED)",
+                }.get(fields.get("DEPLOY_ERROR"), "deployment transport failed")
+                detail = process_failure(label, result)
                 if stop_event is not None and stop_event.is_set():
                     detail += "; deployment lease lost"
                 raise DeploymentError(detail)
