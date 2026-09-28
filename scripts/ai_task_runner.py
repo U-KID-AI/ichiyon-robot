@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import sys
 import threading
 import time
 import traceback
@@ -21,12 +22,13 @@ from ai_task_process import ProcessTerminationError
 from ai_task_publish import GitPublisher
 from ai_task_review_merge import ReviewMergeGate
 from ai_task_deploy import ProductionDeployAdapter
-from ai_task_deploy_config import DeployConfig
+from ai_task_deploy_config import DeployConfig, DeploymentStorageError
 from ai_task_minecraft_deploy import TargetDeployAdapter
 from ai_task_minecraft_runtime import ExactMergeSource
 from ai_task_minecraft_deploy_managed import ManagedMinecraftDeployAdapter
 from ai_task_runner_config import RunnerConfig
 from ai_task_runtime import validate_claim_names
+from ai_task_storage import StorageError, check_storage
 from ai_task_test_registry import run_tests
 
 
@@ -43,6 +45,10 @@ class CompletionReportError(MetadataReportError):
 
 def failure_reason(exc):
     summary = f"{type(exc).__name__}: {exc}"
+    if isinstance(exc, (StorageError, DeploymentStorageError)):
+        # Storage diagnostics contain only trusted phase/category and numbers.
+        # A traceback would add arbitrary checkout paths to that safe record.
+        return redact_secrets(summary)
     return redact_secrets(summary + "\n" + "".join(traceback.format_exception(exc)))
 
 
@@ -82,6 +88,25 @@ def read_rules(worktree: Path) -> dict[str, str]:
     return {relative: (worktree / relative).read_text(encoding="utf-8")
             for relative in ("AGENTS.md", "docs/AI_RULES.md", "docs/AI_CONTEXT.md")
             if (worktree / relative).is_file()}
+
+
+PRODUCTION_RUNNER_ROOT = Path("/home/ubuntu/ichiyon-ai-runner-src")
+
+
+def production_runner_storage_guard(config):
+    """Admit heavy work only on the installed, production-colocated runner.
+
+    The location comes from trusted runner configuration, never task text. A
+    missing production checkout still selects the guard and fails closed when
+    measurements cannot be obtained. Other Linux and Windows runners retain
+    their existing behavior.
+    """
+    if sys.platform != "linux":
+        return
+    root = config.repo_root
+    if root != PRODUCTION_RUNNER_ROOT and root.resolve() != PRODUCTION_RUNNER_ROOT.resolve():
+        return
+    check_storage(phase="runner")
 
 
 class LeaseHeartbeat:
@@ -157,7 +182,8 @@ class LeaseHeartbeat:
 class LocalRunner:
     def __init__(self, config, *, client=None, git=None, codex=None,
                  publisher=None, github=None, review_gate=None, auto_merger=None,
-                 deployer=None, test_runner=run_tests, heartbeat_factory=LeaseHeartbeat):
+                 deployer=None, test_runner=run_tests, heartbeat_factory=LeaseHeartbeat,
+                 storage_guard=None):
         self.config, self.deployer = config, deployer
         self.client = client or RunnerAPIClient(config.api_base_url, config.api_token,
             config.runner_id, timeout=config.api_timeout_seconds,
@@ -170,6 +196,8 @@ class LocalRunner:
         self.review_gate = review_gate or ReviewMergeGate(config.gh_path)
         self.auto_merger = auto_merger or AutoMergeAdapter(config.gh_path, gate=self.review_gate)
         self.test_runner, self.heartbeat_factory = test_runner, heartbeat_factory
+        self.storage_guard = storage_guard if storage_guard is not None else (
+            lambda: production_runner_storage_guard(self.config))
 
     def run_once(self) -> RunOutcome:
         try:
@@ -238,6 +266,8 @@ class LocalRunner:
     def _fetch_main(self, task, heartbeat):
         for attempt in range(1, self.config.max_attempts + 1):
             self._require_lease(heartbeat)
+            self.storage_guard()
+            self._require_lease(heartbeat)
             try:
                 base_sha = self.git.fetch_main()
             except GitOperationError as exc:
@@ -266,6 +296,8 @@ class LocalRunner:
             base_sha = self._fetch_main(task, heartbeat)
             self._progress(task, base_commit_sha=base_sha, current_step="creating_worktree",
                            progress_summary="Creating task worktree")
+            self.storage_guard()
+            self._require_lease(heartbeat)
             worktree = self.git.add_worktree(task.task_id, self.config.worktree_root, base_sha)
             self.git.validate_worktree(task.task_id, worktree, base_sha)
             artifacts = self.config.worktree_root / ("." + task.worktree_name + "-logs")
@@ -274,6 +306,8 @@ class LocalRunner:
             feedback, testing, merged = "", False, False
             refresh_main = False
             for attempt in range(1, self.config.max_attempts + 1):
+                self._require_lease(heartbeat)
+                self.storage_guard()
                 self._require_lease(heartbeat)
                 self.git.validate_worktree(task.task_id, worktree, base_sha)
                 step = "running_codex"
@@ -323,6 +357,8 @@ class LocalRunner:
                         testing = True
                     step = "testing"
                     self._progress(task, current_step=step, progress_summary="Running project tests")
+                    self.storage_guard()
+                    self._require_lease(heartbeat)
                     results = self.test_runner(worktree, changed, stop_event=heartbeat.lost)
                     self._require_lease(heartbeat)
                     summary = "\n\n".join(test_feedback(item, changed) for item in results)
@@ -381,6 +417,8 @@ class LocalRunner:
                             if deployment.deployed_commit_sha != merge.merge_sha:
                                 raise RuntimeError(f"Deployed SHA {deployment.deployed_commit_sha} differs from requested {merge.merge_sha}")
                             break
+                        except (StorageError, DeploymentStorageError):
+                            raise
                         except Exception as exc:
                             self._require_lease(heartbeat)
                             if deployment_attempt:
@@ -390,7 +428,8 @@ class LocalRunner:
                     self._require_lease(heartbeat)
                     self._complete(task, deployment, heartbeat)
                     return True
-                except (ProcessTerminationError, MetadataReportError, MergeOutcomeUnknownError):
+                except (ProcessTerminationError, MetadataReportError, MergeOutcomeUnknownError,
+                        StorageError, DeploymentStorageError):
                     raise
                 except Exception as exc:
                     self._require_lease(heartbeat)

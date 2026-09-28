@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import subprocess
 import tarfile
 import tempfile
@@ -16,8 +17,8 @@ import types
 import unittest
 from unittest.mock import patch
 
-from ai_task_deploy import ProductionDeployAdapter, SUMMARY, parse_proof
-from ai_task_deploy_config import DeployConfig, DeploymentError, normal_file
+from ai_task_deploy import ProductionDeployAdapter, SUMMARY, parse_proof, render_remote_script
+from ai_task_deploy_config import DeployConfig, DeploymentError, DeploymentStorageError, normal_file
 from ai_task_diagnostics import redact_secrets
 from ai_task_process import ProcessResult
 
@@ -90,7 +91,10 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(argv[1:4], ['-F', 'none', '-T'])
         self.assertIs(kwargs['shell'], False)
         self.assertEqual(kwargs['stdin'], subprocess.PIPE)
-        self.assertEqual(communicate.call_args.kwargs['input_text'], SCRIPT)
+        transported = communicate.call_args.kwargs['input_text']
+        self.assertEqual(transported, render_remote_script())
+        self.assertNotIn('# __ICHIYON_STORAGE_MODULE__', transported)
+        self.assertIn('def check_storage(', transported)
         self.assertIsNone(communicate.call_args.kwargs['stop_event'])
         self.assertEqual(communicate.call_args.kwargs['timeout'], self.config.timeout)
         self.assertEqual(communicate.call_args.kwargs['max_output_bytes'], self.config.max_output_bytes)
@@ -138,6 +142,22 @@ class DeploymentTests(unittest.TestCase):
                 self.assertIn('DEPLOY_ERROR=' + code, detail)
                 self.assertNotIn('fixture-secret', detail)
                 self.assertNotIn('PREFLIGHT_FAILED' if code == 'LOCK_BUSY' else 'LOCK_BUSY', detail)
+
+    def test_storage_diagnostic_preserves_category_without_arbitrary_logs(self):
+        record = ('STORAGE_PHASE=pre-stop STORAGE_FS=releases+backups+shared+docker+temp '
+                  'STORAGE_AVAILABLE_BYTES=100 STORAGE_REQUIRED_BYTES=200 '
+                  'STORAGE_AVAILABLE_INODES=1000 STORAGE_REQUIRED_INODES=500')
+        output = 'DEPLOY_ERROR=INSUFFICIENT_STORAGE\nSTORAGE_REASON=BYTES\n' + record + '\n/task/private\n'
+        with patch('ai_task_deploy.subprocess.Popen'), patch(
+                'ai_task_deploy.communicate_bounded',
+                return_value=ProcessResult(1, output, 'arbitrary task content /private/path')):
+            with self.assertRaises(DeploymentStorageError) as caught:
+                self.adapter.deploy(SHA)
+        self.assertIn(record, str(caught.exception))
+        self.assertIn('INSUFFICIENT_STORAGE', str(caught.exception))
+        self.assertNotIn('/private', str(caught.exception))
+        self.assertNotIn('/task', str(caught.exception))
+        self.assertNotIn('arbitrary', str(caught.exception))
 
     def test_remote_lock_classification_with_fake_flock(self):
         # Execute only the diagnostic/decision fragment, with fake probe/flock.
@@ -1103,6 +1123,169 @@ class RemoteChecks(unittest.TestCase):
             'deployer=ProductionDeployAdapter(deploy_config)',
             ''.join(runner.split()),
         )
+
+
+class StorageProtocolTests(unittest.TestCase):
+    """Execute the reviewed shell transaction with fake host operations only.
+
+    Capacity math/statvfs faults are checked in check_ai_task_storage.py. Here
+    scripted measurement changes exercise the actual shell branching and trap,
+    including the fact that a pre-stop refusal cannot enter rollback either.
+    All writes are tiny local fixtures; SSH/Docker/production are never invoked.
+    """
+
+    def run_protocol(self, fail_phase='', reason='BYTES', same_sha=False):
+        bash = shutil.which('bash')
+        if os.name == 'nt':
+            bash = 'C:/Program Files/Git/bin/bash.exe'
+        if not bash or not Path(bash).is_file():
+            self.skipTest('Bash unavailable; Linux CI requires it')
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).as_posix()
+            release = Path(temp) / 'releases' / SHA
+            release.mkdir(parents=True)
+            (Path(temp) / 'backups').mkdir()
+            previous = release if same_sha else Path(temp) / 'releases' / ('b' * 40)
+            previous.mkdir(exist_ok=True)
+            guard = SCRIPT.split('storage_check() {', 1)[1].split('\nfail() {', 1)[0]
+            trap = SCRIPT.split('on_exit() {', 1)[1].split('\ntrap on_exit EXIT', 1)[0]
+            transaction = SCRIPT.split('\nmigration_idle || fail\n', 1)[1]
+            transaction = transaction.replace('/home/ubuntu/', root + '/')
+            prelude = '''
+set -euo pipefail
+exec 3>&1
+exec 4>&2
+quiesced=0
+storage_failed=0
+helper=fixture-helper
+repo_url=fixture-repository
+infra_file=
+stage=
+prepared=
+pointer=
+diagnostics=
+fail() { echo DEPLOY_ERROR=FAILED >&3; exit 1; }
+report_diagnostics() { :; }
+cleanup_temporaries() { :; }
+migration_idle() { :; }
+infra_same() { :; }
+health() { echo HEALTH >&2; }
+readlink() { printf '%s\n' "$current_value"; }
+compose() { printf 'COMPOSE %s\n' "$*" >&2; }
+sync() { :; }
+git() {
+    if [[ " $* " == *' rev-parse '* ]]; then echo "$sha"; else echo FETCH >&2; fi
+}
+python3() {
+    if [[ $2 == - ]]; then
+        cat >/dev/null
+        echo "CHECK $3" >&2
+        if [[ $3 == "$fail_phase" ]]; then
+            echo 'DEPLOY_ERROR=INSUFFICIENT_STORAGE'
+            echo "STORAGE_REASON=$reason"
+            return 1
+        fi
+    else
+        case "$3" in
+            infra) echo '{}' ;;
+            migrate) echo MIGRATE >&2 ;;
+            backup) echo VALIDATE_BACKUP >&2 ;;
+        esac
+    fi
+}
+docker() {
+    case "$1" in
+        image) return 1 ;;
+        build) echo BUILD >&2 ;;
+        exec) echo DB_DUMP >&2; echo fixture-dump ;;
+        *) echo UNEXPECTED_DOCKER >&2; return 99 ;;
+    esac
+}
+tar() { echo BACKUP_WRITE >&2; printf fixture-tar >"$backup_stage/persistence.tar"; }
+mv() {
+    if [[ $1 == -Tf ]]; then current_value="$release"; else command mv "$@"; fi
+}
+'''
+            variables = dict(sha=SHA, releases_root=root + '/releases', release=release.as_posix(),
+                             current_link=root + '/current', current_value=previous.as_posix(),
+                             shared_root=root + '/shared', backups_root=root + '/backups',
+                             image='fixture-image', fail_phase=fail_phase, reason=reason)
+            prefix = ''.join(key + '=' + shlex.quote(value) + '\n' for key, value in variables.items())
+            script = (prelude + prefix + 'storage_check() {' + guard + '\non_exit() {' + trap +
+                      '\ntrap on_exit EXIT\nstorage_check deploy-start\nmigration_idle || fail\n' + transaction)
+            result = subprocess.run([bash, '-s'], input=script, text=True, capture_output=True,
+                                    timeout=30, check=False)
+            return result
+
+    def assert_no_stop(self, result):
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn('DEPLOY_ERROR=INSUFFICIENT_STORAGE', result.stdout)
+        self.assertNotIn('DEPLOY_ERROR=FAILED', result.stdout)
+        self.assertNotIn('ROLLED_BACK', result.stdout)
+        for action in ('COMPOSE ', 'DB_DUMP', 'BACKUP_WRITE', 'MIGRATE'):
+            self.assertNotIn(action, result.stderr)
+
+    def test_initial_low_space_starts_no_heavy_operations(self):
+        result = self.run_protocol('deploy-start')
+        self.assert_no_stop(result)
+        self.assertNotIn('BUILD', result.stderr)
+        self.assertNotIn('FETCH', result.stderr)
+
+    def test_capacity_loss_during_build_refuses_before_stop(self):
+        result = self.run_protocol('pre-stop')
+        self.assert_no_stop(result)
+        self.assertIn('BUILD', result.stderr)
+        self.assertLess(result.stderr.index('BUILD'), result.stderr.index('CHECK pre-stop'))
+
+    def test_refined_source_capacity_prevents_build(self):
+        result = self.run_protocol('pre-build')
+        self.assert_no_stop(result)
+        self.assertNotIn('BUILD', result.stderr)
+
+    def test_inode_and_measurement_failures_refuse_before_stop(self):
+        for reason in ('INODES', 'MEASUREMENT_UNAVAILABLE'):
+            with self.subTest(reason=reason):
+                self.assert_no_stop(self.run_protocol('pre-stop', reason=reason))
+
+    def test_backup_fits_but_rollback_headroom_does_not_stop_apps(self):
+        import ai_task_storage as storage
+        from check_ai_task_storage import fixture
+        measured = fixture('pre-stop')
+        backup_bytes = storage.requirements(measured)['backups'][0]
+        capacities = {name: replace(value, available_bytes=backup_bytes + 512 * storage.MIB)
+                      for name, value in measured.capacities.items()}
+        with self.assertRaises(storage.StorageError) as caught:
+            storage.evaluate(replace(measured, capacities=capacities))
+        self.assert_no_stop(self.run_protocol('pre-stop', reason=caught.exception.category))
+
+    def test_sufficient_capacity_retains_normal_protocol(self):
+        result = self.run_protocol()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('DEPLOY_RESULT=SUCCESS', result.stdout)
+        for action in ('BUILD', 'CHECK pre-stop', ' stop admin bot bot-irsia',
+                       'DB_DUMP', 'BACKUP_WRITE', 'MIGRATE', ' up -d ', 'HEALTH'):
+            self.assertIn(action, result.stderr)
+        self.assertLess(result.stderr.index('CHECK pre-stop'), result.stderr.index(' stop '))
+        self.assertLess(result.stderr.index('BACKUP_WRITE'), result.stderr.index('MIGRATE'))
+        self.assertLess(result.stderr.index('MIGRATE'), result.stderr.index(' up -d '))
+        self.assertNotIn('youtube-vpn-proxy', result.stderr)
+
+    def test_same_sha_reconciliation_never_builds_or_restarts(self):
+        result = self.run_protocol(same_sha=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('HEALTH', result.stderr)
+        for action in ('BUILD', 'COMPOSE ', 'BACKUP_WRITE', 'MIGRATE', 'CHECK pre-stop'):
+            self.assertNotIn(action, result.stderr)
+
+    def test_checks_bracket_staging_build_and_quiescence(self):
+        self.assertLess(SCRIPT.index('flock -x'), SCRIPT.index('storage_check deploy-start'))
+        self.assertLess(SCRIPT.index('storage_check deploy-start'), SCRIPT.index('diagnostics=$(mktemp)'))
+        self.assertLess(SCRIPT.index('storage_check deploy-start'), SCRIPT.index('stage=$(mktemp'))
+        self.assertLess(SCRIPT.index('storage_check pre-build'), SCRIPT.index('docker build --label'))
+        self.assertLess(SCRIPT.index('docker build --label'), SCRIPT.index('storage_check pre-stop'))
+        before_stop = SCRIPT.split('storage_check pre-stop', 1)[1].split('compose "$previous" stop', 1)[0]
+        commands = [line.strip() for line in before_stop.splitlines() if line.strip() and not line.lstrip().startswith('#')]
+        self.assertEqual(commands, ['quiesced=1'])
 
 
 def bash_syntax():

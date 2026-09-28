@@ -10,16 +10,22 @@ import unittest
 from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
+from unittest.mock import Mock, patch
 from uuid import uuid4
 
 from ai_task_api_client import ClaimedTask
 from ai_task_auto_merge import MergeOutcomeUnknownError
 from ai_task_codex import CodexResult
 from ai_task_diagnostics import redact_secrets
+from ai_task_deploy_config import DeploymentStorageError
 from ai_task_git import GitAdapter
 from ai_task_publish import GitPublisher
-from ai_task_runner import LeaseHeartbeat, LocalRunner, RunOutcome, test_feedback, run_idle_maintenance
+from ai_task_runner import (
+    LeaseHeartbeat, LocalRunner, RunOutcome, test_feedback, run_idle_maintenance,
+    PRODUCTION_RUNNER_ROOT, production_runner_storage_guard, failure_reason,
+)
 from ai_task_runner_config import RunnerConfig
+from ai_task_storage import StorageError, StorageRecord
 from ai_task_test_registry import TestResult, run_tests
 
 
@@ -130,7 +136,7 @@ class RunnerTests(unittest.TestCase):
             (worktree / "docs/retry.txt").write_text(f"attempt={self.codex_calls}\n", newline="\n")
         return CodexResult(0, "tests run", "")
 
-    def make_runner(self):
+    def make_runner(self, storage_guard=None):
         parent = self
         class Publisher(GitPublisher):
             def commit(self, *args, **kwargs):
@@ -161,7 +167,72 @@ class RunnerTests(unittest.TestCase):
             git=GitAdapter(self.source, self.git_path),
             codex=SimpleNamespace(run=self.codex_run, stop=lambda: None),
             publisher=Publisher(self.git_path), github=GitHub(), review_gate=CI(),
-            auto_merger=Merge(), deployer=Deployer(), heartbeat_factory=Heartbeat)
+            auto_merger=Merge(), deployer=Deployer(), heartbeat_factory=Heartbeat,
+            storage_guard=storage_guard)
+
+    def test_initial_storage_failure_stops_before_fetch_or_worktree(self):
+        record = StorageRecord("runner", "releases+backups+docker", 100, 200, 1000, 100)
+        guard = Mock(side_effect=StorageError("runner", "BYTES", (record,)))
+        runner = self.make_runner(storage_guard=guard)
+        runner.git.fetch_main = Mock(side_effect=AssertionError("must not fetch"))
+        runner.git.add_worktree = Mock(side_effect=AssertionError("must not create worktree"))
+        self.assertEqual(runner.run_once(), RunOutcome.FAILED)
+        runner.git.fetch_main.assert_not_called()
+        runner.git.add_worktree.assert_not_called()
+        self.assertEqual(self.codex_calls, 0)
+        self.assertEqual(self.events, [])
+        self.assertFalse(self.config.worktree_root.exists())
+        self.assertNotIn("retry", [name for name, _ in self.client.calls])
+        reason = self.client.calls[-1][1]["reason"]
+        self.assertIn("INSUFFICIENT_STORAGE", reason)
+        self.assertIn("STORAGE_PHASE=runner", reason)
+        self.assertIn("STORAGE_AVAILABLE_BYTES=100 STORAGE_REQUIRED_BYTES=200", reason)
+        self.assertNotIn("Traceback", reason)
+        self.assertNotIn(str(self.root), reason)
+
+    def test_capacity_is_rechecked_before_worktree_codex_and_tests(self):
+        for failure_at in (2, 3, 4):
+            with self.subTest(failure_at=failure_at):
+                task_id = uuid4()
+                self.task = ClaimedTask(task_id, "Implement changes", f"ai/task/{task_id}",
+                    f"ai-task-{task_id}", uuid4(), "2099-01-01T00:00:00Z")
+                self.client, self.codex_calls, self.events = Client(self.task), 0, []
+                guard = Mock(side_effect=[None] * (failure_at - 1) + [StorageError("runner", "INODES")])
+                runner = self.make_runner(storage_guard=guard)
+                runner.test_runner = Mock(side_effect=AssertionError("must not run tests"))
+                self.assertEqual(runner.run_once(), RunOutcome.FAILED)
+                self.assertEqual(guard.call_count, failure_at)
+                self.assertEqual(self.codex_calls, int(failure_at == 4))
+                runner.test_runner.assert_not_called()
+                self.assertNotIn("retry", [name for name, _ in self.client.calls])
+                self.assertNotIn("merge", self.events)
+                self.assertNotIn("deploy", self.events)
+                worktree = self.config.worktree_root / self.task.worktree_name
+                self.assertEqual(worktree.exists(), failure_at > 2)
+
+    def test_storage_guard_runs_again_before_a_codex_retry(self):
+        self.break_stage = "codex"
+        guard = Mock(side_effect=[None, None, None, StorageError("runner", "BYTES")])
+        runner = self.make_runner(storage_guard=guard)
+        self.assertEqual(runner.run_once(), RunOutcome.FAILED)
+        self.assertEqual(guard.call_count, 4)
+        self.assertEqual(self.codex_calls, 1)
+        self.assertEqual([name for name, _ in self.client.calls].count("retry"), 1)
+        self.assertIn("INSUFFICIENT_STORAGE", self.client.calls[-1][1]["reason"])
+
+    def test_deploy_storage_failure_never_retries_deploy_or_edits(self):
+        runner = self.make_runner()
+        runner.deployer.deploy = Mock(side_effect=DeploymentStorageError(
+            "INSUFFICIENT_STORAGE phase=pre_stop reason=BYTES available=100 required=200"))
+        self.assertEqual(runner.run_once(), RunOutcome.FAILED)
+        runner.deployer.deploy.assert_called_once()
+        self.assertEqual(self.codex_calls, 1)
+        self.assertEqual(self.events.count("merge"), 1)
+        self.assertNotIn("retry", [name for name, _ in self.client.calls])
+        reason = self.client.calls[-1][1]["reason"]
+        self.assertIn("phase=pre_stop", reason)
+        self.assertIn("available=100 required=200", reason)
+        self.assertNotIn("Traceback", reason)
 
     def test_untracked_whitespace_repairs_then_real_commit_and_push(self):
         self.whitespace_first = True
@@ -299,6 +370,25 @@ class RunnerTests(unittest.TestCase):
         for outcome in RunOutcome:
             run_idle_maintenance(deployer, outcome)
         self.assertEqual(self.events, ["catch_up"])
+
+
+class ProductionStorageScopeTests(unittest.TestCase):
+    def test_windows_and_noncolocated_linux_do_not_probe_production_storage(self):
+        with patch("ai_task_runner.check_storage") as check:
+            with patch("ai_task_runner.sys.platform", "win32"):
+                production_runner_storage_guard(SimpleNamespace(repo_root=PRODUCTION_RUNNER_ROOT))
+            with patch("ai_task_runner.sys.platform", "linux"):
+                production_runner_storage_guard(SimpleNamespace(repo_root=Path("/unrelated/source")))
+            check.assert_not_called()
+
+    def test_configured_production_path_fails_closed_even_if_checkout_missing(self):
+        error = StorageError("runner", "MEASUREMENT_UNAVAILABLE")
+        with patch("ai_task_runner.sys.platform", "linux"), \
+                patch("ai_task_runner.check_storage", side_effect=error) as check:
+            with self.assertRaises(StorageError):
+                production_runner_storage_guard(SimpleNamespace(repo_root=PRODUCTION_RUNNER_ROOT))
+        check.assert_called_once_with(phase="runner")
+        self.assertNotIn("Traceback", failure_reason(error))
 
 
 if __name__ == "__main__":
