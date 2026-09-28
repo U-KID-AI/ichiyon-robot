@@ -70,6 +70,20 @@ jobs:
 
   python-and-compose:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: routing_test
+          POSTGRES_USER: routing_test
+          POSTGRES_PASSWORD: routing_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U routing_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -123,6 +137,29 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           python scripts/check_resource_pack_versions.py "$BASE_SHA" "$HEAD_SHA"
+
+      - name: Run isolated DB runtime integration checks
+        env:
+          DATABASE_URL: postgresql://routing_test:routing_test@127.0.0.1:5432/routing_test
+        run: |
+          python scripts/migrate.py
+          python scripts/check_guild_repository.py
+          python scripts/check_message_router_db.py
+
+      - name: Run message routing regression checks
+        run: |
+          python scripts/check_message_router.py
+          python scripts/check_mention_on_message_routing.py
+          python scripts/check_empty_mention_regression.py
+          python scripts/check_mention_shortcuts_runtime.py
+          python scripts/check_interaction_panel_runtime.py
+          python scripts/check_mezamashi_horoscope.py
+          python scripts/check_minecraft_narita_bridge.py
+          python scripts/check_voice_vc_commands.py
+          python scripts/check_music_tts_simultaneous_runtime.py
+          python scripts/check_mention_guard_runtime.py
+          python scripts/check_modes_runtime.py
+          python scripts/check_random_draw_n_pull.py
 
       - name: Run static checks
         run: |
