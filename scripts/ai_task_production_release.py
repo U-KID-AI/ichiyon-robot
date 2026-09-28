@@ -1,7 +1,7 @@
 """Operator entry point: existing exact-SHA app deploy, then managed Minecraft.
 
 Reads only the installed runner's process environment; never loads a dotenv file.
-This command performs production changes. Offline tests do not invoke main().
+This command performs production changes. Tests replace all production I/O.
 """
 
 import argparse
@@ -10,6 +10,7 @@ from pathlib import Path
 from uuid import UUID
 
 from ai_task_api_client import RunnerAPIClient
+from ai_task_control_tunnel import ensure_control_plane_access
 from ai_task_deploy import ProductionDeployAdapter
 from ai_task_deploy_config import DeployConfig, exception_detail
 from ai_task_diagnostics import redact_secrets
@@ -44,9 +45,10 @@ def main():
             repo_root=Path(os.environ["AI_TASK_RUNNER_REPO_ROOT"]),
             worktree_root=Path(os.environ["AI_TASK_RUNNER_WORKTREE_ROOT"]),
         )
-        client = RunnerAPIClient(base, token, runner_id, timeout=180)
-        managed = ManagedMinecraftDeployAdapter(client, attempt=str(args.attempt) if args.attempt else None)
-        result = release(args.merge_sha, ProductionDeployAdapter(config), managed)
+        with ensure_control_plane_access(base, config):
+            client = RunnerAPIClient(base, token, runner_id, timeout=180)
+            managed = ManagedMinecraftDeployAdapter(client, attempt=str(args.attempt) if args.attempt else None)
+            result = release(args.merge_sha, ProductionDeployAdapter(config), managed)
         print(result.summary)
         return 0
     except Exception as exc:
