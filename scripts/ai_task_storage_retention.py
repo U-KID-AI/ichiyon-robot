@@ -306,6 +306,24 @@ def read_backup(path, paths, allocations, verify_checksums=True, related=False,
                 extract_references(read_metadata(path / name), paths, node)
             node['metadata_errors'].append('legacy_restore_contract_requires_review')
             return node
+        if 'manifest.json' in names:
+            # Version 2 is not emitted by the deployment protocol in P1c-1.
+            # A future split archive is required and validated before this node
+            # can be verified; unavailable pg_restore fails closed. No DB restore.
+            import ai_task_backup
+            if not verify_checksums:
+                node['validation'] = 'incomplete'
+                node['metadata_errors'].append('checksums_not_verified')
+                return node
+            proof = ai_task_backup.validate_backup(path, releases_root=paths['releases'],
+                recovery_root=paths['home'] / 'ichiyon-recovery-archives')
+            node.update(validation='verified', checksum_verified=True, ready=True,
+                backup_format_version=2, checksums=proof['checksums'],
+                restore_validation=proof['restore_validation'],
+                recovery_archive_ids=[proof['recovery_archive_id']] if proof['recovery_archive_id'] else [],
+                created_at=(path / 'READY').stat().st_mtime,
+                timestamp_source='ready_mtime_not_creation_proof')
+            return node
         if names != BACKUP_FILES:
             node['validation'] = 'incomplete'
             node['metadata_errors'].append('ready_or_backup_members_missing')

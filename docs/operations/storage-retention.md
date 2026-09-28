@@ -10,24 +10,25 @@ collectorは`ai_task_storage_retention.py`、参照graphと保持policyは`ai_ta
 
 collectorは固定したproduction pathとDockerの参照用interfaceを読む。任意のshell commandを受け取らず、削除・rename・prune・build・restart・container作成を行わない。JSONの内容や`.env`、秘密値、DB dump内容、container環境変数を報告に出さない。backupのchecksumは実ファイルから検証し、tarは展開せず読む。`READY`という名前の存在だけで復元可能と判断しない。
 
-`validation=verified`のbackupは、決められたfile集合、previous参照、infra metadata形式、dump/tar全体のchecksum、dumpの`PGDMP` header、tar memberの型/pathと必要scopeを検証済みという意味。DBを復元したり、previous imageで起動したりする完全なrestore試験ではない。`restore_validation=metadata_checksums_tar_scope_dump_header_not_full_restore`を併記する。releaseもmetadata/layout/image参照を検証し、保存されたvalidatorやCompose codeを実行しない。
+現行のunversioned backupについて、`validation=verified`は決められたfile集合、previous参照、infra metadata形式、dump/tar全体のchecksum、dumpの`PGDMP` header、tar memberの型/pathと必要scopeを検証済みという意味。`restore_validation=metadata_checksums_tar_scope_dump_header_not_full_restore`を併記する。v2は`ai_task_backup.py`による全inventory照合、完全tar読取り、必須の`pg_restore --list`も追加する。`pg_restore`が利用不能ならv2は検証不成立とし、header検査へ後退しない。いずれもDB復元やprevious image起動の証明ではない。releaseもmetadata/layout/image参照を検証し、保存されたvalidatorやCompose codeを実行しない。v2と独立archiveの契約、現行形式の追加検証、隔離restore試験は[storage-recovery.md](storage-recovery.md)を参照。
 
 各backupのdump/tarはコピーごとに全体hashを計算する。同じSHA256と確認したtarのmember/scope検証だけを、その1回の採取中に共有する。異なるコピーのhash確認を省かず、次回実行へcacheを持ち越さない。
 
 production測定は、PCでreviewしたsourceをSSH stdinで実行する。remoteへplannerをinstallせず、`python3 -B`相当でbytecodeも書かない。plannerの配備を目的とする新releaseやDocker imageは作らない。Discord AI Task経由でheavy taskを開始しない。通常サービスの書込みやSSH監査ログは観測中も進むため、採取時刻と観測間の変化を記録する。
 
-CLIに削除modeやpolicy書換えoptionはない。出力はstdoutのJSONのみ。以下はrepo rootのPowerShellで2 moduleをmemory上に束ねる例。`APP_OCI_READ_ONLY_ALIAS`を既存の承認済みapp OCI用SSH aliasへ置き換える。認証やhost keyを新しく設定する例ではなく、BDSのaliasを使わない。`sudo -n`はDocker layer metadataと全processの参照を読むために用い、権限不足を推定で補わない。
+CLIに削除modeやpolicy書換えoptionはない。出力はstdoutのJSONのみ。以下はrepo rootのPowerShellで4 moduleをmemory上に束ねる例。`APP_OCI_READ_ONLY_ALIAS`を既存の承認済みapp OCI用SSH aliasへ置き換える。認証やhost keyを新しく設定する例ではなく、BDSのaliasを使わない。`sudo -n`はDocker layer metadataと全processの参照を読むために用い、権限不足を推定で補わない。
 
 ```powershell
 $appSshAlias = 'APP_OCI_READ_ONLY_ALIAS'
 $bundle = @'
 from pathlib import Path
-graph = Path("scripts/ai_task_storage_retention_graph.py").read_text(encoding="utf-8")
 collector = Path("scripts/ai_task_storage_retention.py").read_text(encoding="utf-8")
 print("import sys, types")
-print("m = types.ModuleType('ai_task_storage_retention_graph')")
-print("exec(compile(" + repr(graph) + ", '<retention-graph>', 'exec'), m.__dict__)")
-print("sys.modules[m.__name__] = m")
+for name in ("ai_task_storage_cleanup", "ai_task_backup", "ai_task_storage_retention_graph"):
+    source = Path("scripts", name + ".py").read_text(encoding="utf-8")
+    print("m = types.ModuleType(" + repr(name) + ")")
+    print("exec(compile(" + repr(source) + ", '<' + m.__name__ + '>', 'exec'), m.__dict__)")
+    print("sys.modules[m.__name__] = m")
 print("exec(compile(" + repr(collector) + ", '<retention-collector>', 'exec'))")
 '@
 $bundle | python - | ssh -o BatchMode=yes -o StrictHostKeyChecking=yes $appSshAlias 'sudo -n python3 -I -B -'
@@ -89,6 +90,8 @@ filesystem容量は論理file sizeと割当bytesを区別する。候補集合�
 Dockerでは候補imageのfull size合計と解放量は異なる。image IDを重複排除し、layerの親を含めたChainIDで共有を区別する。保持imageから参照されるlayerを解放見積りから除く。layer sizeが不足・矛盾する場合は不明とする。`recovery.docker.unique_layer_upper_bound_bytes`はoverlay2の非圧縮layer metadataに基づくlogicalな上限推定であり、filesystem実blockの上限を証明するものではない。imageからの参照がなくなってもbuild cache等がlayerを保持し得るため、`guaranteed_reclaimable_bytes`は0として扱う。`docker system df`のreclaimableを安全な削除容量へコピーしない。
 
 ## interrupted stagingの扱い
+
+P1c-1では既存P1a分類を保ったまま、`cleanup`に`SAFE_TO_CLEAN` / `NEEDS_REVIEW` / `ACTIVE`の追加判定を出す。実装は純粋な判定関数`ai_task_storage_cleanup.py`であり、executorもoperation receiptの作成・読取り機構もない。既存production inventoryには必要なdurable evidenceがないため、古さやlockの空きだけで`SAFE_TO_CLEAN`にはならない。固定evidence領域、終了証明、全参照、保持期間を含む条件は[storage-recovery.md](storage-recovery.md)に記載する。`SAFE_TO_CLEAN`も採取時点の提案であり、実行許可ではない。
 
 現protocolは`.prepare-<sha>.*`、`.release-<sha>.*`、`.backup-<sha>.*`、helper/infra/pointerを作る。random suffixやmtimeだけではoperation ID、owner、lease、終了を証明できない。deploy lockが今空いていても、そのpathが別processから再使用されない証明にはならない。
 

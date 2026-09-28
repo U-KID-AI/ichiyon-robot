@@ -9,6 +9,8 @@ re-reading its references.  Policy age/count limits only select additional keeps
 import copy
 import math
 
+from ai_task_storage_cleanup import build_cleanup_plan
+
 
 CLASSIFICATIONS = (
     "KEEP_REQUIRED", "KEEP_POLICY", "DELETE_CANDIDATE", "NEEDS_REVIEW", "ACTIVE"
@@ -27,6 +29,7 @@ _FIELDS = (
     "entries", "timestamp_source", "ctime", "checksums", "restore_validation",
     "ownership", "operation_sha", "checksum_manifest_present", "lock_held_during_observation",
     "layer_sizes_complete",
+    "backup_format_version", "recovery_archive_ids",
 )
 
 
@@ -369,7 +372,7 @@ def build_plan(snapshot, policy=None):
             for bucket in summary[category].values():
                 bucket["size_semantics"] = "logical_image_bytes_not_physical_disk_usage"
 
-    return {
+    result = {
         "schema_version": 1, "read_only": True,
         "inventory": {field: copy.deepcopy(snapshot[field]) for field in (
             "captured_at", "captured_end_at", "collected_at", "current_release", "runtime_releases",
@@ -383,6 +386,8 @@ def build_plan(snapshot, policy=None):
         "warnings": sorted(set(warnings)), "unknown_reference_kinds": sorted(unknown),
         "recovery": _recovery(snapshot, ordered),
     }
+    result["cleanup"] = build_cleanup_plan(snapshot, result)
+    return result
 
 
 def _recovery(snapshot, nodes):
