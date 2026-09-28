@@ -49,8 +49,17 @@ class Host:
                                   owner_uid=self.owner['uid'], mode=0o600, descriptor=9)
         self.runtime = dict(target_release=None, target_image=None, migration_container=None, image_ids=[], observation_complete=True)
 
-    def patched(self):
+    def patched(self, legacy=True):
         stack = ExitStack()
+        if legacy:
+            # Frozen v1 fixtures continue exercising the compatibility reader;
+            # production commands only use the indexed v2 public writer.
+            for name in ('begin', 'record_stage', 'observe', 'finish'):
+                stack.enter_context(patch.object(evidence, name, getattr(evidence, '_v1_' + name)))
+        else:
+            import ai_task_storage_evidence_store as store
+            stack.enter_context(patch.object(store, 'ROOT', self.evidence))
+            stack.enter_context(patch.object(store, '_uid', return_value=self.owner['uid']))
         for name, value in [('HOME', self.home), ('ROOT', self.evidence), ('RELEASES', self.releases),
                             ('BACKUPS', self.backups), ('CURRENT', self.current), ('LOCK', self.lock), ('PROC', self.proc)]:
             stack.enter_context(patch.object(evidence, name, value))
@@ -425,9 +434,11 @@ class EvidenceTests(unittest.TestCase):
 from pathlib import Path
 sys.path.insert(0,sys.argv[1])
 import ai_task_storage_evidence as e
+import ai_task_storage_evidence_store as s
 home=Path(sys.argv[2])
 e.HOME=home;e.ROOT=home/'ichiyon-storage-evidence';e.RELEASES=home/'ichiyon-releases';e.BACKUPS=home/'ichiyon-backups';e.CURRENT=home/'ichiyon-current';e.LOCK=home/'ichiyon-deploy.lock'
 e._uid=lambda:os.getuid()
+s.ROOT=e.ROOT;s._uid=e._uid
 e._runtime=lambda target:dict(target_release=None,target_image=None,migration_container=None,image_ids=[],observation_complete=True)
 op=e.begin(sys.argv[4],int(sys.argv[3]));e.observe(op,int(sys.argv[3]),'health');e.finish(op,int(sys.argv[3]),'succeeded','not_needed')
 print('VERIFIED')

@@ -204,8 +204,14 @@ def _record_errors(category, node, record, now):
     if not isinstance(operation, dict):
         operation = {}
     operation_id = operation.get('id')
-    if (not _matches(OPERATION, operation_id) or
-            record.get('source_path') != EVIDENCE_ROOT + '/operations/' + str(operation_id) + '.json' or
+    legacy_source = (record.get('source_format') in (None, 'v1-file') and
+                     record.get('source_path') == EVIDENCE_ROOT + '/operations/' + str(operation_id) + '.json')
+    indexed_source = (record.get('source_format') == 'indexed-v2' and
+                      record.get('source_path') == EVIDENCE_ROOT + '/v2/index.sqlite3' and
+                      record.get('source_operation_id') == operation_id and
+                      record.get('source_index_verified') is True and
+                      record.get('source_classification') in ('A', 'B'))
+    if (not _matches(OPERATION, operation_id) or not (legacy_source or indexed_source) or
             any(record.get(key) is not True for key in
                 ('source_verified', 'source_no_symlinks', 'source_stable', 'source_checksum_verified'))):
         errors.append('OPERATION_RECEIPT_PROVENANCE_UNVERIFIED')

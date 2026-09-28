@@ -1146,7 +1146,8 @@ class StorageProtocolTests(unittest.TestCase):
     """
 
     def run_protocol(self, fail_phase='', reason='BYTES', same_sha=False,
-                     evidence_fail='', fail_migrate=False, cancel=False, existing_release=True):
+                     evidence_fail='', fail_migrate=False, cancel=False, existing_release=True,
+                     health_failures=0, ancillary_unlink_failure=False):
         bash = shutil.which('bash')
         if os.name == 'nt':
             bash = 'C:/Program Files/Git/bin/bash.exe'
@@ -1163,8 +1164,14 @@ class StorageProtocolTests(unittest.TestCase):
             previous.mkdir(exist_ok=True)
             guard = SCRIPT.split('storage_check() {', 1)[1].split('\nfail() {', 1)[0]
             trap = SCRIPT.split('on_exit() {', 1)[1].split('\ntrap on_exit EXIT', 1)[0]
+            trap = trap.replace('/home/ubuntu/', root + '/')
+            health_function = SCRIPT.split('health() {', 1)[1].split('\ncleanup_temporaries() {', 1)[0]
             transaction = SCRIPT.split('\nmigration_idle || fail\n', 1)[1]
             transaction = transaction.replace('/home/ubuntu/', root + '/')
+            fixture_helper = Path(temp) / '.ichiyon-deploy-helper.abcdefgh.py'
+            fixture_helper.write_text('offline helper inode fixture\n', encoding='utf-8')
+            fixture_diagnostics = Path(temp) / 'fixture-diagnostics.log'
+            fixture_diagnostics.write_text('offline diagnostic fixture\n', encoding='utf-8')
             prelude = '''
 set -euo pipefail
 exec 3>&1
@@ -1174,24 +1181,32 @@ storage_failed=0
 operation_id=
 cancelled=0
 rollback_result=not_needed
-helper=fixture-helper
 repo_url=fixture-repository
 infra_file=
 stage=
 prepared=
 pointer=
-diagnostics=
 fail() { echo DEPLOY_ERROR=FAILED >&3; exit 1; }
 report_diagnostics() { :; }
-cleanup_temporaries() { :; }
+cleanup_temporaries() { echo CLEANUP_TEMPORARIES >&2; }
 migration_idle() { :; }
 infra_same() { :; }
-health() { echo HEALTH >&2; }
+sleep() { :; }
+health_calls=0
 evidence() {
     echo "EVIDENCE $*" >&2
     if [[ $1 == "$evidence_fail" ]]; then return 1; fi
-    if [[ $evidence_fail == cleanup && $1 == observe && $4 == cleanup ]]; then return 1; fi
+    if [[ $1 == observe && $4 == "$evidence_fail" ]]; then return 1; fi
     if [[ $1 == begin ]]; then echo 11111111111111111111111111111111; fi
+    if [[ $1 == observe && $4 == ancillary_cleanup ]]; then
+        [[ $helper == /proc/self/fd/8 && ! -e $original_helper && ! -e $diagnostics ]] || return 1
+        [[ $(command cat <&8) == 'offline helper inode fixture' ]] || return 1
+        echo ANCILLARY_ABSENT_FD8_READABLE >&2
+    fi
+    if [[ $1 == finish && $4 == succeeded ]]; then
+        [[ $helper == /proc/self/fd/8 && ! -e $original_helper && ! -e $diagnostics ]] || return 1
+        echo SUCCESS_FINISH_AFTER_ANCILLARY_UNLINK >&2
+    fi
 }
 evidence_phase() { evidence observe "$operation_id" "$$" "$1"; }
 readlink() { printf '%s\n' "$current_value"; }
@@ -1224,6 +1239,11 @@ python3() {
                 if [[ $fail_migrate == true ]]; then return 1; fi
                 ;;
             backup) echo VALIDATE_BACKUP >&2 ;;
+            health)
+                health_calls=$((health_calls + 1))
+                echo HEALTH >&2
+                if (( health_calls <= health_failures )); then return 1; fi
+                ;;
         esac
     fi
 }
@@ -1239,15 +1259,25 @@ tar() { echo BACKUP_WRITE >&2; printf fixture-tar >"$backup_stage/persistence.ta
 mv() {
     if [[ $1 == -Tf ]]; then current_value="$release"; else command mv "$@"; fi
 }
+rm() {
+    if [[ $ancillary_unlink_failure == true && " $* " == *" $original_helper "* ]]; then
+        echo ANCILLARY_UNLINK_FAILED >&2
+        return 1
+    fi
+    command rm "$@"
+}
 '''
             variables = dict(sha=SHA, releases_root=root + '/releases', release=release.as_posix(),
                              current_link=root + '/current', current_value=previous.as_posix(),
                              shared_root=root + '/shared', backups_root=root + '/backups',
                              image='fixture-image', fail_phase=fail_phase, reason=reason,
                              evidence_fail=evidence_fail, fail_migrate=str(fail_migrate).lower(),
-                             cancel=str(cancel).lower())
+                             cancel=str(cancel).lower(), health_failures=str(health_failures),
+                             ancillary_unlink_failure=str(ancillary_unlink_failure).lower(),
+                             helper=fixture_helper.as_posix(), original_helper=fixture_helper.as_posix(),
+                             diagnostics=fixture_diagnostics.as_posix())
             prefix = ''.join(key + '=' + shlex.quote(value) + '\n' for key, value in variables.items())
-            script = (prelude + prefix + 'storage_check() {' + guard + '\non_exit() {' + trap +
+            script = (prelude + prefix + 'storage_check() {' + guard + '\nhealth() {' + health_function + '\non_exit() {' + trap +
                       "\ntrap on_exit EXIT\ntrap 'cancelled=1; exit 1' TERM\n"
                       'storage_check deploy-start\noperation_id=$(evidence begin "$sha" "$$")\n'
                       'migration_idle || fail\n' + transaction)
@@ -1276,6 +1306,41 @@ mv() {
         self.assertNotEqual(result.returncode, 0)
         for action in ('FETCH', 'COMPOSE ', 'MIGRATE', 'EVIDENCE stage'):
             self.assertNotIn(action, result.stderr)
+
+    def test_success_finishes_only_after_cleanup_and_unlinked_open_helper(self):
+        result = self.run_protocol(same_sha=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = result.stderr.splitlines()
+        clean = next(i for i, line in enumerate(lines) if line == 'CLEANUP_TEMPORARIES')
+        phase = next(i for i, line in enumerate(lines) if line.startswith('EVIDENCE observe ') and line.endswith(' cleanup'))
+        ancillary = next(i for i, line in enumerate(lines) if line == 'ANCILLARY_ABSENT_FD8_READABLE')
+        finish = next(i for i, line in enumerate(lines) if line.startswith('EVIDENCE finish '))
+        self.assertLess(clean, phase)
+        self.assertLess(phase, ancillary)
+        self.assertLess(ancillary, finish)
+        self.assertIn('SUCCESS_FINISH_AFTER_ANCILLARY_UNLINK', lines)
+
+    def test_transient_health_failure_is_recorded_before_success(self):
+        result = self.run_protocol(same_sha=True, health_failures=1)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = result.stderr.splitlines()
+        health = [i for i, line in enumerate(lines) if line == 'HEALTH']
+        retry = next(i for i, line in enumerate(lines) if line.startswith('EVIDENCE observe ') and line.endswith(' health_retry'))
+        verified = next(i for i, line in enumerate(lines) if line.startswith('EVIDENCE observe ') and line.endswith(' health'))
+        self.assertEqual(len(health), 2)
+        self.assertLess(health[0], retry)
+        self.assertLess(retry, health[1])
+        self.assertLess(health[1], verified)
+        self.assertRegex(result.stderr, r'EVIDENCE finish [0-9a-f]{32} [0-9]+ succeeded not_needed')
+
+    def test_ancillary_unlink_or_observation_failure_never_finishes_success(self):
+        for options in ({'ancillary_unlink_failure': True}, {'evidence_fail': 'ancillary_cleanup'}):
+            with self.subTest(options=options):
+                result = self.run_protocol(same_sha=True, **options)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertRegex(result.stderr, r'EVIDENCE finish [0-9a-f]{32} [0-9]+ failed not_needed')
+                self.assertNotIn('SUCCESS_FINISH_AFTER_ANCILLARY_UNLINK', result.stderr)
+                self.assertNotIn('ROLLED_BACK', result.stdout)
 
     def test_failed_and_cancelled_deploys_record_rollback_result(self):
         for cancelled in (False, True):

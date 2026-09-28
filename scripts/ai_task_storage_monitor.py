@@ -18,6 +18,7 @@ import threading
 import time
 
 import ai_task_storage as storage
+import ai_task_storage_evidence_store as evidence_store
 
 REPORT = storage.SHARED / 'data/storage-monitor.json'
 LOCK = Path('/home/ubuntu/ichiyon-storage-monitor.lock')
@@ -26,6 +27,7 @@ EVIDENCE = Path('/home/ubuntu/ichiyon-storage-evidence')
 DIAGNOSTICS = Path('/home/ubuntu/ichiyon-runner-diagnostics')
 INTERVAL = 300
 MAX_REPORT_BYTES = 65536
+MAX_LEGACY_EVIDENCE_ENTRIES = 8192
 logger = logging.getLogger('ai_task_runner.storage')
 
 
@@ -167,6 +169,65 @@ def docker_usage():
     return rows
 
 
+def evidence_metrics():
+    """Count frozen v1 entries and read the v2 index without recovery or writes.
+
+    Corruption/locking never becomes a zero count or an unverified estimate.
+    Store.read_session uses mode=ro/query_only, including for a hot journal.
+    These supplemental metrics cannot authorize deployment or cleanup.
+    """
+    normal_directory(EVIDENCE)
+    metrics, errors = {}, []
+    try:
+        legacy = (('operations', 'legacy_terminal_entries'),
+                  ('active', 'legacy_active_entries'),
+                  ('.pending', 'legacy_pending_entries'))
+        present = [(EVIDENCE / namespace).exists() or (EVIDENCE / namespace).is_symlink()
+                   for namespace, _ in legacy]
+        if any(present) and not all(present):
+            raise ValueError('monitor_legacy_namespace_incomplete')
+        for namespace, label in legacy:
+            if not any(present):
+                metrics[label] = 0  # A new v2-only bootstrap has no v1 namespace.
+                continue
+            path = EVIDENCE / namespace
+            normal_directory(path)
+            before = path.lstat()
+            count = 0
+            with os.scandir(path) as entries:
+                for _ in entries:
+                    count += 1
+                    if count > MAX_LEGACY_EVIDENCE_ENTRIES:
+                        raise ValueError('monitor_legacy_evidence_limit')
+            after = path.lstat()
+            if (before.st_dev, before.st_ino, before.st_mtime_ns, before.st_ctime_ns) != (
+                    after.st_dev, after.st_ino, after.st_mtime_ns, after.st_ctime_ns):
+                raise ValueError('monitor_legacy_evidence_changed')
+            metrics[label] = count
+        # Backward-compatible name: this counts only the frozen v1 namespace.
+        metrics['operation_entries'] = metrics['legacy_terminal_entries']
+        metrics['legacy_status'] = 'counted' if any(present) else 'not_present'
+    except Exception:
+        metrics = {'legacy_status': 'unavailable'}
+        errors.append('evidence_legacy')
+    namespace = EVIDENCE / 'v2'
+    if not namespace.exists() and not namespace.is_symlink():
+        metrics['index_status'] = 'not_initialized'
+        return metrics, errors
+    try:
+        with evidence_store.read_session() as reader:
+            summary = reader.summary()
+        # No raw receipt, path, SHA, SQL exception or arbitrary text is copied.
+        metrics.update(index_status='verified', index_schema_version=summary['version'],
+                       index_counters=dict(summary['counters']),
+                       index_database_bytes=summary['database_bytes'],
+                       index_limits=dict(summary['limits']))
+    except Exception:
+        metrics['index_status'] = 'unavailable'
+        errors.append('evidence_index')
+    return metrics, errors
+
+
 def collect(now=None):
     sampled_at = int(time.time() if now is None else now)
     report = dict(schema_version=1, sampled_at=sampled_at, status='CRITICAL',
@@ -196,11 +257,15 @@ def collect(now=None):
     for name, path in roots.items():
         try:
             report['totals'][name] = dict(allocated_bytes=tree_allocated(path))
-            if name == 'evidence':
-                normal_directory(path)
-                report['totals'][name]['operation_entries'] = len(list((path / 'operations').iterdir()))
         except Exception:
             report['supplementary_errors'].append(name)
+    try:
+        metrics, errors = evidence_metrics()
+        report['totals'].setdefault('evidence', {}).update(metrics)
+        report['supplementary_errors'].extend(errors)
+    except Exception:
+        report['totals'].setdefault('evidence', {}).update(legacy_status='unavailable', index_status='unavailable')
+        report['supplementary_errors'].append('evidence')
     try:
         report['docker'] = docker_usage()
     except Exception:

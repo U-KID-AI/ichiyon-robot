@@ -3,10 +3,12 @@ import asyncio
 from contextlib import redirect_stdout
 from dataclasses import replace
 import importlib
+import hashlib
 import io
 import json
 import os
 import stat
+import sqlite3
 from pathlib import Path
 import sys
 import tempfile
@@ -16,6 +18,7 @@ from unittest.mock import patch
 
 import ai_task_storage as storage
 import ai_task_storage_monitor as monitor
+import ai_task_storage_evidence_store as evidence_store
 from check_ai_task_storage import fixture
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -31,6 +34,132 @@ def report(status='WARNING', sampled=1000):
                  'P0_REJECTED' if status == 'CRITICAL' else 'P0_SUFFICIENT'],
         p0=[dict(phase='runner', filesystem='releases+docker', available_bytes=12*storage.GIB,
                  required_bytes=10*storage.GIB, available_inodes=90000, required_inodes=80000)])
+
+
+class EvidenceMetricTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve() / 'evidence'
+        self.root.mkdir(mode=0o700)
+        for namespace in ('operations', 'active', '.pending'):
+            (self.root / namespace).mkdir(mode=0o700)
+        for number in range(2):
+            (self.root / 'operations' / (str(number) + '.json')).write_bytes(b'legacy sentinel')
+            (self.root / 'active' / (str(number) + '.json')).write_bytes(b'legacy sentinel')
+        for target, name, value in ((monitor, 'EVIDENCE', self.root),
+                                    (evidence_store, 'ROOT', self.root),
+                                    (evidence_store, '_uid', lambda: os.getuid() if hasattr(os, 'getuid') else 0)):
+            mocked = patch.object(target, name, value)
+            mocked.start(); self.addCleanup(mocked.stop)
+
+    def inventory(self):
+        return {str(p.relative_to(self.root)): (p.stat().st_ino, p.stat().st_size,
+                    p.stat().st_mtime_ns, hashlib.sha256(p.read_bytes()).hexdigest())
+                for p in self.root.rglob('*') if p.is_file()}
+
+    def populated_index(self):
+        def payload(opid):
+            return dict(operation_id=opid, state='running', target_sha='a'*40, previous_sha='a'*40,
+                        sequence=1, created_at=1.0, completed_at=None, owner={}, lock={},
+                        initial_names={}, initial_runtime={}, staging=[], rollback_result=None)
+        with evidence_store.Store(create=True) as writer:
+            opid = writer.begin(payload)
+            active = writer.get_active(opid)
+            terminal = dict(active, state='succeeded', sequence=2, completed_at=2.0,
+                            rollback_result='not_needed', active_payload_sha256=evidence_store.digest(active))
+            writer.finish(terminal, 'C', proof=dict(persistent_absence_verified=True,
+                          health_verified=True, cleanup_verified=True))
+
+    def test_legacy_only_before_first_v2_publication(self):
+        before = self.inventory()
+        with patch.object(evidence_store, 'read_session') as reader:
+            value, errors = monitor.evidence_metrics()
+        reader.assert_not_called()
+        self.assertEqual(value['operation_entries'], 2)
+        self.assertEqual(value['legacy_active_entries'], 2)
+        self.assertEqual(value['legacy_pending_entries'], 0)
+        self.assertEqual(value['index_status'], 'not_initialized')
+        self.assertNotIn('index_counters', value)
+        self.assertEqual(errors, [])
+        self.assertEqual(self.inventory(), before)
+
+    def test_legacy_and_v2_counts_read_without_any_file_change(self):
+        self.populated_index()
+        before = self.inventory()
+        value, errors = monitor.evidence_metrics()
+        self.assertEqual(errors, [])
+        self.assertEqual(value['index_status'], 'verified')
+        self.assertEqual(value['operation_entries'], 2)
+        self.assertEqual(value['index_counters']['C_total'], 1)
+        self.assertEqual(value['index_counters']['recent'], 1)
+        self.assertEqual(value['index_counters']['rollups'], 1)
+        self.assertEqual(value['index_counters']['active'], 0)
+        self.assertEqual(self.inventory(), before)
+
+    def test_new_v2_only_bootstrap_counts_absent_legacy_without_error(self):
+        self.populated_index()
+        for namespace in ('operations', 'active', '.pending'):
+            path = self.root / namespace
+            for file in path.iterdir():
+                file.unlink()
+            path.rmdir()
+        before = self.inventory()
+        value, errors = monitor.evidence_metrics()
+        self.assertEqual(errors, [])
+        self.assertEqual(value['legacy_status'], 'not_present')
+        self.assertEqual(value['operation_entries'], 0)
+        self.assertEqual(value['legacy_active_entries'], 0)
+        self.assertEqual(value['legacy_pending_entries'], 0)
+        self.assertEqual(value['index_status'], 'verified')
+        self.assertEqual(value['index_counters']['C_total'], 1)
+        self.assertEqual(self.inventory(), before)
+
+    def test_partial_legacy_namespace_remains_unavailable(self):
+        self.populated_index()
+        (self.root / '.pending').rmdir()
+        value, errors = monitor.evidence_metrics()
+        self.assertEqual(value['legacy_status'], 'unavailable')
+        self.assertNotIn('operation_entries', value)
+        self.assertEqual(value['index_status'], 'verified')
+        self.assertEqual(errors, ['evidence_legacy'])
+
+    def test_corrupt_index_marks_missing_metric_without_changing_p0(self):
+        self.populated_index()
+        connection = sqlite3.connect(str(self.root / 'v2/index.sqlite3'))
+        try:
+            with connection:
+                connection.execute("UPDATE meta SET checksum=?", ('f'*64,))
+        finally:
+            connection.close()
+        before = self.inventory()
+        with patch.object(storage, 'measure', return_value=fixture('runner')), \
+             patch.object(storage, '_capacity', return_value=next(iter(fixture('runner').capacities.values()))), \
+             patch.object(monitor, 'tree_allocated', return_value=1), \
+             patch.object(monitor, 'docker_usage', return_value={}):
+            value = monitor.collect(1000)
+        self.assertEqual(value['status'], 'OK')
+        self.assertEqual(value['reasons'], ['P0_SUFFICIENT'])
+        evidence = value['totals']['evidence']
+        self.assertEqual(evidence['operation_entries'], 2)
+        self.assertEqual(evidence['index_status'], 'unavailable')
+        self.assertNotIn('index_counters', evidence)
+        self.assertIn('evidence_index', value['supplementary_errors'])
+        self.assertEqual(self.inventory(), before)
+
+    def test_existing_namespace_missing_database_is_not_recreated(self):
+        (self.root / 'v2').mkdir(mode=0o700)
+        value, errors = monitor.evidence_metrics()
+        self.assertEqual(value['index_status'], 'unavailable')
+        self.assertEqual(errors, ['evidence_index'])
+        self.assertFalse((self.root / 'v2/index.sqlite3').exists())
+
+    def test_legacy_namespace_over_limit_has_no_fabricated_zero(self):
+        with patch.object(monitor, 'MAX_LEGACY_EVIDENCE_ENTRIES', 1):
+            value, errors = monitor.evidence_metrics()
+        self.assertEqual(value['legacy_status'], 'unavailable')
+        self.assertNotIn('operation_entries', value)
+        self.assertEqual(errors, ['evidence_legacy'])
 
 
 class MonitorTests(unittest.TestCase):

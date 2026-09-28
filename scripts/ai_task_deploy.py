@@ -29,7 +29,8 @@ def render_remote_script() -> str:
     if script.count(MODULE_MARKER) != 1:
         raise DeploymentError("trusted deployment modules unavailable")
     modules = ["import types"]
-    for name in ("ai_task_backup", "ai_task_storage_evidence"):
+    for name in ("ai_task_backup", "ai_task_storage_evidence_store",
+                 "ai_task_storage_evidence_classification", "ai_task_storage_evidence"):
         source = normal_file(SCRIPT.with_name(name + '.py'), ()).read_text(encoding='utf-8')
         modules.extend(("_module = types.ModuleType(" + repr(name) + ")",
                         "sys.modules[_module.__name__] = _module",

@@ -662,6 +662,7 @@ health() {
     local attempt
     for attempt in 1 2 3 4 5 6; do
         if python3 -I "$helper" health "$base" "$infra_file"; then return 0; fi
+        evidence_phase health_retry || return 1
         sleep 5
     done
     return 1
@@ -694,6 +695,20 @@ on_exit() {
             fi
         elif (( storage_failed == 0 )); then
             printf '%s\n' 'DEPLOY_ERROR=FAILED' >&3
+        fi
+    fi
+    if (( code == 0 )) && [[ -n $operation_id ]]; then
+        # The final interpreter reads our already-open helper inode. Unlink
+        # successful diagnostics and the helper before a C receipt can commit;
+        # a crash after commit therefore leaves neither persistent artifact.
+        exec 1>&3 2>&4
+        if [[ -f $helper && ! -L $helper && $helper == /home/ubuntu/.ichiyon-deploy-helper.*.py ]] &&
+            exec 8<"$helper" && rm -f -- "$diagnostics" "$helper" &&
+            [[ ! -e $diagnostics && ! -L $diagnostics && ! -e $helper && ! -L $helper ]]; then
+            helper=/proc/self/fd/8
+            if ! evidence_phase ancillary_cleanup; then code=1; fi
+        else
+            code=1
         fi
     fi
     if [[ -n $operation_id ]]; then
@@ -742,6 +757,7 @@ if [[ $previous == "$release" ]]; then
     evidence_phase reconcile
     python3 -I "$helper" compare-source "$release" "$stage"
     health "$release"
+    evidence_phase health
     python3 -I "$helper" migration-cleanup "$release"
 else
     if [[ -e $release || -L $release ]]; then
@@ -816,6 +832,6 @@ else
     sync -f /home/ubuntu
 fi
 [[ $(readlink -e "$current_link") == "$release" ]]
-evidence_phase cleanup
 cleanup_temporaries
+evidence_phase cleanup
 printf 'DEPLOY_RESULT=SUCCESS\nDEPLOYED_COMMIT_SHA=%s\nDEPLOY_SUMMARY=Immutable app deployment verified.\n' "$sha" >&3

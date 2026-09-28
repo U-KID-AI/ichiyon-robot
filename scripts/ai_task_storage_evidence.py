@@ -15,6 +15,7 @@ import math
 import os
 from pathlib import Path
 import re
+import sqlite3
 import stat
 import subprocess
 import time
@@ -33,7 +34,7 @@ MAX_EVENTS = 32
 MAX_NAMES = 8192
 SCHEMA = 'ichiyon-deployment-evidence'
 PHASES = {'preflight', 'prepare', 'release', 'image', 'backup', 'migrate',
-          'health', 'reconcile', 'cleanup', 'rollback'}
+          'health', 'health_retry', 'reconcile', 'cleanup', 'ancillary_cleanup', 'rollback'}
 TERMINAL = {'succeeded', 'failed', 'cancelled'}
 ROLLBACK = {'not_needed', 'not_attempted', 'succeeded', 'failed', 'unknown'}
 SHA = re.compile(r'[0-9a-f]{40}\Z')
@@ -352,11 +353,12 @@ def _references(target, previous):
 
 
 def _runtime(target):
-    result = dict(target_release=None, target_image=None, migration_container=None, image_ids=[], observation_complete=True)
+    result = dict(target_release=None, target_image=None, migration_container=None, image_ids=[], image_tags={}, observation_complete=True)
     inventory = None
     try:
         inventory = _image_inventory()
         result['image_ids'] = inventory[0]
+        result['image_tags'] = inventory[1]
     except (OSError, ValueError, UnicodeError, subprocess.SubprocessError):
         result['observation_complete'] = False
     for key, reader in (('target_release', lambda: _directory_identity(RELEASES / target)),
@@ -454,11 +456,17 @@ def _validate(payload, opid, terminal):
         need(isinstance(event, dict) and set(event) == {'phase', 'at'} and event['phase'] in PHASES and
              _timestamp(event['at']) and event['at'] >= payload['created_at'], 'event_history_invalid')
     for runtime in (payload['initial_runtime'], payload['runtime']):
-        need(isinstance(runtime, dict) and set(runtime) == {'target_release', 'target_image', 'migration_container', 'image_ids', 'observation_complete'} and
+        need(isinstance(runtime, dict) and set(runtime) in ({'target_release', 'target_image', 'migration_container', 'image_ids', 'observation_complete'},
+                 {'target_release', 'target_image', 'migration_container', 'image_ids', 'image_tags', 'observation_complete'}) and
              type(runtime['observation_complete']) is bool, 'runtime_identity_invalid')
         need(isinstance(runtime['image_ids'], list) and len(runtime['image_ids']) <= MAX_NAMES and
              all(_match(IMAGE, value) for value in runtime['image_ids']) and
              runtime['image_ids'] == sorted(set(runtime['image_ids'])), 'runtime_image_inventory_invalid')
+        if 'image_tags' in runtime:
+            need(isinstance(runtime['image_tags'], dict) and len(runtime['image_tags']) <= MAX_NAMES and
+                 all(isinstance(tag, str) and re.fullmatch(r'[A-Za-z0-9_.:/@+-]{1,512}', tag) and
+                     _match(IMAGE, ident) and ident in runtime['image_ids']
+                     for tag, ident in runtime['image_tags'].items()), 'runtime_image_tags_invalid')
         release = runtime['target_release']
         if release is not None:
             need(isinstance(release, dict) and set(release) == {'device', 'inode', 'signature'} and
@@ -504,7 +512,7 @@ def read_receipt(path, terminal=True):
     return payload
 
 
-def _load_active(opid, owner_pid):
+def _v1_load_active(opid, owner_pid):
     need(_match(OPID, opid), 'operation_id_invalid')
     need(not (ROOT / 'operations' / (opid + '.json')).exists(), 'operation_already_terminal')
     payload = read_receipt(ROOT / 'active' / (opid + '.json'), terminal=False)
@@ -523,7 +531,7 @@ def _event(payload, phase):
     payload['sequence'] += 1
 
 
-def begin(target_sha, owner_pid):
+def _v1_begin(target_sha, owner_pid):
     owner, lock = _owner(owner_pid, target_sha)
     previous = _current_sha()
     names = dict(releases=_names(RELEASES), backups=_names(BACKUPS))
@@ -542,8 +550,8 @@ def begin(target_sha, owner_pid):
     return payload['operation_id']
 
 
-def record_stage(opid, owner_pid, kind, exactpath):
-    payload = _load_active(opid, owner_pid)
+def _v1_record_stage(opid, owner_pid, kind, exactpath):
+    payload = _v1_load_active(opid, owner_pid)
     path = _stage_path(kind, exactpath, payload['target_sha'])
     need(path.name not in payload['initial_names']['backups' if kind == 'backup' else 'releases'], 'legacy_stage_cannot_be_enrolled')
     need(not any(item['kind'] == kind for item in payload['staging']), 'stage_already_bound')
@@ -555,8 +563,8 @@ def record_stage(opid, owner_pid, kind, exactpath):
     _publish(ROOT / 'active' / (opid + '.json'), payload)
 
 
-def observe(opid, owner_pid, phase):
-    payload = _load_active(opid, owner_pid)
+def _v1_observe(opid, owner_pid, phase):
+    payload = _v1_load_active(opid, owner_pid)
     _event(payload, phase)
     runtime = _runtime(payload['target_sha'])
     # A completed migration container can be removed by the normal protocol;
@@ -570,9 +578,9 @@ def observe(opid, owner_pid, phase):
     _publish(ROOT / 'active' / (opid + '.json'), payload)
 
 
-def finish(opid, owner_pid, state, rollback):
+def _v1_finish(opid, owner_pid, state, rollback):
     need(state in TERMINAL and rollback in ROLLBACK, 'terminal_state_invalid')
-    payload = _load_active(opid, owner_pid)
+    payload = _v1_load_active(opid, owner_pid)
     active_digest = digest(payload)
     payload['state'], payload['rollback_result'] = state, rollback
     payload['completed_at'] = time.time()
@@ -587,6 +595,152 @@ def finish(opid, owner_pid, state, rollback):
     _validate(payload, opid, True)
     _publish(ROOT / 'operations' / (opid + '.json'), payload, terminal=True)
     return dict(operation_id=opid, terminal_state=state, receipt=str(ROOT / 'operations' / (opid + '.json')))
+
+
+def _load_indexed_active(store, opid, owner_pid):
+    need(_match(OPID, opid), 'operation_id_invalid')
+    payload = _validate(store.get_active(opid), opid, False)
+    owner, lock = _owner(owner_pid, payload['target_sha'])
+    need(owner == payload['owner'] and lock == payload['lock'], 'operation_owner_or_lock_changed')
+    return payload
+
+
+def begin(target_sha, owner_pid):
+    from ai_task_storage_evidence_store import Store
+    owner, lock = _owner(owner_pid, target_sha)
+    previous = _current_sha()
+    names = dict(releases=_names(RELEASES), backups=_names(BACKUPS))
+    runtime = _runtime(target_sha)
+    now = time.time()
+    refs = _references(target_sha, previous)
+
+    def factory(opid):
+        payload = dict(operation_id=opid, owner=owner, target_sha=target_sha,
+            previous_sha=previous, created_at=now, completed_at=None, state='running', phase='preflight',
+            rollback_result=None, lock=lock, initial_names=names, initial_runtime=runtime, staging=[],
+            runtime=runtime, reference_snapshot=refs, reference_snapshot_sha256=digest(refs),
+            events=[dict(phase='preflight', at=now)], omitted_event_count=0, sequence=1,
+            active_payload_sha256=None)
+        return _validate(payload, opid, False)
+
+    with Store(create=True) as store:
+        return store.begin(factory)
+
+
+def record_stage(opid, owner_pid, kind, exactpath):
+    from ai_task_storage_evidence_store import Store
+    with Store() as store:
+        payload = _load_indexed_active(store, opid, owner_pid)
+        path = _stage_path(kind, exactpath, payload['target_sha'])
+        need(path.name not in payload['initial_names']['backups' if kind == 'backup' else 'releases'],
+             'legacy_stage_cannot_be_enrolled')
+        need(not any(item['kind'] == kind for item in payload['staging']), 'stage_already_bound')
+        identity = _directory_identity(path)
+        need(path.lstat().st_ctime_ns >= int(payload['created_at'] * 1e9), 'stage_predates_operation')
+        payload['staging'].append(dict(kind=kind, path=str(path), created_identity=identity, created_at=time.time()))
+        _event(payload, kind)
+        store.update(_validate(payload, opid, False))
+
+
+def _refresh(payload, runtime=None):
+    runtime = _runtime(payload['target_sha']) if runtime is None else dict(runtime)
+    # Preserve migration history in the lossless receipt. Classification uses
+    # the separate fresh raw observation, never this remembered container.
+    if runtime['migration_container'] is None:
+        runtime['migration_container'] = payload['runtime']['migration_container']
+    payload['runtime'] = runtime
+    payload['reference_snapshot'] = _references(payload['target_sha'], payload['previous_sha'])
+    payload['reference_snapshot_sha256'] = digest(payload['reference_snapshot'])
+
+
+def observe(opid, owner_pid, phase):
+    from ai_task_storage_evidence_store import Store
+    with Store() as store:
+        payload = _load_indexed_active(store, opid, owner_pid)
+        _event(payload, phase)
+        _refresh(payload)
+        store.update(_validate(payload, opid, False))
+
+
+def _ancillary_absent(owner_pid):
+    """The normal shell unlinks its helper before finalization through FD 8.
+
+    The checked deleted inode remains open only for this final interpreter.
+    Diagnostics have already been unlinked and output restored by the shell.
+    No task text, arbitrary file path or caller-selected retention enters here.
+    """
+    try:
+        descriptor = PROC / str(owner_pid) / 'fd/8'
+        name = os.readlink(str(descriptor))
+        need(re.fullmatch(r'/home/ubuntu/\.ichiyon-deploy-helper\.[A-Za-z0-9]{8}\.py \(deleted\)', name),
+             'helper_cleanup_unverified')
+        info = descriptor.stat()
+        need(stat.S_ISREG(info.st_mode) and info.st_nlink == 0 and info.st_uid == _uid(),
+             'helper_cleanup_unverified')
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _final_observation(payload, runtime, owner_pid):
+    stages = []
+    for item in payload['staging']:
+        row = dict(kind=item['kind'], path=item['path'], status='unknown', identity=None)
+        try:
+            path = _stage_path(item['kind'], item['path'], payload['target_sha'])
+            _normal_directory(path.parent)
+            try:
+                path.lstat()
+            except FileNotFoundError:
+                row['status'] = 'absent'
+            else:
+                row.update(status='present', identity=_directory_identity(path))
+        except (OSError, ValueError):
+            pass
+        stages.append(row)
+    refs = payload['reference_snapshot']
+    phases = [event['phase'] for event in payload['events']]
+    return dict(version=1, operation_id=payload['operation_id'], observed_at=time.time(),
+        current_sha=refs['current_sha'], references_complete=refs['complete'],
+        names=dict(releases=refs['releases'], backups=refs['backups']), runtime=runtime, stages=stages,
+        health_verified='health' in phases, reconciliation_verified='reconcile' in phases,
+        cleanup_completed='cleanup' in phases,
+        ancillary_cleanup_verified='ancillary_cleanup' in phases and _ancillary_absent(owner_pid))
+
+
+def finish(opid, owner_pid, state, rollback):
+    from ai_task_storage_evidence_store import Store
+    from ai_task_storage_evidence_classification import classify
+    need(state in TERMINAL and rollback in ROLLBACK, 'terminal_state_invalid')
+    with Store() as store:
+        payload = _load_indexed_active(store, opid, owner_pid)
+        active_digest = digest(payload)
+        payload['state'], payload['rollback_result'] = state, rollback
+        payload['completed_at'] = time.time()
+        payload['active_payload_sha256'] = active_digest
+        payload['sequence'] += 1
+        runtime = _runtime(payload['target_sha'])
+        _refresh(payload, runtime)
+        _validate(payload, opid, True)
+        observation = _final_observation(payload, runtime, owner_pid)
+        classified = classify(payload, observation)
+        store.finish(payload, classified['classification'], classified['object_keys'], classified['noop_proof'])
+    return dict(operation_id=opid, terminal_state=state, classification=classified['classification'],
+                receipt=str(ROOT / 'v2/index.sqlite3'))
+
+
+def _indexed_payload(envelope, terminal=True):
+    """Validate both lossless payloads, in addition to store checksums/index."""
+    payload = envelope['payload']
+    opid = payload['operation_id']
+    _validate(payload, opid, terminal)
+    if terminal:
+        active = _validate(envelope['active_payload'], opid, False)
+        need(payload['active_payload_sha256'] == digest(active) and
+             payload['sequence'] == active['sequence'] + 1 and
+             all(payload[key] == active[key] for key in ('owner', 'created_at', 'staging', 'target_sha',
+                 'previous_sha', 'lock', 'initial_names', 'initial_runtime')), 'terminal_active_binding_invalid')
+    return payload
 
 
 def _owner_state(payload, terminal):
@@ -679,10 +833,16 @@ def enrich_snapshot(snapshot, open_paths=()):
     summaries, verified, errors, pending_count = [], [], [], 0
     observations = {}
     try:
-        _secure_root()
-        terminal_names = _names(ROOT / 'operations')
-        active_names = _names(ROOT / 'active')
-        pending_count = len(_names(ROOT / '.pending'))
+        _normal_directory(ROOT)
+        _owner_mode(ROOT.lstat(), 0o700)
+        legacy_paths = [ROOT / name for name in ('operations', 'active', '.pending')]
+        legacy_present = [path.exists() or path.is_symlink() for path in legacy_paths]
+        need(not any(legacy_present) or all(legacy_present), 'legacy_namespace_incomplete')
+        if all(legacy_present):
+            _secure_root()
+        terminal_names = _names(ROOT / 'operations') if all(legacy_present) else []
+        active_names = _names(ROOT / 'active') if all(legacy_present) else []
+        pending_count = len(_names(ROOT / '.pending')) if all(legacy_present) else 0
         if pending_count:
             errors.append('INCOMPLETE_EVIDENCE_PUBLISH')
         for name in sorted(set(terminal_names + active_names)):
@@ -703,15 +863,86 @@ def enrich_snapshot(snapshot, open_paths=()):
                 verified.append((path, payload, terminal, state))
             except (OSError, ValueError, TypeError, KeyError, IndexError):
                 errors.append('RECEIPT_INVALID_OR_CHANGED')
-        if terminal_names != _names(ROOT / 'operations') or active_names != _names(ROOT / 'active'):
+        if all(legacy_present) and (terminal_names != _names(ROOT / 'operations') or active_names != _names(ROOT / 'active')):
             errors.append('RECEIPT_INVENTORY_CHANGED')
     except FileNotFoundError:
         errors.append('EVIDENCE_ROOT_UNAVAILABLE')
     except (OSError, ValueError, TypeError):
         errors.append('EVIDENCE_ROOT_INVALID')
-    snapshot['durable_operations'] = dict(schema_version=1, source_root=str(ROOT),
-        operations=summaries, terminal_count=sum(row['terminal'] for row in summaries),
-        active_or_incomplete_count=sum(not row['terminal'] for row in summaries),
+    legacy_terminal_count = sum(row['terminal'] for row in summaries)
+    legacy_active_count = sum(not row['terminal'] for row in summaries)
+    indexed_summary, indexed_sources, indexed_identity = None, {}, None
+    index_path = ROOT / 'v2/index.sqlite3'
+    try:
+        if (ROOT / 'v2').exists() or (ROOT / 'v2').is_symlink():
+            from ai_task_storage_evidence_store import read_session, PAGE_LIMIT
+            with read_session() as store:
+                indexed_summary = store.summary()
+                indexed_identity = store.identity
+                # Bounded samples are for reporting only. Actual current object
+                # lookup uses every matching indexed page, never these samples.
+                envelopes = {}
+                persistent_sample, incident_sample = store.persistent(), store.incidents()
+                for entry in persistent_sample + incident_sample:
+                    envelopes[entry['payload']['operation_id']] = entry
+                indexed_summary['rollup_sample'] = store.rollups()
+                indexed_summary['sample_policy'] = dict(
+                    operations='all_current_object_matches_plus_bounded_A_B_samples_and_active',
+                    terminal_count_basis='legacy_raw_plus_A_B_plus_recent_C',
+                    A_truncated=indexed_summary['counters']['A'] > len(persistent_sample),
+                    B_truncated=indexed_summary['counters']['B'] > len(incident_sample),
+                    rollups_truncated=indexed_summary['counters']['rollups'] > len(indexed_summary['rollup_sample']),
+                    A_after_id=persistent_sample[-1]['payload']['operation_id'] if persistent_sample else '',
+                    B_after_id=incident_sample[-1]['payload']['operation_id'] if incident_sample else '',
+                    rollups_after_sha=indexed_summary['rollup_sample'][-1]['target_sha'] if indexed_summary['rollup_sample'] else '')
+                indexed_summary['recent_sample'] = [dict(operation_id=item['payload']['operation_id'],
+                    completed_at=item['payload']['completed_at'], receipt_sha256=item['sha256'])
+                    for item in store.recent()]
+                for category in ('releases', 'backups', 'images', 'staging'):
+                    for node in snapshot.get(category, []):
+                        key = Path(node.get('path', '')).name if category == 'staging' else node.get('id')
+                        valid = (_match(IMAGE, key) if category == 'images' else
+                                 bool(re.fullmatch(r'\.(prepare|release|backup)-[0-9a-f]{40}\.[A-Za-z0-9]{8,32}', key or ''))
+                                 if category == 'staging' else _match(SHA, key))
+                        if not valid:
+                            continue
+                        after = ''
+                        while True:
+                            page = store.resolve_objects_page(category, key, after)
+                            for entry in page:
+                                envelopes[entry['payload']['operation_id']] = entry
+                            if len(page) < PAGE_LIMIT:
+                                break
+                            after = page[-1]['payload']['operation_id']
+                selected = [(entry, True) for entry in envelopes.values()] + [(entry, False) for entry in store.active()]
+                indexed_verified, indexed_summaries = [], []
+                for entry, terminal in selected:
+                    payload = _indexed_payload(entry, terminal)
+                    state = _owner_state(payload, terminal)
+                    classification = entry.get('classification')
+                    # C never enters selected or object ownership bindings.
+                    need(not terminal or classification in ('A', 'B'), 'summary_cannot_bind_object')
+                    indexed_sources[payload['operation_id']] = classification
+                    indexed_verified.append((index_path, payload, terminal, state))
+                    indexed_summaries.append(dict(operation_id=payload['operation_id'], target_sha=payload['target_sha'],
+                        previous_sha=payload['previous_sha'], state=payload['state'], phase=payload['phase'],
+                        owner_state=state, rollback_result=payload['rollback_result'], staging_count=len(payload['staging']),
+                        terminal=terminal, receipt_sha256=entry['sha256'], classification=classification,
+                        source_format='indexed-v2'))
+                # SQLite pins a consistent readonly snapshot throughout these
+                # reads; writers cannot commit through this read transaction.
+                store._identity()
+            verified.extend(indexed_verified)
+            summaries.extend(indexed_summaries)
+    except (OSError, ValueError, TypeError, KeyError, IndexError, sqlite3.Error):
+        errors.append('INDEXED_EVIDENCE_INVALID_OR_UNAVAILABLE')
+        indexed_sources = {}
+    counts = indexed_summary['counters'] if indexed_summary else {}
+    snapshot['durable_operations'] = dict(schema_version=2, source_root=str(ROOT),
+        operations=summaries, legacy_terminal_count=legacy_terminal_count,
+        legacy_active_or_incomplete_count=legacy_active_count, indexed=indexed_summary,
+        terminal_count=legacy_terminal_count + sum(counts.get(key, 0) for key in ('A', 'B', 'recent')),
+        active_or_incomplete_count=legacy_active_count + counts.get('active', 0),
         interrupted_publish_count=pending_count, errors=sorted(set(errors)))
     bindings = []
     for category in ('releases', 'backups', 'images', 'staging'):
@@ -731,6 +962,16 @@ def enrich_snapshot(snapshot, open_paths=()):
                 node['ownership'] = 'verified_terminal' if terminal else 'incomplete_operation'
             bindings.append((category, node, path, payload, terminal, state))
     unstable = set()
+    if indexed_identity is not None:
+        try:
+            from ai_task_storage_evidence_store import _file
+            _normal_directory(index_path.parent)
+            _owner_mode(index_path.parent.lstat(), 0o700)
+            info = _file(index_path)
+            need((info.st_dev, info.st_ino) == indexed_identity, 'indexed_file_replaced')
+        except (OSError, ValueError):
+            errors.append('INDEXED_EVIDENCE_CHANGED')
+            unstable.update(indexed_sources)
     for path, identity in observations.items():
         try:
             changed = _signature(path.lstat()) != identity
@@ -749,7 +990,7 @@ def enrich_snapshot(snapshot, open_paths=()):
         opened = sorted(value for value in open_paths if isinstance(target, str) and
                         (value == target or value.startswith(target + '/')))
         stable = payload['operation_id'] not in unstable
-        records.append(dict(category=category, id=node['id'], object_sha256=object_digest(node),
+        record = dict(category=category, id=node['id'], object_sha256=object_digest(node),
             source_path=str(path), source_verified=stable, source_no_symlinks=True,
             source_stable=stable, source_checksum_verified=True,
             operation=dict(id=payload['operation_id'], ownership_verified=stable,
@@ -765,7 +1006,11 @@ def enrich_snapshot(snapshot, open_paths=()):
             format_validation=None, image_identity_verified=category == 'images',
             recovery=dict(unique_data=None, evidence_preserved=False, incident_review_complete=False,
                           disposition_validation=None, proof_sha256=None),
-            backup_validation={}))
+            backup_validation={})
+        if path == index_path:
+            record.update(source_format='indexed-v2', source_operation_id=payload['operation_id'],
+                          source_index_verified=True, source_classification=indexed_sources[payload['operation_id']])
+        records.append(record)
     observation = snapshot.get('operation_observation', {})
     lock = _read_lock()
     observation['lock_identity'] = lock['identity']
