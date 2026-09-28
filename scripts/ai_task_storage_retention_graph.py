@@ -377,7 +377,8 @@ def build_plan(snapshot, policy=None):
         "inventory": {field: copy.deepcopy(snapshot[field]) for field in (
             "captured_at", "captured_end_at", "collected_at", "current_release", "runtime_releases",
             "previous_known_good", "operation_observation", "collection_errors", "references_complete",
-            "layer_size_basis", "docker_layers_complete", "build_cache_layer_pins_known", "filesystem_allocations_complete"
+            "layer_size_basis", "docker_layers_complete", "build_cache_layer_pins_known", "filesystem_allocations_complete",
+            "durable_operations"
         ) if field in snapshot},
         "plan_semantics": "joint_review_proposal_requires_fresh_reference_validation_before_any_future_removal",
         "policy": dict(policy, proposal=True, daily_timezone="UTC"),

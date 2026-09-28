@@ -39,7 +39,7 @@ RELATED_BACKUPS = ('backups', 'ichiyon-deploy-backups', 'ichiyon-prod-backup',
 
 
 class DockerReader:
-    """The only subprocess capability: three fixed Docker read operations."""
+    """Inventory subprocess capability: fixed Docker read operations only."""
 
     @staticmethod
     def _run(argv):
@@ -97,6 +97,24 @@ def regular_stream(path):
         stream.close()
         raise ValueError('file_changed')
     return stream
+
+
+def production_dump_list(path):
+    """Use the production DB container's parser without connecting to a DB.
+
+    Only the dump bytes go to stdin. The fixed command lists its TOC, with no
+    shell, database, output-file or restore options; neither TOC nor stderr is
+    exposed by the collector. A missing tool/container fails validation closed.
+    """
+    with regular_stream(path) as stream:
+        before = identity(os.fstat(stream.fileno()))
+        result = subprocess.run(
+            ['docker', 'exec', '-i', 'ichiyon-robot-db', 'pg_restore', '--list'],
+            stdin=stream, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            timeout=120, check=False, shell=False)
+        if identity(os.fstat(stream.fileno())) != before or identity(path.lstat()) != before:
+            raise ValueError('dump_changed_during_validation')
+    return result.returncode == 0 and bool(result.stdout)
 
 
 def read_metadata(path, limit=65536):
@@ -307,16 +325,17 @@ def read_backup(path, paths, allocations, verify_checksums=True, related=False,
             node['metadata_errors'].append('legacy_restore_contract_requires_review')
             return node
         if 'manifest.json' in names:
-            # Version 2 is not emitted by the deployment protocol in P1c-1.
-            # A future split archive is required and validated before this node
-            # can be verified; unavailable pg_restore fails closed. No DB restore.
+            # Both full and split v2 backups require the complete restore
+            # contract. Production uses the DB container's pg_restore parser;
+            # alternate fixture roots retain the injected/local parser path.
             import ai_task_backup
             if not verify_checksums:
                 node['validation'] = 'incomplete'
                 node['metadata_errors'].append('checksums_not_verified')
                 return node
+            dump_options = {'dump_validator': production_dump_list} if paths == DEFAULT_PATHS else {}
             proof = ai_task_backup.validate_backup(path, releases_root=paths['releases'],
-                recovery_root=paths['home'] / 'ichiyon-recovery-archives')
+                recovery_root=paths['home'] / 'ichiyon-recovery-archives', **dump_options)
             node.update(validation='verified', checksum_verified=True, ready=True,
                 backup_format_version=2, checksums=proof['checksums'],
                 restore_validation=proof['restore_validation'],
@@ -632,6 +651,12 @@ def collect_snapshot(paths=None, docker=None, proc_root=None, verify_checksums=T
     snapshot['docker_layers_complete'] = all(node['layers_complete'] for node in snapshot['images'])
     snapshot['build_cache_layer_pins_known'] = False
     snapshot['runtime_releases'] = sorted(set(snapshot['runtime_releases']))
+    if paths == DEFAULT_PATHS:
+        # The receipt loader has a fixed trusted root and independently checks
+        # current process/inode identities. Fixtures with alternate inventories
+        # never consult the actual host's evidence namespace.
+        from ai_task_storage_evidence import enrich_snapshot
+        enrich_snapshot(snapshot, open_paths)
     return snapshot
 
 

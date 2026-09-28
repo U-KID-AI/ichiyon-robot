@@ -94,6 +94,7 @@ class DeploymentTests(unittest.TestCase):
         transported = communicate.call_args.kwargs['input_text']
         self.assertEqual(transported, render_remote_script())
         self.assertNotIn('# __ICHIYON_STORAGE_MODULE__', transported)
+        self.assertNotIn('# __ICHIYON_DEPLOY_MODULES__', transported)
         self.assertIn('def check_storage(', transported)
         self.assertIsNone(communicate.call_args.kwargs['stop_event'])
         self.assertEqual(communicate.call_args.kwargs['timeout'], self.config.timeout)
@@ -295,6 +296,16 @@ class RemoteChecks(unittest.TestCase):
     def setUp(self):
         self.h = types.ModuleType('offline_remote_helper')
         exec(compile(HELPER, '<reviewed remote helper>', 'exec'), self.h.__dict__)
+
+    def test_evidence_dispatch_preserves_fixed_api_types(self):
+        import ai_task_storage_evidence as evidence
+        path = '/home/ubuntu/ichiyon-releases/.prepare-' + SHA + '.abcdefgh'
+        with patch.object(self.h, 'ai_task_storage_evidence', evidence, create=True), \
+                patch.object(evidence, 'record_stage') as record:
+            self.h.evidence_command(['stage', '1' * 32, '123', 'prepare', path])
+        record.assert_called_once_with('1' * 32, 123, 'prepare', path)
+        with self.assertRaises(ValueError):
+            self.h.evidence_command(['delete', path])
 
     def test_remote_command_failure_keeps_stderr(self):
         h = self.h
@@ -1134,7 +1145,8 @@ class StorageProtocolTests(unittest.TestCase):
     All writes are tiny local fixtures; SSH/Docker/production are never invoked.
     """
 
-    def run_protocol(self, fail_phase='', reason='BYTES', same_sha=False):
+    def run_protocol(self, fail_phase='', reason='BYTES', same_sha=False,
+                     evidence_fail='', fail_migrate=False, cancel=False, existing_release=True):
         bash = shutil.which('bash')
         if os.name == 'nt':
             bash = 'C:/Program Files/Git/bin/bash.exe'
@@ -1143,7 +1155,9 @@ class StorageProtocolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp).as_posix()
             release = Path(temp) / 'releases' / SHA
-            release.mkdir(parents=True)
+            release.parent.mkdir(parents=True)
+            if existing_release or same_sha:
+                release.mkdir()
             (Path(temp) / 'backups').mkdir()
             previous = release if same_sha else Path(temp) / 'releases' / ('b' * 40)
             previous.mkdir(exist_ok=True)
@@ -1157,6 +1171,9 @@ exec 3>&1
 exec 4>&2
 quiesced=0
 storage_failed=0
+operation_id=
+cancelled=0
+rollback_result=not_needed
 helper=fixture-helper
 repo_url=fixture-repository
 infra_file=
@@ -1170,6 +1187,13 @@ cleanup_temporaries() { :; }
 migration_idle() { :; }
 infra_same() { :; }
 health() { echo HEALTH >&2; }
+evidence() {
+    echo "EVIDENCE $*" >&2
+    if [[ $1 == "$evidence_fail" ]]; then return 1; fi
+    if [[ $evidence_fail == cleanup && $1 == observe && $4 == cleanup ]]; then return 1; fi
+    if [[ $1 == begin ]]; then echo 11111111111111111111111111111111; fi
+}
+evidence_phase() { evidence observe "$operation_id" "$$" "$1"; }
 readlink() { printf '%s\n' "$current_value"; }
 compose() { printf 'COMPOSE %s\n' "$*" >&2; }
 sync() { :; }
@@ -1187,8 +1211,18 @@ python3() {
         fi
     else
         case "$3" in
+            prepare)
+                mkdir -p "$4/src"
+                for name in REVISION compose.immutable.yml immutable-image.txt persistence.txt rollback-images.txt validate-immutable-compose.py; do
+                    printf fixture >"$4/$name"
+                done
+                ;;
             infra) echo '{}' ;;
-            migrate) echo MIGRATE >&2 ;;
+            migrate)
+                echo MIGRATE >&2
+                if [[ $cancel == true ]]; then kill -TERM $$; fi
+                if [[ $fail_migrate == true ]]; then return 1; fi
+                ;;
             backup) echo VALIDATE_BACKUP >&2 ;;
         esac
     fi
@@ -1209,10 +1243,14 @@ mv() {
             variables = dict(sha=SHA, releases_root=root + '/releases', release=release.as_posix(),
                              current_link=root + '/current', current_value=previous.as_posix(),
                              shared_root=root + '/shared', backups_root=root + '/backups',
-                             image='fixture-image', fail_phase=fail_phase, reason=reason)
+                             image='fixture-image', fail_phase=fail_phase, reason=reason,
+                             evidence_fail=evidence_fail, fail_migrate=str(fail_migrate).lower(),
+                             cancel=str(cancel).lower())
             prefix = ''.join(key + '=' + shlex.quote(value) + '\n' for key, value in variables.items())
             script = (prelude + prefix + 'storage_check() {' + guard + '\non_exit() {' + trap +
-                      '\ntrap on_exit EXIT\nstorage_check deploy-start\nmigration_idle || fail\n' + transaction)
+                      "\ntrap on_exit EXIT\ntrap 'cancelled=1; exit 1' TERM\n"
+                      'storage_check deploy-start\noperation_id=$(evidence begin "$sha" "$$")\n'
+                      'migration_idle || fail\n' + transaction)
             result = subprocess.run([bash, '-s'], input=script, text=True, capture_output=True,
                                     timeout=30, check=False)
             return result
@@ -1224,6 +1262,48 @@ mv() {
         self.assertNotIn('ROLLED_BACK', result.stdout)
         for action in ('COMPOSE ', 'DB_DUMP', 'BACKUP_WRITE', 'MIGRATE'):
             self.assertNotIn(action, result.stderr)
+
+    def test_evidence_binds_each_new_staging_and_finishes_after_success(self):
+        result = self.run_protocol(existing_release=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for kind in ('prepare', 'release', 'backup'):
+            self.assertRegex(result.stderr, r'EVIDENCE stage [0-9a-f]{32} [0-9]+ ' + kind + ' ')
+        self.assertRegex(result.stderr, r'EVIDENCE finish [0-9a-f]{32} [0-9]+ succeeded not_needed')
+        self.assertLess(result.stderr.index('MIGRATE'), result.stderr.index('EVIDENCE finish'))
+
+    def test_evidence_begin_failure_prevents_fetch_and_app_stop(self):
+        result = self.run_protocol(evidence_fail='begin')
+        self.assertNotEqual(result.returncode, 0)
+        for action in ('FETCH', 'COMPOSE ', 'MIGRATE', 'EVIDENCE stage'):
+            self.assertNotIn(action, result.stderr)
+
+    def test_failed_and_cancelled_deploys_record_rollback_result(self):
+        for cancelled in (False, True):
+            with self.subTest(cancelled=cancelled):
+                result = self.run_protocol(fail_migrate=True, cancel=cancelled)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('DEPLOY_ERROR=ROLLED_BACK', result.stdout)
+                state = 'cancelled' if cancelled else 'failed'
+                self.assertRegex(result.stderr, r'EVIDENCE finish [0-9a-f]{32} [0-9]+ ' + state + ' succeeded')
+                self.assertLess(result.stderr.index('COMPOSE '), result.stderr.index('EVIDENCE finish'))
+
+    def test_receipt_failure_cannot_return_successful_exit_code(self):
+        result = self.run_protocol(evidence_fail='finish')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('DEPLOY_EVIDENCE=INCOMPLETE', result.stderr)
+
+    def test_late_evidence_failure_does_not_roll_back_committed_pointer(self):
+        result = self.run_protocol(evidence_fail='cleanup')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('ROLLED_BACK', result.stdout)
+        self.assertNotIn('ROLLBACK_FAILED', result.stdout)
+        self.assertEqual(result.stderr.count(' up -d '), 1)
+        self.assertRegex(result.stderr, r'EVIDENCE finish [0-9a-f]{32} [0-9]+ failed not_needed')
+
+    def test_storage_refusal_before_admission_creates_no_operation(self):
+        result = self.run_protocol(fail_phase='deploy-start')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('EVIDENCE ', result.stderr)
 
     def test_initial_low_space_starts_no_heavy_operations(self):
         result = self.run_protocol('deploy-start')

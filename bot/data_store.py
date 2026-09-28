@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from bot import config
+from bot.recovery_history import write_legacy_snapshot
 
 
 DEFAULT_STATE = {
@@ -63,20 +64,10 @@ def parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
 
 
 def backup_json_file(path: str) -> None:
-    if not os.path.exists(path):
-        return
-
-    os.makedirs("data/backups", exist_ok=True)
-    timestamp = get_local_now().strftime("%Y%m%d_%H%M%S")
-    filename = os.path.basename(path)
-    backup_path = os.path.join("data/backups", f"{timestamp}_{filename}")
     try:
-        with open(path, "r", encoding="utf-8") as src:
-            content = src.read()
-        with open(backup_path, "w", encoding="utf-8") as dst:
-            dst.write(content)
-    except OSError as e:
-        print(f"Failed to backup {path}: {e}")
+        write_legacy_snapshot(path)
+    except (OSError, ValueError) as exc:
+        print('[WARN] JSON history snapshot failed: ' + type(exc).__name__)
 
 
 def get_default_state() -> dict:

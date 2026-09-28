@@ -1,8 +1,8 @@
-"""Versioned, read-only backup validation and isolated filesystem rehearsal.
+"""Versioned backup validation, FULL-only metadata writer and rehearsal.
 
-No production backup writer, exclusion switch, migration or cleanup executor.
-The deployed six-file format stays unchanged. Split v2 is a restore contract,
-not permission to exclude a live subtree or retire a recovery archive.
+The writer finalizes only the caller's new, exact deployment staging directory;
+it never copies/deletes persistence or publishes a replacement backup directory.
+Split v2 remains a restore contract: the writer has no exclusion switch.
 """
 from contextlib import contextmanager
 import hashlib
@@ -21,6 +21,11 @@ BACKUPS_ROOT = Path('/home/ubuntu/ichiyon-backups')
 SHARED_ROOT = Path('/home/ubuntu/ichiyon-shared')
 SCOPE = ['data', 'assets/images', 'secrets', '.env']
 V1_FILES = {'READY', 'previous', 'infra.json', 'production.dump', 'persistence.tar', 'checksums.sha256'}
+WRITER_INPUTS = {'previous', 'infra.json', 'production.dump', 'persistence.tar'}
+V2_CHECKSUM_FILES = ('production.dump', 'persistence.tar', 'previous', 'infra.json', 'manifest.json')
+# Fits inside the existing P0 16 MiB backup-metadata allowance. A larger
+# inventory fails before READY rather than silently exceeding admission budget.
+WRITER_MANIFEST_LIMIT = 8 * 1024 * 1024
 RELEASE_FILES = {'REVISION', 'src', 'compose.immutable.yml', 'immutable-image.txt',
                  'persistence.txt', 'rollback-images.txt', 'validate-immutable-compose.py'}
 SHA = re.compile(r'[0-9a-f]{40}')
@@ -248,20 +253,65 @@ def validate_backup(path, *, releases_root=RELEASES_ROOT, recovery_root=RECOVERY
         raise BackupError('backup_validation_unavailable_or_invalid') from None
 
 
-def _validate_backup(path, releases_root, recovery_root, dump_validator):
+def stage_directory(path, target_sha, backups_root):
+    """Only an exact mktemp backup staging path under the installation's root."""
+    need(isinstance(target_sha, str) and SHA.fullmatch(target_sha), 'backup_target_invalid')
+    root = directory(backups_root)
+    path = directory(path)
+    need(path.parent == root and re.fullmatch(r'\.backup-' + target_sha + r'\.[A-Za-z0-9]{8}', path.name),
+         'backup_stage_path_invalid')
+    need(path.stat().st_dev == root.stat().st_dev, 'backup_stage_device_invalid')
+    if os.name != 'nt':
+        value = path.lstat()
+        need(value.st_uid == os.geteuid() and value.st_mode & 0o077 == 0, 'backup_stage_owner_mode_invalid')
+    return path, root
+
+
+def directory_binding(path):
+    value = directory(path).lstat()
+    return (value.st_dev, value.st_ino, value.st_mode,
+            getattr(value, 'st_uid', None), getattr(value, 'st_gid', None))
+
+
+def validate_staged_backup(path, target_sha, *, backups_root=BACKUPS_ROOT,
+                           releases_root=RELEASES_ROOT, recovery_root=RECOVERY_ROOT,
+                           dump_validator=list_dump):
+    """Validate a not-yet-renamed backup with an explicitly bound target SHA."""
+    try:
+        path, root = stage_directory(path, target_sha, backups_root)
+        binding = directory_binding(root)
+        proof = _validate_backup(path, Path(releases_root), Path(recovery_root),
+                                 dump_validator, target_sha=target_sha)
+        need(directory_binding(root) == binding, 'backup_root_changed')
+        return proof
+    except BackupError:
+        raise
+    except (OSError, ValueError, TypeError, KeyError, UnicodeError, tarfile.TarError,
+            subprocess.SubprocessError):
+        raise BackupError('backup_validation_unavailable_or_invalid') from None
+
+
+def _validate_backup(path, releases_root, recovery_root, dump_validator, *,
+                     target_sha=None, ready_required=True):
     path = directory(path)
     root_before = signature(path.lstat())
-    need(SHA.fullmatch(path.name), 'backup_target_invalid')
+    target_sha = path.name if target_sha is None else target_sha
+    need(SHA.fullmatch(target_sha), 'backup_target_invalid')
     names = {p.name for p in path.iterdir()}
     v2 = 'manifest.json' in names
-    need(names == V1_FILES | ({'manifest.json'} if v2 else set()), 'backup_members_invalid')
+    expected_names = V1_FILES | ({'manifest.json'} if v2 else set())
+    if not ready_required:
+        need(v2, 'unready_requires_v2')
+        expected_names -= {'READY'}
+    need(names == expected_names, 'backup_members_invalid')
     before = {p.name: signature(p.lstat()) for p in path.iterdir()}
-    need(content(path / 'READY', 0) == b'', 'ready_invalid')
+    if ready_required:
+        need(content(path / 'READY', 0) == b'', 'ready_invalid')
     previous = content(path / 'previous', 1024).decode('utf8')
     previous_sha = previous.rstrip('\n').rsplit('/', 1)[-1]
     need(SHA.fullmatch(previous_sha) and previous == (releases_root / previous_sha).as_posix() + '\n',
          'previous_reference_invalid')
-    releases = [release_contract(releases_root, s) for s in (path.name, previous_sha)]
+    releases = [release_contract(releases_root, s) for s in (target_sha, previous_sha)]
     infra = strict_json(content(path / 'infra.json'))
     need(isinstance(infra, list) and len(infra) == 2 and all(
         isinstance(row, list) and len(row) == 3 and isinstance(row[0], str) and DIGEST.fullmatch(row[0])
@@ -279,7 +329,7 @@ def _validate_backup(path, releases_root, recovery_root, dump_validator):
         need(isinstance(manifest, dict) and set(manifest) == {'format', 'version', 'target_release',
              'previous_release', 'persistence', 'recovery', 'inventory'}, 'manifest_shape_invalid')
         need(manifest['format'] == 'ichiyon-production-backup' and type(manifest['version']) is int
-             and manifest['version'] == 2 and manifest['target_release'] == path.name
+             and manifest['version'] == 2 and manifest['target_release'] == target_sha
              and manifest['previous_release'] == previous_sha, 'manifest_identity_invalid')
         scope = manifest['persistence']
         need(isinstance(scope, dict) and set(scope) == {'include', 'exclude'} and scope['include'] == SCOPE
@@ -312,16 +362,129 @@ def _validate_backup(path, releases_root, recovery_root, dump_validator):
         need(manifest_inventory(manifest['inventory']) == inventory,
              'restore_inventory_mismatch')
     metadata_hashes = {name: digest(path / name) for name in sorted(names - {'persistence.tar'})}
-    need(releases == [release_contract(releases_root, s) for s in (path.name, previous_sha)],
+    need(releases == [release_contract(releases_root, s) for s in (target_sha, previous_sha)],
          'release_contract_changed')
     need(signature(directory(path).lstat()) == root_before, 'backup_directory_changed')
     need(before == {p.name: signature(p.lstat()) for p in path.iterdir()}, 'backup_changed')
-    return dict(format_version=2 if v2 else 1, target_release=path.name, previous_release=previous_sha,
+    return dict(format_version=2 if v2 else 1, target_release=target_sha, previous_release=previous_sha,
                 checksum_verified=True, pg_restore_list=True, persistence_tar_verified=True,
                 scope=manifest['persistence'] if v2 else {'include':SCOPE[:], 'exclude':[]},
                 recovery_archive_id=manifest['recovery']['archive_id'] if split else None,
                 inventory=inventory, checksums=sums, releases=releases, metadata_sha256=metadata_hashes,
                 restore_validation='checksums_dump_list_full_tar_inventory_not_database_restore')
+
+
+def sync_directory(path):
+    # Windows offline fixtures cannot fsync directory descriptors. Production
+    # is Linux, where a failure is fatal and must leave the stage unpublished.
+    if os.name == 'nt':
+        return
+    descriptor = os.open(str(directory(path)), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def sync_input(path):
+    before = path.lstat()
+    need(stat.S_ISREG(before.st_mode) and before.st_nlink == 1, 'file_not_exclusive_regular')
+    directory(path.parent)
+    # FlushFileBuffers needs a write-capable handle on Windows. No bytes are
+    # changed. Linux uses a read-only descriptor, including in production.
+    descriptor = os.open(str(path), (os.O_RDWR if os.name == 'nt' else os.O_RDONLY) |
+                         getattr(os, 'O_NOFOLLOW', 0))
+    try:
+        need(opened_signature(os.fstat(descriptor)) == opened_signature(before), 'file_changed')
+        os.fsync(descriptor)
+        need(opened_signature(os.fstat(descriptor)) == opened_signature(before)
+             and signature(path.lstat()) == signature(before), 'file_changed')
+    finally:
+        os.close(descriptor)
+
+
+def write_metadata(path, payload):
+    with private_output(path) as stream:
+        stream.write(payload)
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def write_full_backup_metadata(path, target_sha, *, backups_root=BACKUPS_ROOT,
+                               releases_root=RELEASES_ROOT, dump_validator=list_dump):
+    """Finalize a new FULL backup stage; caller holds the deployment flock.
+
+    Inputs are the four fixed files written by the trusted deployment protocol.
+    FULL always includes data/backups in the data scope; no recovery archive or
+    caller-selected exclusion is accepted. Existing v1/v2 backups are not edited.
+    The caller alone atomically renames this directory after validation succeeds.
+    """
+    ready_identity = None
+    try:
+        path, root = stage_directory(path, target_sha, backups_root)
+        roots = (directory_binding(root), directory_binding(path))
+        need({p.name for p in path.iterdir()} == WRITER_INPUTS, 'backup_writer_inputs_invalid')
+        inputs = {name: signature((path / name).lstat()) for name in WRITER_INPUTS}
+        # Validate and flush all input files before emitting a completion marker.
+        for name in sorted(WRITER_INPUTS):
+            with regular(path / name):
+                pass
+            sync_input(path / name)
+        previous = content(path / 'previous', 1024).decode('utf8')
+        previous_sha = previous.rstrip('\n').rsplit('/', 1)[-1]
+        need(SHA.fullmatch(previous_sha) and previous == (Path(releases_root) / previous_sha).as_posix() + '\n',
+             'previous_reference_invalid')
+        inventory = archive_inventory(path / 'persistence.tar')
+        manifest = dict(format='ichiyon-production-backup', version=2, target_release=target_sha,
+                        previous_release=previous_sha, persistence={'include':SCOPE[:], 'exclude':[]},
+                        recovery=None, inventory=inventory)
+        encoded = (json.dumps(manifest, sort_keys=True, separators=(',', ':')) + '\n').encode('utf8')
+        need(len(encoded) <= WRITER_MANIFEST_LIMIT, 'metadata_too_large')
+        need((directory_binding(root), directory_binding(path)) == roots, 'backup_stage_changed')
+        write_metadata(path / 'manifest.json', encoded)
+        # Preserve the conventional dump/tar records first. v1 readers retain
+        # their six-file branch; v2-aware readers verify all five records.
+        encoded = ''.join(digest(path / name) + '  ' + name + '\n'
+                          for name in V2_CHECKSUM_FILES).encode('ascii')
+        write_metadata(path / 'checksums.sha256', encoded)
+        proof = _validate_backup(path, Path(releases_root), RECOVERY_ROOT, dump_validator,
+                                 target_sha=target_sha, ready_required=False)
+        need(inputs == {name: signature((path / name).lstat()) for name in WRITER_INPUTS},
+             'backup_writer_input_changed')
+        need((directory_binding(root), directory_binding(path)) == roots, 'backup_stage_changed')
+        before_ready = {p.name: signature(p.lstat()) for p in path.iterdir()}
+        sync_directory(path)
+        # An empty O_EXCL-created marker is published atomically, after every
+        # payload/manifest/checksum has been validated and fsynced. Never replace.
+        with private_output(path / 'READY') as stream:
+            ready_identity = opened_signature(os.fstat(stream.fileno()))
+            stream.flush()
+            os.fsync(stream.fileno())
+        sync_directory(path)
+        need((directory_binding(root), directory_binding(path)) == roots, 'backup_stage_changed')
+        need({p.name for p in path.iterdir()} == set(before_ready) | {'READY'}
+             and before_ready == {name: signature((path / name).lstat()) for name in before_ready},
+             'backup_writer_input_changed')
+        proof['metadata_sha256']['READY'] = hashlib.sha256(b'').hexdigest()
+        return proof
+    except BaseException as error:
+        # Retract only this invocation's freshly created marker if its identity
+        # still matches. Source dump/tar/metadata and interrupted stages remain.
+        if ready_identity is not None:
+            try:
+                stage_directory(path, target_sha, backups_root)
+                if ((directory_binding(root), directory_binding(path)) == roots
+                        and opened_signature((path / 'READY').lstat()) == ready_identity):
+                    (path / 'READY').unlink()
+                    sync_directory(path)
+            except (OSError, BackupError):
+                pass
+        if isinstance(error, BackupError):
+            raise
+        if isinstance(error, (OSError, ValueError, TypeError, KeyError, UnicodeError,
+                              tarfile.TarError, subprocess.SubprocessError)):
+            raise BackupError('backup_write_unavailable_or_invalid') from None
+        raise
 
 
 def restore_files(path, destination, *, releases_root=RELEASES_ROOT, recovery_root=RECOVERY_ROOT,

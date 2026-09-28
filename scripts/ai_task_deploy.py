@@ -17,6 +17,7 @@ SUMMARY = "Immutable app deployment verified."
 SCRIPT = Path(__file__).absolute().with_name("ai_task_deploy_remote.sh")
 STORAGE_SCRIPT = Path(__file__).absolute().with_name("ai_task_storage.py")
 STORAGE_MARKER = "# __ICHIYON_STORAGE_MODULE__"
+MODULE_MARKER = "# __ICHIYON_DEPLOY_MODULES__"
 
 
 def render_remote_script() -> str:
@@ -25,7 +26,16 @@ def render_remote_script() -> str:
     policy = normal_file(STORAGE_SCRIPT, ()).read_text(encoding="utf-8")
     if script.count(STORAGE_MARKER) != 1 or "\nSTORAGE_PY\n" in policy:
         raise DeploymentError("trusted storage protocol unavailable")
-    return script.replace(STORAGE_MARKER, policy)
+    if script.count(MODULE_MARKER) != 1:
+        raise DeploymentError("trusted deployment modules unavailable")
+    modules = ["import types"]
+    for name in ("ai_task_backup", "ai_task_storage_evidence"):
+        source = normal_file(SCRIPT.with_name(name + '.py'), ()).read_text(encoding='utf-8')
+        modules.extend(("_module = types.ModuleType(" + repr(name) + ")",
+                        "sys.modules[_module.__name__] = _module",
+                        "exec(compile(" + repr(source) + ", _module.__name__, 'exec'), _module.__dict__)"))
+    modules.append("import ai_task_backup, ai_task_storage_evidence")
+    return script.replace(STORAGE_MARKER, policy).replace(MODULE_MARKER, '\n'.join(modules))
 
 
 @dataclass(frozen=True)

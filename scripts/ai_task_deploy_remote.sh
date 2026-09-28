@@ -34,6 +34,10 @@ stage=
 prepared=
 pointer=
 storage_failed=0
+operation_id=
+cancelled=0
+rollback_result=not_needed
+backup_stage=
 
 # Replaced only by the installed adapter with its sibling reviewed module.
 # Running an unrendered template fails closed before staging or app mutation.
@@ -112,6 +116,8 @@ import sys
 import tarfile
 import time
 import traceback
+
+# __ICHIYON_DEPLOY_MODULES__
 
 ROOT = Path('/home/ubuntu/ichiyon-releases')
 SHARED = Path('/home/ubuntu/ichiyon-shared')
@@ -479,6 +485,16 @@ def migrate(path):
 
 def backup_validate(path, previous, snapshot):
     normal(path, True)
+    if (path / 'manifest.json').exists():
+        # The new reader accepts both formats. No split writer is activated.
+        assert (path / 'previous').read_text() == str(previous) + '\n'
+        assert (path / 'infra.json').read_bytes() == snapshot.read_bytes()
+        target = re.fullmatch(r'\.backup-([0-9a-f]{40})\.[A-Za-z0-9]{8}', path.name)
+        if target:
+            ai_task_backup.validate_staged_backup(path, target[1], dump_validator=backup_dump_readable)
+        else:
+            ai_task_backup.validate_backup(path, dump_validator=backup_dump_readable)
+        return
     names = {'previous', 'infra.json', 'production.dump', 'persistence.tar', 'checksums.sha256', 'READY'}
     assert {p.name for p in path.iterdir()} == names
     for name in names:
@@ -514,6 +530,30 @@ def backup_validate(path, previous, snapshot):
         assert {'data', 'assets/images', 'secrets', '.env'} <= roots
 
 
+def backup_dump_readable(path):
+    with ai_task_backup.regular(path) as stream:
+        return bool(run(['docker', 'exec', '-i', 'ichiyon-robot-db', 'pg_restore', '--list'], stdin=stream))
+
+
+def evidence_command(args):
+    # Fixed API verbs and validated identities, never a task-supplied path root.
+    verb = args[0]
+    if verb == 'begin':
+        assert len(args) == 3
+        print(ai_task_storage_evidence.begin(args[1], int(args[2])))
+    elif verb == 'stage':
+        assert len(args) == 5
+        ai_task_storage_evidence.record_stage(args[1], int(args[2]), args[3], args[4])
+    elif verb == 'observe':
+        assert len(args) == 4
+        ai_task_storage_evidence.observe(args[1], int(args[2]), args[3])
+    elif verb == 'finish':
+        assert len(args) == 5
+        ai_task_storage_evidence.finish(args[1], int(args[2]), args[3], args[4])
+    else:
+        raise ValueError('evidence_verb_invalid')
+
+
 def cleanup(path, sha):
     assert re.fullmatch('[0-9a-f]{40}', sha)
     allowed = ((ROOT, '.prepare-' + sha + '.'), (ROOT, '.release-' + sha + '.'),
@@ -528,6 +568,9 @@ def cleanup(path, sha):
 
 def main():
     mode = sys.argv[1]
+    if mode == 'evidence':
+        evidence_command(sys.argv[2:])
+        return
     path = Path(sys.argv[2])
     if mode == 'migration-idle':
         migration_state(path.name)
@@ -539,6 +582,8 @@ def main():
             run(['docker', 'rm', 'ichiyon-robot-migrate-' + path.name])
     elif mode == 'backup':
         backup_validate(path, Path(sys.argv[3]), Path(sys.argv[4]))
+    elif mode == 'backup-full':
+        ai_task_backup.write_full_backup_metadata(path, sys.argv[3], dump_validator=backup_dump_readable)
     elif mode == 'cleanup':
         cleanup(path, sys.argv[3])
     elif mode == 'release':
@@ -596,6 +641,8 @@ if __name__ == '__main__':
 PY
 
 migration_idle() { python3 -I "$helper" migration-idle "$release"; }
+evidence() { python3 -I "$helper" evidence "$@"; }
+evidence_phase() { evidence observe "$operation_id" "$$" "$1"; }
 
 compose() {
     local base=$1
@@ -639,12 +686,25 @@ on_exit() {
             if migration_idle && python3 -I "$helper" previous-contract "$previous" && infra_same &&
                 compose "$previous" up -d --no-deps --no-build --pull never --force-recreate admin bot bot-irsia &&
                 infra_same && python3 -I "$helper" health "$previous" "$infra_file" rollback; then
+                rollback_result=succeeded
                 printf '%s\n' 'DEPLOY_ERROR=ROLLED_BACK' >&3
             else
+                rollback_result=failed
                 printf '%s\n' 'DEPLOY_ERROR=ROLLBACK_FAILED' >&3
             fi
         elif (( storage_failed == 0 )); then
             printf '%s\n' 'DEPLOY_ERROR=FAILED' >&3
+        fi
+    fi
+    if [[ -n $operation_id ]]; then
+        local terminal=failed
+        if (( code == 0 )); then terminal=succeeded; fi
+        if (( cancelled == 1 )); then terminal=cancelled; fi
+        # An evidence failure must not interrupt rollback or turn failure into
+        # success. No partial receipt is promoted by this best-effort final step.
+        if ! evidence finish "$operation_id" "$$" "$terminal" "$rollback_result"; then
+            printf '%s\n' 'DEPLOY_EVIDENCE=INCOMPLETE' >&4
+            if (( code == 0 )); then code=1; fi
         fi
     fi
     # Only our mktemp helper is unlinked; interrupted staging is left inspectable.
@@ -657,8 +717,10 @@ on_exit() {
     exit "$code"
 }
 trap on_exit EXIT
-trap 'exit 1' HUP INT TERM
+trap 'cancelled=1; exit 1' HUP INT TERM
 
+operation_id=$(evidence begin "$sha" "$$")
+[[ $operation_id =~ ^[0-9a-f]{32}$ ]] || fail
 migration_idle || fail
 
 previous=$(readlink -e "$current_link")
@@ -668,6 +730,8 @@ python3 -I "$helper" infra "$release" >"$infra_file"
 
 # Even an idempotent request must still name exact GitHub main.
 stage=$(mktemp -d "$releases_root/.prepare-$sha.XXXXXXXX")
+evidence stage "$operation_id" "$$" prepare "$stage"
+evidence_phase prepare
 git -c core.hooksPath=/dev/null init --bare "$stage/git"
 git -c core.hooksPath=/dev/null -C "$stage/git" fetch --depth=1 "$repo_url" refs/heads/main
 [[ $(git -C "$stage/git" rev-parse FETCH_HEAD) == "$sha" ]]
@@ -675,6 +739,7 @@ python3 -I "$helper" prepare "$stage" "$sha"
 
 # Healthy current reconciliation never rebuilds images or restarts app services.
 if [[ $previous == "$release" ]]; then
+    evidence_phase reconcile
     python3 -I "$helper" compare-source "$release" "$stage"
     health "$release"
     python3 -I "$helper" migration-cleanup "$release"
@@ -685,17 +750,20 @@ else
     else
         # Publish only the source/artifacts, never the dedicated git metadata.
         prepared=$(mktemp -d "$releases_root/.release-$sha.XXXXXXXX")
+        evidence stage "$operation_id" "$$" release "$prepared"
         for name in REVISION compose.immutable.yml immutable-image.txt persistence.txt rollback-images.txt validate-immutable-compose.py src; do
             mv -- "$stage/$name" "$prepared/$name"
         done
         mv -T -- "$prepared" "$release"
     fi
+    evidence_phase release
     # Refine the estimate with the actual fetched source before a new build.
     storage_check pre-build
     if ! docker image inspect "$image"; then
         docker build --label "org.opencontainers.image.revision=$sha" --tag "$image" "$release/src"
     fi
     python3 -I "$helper" image "$release"
+    evidence_phase image
     python3 -I "$helper" contract "$release"
     python3 -I "$helper" previous-contract "$previous"
     python3 -I "$helper" previous-image "$previous"
@@ -716,12 +784,13 @@ else
     if [[ ! -e $backup ]]; then
         # Old .backup-<sha>.* staging is ignored and retained for inspection.
         backup_stage=$(mktemp -d "$backups_root/.backup-$sha.XXXXXXXX")
+        evidence stage "$operation_id" "$$" backup "$backup_stage"
+        evidence_phase backup
         printf '%s\n' "$previous" >"$backup_stage/previous"
         cp -- "$infra_file" "$backup_stage/infra.json"
         docker exec ichiyon-robot-db sh -c 'exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' >"$backup_stage/production.dump"
         tar --dereference -C "$shared_root" -cf "$backup_stage/persistence.tar" data assets/images secrets .env
-        (cd "$backup_stage" && sha256sum production.dump persistence.tar >checksums.sha256)
-        touch "$backup_stage/READY"
+        python3 -I "$helper" backup-full "$backup_stage" "$sha"
         python3 -I "$helper" backup "$backup_stage" "$previous" "$infra_file"
         sync -f "$backup_stage"
         # No replacement, including empty directories. The deployment lock serializes publishers.
@@ -732,8 +801,10 @@ else
     python3 -I "$helper" backup "$backup" "$previous" "$infra_file"
     infra_same
     python3 -I "$helper" migrate "$release"
+    evidence_phase migrate
     compose "$release" up -d --no-deps --no-build --pull never --force-recreate admin bot bot-irsia
     health "$release"
+    evidence_phase health
     infra_same
     [[ $(readlink -e "$current_link") == "$previous" ]]
     # Atomic pointer publication is strictly after full health validation.
@@ -745,5 +816,6 @@ else
     sync -f /home/ubuntu
 fi
 [[ $(readlink -e "$current_link") == "$release" ]]
+evidence_phase cleanup
 cleanup_temporaries
 printf 'DEPLOY_RESULT=SUCCESS\nDEPLOYED_COMMIT_SHA=%s\nDEPLOY_SUMMARY=Immutable app deployment verified.\n' "$sha" >&3

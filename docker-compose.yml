@@ -23,6 +23,11 @@ services:
       dockerfile: Dockerfile
     container_name: ichiyon-robot-admin
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     depends_on:
       db:
         condition: service_healthy
@@ -109,6 +114,11 @@ services:
       dockerfile: Dockerfile
     container_name: ichiyon-robot-bot
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     depends_on:
       db:
         condition: service_healthy
@@ -170,6 +180,11 @@ services:
       dockerfile: Dockerfile
     container_name: ichiyon-robot-irsia-bot
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     depends_on:
       db:
         condition: service_healthy
