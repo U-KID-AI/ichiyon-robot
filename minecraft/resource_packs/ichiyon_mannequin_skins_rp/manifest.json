@@ -25,5 +25,8 @@
         0
       ]
     }
+  ],
+  "capabilities": [
+    "pbr"
   ]
 }
