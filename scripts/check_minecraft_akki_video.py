@@ -1,4 +1,4 @@
-"""Akki assets, builder fixtures, full managed archive and public apply contracts."""
+﻿"""Akki assets, builder fixtures, full managed archive and public apply contracts."""
 import argparse
 from io import BytesIO
 import hashlib
@@ -139,3 +139,4 @@ class AkkiVideoChecks(unittest.TestCase):
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--source',type=Path);args,rest=parser.parse_known_args();SOURCE=args.source
     unittest.main(argv=[sys.argv[0],*rest])
+
