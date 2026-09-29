@@ -73,7 +73,7 @@ class SplitChecks(unittest.TestCase):
                 self.assertNotIn(section["uuid"], uuids)
                 self.assertNotEqual(section["uuid"], LEGACY_UUID)
                 uuids.add(section["uuid"])
-                self.assertEqual(section["version"], [1, 2, 0] if pack == AQUARIUM_GLASS else [1, 0, 0])
+                self.assertEqual(section["version"], [1, 2, 1] if pack == AQUARIUM_GLASS else [1, 0, 1])
         with ZipFile(BytesIO(pack_zip(self.root, self.records, 12))) as archive:
             proof = json.loads(archive.read("cosmetics-build.json"))
             self.assertEqual(proof["packs"], [p.rstrip("/") for p in (BP, BRIDGE, *RESOURCE_PACKS)])
@@ -117,7 +117,7 @@ class SplitChecks(unittest.TestCase):
             for pack in SPLIT_RESOURCE_PACKS:
                 self.assertEqual(content_hash(second / pack), original[pack])
                 self.assertEqual((second / pack / "manifest.json").read_bytes(), (live / pack / "manifest.json").read_bytes())
-            self.assertEqual(json.loads((second / VIDEO_BIG / "manifest.json").read_bytes())["header"]["version"], [1, 0, 0])
+            self.assertEqual(json.loads((second / VIDEO_BIG / "manifest.json").read_bytes())["header"]["version"], [1, 0, 1])
             for pack in (BP, BRIDGE, *RESOURCE_PACKS):
                 shutil.copytree(second / pack, live / pack, dirs_exist_ok=True)
             original.update({pack: content_hash(live / pack) for pack in DIRECT_RESOURCE_PACKS})
@@ -126,7 +126,7 @@ class SplitChecks(unittest.TestCase):
             unpack(pack_zip(source, self.records, 14), third, live)
             for pack in RESOURCE_PACKS:
                 version = json.loads((third / pack / "manifest.json").read_bytes())["header"]["version"]
-                self.assertEqual(version, [1, 2, 0] if pack == "resource_packs/ichiyon_aquarium_glass_rp/" else [1, 0, 1] if pack == VIDEO_BIG else [1, 0, 0])
+                self.assertEqual(version, [1, 2, 1] if pack == "resource_packs/ichiyon_aquarium_glass_rp/" else [1, 0, 2] if pack == VIDEO_BIG else [1, 0, 1])
                 if pack != VIDEO_BIG:
                     self.assertEqual(content_hash(third / pack), original[pack])
                 shutil.copytree(third / pack, live / pack, dirs_exist_ok=True)
@@ -196,7 +196,7 @@ class SplitChecks(unittest.TestCase):
             for pack in RESOURCE_PACKS:
                 before = json.loads((live / pack / "manifest.json").read_bytes())["header"]["version"]
                 after = json.loads((second / pack / "manifest.json").read_bytes())["header"]["version"]
-                self.assertEqual(after, [1, 0, 1] if pack == SKINS else before)
+                self.assertEqual(after, [1, 0, 2] if pack == SKINS else before)
             for pack in proof["packs"]:
                 shutil.copytree(second / pack, live / pack, dirs_exist_ok=True)
             third = root / "third"
