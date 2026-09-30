@@ -119,16 +119,19 @@ MINECRAFT_RESTART_ALLOWED_USER_IDS=<comma separated Discord user IDs allowed to 
 When the control API is configured, `マイクラ 状態` first reads host/Docker state from the control API and then
 briefly probes NaritaBridge for in-game player names. This means it can still answer when BDS or NaritaBridge is
 offline. The control API reports container state, health, restart count, container start time, container uptime,
-BDS version from Docker env or the installed binary name, host CPU, host memory, and container CPU/memory from
-Docker stats.
+BDS runtime version from the successful loopback `mc-monitor` response, host CPU, host memory, and container
+CPU/memory from Docker stats. Unknown output formats leave version/player count unknown; a successful probe
+retains the existing response/readiness contract. Direct-IP login and friend joins remain `not_tested`.
 
 `マイクラ 再起動` is never sent to NaritaBridge. The bot only calls the fixed control API restart endpoint, and only
 for users allowed by `MINECRAFT_RESTART_ALLOWED_USER_IDS`, `DEVELOPER_USER_ID`, or the DB `global_admin` role.
 
-The Minecraft host control API source is `scripts/minecraft/minecraft_control_api.py`. It exposes only:
+The Minecraft host control API source is `scripts/minecraft/minecraft_control_api.py`. Its fixed routes are:
 
 - `GET /status`
 - `POST /restart`
+- `GET /cosmetics` and `POST /cosmetics/{operation_id}` for managed apply
+- optional `GET /diagnostics` with a distinct read-only secret; see [Minecraft diagnostics](MINECRAFT_DIAGNOSTICS.md)
 
 It does not accept arbitrary shell, Docker, SSH, or Minecraft commands. The restart flow is fixed:
 
@@ -137,7 +140,7 @@ It does not accept arbitrary shell, Docker, SSH, or Minecraft commands. The rest
 3. create a timestamped backup of `docker-compose.yml`, the active world, active pack directories, and world pack refs
 4. optionally sync repository-managed packs from `MINECRAFT_CONTROL_PACK_SOURCE_DIR`
 5. `docker compose up -d bedrock-creative`
-6. wait for Docker health or Bedrock status to return
+6. wait for the running container and Bedrock loopback response; managed apply/rollback also requires Docker health `healthy`
 7. prune old restart backups according to `MINECRAFT_CONTROL_BACKUP_RETENTION`
 8. return post-restart status
 
@@ -147,8 +150,9 @@ version numbers. Only packs with actual content changes are copied, only those p
 version incremented, and existing UUIDs are preserved. The matching `world_behavior_packs.json` or
 `world_resource_packs.json` entry is updated to the new version.
 
-The current Minecraft host does not have an `ichiyon-robot` git clone or a separate pack source directory. The
-live packs are currently only under `/home/ubuntu/minecraft-bedrock-creative/data/...`. For automatic pack sync,
+An earlier host inspection found no `ichiyon-robot` git clone or separate pack source directory and found
+live packs only under `/home/ubuntu/minecraft-bedrock-creative/data/...`. This is a historical observation,
+not proof of the current production state. For legacy automatic pack sync,
 deploy the repository `minecraft/` directory separately to a host path such as
 `/home/ubuntu/ichiyon-robot-minecraft-packs/minecraft`, then point `MINECRAFT_CONTROL_PACK_SOURCE_DIR` there.
 `マイクラ 再起動` must not run `git pull`; code/pack source deployment and BDS restart stay separate.
@@ -161,6 +165,10 @@ Use the templates:
 
 - `scripts/minecraft/minecraft-control-api.env.example`
 - `scripts/minecraft/minecraft-control-api.service.example`
+
+Install `minecraft_control_api.py`, `minecraft_cosmetics_apply.py` and `minecraft_diagnostics.py` together.
+The diagnostics module is an import dependency even while its optional endpoint is disabled. A deployed
+host's settings and installed SHA must be checked separately from this source implementation.
 
 On the current host, bind the API to the private VCN address `10.0.0.62`, not `0.0.0.0`. The bot should call it
 through the private network, for example `http://10.0.0.62:8099`. Do not open the control API to the public

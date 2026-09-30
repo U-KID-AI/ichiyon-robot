@@ -281,9 +281,9 @@ def task_terminal_details(row: Dict[str, Any]) -> str:
         raise ValueError("terminal status required")
     # Only explicit result fields; never include description or transport settings.
     fields = (
-        ("task ID", "task_id"), ("status", "status"), ("PR", "pr_url"),
+        ("task ID", "task_id"), ("status", "status"), ("error", "error_message"), ("PR", "pr_url"),
         ("deployed SHA", "deployed_commit_sha"), ("result", "result_summary"),
-        ("progress", "progress_summary"), ("error", "error_message"),
+        ("progress", "progress_summary"),
         ("deployment", "deployment_summary"),
     )
     lines = ["AI task結果"]
