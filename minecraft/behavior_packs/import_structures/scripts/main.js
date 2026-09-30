@@ -4,6 +4,7 @@ import { secrets, variables } from "@minecraft/server-admin";
 import { handleAvatarCommand } from "./avatar_commands.js";
 import { cosmetics, cosmeticsDigest, managedPosters } from "./cosmetics.js";
 import { createPosterRuntime } from "./poster_core.js";
+import { readClientPerformance, logClientPerformance } from "./client_performance.js";
 import "./mokuro.js";
 import "./garbage_molcar.js";
 import "./molcar_boost.js";
@@ -352,6 +353,7 @@ function playerDiagnosticPayload(playerName) {
     resource_pack_handshake: RESOURCE_PACK_HANDSHAKE_STATUS,
     player_found: Boolean(player),
     player_name: playerName,
+    client_performance: player ? readClientPerformance(player) : null,
     entity_id: null,
     dimension: null,
     location: null,
@@ -377,6 +379,7 @@ function recordPlayerProbe(player, phase) {
   pushJoinDiagnostic({
     event: "inventory_probe",
     phase,
+    client_performance: readClientPerformance(player),
     player_name: safeValue(() => player.name, ""),
     player_found: true,
     entity_id: safeValue(() => player.id, "Script APIでは取得不可"),
@@ -547,12 +550,17 @@ async function handleJoinHistory(command) {
     timestamp: new Date().toISOString(),
     current_tick: currentTick(),
     resource_pack_handshake: RESOURCE_PACK_HANDSHAKE_STATUS,
-    events: joinDiagnostics.slice(-60),
+    // Inventory probes remain in memory and sync diagnostics. Keep this reply
+    // valid JSON within Discord's budget, with the newest join/performance first.
+    events: joinDiagnostics.filter(event => event.event !== "inventory_probe").slice(-60).reverse(),
     event_count: joinDiagnostics.length,
-    tick_drift: { ...tickDriftDiagnostics, currentTick: currentTick() },
-    http: { ...httpDiagnostics },
+    events_truncated: false,
   };
-  await postResult(requestId, "succeeded", "ok", truncateMessage(JSON.stringify(payload)));
+  while (JSON.stringify(payload).length > 1700 && payload.events.length) {
+    payload.events.pop();
+    payload.events_truncated = true;
+  }
+  await postResult(requestId, "succeeded", "ok", JSON.stringify(payload));
 }
 
 async function handleServerStatus(command) {
@@ -1296,6 +1304,9 @@ world.afterEvents.playerSpawn.subscribe((event) => {
     resource_pack_handshake: RESOURCE_PACK_HANDSHAKE_STATUS,
   });
   if (event.initialSpawn) {
+    const performance = readClientPerformance(player);
+    pushJoinDiagnostic({ event: "client_performance", client_performance: performance });
+    logClientPerformance(performance);
     recordPlayerProbe(player, "initialSpawn");
     for (const delay of JOIN_PROBE_DELAYS) {
       system.runTimeout(() => {

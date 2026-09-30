@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 import { createPosterRuntime } from "../minecraft/behavior_packs/import_structures/scripts/poster_core.js";
+import { readClientPerformance, logClientPerformance } from "../minecraft/behavior_packs/import_structures/scripts/client_performance.js";
 
 const source = readFileSync(new URL("../minecraft/behavior_packs/import_structures/scripts/main.js", import.meta.url), "utf8")
   .replace(/^import .*;\r?\n/gm, "");
@@ -34,7 +35,7 @@ function fixture() {
       return request.method === "GET" ? f.get(request) : f.post(request);
     } },
     cosmeticsDigest: "test-digest",
-    managedPosters: [], createPosterRuntime, BlockPermutation: {}, ItemStack: class {},
+    managedPosters: [], createPosterRuntime, readClientPerformance, logClientPerformance, BlockPermutation: {}, ItemStack: class {},
     cosmetics: { handleCommand: (...args) => f.execute(...args) },
     handleAvatarCommand: async () => false,
   });

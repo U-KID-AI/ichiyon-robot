@@ -239,6 +239,87 @@ class SplitApplyChecks(unittest.TestCase):
         for pack in deploy.BEHAVIOR_PACKS:
             self.assertEqual(deploy.read_json(self.api.DATA_DIR / pack / 'manifest.json')['header']['uuid'], self.pack_id(pack))
 
+    def big_retirement_fixture(self):
+        big = 'resource_packs/ichiyon_video_big_rp'
+        for pack in ('resource_packs/ichiyon_video_akki_rp', 'resource_packs/ichiyon_aquarium_glass_rp'):
+            self.packs.append(pack)
+            self.files[pack + '/manifest.json'] = self.manifest(pack)
+            self.files[pack + '/content.txt'] = pack.encode()
+        self.files['cosmetics-build.json']['retired_packs'].append(
+            {'path': big, 'uuid': self.pack_id(big)})
+        for pack in self.packs[2:]:
+            self.files[pack + '/manifest.json']['capabilities'] = ['pbr']
+        for pack in (*self.packs[2:], big):
+            manifest = self.manifest(pack)
+            manifest['capabilities'] = ['pbr']
+            manifest['header']['version'] = [1, 0, 99]
+            manifest['modules'][0]['version'] = [1, 0, 99]
+            deploy.atomic_json(self.api.DATA_DIR / pack / 'manifest.json', manifest)
+            (self.api.DATA_DIR / pack / 'content.txt').write_bytes(pack.encode())
+        refs = self.refs() + [{'pack_id': self.pack_id(pack), 'version': [1, 0, 99]}
+                              for pack in (*self.packs[2:], big)]
+        deploy.atomic_json(self.api.DATA_DIR / 'worlds/test-world/world_resource_packs.json', refs)
+        (self.api.DATA_DIR / 'worlds/test-world/level.dat').write_bytes(b'world data must survive')
+        self.original = self.snapshot()
+        return big
+
+    def test_big_retirement_preserves_other_pbr_packs_versions_and_bytes(self):
+        big = self.big_retirement_fixture()
+        job = self.apply()
+        self.assertFalse((self.api.DATA_DIR / big).exists())
+        self.assertEqual([ref['pack_id'] for ref in self.refs()],
+                         ['keep-other-pack', *(self.pack_id(p) for p in self.packs[2:])])
+        self.assertEqual(self.refs()[0]['extra'], 'preserve')
+        for pack in self.packs[2:]:
+            manifest = deploy.read_json(self.api.DATA_DIR / pack / 'manifest.json')
+            self.assertEqual(manifest['capabilities'], ['pbr'])
+            self.assertEqual(manifest['header']['uuid'], self.pack_id(pack))
+            self.assertEqual(manifest['header']['version'], [1, 0, 99])
+            self.assertEqual(manifest['modules'][0]['version'], [1, 0, 99])
+            self.assertEqual((self.api.DATA_DIR / pack / 'manifest.json').read_bytes(),
+                             self.original[pack + '/manifest.json'])
+            self.assertEqual((self.api.DATA_DIR / pack / 'content.txt').read_bytes(), pack.encode())
+        self.assertEqual((self.api.DATA_DIR / 'worlds/test-world/level.dat').read_bytes(), b'world data must survive')
+        backup = self.manager.root / job['operation_id'] / 'original'
+        self.assertEqual((backup / big / 'manifest.json').read_bytes(), self.original[big + '/manifest.json'])
+        first = self.snapshot()
+        self.apply()
+        self.assertEqual(self.snapshot(), first)  # Reconciliation never bumps again.
+
+    def test_big_retirement_health_failure_restores_all_nine_pbr_packs_and_world_refs(self):
+        self.big_retirement_fixture()
+        job = self.submit()
+        self.api.health_failures = 1
+        self.manager._run(job)
+        self.assertEqual(self.manager.status()['status'], 'failed')
+        self.assertEqual(self.snapshot(), self.original)
+        self.assertEqual((self.manager.root / 'active.json').read_bytes(), self.old_active)
+
+    def test_big_retirement_deletion_failure_restores_exact_original(self):
+        big = self.big_retirement_fixture()
+        remove, failed = shutil.rmtree, []
+        def fail(target, *args, **kwargs):
+            if target == self.api.DATA_DIR / big and not failed:
+                failed.append(True)
+                raise OSError('fixture retirement failure')
+            return remove(target, *args, **kwargs)
+        job = self.submit()
+        with patch.object(shutil, 'rmtree', side_effect=fail):
+            self.manager._run(job)
+        self.assertTrue(failed)
+        self.assertEqual(self.manager.status()['status'], 'failed')
+        self.assertEqual(self.snapshot(), self.original)
+        self.assertEqual((self.manager.root / 'active.json').read_bytes(), self.old_active)
+
+    def test_big_retirement_wrong_live_uuid_fails_before_stop(self):
+        big = self.big_retirement_fixture()
+        manifest = deploy.read_json(self.api.DATA_DIR / big / 'manifest.json')
+        manifest['header']['uuid'] = str(uuid.uuid4())
+        deploy.atomic_json(self.api.DATA_DIR / big / 'manifest.json', manifest)
+        with self.assertRaises(ValueError):
+            self.submit()
+        self.assertFalse(self.api.commands)
+
     def test_export_revision_and_pack_dependency_versions_do_not_bump_unchanged_packs(self):
         self.apply()
         versions = self.versions()

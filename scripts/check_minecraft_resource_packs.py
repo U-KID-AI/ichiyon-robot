@@ -17,7 +17,8 @@ from bot.services import minecraft_cosmetics_pack as compiler
 from bot.services.minecraft_cosmetics_pack import BP, BRIDGE, PACKS, builtin_assets, compile_files, pack_zip
 from bot.services.minecraft_resource_packs import (
     LEGACY, LEGACY_UUID, RESOURCE_PACKS, SPLIT_RESOURCE_PACKS, DIRECT_RESOURCE_PACKS,
-    REGISTRIES, SKINS, ACCESSORIES, POSTERS, VIDEO, VIDEO_BIG, RECORDS, AQUARIUM_GLASS, split_resource_packs,
+    RETIRED_RESOURCE_PACKS, BIG_VIDEO_ENABLED, VIDEO_BIG_UUID,
+    REGISTRIES, SKINS, ACCESSORIES, POSTERS, VIDEO, VIDEO_BIG, VIDEO_AKKI, RECORDS, AQUARIUM_GLASS, split_resource_packs,
 )
 from scripts.check_minecraft_cosmetics import fixture_assets, png
 
@@ -77,8 +78,12 @@ class SplitChecks(unittest.TestCase):
         with ZipFile(BytesIO(pack_zip(self.root, self.records, 12))) as archive:
             proof = json.loads(archive.read("cosmetics-build.json"))
             self.assertEqual(proof["packs"], [p.rstrip("/") for p in (BP, BRIDGE, *RESOURCE_PACKS)])
-            self.assertEqual(len(RESOURCE_PACKS), 9)
-            self.assertEqual(proof["retired_packs"], [{"path": LEGACY.rstrip("/"), "uuid": LEGACY_UUID}])
+            self.assertEqual(len(RESOURCE_PACKS), 8)
+            self.assertEqual(proof["retired_packs"], [
+                {"path": LEGACY.rstrip("/"), "uuid": LEGACY_UUID},
+                {"path": VIDEO_BIG.rstrip("/"), "uuid": VIDEO_BIG_UUID},
+            ])
+            self.assertFalse(any(name.startswith(VIDEO_BIG) for name in archive.namelist()))
             direct = {p.relative_to(self.root).as_posix(): p for pack in DIRECT_RESOURCE_PACKS
                       for p in (self.root / pack).rglob("*") if p.is_file()}
             self.assertEqual(set(archive.namelist()) - {"cosmetics-build.json"}, set(self.split) | direct.keys())
@@ -88,11 +93,26 @@ class SplitChecks(unittest.TestCase):
                 self.assertEqual(archive.read(name), data, name)
 
     def test_direct_pack_never_receives_legacy_registries_or_language_files(self):
-        self.assertEqual([p for p in self.split if p.startswith(VIDEO_BIG)], [VIDEO_BIG + "manifest.json"])
+        self.assertEqual([p for p in self.split if p.startswith(VIDEO_AKKI)], [VIDEO_AKKI + "manifest.json"])
+        self.assertFalse(any(p.startswith(VIDEO_BIG) for p in self.split))
         from bot.services import minecraft_resource_packs as packs
         with patch.object(packs, "RESOURCE_PACKS", SPLIT_RESOURCE_PACKS):
             previous = split_resource_packs(self.root, self.source)
         self.assertEqual(previous, {p: data for p, data in self.split.items() if not p.startswith(DIRECT_RESOURCE_PACKS)})
+
+    def test_paused_profile_and_standalone_retirement_allowlist_agree(self):
+        from scripts.minecraft import minecraft_cosmetics_apply as deploy
+        self.assertFalse(BIG_VIDEO_ENABLED)
+        self.assertNotIn(VIDEO_BIG, RESOURCE_PACKS)
+        self.assertEqual(RETIRED_RESOURCE_PACKS[VIDEO_BIG.rstrip("/")], VIDEO_BIG_UUID)
+        for path, identity in RETIRED_RESOURCE_PACKS.items():
+            self.assertEqual(deploy.RETIRED_PACKS[path], identity)
+        config = (self.root / BRIDGE / "scripts/wall_displays_config.js").read_text(encoding="utf-8")
+        self.assertIn("export const BIG_VIDEO_ENABLED = false;", config)
+        self.assertTrue(list((self.root / VIDEO_BIG / "textures").rglob("atlas_*.png")))
+        for pack in (*RESOURCE_PACKS, VIDEO_BIG):
+            path = self.root / pack / "manifest.json"
+            self.assertEqual(json.loads(path.read_bytes())["capabilities"], ["pbr"], str(path))
 
     def test_direct_content_only_bumps_its_pack_after_six_pack_install(self):
         from scripts.minecraft.minecraft_cosmetics_apply import unpack, content_hash
@@ -101,9 +121,9 @@ class SplitChecks(unittest.TestCase):
             source = root / "minecraft"
             # Use a small direct fixture, independently of the pending video encode.
             def ignore(directory, names):
-                return [name for name in names if name != "manifest.json"] if Path(directory) == self.root / VIDEO_BIG else []
+                return [name for name in names if name != "manifest.json"] if Path(directory) == self.root / VIDEO_AKKI else []
             shutil.copytree(self.root, source, ignore=ignore)
-            media = source / VIDEO_BIG / "fixture.bin"
+            media = source / VIDEO_AKKI / "fixture.bin"
             media.write_bytes(b"first direct media")
             first = root / "first"
             live = root / "live"
@@ -117,7 +137,7 @@ class SplitChecks(unittest.TestCase):
             for pack in SPLIT_RESOURCE_PACKS:
                 self.assertEqual(content_hash(second / pack), original[pack])
                 self.assertEqual((second / pack / "manifest.json").read_bytes(), (live / pack / "manifest.json").read_bytes())
-            self.assertEqual(json.loads((second / VIDEO_BIG / "manifest.json").read_bytes())["header"]["version"], [1, 0, 1])
+            self.assertEqual(json.loads((second / VIDEO_AKKI / "manifest.json").read_bytes())["header"]["version"], [1, 0, 1])
             for pack in (BP, BRIDGE, *RESOURCE_PACKS):
                 shutil.copytree(second / pack, live / pack, dirs_exist_ok=True)
             original.update({pack: content_hash(live / pack) for pack in DIRECT_RESOURCE_PACKS})
@@ -126,8 +146,8 @@ class SplitChecks(unittest.TestCase):
             unpack(pack_zip(source, self.records, 14), third, live)
             for pack in RESOURCE_PACKS:
                 version = json.loads((third / pack / "manifest.json").read_bytes())["header"]["version"]
-                self.assertEqual(version, [1, 2, 1] if pack == "resource_packs/ichiyon_aquarium_glass_rp/" else [1, 0, 2] if pack == VIDEO_BIG else [1, 0, 1])
-                if pack != VIDEO_BIG:
+                self.assertEqual(version, [1, 2, 1] if pack == "resource_packs/ichiyon_aquarium_glass_rp/" else [1, 0, 2] if pack == VIDEO_AKKI else [1, 0, 1])
+                if pack != VIDEO_AKKI:
                     self.assertEqual(content_hash(third / pack), original[pack])
                 shutil.copytree(third / pack, live / pack, dirs_exist_ok=True)
             fourth = root / "fourth"
