@@ -13,7 +13,13 @@ def git(*args):
     return subprocess.check_output(["git", *args], cwd=ROOT)
 
 
-def version(value):
+def version(value, format_version=2):
+    if format_version == 3:
+        if not isinstance(value, str) or not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", value):
+            raise ValueError("V3 pack version must be a release SemVer string")
+        return tuple(map(int, value.split(".")))
+    if format_version != 2:
+        raise ValueError("unsupported manifest format")
     if (not isinstance(value, list) or len(value) != 3
             or any(type(v) is not int or v < 0 for v in value)):
         raise ValueError("invalid pack version")
@@ -21,13 +27,14 @@ def version(value):
 
 
 def validate(old, new):
-    current = version(new["header"]["version"])
-    if not new.get("modules") or any(version(m["version"]) != current for m in new["modules"]):
+    new_format = new.get("format_version", 2)
+    current = version(new["header"]["version"], new_format)
+    if not new.get("modules") or any(version(m["version"], new_format) != current for m in new["modules"]):
         raise ValueError("header/modules versions must match")
     if old is not None:
         if new["header"]["uuid"] != old["header"]["uuid"]:
             raise ValueError("existing pack UUID must be preserved")
-        if current <= version(old["header"]["version"]):
+        if current <= version(old["header"]["version"], old.get("format_version", 2)):
             raise ValueError("changed RP requires a higher manifest version")
 
 

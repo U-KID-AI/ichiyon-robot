@@ -109,7 +109,8 @@ class SplitChecks(unittest.TestCase):
             self.assertEqual(deploy.RETIRED_PACKS[path], identity)
         config = (self.root / BRIDGE / "scripts/wall_displays_config.js").read_text(encoding="utf-8")
         self.assertIn("export const BIG_VIDEO_ENABLED = false;", config)
-        self.assertTrue(list((self.root / VIDEO_BIG / "textures").rglob("atlas_*.png")))
+        self.assertEqual(len(list((self.root / VIDEO_BIG / "subpacks/full/textures").rglob("atlas_*.png"))), 26)
+        self.assertFalse(list((self.root / VIDEO_BIG / "textures").rglob("atlas_*.png")))
         for pack in (*RESOURCE_PACKS, VIDEO_BIG):
             path = self.root / pack / "manifest.json"
             self.assertEqual(json.loads(path.read_bytes())["capabilities"], ["pbr"], str(path))

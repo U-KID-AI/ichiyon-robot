@@ -6,6 +6,19 @@ from check_resource_pack_versions import validate, check
 
 
 class VersionChecks(unittest.TestCase):
+    def test_v2_to_v3_requires_higher_semver_and_same_uuid(self):
+        old = {"format_version": 2, "header": {"uuid": "same", "version": [1, 0, 1]}, "modules": [{"version": [1, 0, 1]}]}
+        new = {"format_version": 3, "header": {"uuid": "same", "version": "1.0.2"}, "modules": [{"version": "1.0.2"}]}
+        validate(old, new)
+        for bad in ([1, 0, 2], "1.0.1", "01.0.2", "1.0", "1.0.2-preview", "1.0.2+build"):
+            value = copy.deepcopy(new)
+            value["header"]["version"] = value["modules"][0]["version"] = bad
+            with self.assertRaises(ValueError): validate(old, value)
+        changed = copy.deepcopy(new); changed["header"]["uuid"] = "other"
+        with self.assertRaises(ValueError): validate(old, changed)
+        wrong = copy.deepcopy(new); wrong["format_version"] = 2
+        with self.assertRaises(ValueError): validate(old, wrong)
+
     def test_policy(self):
         old = {"header": {"uuid": "same", "version": [1, 0, 30]},
                "modules": [{"version": [1, 0, 30]}]}

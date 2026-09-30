@@ -291,7 +291,7 @@ export function createVideoDisplays({ world, system, displays, now, log = consol
   function recoverRetired(entity) {
     try {
       if (retired.has(entity.typeId)) { entity.remove(); return true; }
-    } catch { /* An unloading helper can be removed on its next entityLoad. */ }
+    } catch { /* Retry loaded helpers on the next slow scan; never force-load chunks. */ }
     return false;
   }
   function retireLoaded() {
@@ -317,8 +317,9 @@ export function createVideoDisplays({ world, system, displays, now, log = consol
       }
     }
   };
-  return Object.fromEntries(["scan", "tick", "button", "release", "leave", "reset", "cleanPlayer"]
+  return Object.fromEntries(["tick", "button", "release", "leave", "reset", "cleanPlayer"]
     .map((method) => [method, (...args) => call(method, ...args)]).concat([
+      ["scan", (...args) => { retireLoaded(); call("scan", ...args); }],
       ["recover", entity => { if (!recoverRetired(entity)) call("recover", entity); }],
       ["recoverRetired", recoverRetired],
       ["retireLoaded", retireLoaded],

@@ -475,4 +475,17 @@ test("production entry pauses only Big; startup/load/spawn retire only Big helpe
   assert.deepEqual([...f.blocks.entries()], before);
 });
 
+test("failed Big removal is retried by slow scan without touching other entity types", () => {
+  const f = fixture();
+  const group = createVideoDisplays({ world: f.world, system: f.system, displays: [], retiredEntityTypes: [bigConfig.video.entity] });
+  const big = f.dimension.spawnEntity(bigConfig.video.entity, { x: 0, y: 0, z: 0 });
+  const mob = f.dimension.spawnEntity("ichiyon:molcar", { x: 0, y: 0, z: 0 });
+  const remove = big.remove.bind(big); let tries = 0;
+  big.remove = () => { if (++tries === 1) throw Error("temporarily unloading"); remove(); };
+  group.recoverRetired(big);
+  assert(big.isValid);
+  group.scan();
+  assert(!big.isValid); assert(mob.isValid); assert.equal(tries, 2);
+});
+
 console.log(`${passed} wall display runtime tests passed`);

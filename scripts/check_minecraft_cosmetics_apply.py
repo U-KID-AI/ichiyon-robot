@@ -513,6 +513,20 @@ class SplitApplyChecks(unittest.TestCase):
                 self.submit(files)
         self.assertFalse(self.api.commands)
 
+    def test_v3_and_v2_with_performance_tiers_fail_before_stop_and_world_writes(self):
+        big = 'resource_packs/ichiyon_video_big_rp'
+        v3 = json.loads((ROOT / 'minecraft' / big / 'manifest.json').read_bytes())
+        for manifest in (v3, {**self.manifest(big), 'subpacks': v3['subpacks']}):
+            files = deepcopy(self.files)
+            files['cosmetics-build.json']['packs'].append(big)
+            files[big + '/manifest.json'] = manifest
+            files[big + '/subpacks/full/textures/entity/video_screen_big/atlas_000.png'] = b'fixture'
+            with self.assertRaisesRegex(ValueError, 'V3/subpack enable blocked'):
+                self.submit(files)
+            self.assertFalse(self.api.commands)
+            self.assertEqual(self.snapshot(), self.original)
+            self.assertEqual((self.manager.root / 'active.json').read_bytes(), self.old_active)
+
     def test_hostile_paths_cannot_write_outside_managed_roots(self):
         for name in ('worlds/test-world/level.dat', 'resource_packs/foreign_pack/manifest.json',
                      'behavior_packs/foreign_pack/manifest.json', SPLIT_RPS[0] + '/../outside',
