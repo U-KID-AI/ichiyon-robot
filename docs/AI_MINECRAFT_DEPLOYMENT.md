@@ -1,5 +1,11 @@
 # Minecraft deployment verification
 
+## 2026-09-30 現行経路とhistorical契約
+
+通常Runnerとidle catch-upは[Managed Minecraft Release](operations/managed-minecraft-release.md)のadapterを使う。exact merge SHAのapp配備後、そのappのproduction DB素材を含むpackをControl APIで反映し、operation/digest/healthを検証する。raw Git-pack/SSH経路へは404/503を含めfallbackしない。
+
+以下はlegacy adapterの保存された契約で、現在の通常配備手順や残タスク判定には使わない。`ai_task_minecraft_runtime.py`/`ai_task_minecraft_deploy_remote.py`は既存互換・回帰検証の対象として残す。通常Runnerの必要credentials、配備順序と成功証明はmanaged releaseを参照し、現在の残件は[CURRENT_BACKLOG](CURRENT_BACKLOG.md)をsource of truthとする。
+
 AI Runner の `completed` は、レビュー済み merge SHA のコードが対象の本番環境へ実際に反映され、対象ごとの機械検証が成功した場合だけ許可する。
 
 ## Deployment targets

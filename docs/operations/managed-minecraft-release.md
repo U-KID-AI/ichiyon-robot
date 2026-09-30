@@ -1,5 +1,9 @@
 # Managed Minecraft Release
 
+## 2026-09-30 現行Runner
+
+WindowsとLinuxの両Runnerを実装済み（`scripts/ai_task_runner.py`、`scripts/ai_task_runner_config.py`、`scripts/check_ai_task_linux.py`）。Linuxのscheduler/installationは[storage evidence index](storage-evidence-index.md)に2026-09-28の実測記録があり、source rootは`/home/ubuntu/ichiyon-ai-runner-src`。通常配備・idle catch-upはmanaged Minecraft adapterを使う。後述のsyoub用Windows launcherはhistoricalな個別installation記録で、Windows PCの稼働は本番必須条件ではない。設定・serviceの実状態は作業時に確認する。残件は[CURRENT_BACKLOG](../CURRENT_BACKLOG.md)。
+
 ## Route And Proof
 
 The normal runner now uses the existing app `DeployConfig`, then the existing
@@ -106,7 +110,7 @@ named retry, continue to use its attempt UUID for reconciliation of that release
 The Control API exposes only the latest operation; if an old UUID is no longer
 latest, inspect its retained operation directory before choosing a new attempt.
 
-## Existing Windows Runner
+## Historical Windows installation example
 
 Confirmed launcher: `C:/Users/syoub/.ichiyon-ai-runner/run.ps1`; existing repository
 `C:/プロジェクト/ichiyon-robot-ai`, ID `windows-prod-runner-1`. The launcher already
@@ -131,6 +135,12 @@ launcher's child-process environment is not automatically inherited by a separat
 PowerShell window. Never print/decrypt the DPAPI token into logs or CLI arguments.
 
 ## Verification Boundaries
+
+The SHA/version observations below belong to the original release implementation.
+They are historical observations, not the installed SHA or pack versions on
+2026-09-30. The current implementation and CI status are recorded in
+[CURRENT_BACKLOG](../CURRENT_BACKLOG.md); every later production release still
+needs its own exact-SHA, health and preservation proof.
 
 Production was not modified or inspected live by these offline tests. The parent
 reported app startup SHA `1b5dda5d09f9c66cab158d413eb067f9ed39fa33` and all three live

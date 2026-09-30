@@ -112,6 +112,8 @@ jobs:
           python scripts/check_ai_task_storage.py
           python scripts/check_ai_task_storage_retention.py
           python scripts/check_ai_task_storage_cleanup.py
+          python scripts/check_ai_task_storage_maintenance.py
+          python scripts/check_ai_task_storage_disposition.py
           python scripts/check_ai_task_storage_evidence.py
           python scripts/check_ai_task_storage_evidence_store.py
           python scripts/check_ai_task_storage_evidence_classification.py
@@ -122,6 +124,8 @@ jobs:
           python scripts/check_ai_task_backup_restore.py --postgres-bin /usr/lib/postgresql/16/bin -v
           python scripts/check_ai_task_control_tunnel.py
           python scripts/check_nethernet_diagnostics.py
+          python scripts/check_minecraft_control_status.py
+          python scripts/check_minecraft_diagnostics.py
           bash -n scripts/ai_task_deploy_remote.sh
           python scripts/check_ai_tasks.py
           python scripts/check_ai_task_discord_channel.py

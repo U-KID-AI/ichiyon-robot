@@ -260,6 +260,14 @@ class ChannelChecks(unittest.IsolatedAsyncioTestCase):
         self.assertIn("line detail\n" * 300, attachment)
         self.assertNotIn("do-not-display", text + attachment)
 
+    def test_terminal_error_precedes_long_results(self):
+        diagnostic = "src/example.py:42: actual failure"
+        text = ai_tasks.format_task_terminal(dict(status="failed", error_message=diagnostic,
+            pr_url="p" * 4000, result_summary="r" * 4000))
+        self.assertIn(diagnostic, text)
+        self.assertLess(text.index("error:"), text.index("PR:"))
+        self.assertLess(len(text), 2000)
+
     def assert_mentions_disabled(self, kwargs):
         mentions = kwargs["allowed_mentions"]
         self.assertFalse(mentions.everyone)

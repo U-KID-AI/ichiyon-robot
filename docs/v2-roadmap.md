@@ -1,5 +1,9 @@
 # いちよんロボ ver2.0 ロードマップ
 
+## Historical — 現在の残タスク判定には使わない
+
+この文書は初期v2計画の保存資料。2026-09-30現在、PostgreSQL/migrations、guild repository、Discord OAuth管理画面、権限/feature flag、mode/auto post、deck search、Composeは実装済み。根拠は`migrations/001_initial_schema.sql`、`bot/repositories/`、`admin/auth.py`、`admin/main.py`、各`check_v2_db_integration.py`/`check_admin_*.py`/`check_deck_search_runtime.py`と`.github/workflows/checks.yml`。本番適用状況は別途実測する。旧Phase記述・「今回やらない」は当時のscopeで、現在の実装禁止や残件ではない。[CURRENT_BACKLOG](CURRENT_BACKLOG.md)をsource of truthとする。現在のapp/CIはPython 3.11を基準とする（Dockerfile、workflow）；下記3.8方針は当時の記録。
+
 ## 目的
 
 ver2.0 は、いちよんロボを複数サーバーで安全に運用できる管理Botへ進化させる大型改修です。
@@ -10,7 +14,7 @@ ver2.0 は、いちよんロボを複数サーバーで安全に運用できる�
 = 複数サーバー対応 + Discordログイン管理画面 + サーバー別機能ON/OFF + DB化 + デッキ検索基盤
 ```
 
-## 現在の前提
+## 設計当時の前提（historical）
 
 ver1.0 はリリース済みで、現在の `main` は安定版です。
 直近では自動反応に優先度を追加済みです。
@@ -50,7 +54,7 @@ ver2.0 では、既存機能を壊さずに管理基盤を作り直します。
 デッキ検索機能を主役にします。
 はゆす、成田、破壊、しこっちは基本OFF想定です。
 
-## 実装フェーズ
+## 初期計画の実装フェーズ（historical）
 
 ### Phase 0: 設計ドキュメント追加
 
@@ -183,7 +187,7 @@ Discord OAuth2ログイン後、DiscordユーザーIDで権限判定します。
 * 破壊設定
 * 権限設定
 
-## 既存運用上の注意
+## 設計当時の運用上の注意（historical）
 
 Python 3.8対応を維持します。
 `str | None` や `list[str]` など、Python 3.10前提の型ヒントは使いません。
@@ -199,7 +203,7 @@ Python 3.8対応を維持します。
 * 本番データ
 * 画像アップロード実体
 
-## 今回やらないこと
+## 初回設計作業の対象外（historical）
 
 今回の作業では実装しません。
 

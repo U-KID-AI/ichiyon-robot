@@ -1,0 +1,223 @@
+[
+  {
+    "check": "check_ai_task_auto_merge.py",
+    "exit_code": 0,
+    "seconds": 0.34
+  },
+  {
+    "check": "check_ai_task_backup_restore.py",
+    "exit_code": 0,
+    "seconds": 0.86
+  },
+  {
+    "check": "check_ai_task_control_plane.py",
+    "exit_code": 0,
+    "seconds": 0.86
+  },
+  {
+    "check": "check_ai_task_control_tunnel.py",
+    "exit_code": 0,
+    "seconds": 0.36
+  },
+  {
+    "check": "check_ai_task_deploy.py",
+    "exit_code": 0,
+    "seconds": 1.22
+  },
+  {
+    "check": "check_ai_task_discord_channel.py",
+    "exit_code": 0,
+    "seconds": 1.65
+  },
+  {
+    "check": "check_ai_task_github.py",
+    "exit_code": 0,
+    "seconds": 0.14
+  },
+  {
+    "check": "check_ai_task_heartbeat.py",
+    "exit_code": 0,
+    "seconds": 1.21
+  },
+  {
+    "check": "check_ai_task_linux.py",
+    "exit_code": 0,
+    "seconds": 0.16
+  },
+  {
+    "check": "check_ai_task_local_runner.py",
+    "exit_code": 0,
+    "seconds": 28.71
+  },
+  {
+    "check": "check_ai_task_minecraft_deploy.py",
+    "exit_code": 0,
+    "seconds": 1.44
+  },
+  {
+    "check": "check_ai_task_minecraft_deploy_managed.py",
+    "exit_code": 0,
+    "seconds": 8.74
+  },
+  {
+    "check": "check_ai_task_minecraft_runtime.py",
+    "exit_code": 0,
+    "seconds": 0.29
+  },
+  {
+    "check": "check_ai_task_phase2d_control_plane.py",
+    "exit_code": 0,
+    "seconds": 0.58
+  },
+  {
+    "check": "check_ai_task_phase3c_control_plane.py",
+    "exit_code": 0,
+    "seconds": 0.73
+  },
+  {
+    "check": "check_ai_task_process.py",
+    "exit_code": 0,
+    "seconds": 8.8
+  },
+  {
+    "check": "check_ai_task_publish.py",
+    "exit_code": 0,
+    "seconds": 4.3
+  },
+  {
+    "check": "check_ai_task_recovery_plan.py",
+    "exit_code": 0,
+    "seconds": 0.15
+  },
+  {
+    "check": "check_ai_task_review_merge.py",
+    "exit_code": 0,
+    "seconds": 0.18
+  },
+  {
+    "check": "check_ai_task_runner.py",
+    "exit_code": 0,
+    "seconds": 10.4
+  },
+  {
+    "check": "check_ai_task_storage.py",
+    "exit_code": 0,
+    "seconds": 0.13
+  },
+  {
+    "check": "check_ai_task_storage_cleanup.py",
+    "exit_code": 0,
+    "seconds": 0.19
+  },
+  {
+    "check": "check_ai_task_storage_evidence.py",
+    "exit_code": 0,
+    "seconds": 1.68
+  },
+  {
+    "check": "check_ai_task_storage_evidence_classification.py",
+    "exit_code": 0,
+    "seconds": 0.08
+  },
+  {
+    "check": "check_ai_task_storage_evidence_store.py",
+    "exit_code": 0,
+    "seconds": 15.19
+  },
+  {
+    "check": "check_ai_task_storage_evidence_v2.py",
+    "exit_code": 0,
+    "seconds": 33.38
+  },
+  {
+    "check": "check_ai_task_storage_maintenance.py",
+    "exit_code": 0,
+    "seconds": 0.21,
+    "tests": 21
+  },
+  {
+    "check": "check_ai_task_storage_monitor.py",
+    "exit_code": 0,
+    "seconds": 0.7
+  },
+  {
+    "check": "check_ai_task_storage_retention.py",
+    "exit_code": 0,
+    "seconds": 0.26
+  },
+  {
+    "check": "check_ai_task_worktree_inspection.py",
+    "exit_code": 0,
+    "seconds": 0.97
+  },
+  {
+    "check": "check_ai_tasks.py",
+    "exit_code": 0,
+    "seconds": 0.88
+  },
+  {
+    "check": "check_minecraft_control_status.py",
+    "exit_code": 0,
+    "seconds": 0.1
+  },
+  {
+    "check": "check_minecraft_diagnostics.py",
+    "exit_code": 0,
+    "seconds": 0.65
+  },
+  {
+    "check": "check_minecraft_deploy_safety.py",
+    "exit_code": 0,
+    "seconds": 0.04
+  },
+  {
+    "check": "check_minecraft_backup_scripts.py",
+    "exit_code": 0,
+    "seconds": 0.04
+  },
+  {
+    "check": "check_nethernet_diagnostics.py",
+    "exit_code": 0,
+    "seconds": 0.17
+  },
+  {
+    "check": "check_minecraft_lead_anchors.py",
+    "exit_code": 0,
+    "seconds": 2.59
+  },
+  {
+    "check": "check_youtube_cookie_monitor.py",
+    "exit_code": 0,
+    "seconds": 0.11
+  },
+  {
+    "check": "check_ai_task_storage_disposition.py",
+    "exit_code": 0,
+    "seconds": 0.24,
+    "tests": 25
+  },
+  {
+    "check": "check_recovery_history.py",
+    "exit_code": 0,
+    "seconds": 0.22
+  },
+  {
+    "check": "check_resource_pack_versions_test.py",
+    "exit_code": 0,
+    "seconds": 0.1
+  },
+  {
+    "check": "check_minecraft_cosmetics_apply.py",
+    "exit_code": 0,
+    "seconds": 61.5,
+    "verification": "Linux Python 3.11 subagent",
+    "tests": 35
+  },
+  {
+    "check": "check_minecraft_narita_bridge.py",
+    "exit_code": 0,
+    "seconds": null,
+    "verification": "Linux Python 3.11 subagent",
+    "tests": null
+  }
+]

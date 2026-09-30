@@ -138,6 +138,8 @@ Cookie状態監視を使う場合は、以下を設定します。`YTDLP_COOKIE_
 - `YTDLP_COOKIE_CHECK_URL=<公開されている検査用YouTube URL>`
 - `YTDLP_COOKIE_RETRY_COOLDOWN_SECONDS=1800`
 - `YTDLP_COOKIE_CHECK_OWNER_BOT_ID` に一致するBotだけが定期チェックを実行します。botとbot-irsiaで同じCookieを共有する場合は、担当Botを1体だけ指定してください。
+
+2026-09-30時点で完全自動更新は`UPDATE_NOT_CONFIGURED`を返します。安全な更新元はrepository/Compose/host構成から確認できないため、残る外部前提は「運用専用のログイン済み更新元を1つ確定し、更新processから読める状態で提供する」ことです。個人browser profileの推測やダミー更新は行いません。現行の残件は[CURRENT_BACKLOG](CURRENT_BACKLOG.md)を参照してください。
 - `YTDLP_ALERT_CHANNEL_ID=<通知先DiscordチャンネルID>`
 
 現在の自動更新処理は、Cookie検査・分類・排他制御・通知の土台までです。専用Firefoxプロファイルなど安全な更新元が未設定のため、Cookie失効時は「自動更新未設定」として扱い、既存Cookieを変更しません。Cookie内容、Googleアカウント情報、長い例外スタックはログやDiscord通知に出しません。

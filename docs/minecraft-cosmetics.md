@@ -46,7 +46,7 @@ WebがDBの全素材と現在のアプリ版から3パックを生成し、既�
 
 反映用versionはDB採番と現行manifestの双方より古くならないように決め、相互依存とワールド参照も合わせる。通常の再起動時には古い配布元パックで上書きしない。画面では稼働Bridgeからのカタログheartbeatも確認する。
 
-初回インストールはアプリのmigration 065とControl APIの2ファイル（`minecraft_control_api.py`, `minecraft_cosmetics_apply.py`）を同時期に更新する。利用者へこの初期設定を要求しない。今後Minecraftコードを更新する運用でも、DB素材を含む最新アプリの生成パックを同APIから適用する。固定アダプターから初期4人だけのGitパックで上書きして完了扱いにしない。
+初回インストールはアプリのmigration 065とControl APIの3ファイル（`minecraft_control_api.py`, `minecraft_cosmetics_apply.py`, `minecraft_diagnostics.py`）を同時期に更新する。診断endpointを有効化しない場合も`minecraft_diagnostics.py`はAPIのimportに必要。利用者へこの初期設定を要求しない。今後Minecraftコードを更新する運用でも、DB素材を含む最新アプリの生成パックを同APIから適用する。固定アダプターから初期4人だけのGitパックで上書きして完了扱いにしない。
 
 Webによる反映が有効な間、Git原本の固定BDSアダプターは共通ロック内で `cosmetics-applications/active.json` を検出し、書き込み・停止前に拒否する。待機中Runnerの定期catch-upは成功扱いをせず、そのまま通常のタスク受付へ戻る。Web管理を外すためにこの記録を削除しない。Minecraftコードの更新も、更新済み管理アプリとDB素材から生成してControl APIへ反映する。Git原本だけの明示デプロイも同じ保護対象であり、Web素材を消して成功扱いにしない。
 

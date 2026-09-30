@@ -555,6 +555,21 @@ class BackupContractTests(unittest.TestCase):
         fixture.path = published
         self.assertEqual(fixture.validate(), proof)
 
+    @unittest.skipUnless(os.name == 'posix', 'UID validation requires POSIX')
+    def test_read_only_stage_verifier_can_bind_protocol_owner_under_sudo(self):
+        fixture = self.fixture(version=1).make_writer_stage()
+        fixture.write_full()
+        owner = fixture.path.stat().st_uid
+        options = dict(backups_root=fixture.path.parent, releases_root=fixture.releases,
+                       recovery_root=fixture.recovery, dump_validator=lambda path: True)
+        with patch.object(backup.os, 'geteuid', return_value=owner + 1):
+            with self.assertRaises(backup.BackupError):
+                backup.validate_staged_backup(fixture.path, TARGET, **options)
+            proof = backup.validate_staged_backup(fixture.path, TARGET, expected_uid=owner, **options)
+            self.assertEqual(proof['format_version'], 2)
+            with self.assertRaises(backup.BackupError):
+                backup.validate_staged_backup(fixture.path, TARGET, expected_uid=owner + 2, **options)
+
     def test_full_writer_has_no_scope_or_recovery_switch(self):
         fixture = self.fixture(version=1).make_writer_stage()
         with self.assertRaises(TypeError):

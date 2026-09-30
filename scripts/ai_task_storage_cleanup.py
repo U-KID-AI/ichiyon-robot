@@ -1,16 +1,16 @@
-"""Pure P1c cleanup eligibility proposal; Python 3.8, no I/O or executor.
+"""Pure P1c cleanup eligibility; no I/O or executor in this module.
 
 This deliberately does not change P1a retention classifications.  SAFE_TO_CLEAN
-means the supplied observation has all evidence needed for a future reviewed
-operation, not permission to delete.  A future executor must acquire the existing
-deployment flock and collect everything again while holding it.
+means the supplied observation has all evidence needed for a reviewed operation,
+not permission to delete. P1c-2B's ai_task_storage_maintenance acquires the existing
+deployment flock and collects everything again while holding it.
 
-The only accepted evidence namespace is EVIDENCE_ROOT/operations/<32hex>.json.
-It is a *collector contract*: booleans below mean independently observed facts,
+Evidence comes from the fixed v1/v2 deployment namespace, verified by the current
+evidence collector. It is a *collector contract*: booleans mean observed facts,
 never fields trusted directly from that JSON.  The reader must verify provenance,
 owner/permissions, object identities, terminal receipts, checksums, references,
-and current /proc state. P1c-1 ships neither a writer nor a JSON-input CLI. Existing
-deployments do not produce this evidence, and remain NEEDS_REVIEW. This module
+and current /proc state. P1c-2A/2A.1 write durable v2 receipts; legacy objects lacking
+bound evidence remain NEEDS_REVIEW. P1c-2B verifies preserved recovery proofs. This module
 must not reconstruct lifecycle or ownership from mtime, names, or missing PIDs.
 """
 
@@ -129,7 +129,11 @@ def _global_errors(snapshot, evidence, retention):
             lock.get('identity') != [lock.get('device'), lock.get('inode')] or
             lock.get('identity') != observation.get('lock_identity')):
         errors.append('EXACT_DEPLOYMENT_LOCK_IDENTITY_UNVERIFIED')
-    if lock.get('held') is not False or lock.get('holder_pids') != [] or observation.get('lock_held') is not False:
+    maintenance_pid = observation.get('maintenance_holder_pid')
+    exclusive_maintenance = (_positive(maintenance_pid) and lock.get('maintenance_holder_pid') == maintenance_pid
+                             and lock.get('held') is True and lock.get('holder_pids') == [maintenance_pid]
+                             and observation.get('lock_held') is True)
+    if not exclusive_maintenance and (lock.get('held') is not False or lock.get('holder_pids') != [] or observation.get('lock_held') is not False):
         errors.append('DEPLOYMENT_LOCK_NOT_OBSERVED_IDLE')
     # A read-only observation does not acquire the lock. Even SAFE proposals must
     # later be regenerated inside an exclusive lock before any mutation.

@@ -94,7 +94,10 @@ Avatar/Poster/Lead Anchorの固定バージョン期待値が更新前のBP 1.0.
 - version-policy: 2テスト成功、およびmain `9cd3534` とPR更新 `f9c1f2f` の比較成功。
 - 関連Pythonのcompileと`git diff --check`成功。
 
-CI workflowとRunner test registryは保護対象のため変更しておらず、本checkのCI登録は残件。
+2026-09-30現在、`check_minecraft_pikachu.py`は`.github/workflows/checks.yml`の
+`minecraft-cosmetics` jobに登録済み。初回作業時のCI未登録・旧Runner保護対象という
+記述はhistoricalで、現在の残件判定には使わない。現行Runnerはworkflowやtestsも
+ユーザー承認範囲で編集できる。残件のsource of truthは[CURRENT_BACKLOG](CURRENT_BACKLOG.md)。
 実機のContent Log、エッグ、連続インタラクト、同tick入力、チャンク再読込、
 Creativeを含む睡眠追従・起床/離脱・経路探索・同期は未検証。
 最終的な見た目・歩き方・回転の感触も未確認。
@@ -103,4 +106,6 @@ Creativeを含む睡眠追従・起床/離脱・経路探索・同期は未検�
 world pack参照同期、再起動、health、本番packとmain一致確認は実施しない。
 これらと実機検証は、権限を持つ外部の運用・検証工程へ引き継ぐ。
 その後、外部工程でPR #51の作成とmain取り込みが行われ、`f9c1f2f` のGitHub CI成功を確認した。
-今回の引き継ぎで残っていたオフライン回帰checkは完了したが、merge、本番反映、実機確認は未実施。
+この引き継ぎ時点で残っていたオフライン回帰checkは完了した。その時点の本番反映・
+実機未確認はhistoricalであり、現在の配備状態は新しいSHAとmanaged release証明で
+確認する。実機QA完了の証拠がない項目はCURRENT_BACKLOGの人間QA欄へ残す。

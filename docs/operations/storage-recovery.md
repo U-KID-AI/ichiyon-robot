@@ -1,6 +1,6 @@
 # Production storage recovery contract (P1c-1)
 
-この文書はP1c-1時点の設計・観測記録。後続P1c-2Aでは承認されたrolloutによりv2 FULL writerとdurable evidenceを有効化する。[現在のproduction基盤契約](storage-foundation.md)を併読する。FULL scope維持、producer移行plan-only、cleanup executor未導入という境界は継続する。
+この文書はP1c-1の復元契約とhistoricalな観測記録。後続P1c-2A/P1c-2A.1のv2 FULL writer、durable evidence/indexはmainに実装済み。[現在の基盤契約](storage-foundation.md)を併読する。P1c-2Bのfresh disposition/eligibility、保持graph、明示window、exact-path executorとpartial failure auditは[storage maintenance](storage-maintenance.md)を参照する。FULL scopeとproducer migrationのplan-onlyは維持し、cleanupコード完成とproduction実行を区別する。今回production削除は実施していない。
 
 P1c-1はbackupの復元契約とcleanupの判定を実装する。productionのmove/copy/delete、scheduler変更、merge、deployを行わない。**現行deploymentのtar scopeは `data`、`assets/images`、`secrets`、`.env` のまま維持し、`data/backups`を除外しない。** 以下の履歴調査とfixtureの成功は、productionの全データを復旧できる証明とは区別する。
 
@@ -121,7 +121,7 @@ fixtureでDB dump、env contract、secrets、runtime data、image/assets、previ
 
 fixtureが成功してもproduction scope縮小の許可にはしない。既存production dumpを使う隔離restore、過去pack原本の復元手順、継続producerの扱いが未証明なので、P1c-1にはproduction `--exclude=data/backups` を導入しない。archive参照だけで全履歴を復元できるという未証明の成功statusも返さない。
 
-## recovery archive領域の設計（production移行は未実装）
+## recovery archive領域の契約（production producer切替待ち）
 
 trusted production rootは **`/home/ubuntu/ichiyon-recovery-archives`** に固定する。task本文、manifest、CLIの任意pathからproduction移行先を選べる設計にしない。scope内の `shared/data` より外へ置き、archive領域そのものを通常persistence tarへ再収録しない。固定scopeとarchive IDだけの参照構造、symlink拒否により、rootを任意に指して再収録する経路を設けない。`data/backups`内部の過去ZIP/tar等のregular payloadは必要な履歴としてそのまま保存し、拡張子を理由に除外しない。
 
@@ -129,9 +129,9 @@ trusted production rootは **`/home/ubuntu/ichiyon-recovery-archives`** に固�
 
 [`ai_task_recovery_plan.py`](../../scripts/ai_task_recovery_plan.py) の引数なしCLIは固定sourceと固定root、および未充足の移行条件を示す。sourceはmetadata/hashだけをread-onlyで走査し、symlink・特殊file・mount越境・採取中変化を拒否する。出力はinventory digest、件数・payload bytes・subtree名で、内容を出さない。`production_scope_change_allowed=false`、`migration_allowed=false`、`actions=[]`、`classification=NEEDS_REVIEW`を維持する。apply/move/copy/delete modeや任意source/destination path optionを持たない。
 
-以下はP1c-2以降の移行設計であり、このPRがproduction directoryやmanifestを作ることはない。
+以下はproduction移行に必要な手順。FULL/split backup validator、producer migration planとP1c-2Bの個別保管/restore attestorは実装済みだが、productionのarchive原本発行、delta確認とproducer切替は今回実施していない。`migration_plan()`はactions空のplan-onlyで、前提未成立のscope縮小を起動しない。
 
-1. 将来の保存単位はfixed root直下のcontent digest ID。sourceには既知の `shared/data/backups` だけを対応させ、任意のtask pathをcopy対象にしない。root/componentのsymlink、mount越境、置換を拒否し、承認した所有権とmodeを固定する。
+1. 保存単位はfixed root直下のcontent digest ID。sourceには既知の `shared/data/backups` だけを対応させ、任意のtask pathをcopy対象にしない。root/componentのsymlink、mount越境、置換を拒否し、承認した所有権とmodeを固定する。
 2. archive manifestはsource相対path、type、size、mode、SHA256、作成元scriptのrevision/hash、operation UUID、original/correctedの関係、復元先の相対path、必要なDB snapshot、生成器version、完了状態を持つ。任意の実行commandや秘密値をmanifestへ入れない。
 3. 全payload・manifestのchecksum、tarの完全読了、copy前後のsource identityを検証してからREADYをpublishする。READYはcommit markerであり検証省略用ではない。途中状態は公開せず、incomplete/terminal証跡として保持する。
 4. バックアップ側にはarchive IDとmanifest digestの参照を記録する。各参照先の存在・完全性をそのbackup採取時に確認する。archiveの保持条件は、それを参照する全backup・operation・手動復旧pinが不要と証明されるまで。参照counterだけを真実とせずfresh graphを走査する。
@@ -150,7 +150,7 @@ archiveやcleanupの判定にはdeployment lock、operation UUID、boot ID/PID/s
 
 特に `.backup-e07c53d42f7d64239209b85a35374f0e3a0ab77c.Nb1T9zPB` は2026-09-28 ENOSPCの直接証拠。中断tarが読めないことは「不要」の証明にならない。所有者・terminal receipt・必要証拠の別保管が未確認の既存stagingは引き続き`NEEDS_REVIEW`であり、後から完了扱いのreceiptを推測で作らない。
 
-`SAFE_TO_CLEAN`は必要条件を満たす計画上の分類で、削除許可やexecutorではない。planの作成後にprocess/referenceが変化し得るので、将来のexecutorはmaintenance window、同じlock、直前のidentity/reference再検証を必要とする。planner自身はunlink、rename、rmdir、Docker prune、DB更新を行わない。
+`SAFE_TO_CLEAN`は必要条件を満たす計画上の分類で、単独では削除許可にならない。P1c-2B executorは明示maintenance window、同じdeploy lock、targetごとのfresh identity/reference/disposition再検証を実装済み。planner自身はunlink、rename、rmdir、Docker prune、DB更新を行わない。CLIの既定はdry-runで、review済みdigestとwindowを指定したapplyだけがexact targetを変更する。
 
 実装は [`ai_task_storage_cleanup.py`](../../scripts/ai_task_storage_cleanup.py) のpure functionで、P1aの保持分類にadditiveな`cleanup`判定を返す。固定evidence rootは `/home/ubuntu/ichiyon-storage-evidence`、operation receiptは`operations/<32hex>.json`を想定する。receiptの自己申告だけを信じる設計ではなく、sourceの由来・checksum、snapshot/object digestへの束縛、process/lease/reference観測をcollectorが独立検証した結果を要求する。P1c-1にはこのreceiptのproduction writer/readerや任意JSONを受け付けるCLIを設けていないため、既存production世代を新たにSAFEへ格上げしない。
 
@@ -158,12 +158,12 @@ terminal receipt確認後の最低保存期間はstaging 7日、backup/release/i
 
 保存済みP1b post snapshotをoffline再解析した結果は **SAFE_TO_CLEAN 0件**。これはfresh production inventoryではなく、当時の不足証拠を新規則でも保守的に扱う確認である。候補の存在を仮定してproductionで追加cleanupを試さない。
 
-## P1c-2への引継ぎ
+## P1c-2A〜P1c-2Bの実装とproduction引継ぎ
 
 - productionの独立archive作成、全payload検証、隔離restore、producer/delta対応、archive参照付きscopeへの切替とrollback手順。確認完了までfull scopeを保持する。
 - 運用が発行するoperation ownership/terminal receiptと、legacyの個別由来・復旧pin整理。過去receiptをmtimeから捏造しない。
-- 承認したexact候補だけを扱うcleanup executor、maintenance window、実行直前再検証、部分失敗監査、archive/backup/release/image間の保持graph。
+- P1c-2Bのexact cleanup executor、maintenance window、fresh再検証、partial failure audit、receipt/archive保持graphはコード/fixture/CIに実装済み。本番では独立原本、隔離restoreとoperator dispositionを発行し、fresh planで明示実行する。
 - image共有layerとcache参照を考慮したretention。Docker logical sizeをそのまま回収量としない。
 - 容量/inode/peak予算の監視、journal/Docker/Runnerログrotation、必要時の通知。通知やtimerによる自動cleanupはこのPRに含めない。
 
-P1c-1ではproduction自動削除、Docker image自動削除、prune、release自動削除、cleanup timer、容量閾値によるcleanup、Discord通知、production filesystem migrationを実装・実行しない。CI成功後もPRをmergeせず、rollout判断はP1c-2と合わせて行う。
+P1c-1当時の「executor未導入」「mergeしない」はhistoricalな作業境界で、現在の未実装判定には使わない。P1c-2Bでもprune、cleanup timer、容量閾値による自動cleanup、production filesystem migrationは起動しない。コード/CIとproduction原本・復元・実行の証明を分け、現在の残件は[CURRENT_BACKLOG](../CURRENT_BACKLOG.md)を参照する。

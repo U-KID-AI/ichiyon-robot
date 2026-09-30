@@ -1,5 +1,9 @@
 # AI Task Runner運用
 
+## 現行の残件とmaintenance（2026-09-30）
+
+[CURRENT_BACKLOG](CURRENT_BACKLOG.md)を参照。Linux Runnerは実装・CI済みで、特定Windows launcherの常時起動はproduction必須ではない。P0/P1a/P1c-1/P1c-2A/P1c-2A.1はmainへ統合済み。今回追加したP1c-2Bは[storage-maintenance.md](operations/storage-maintenance.md)のfresh eligibility、保持graph、maintenance window、exact-path executor、partial failure auditまでを扱う。monitorやidle catch-upからcleanupを起動しない。fixtureの削除試験はproduction削除の実施を意味しない。本番では独立archive/restore rehearsal、operator dispositionと新しいplanを用意してから別工程で実行する。
+
 ## 実行モデル
 
 runnerは承認済みユーザーの開発依頼を専用branch/worktreeで処理する。Codexは `danger-full-access`、`approval_policy="never"` で起動し、通常のユーザー・project設定と親processの環境を利用する。設定されたユーザースコープとOS権限の範囲で、通常のデスクトップCodexと同じ調査・編集・コマンド実行ができる。
@@ -61,6 +65,15 @@ python scripts/check_ai_task_github.py
 python scripts/check_ai_task_auto_merge.py
 python scripts/check_ai_task_deploy.py
 python scripts/check_ai_task_storage.py
+python scripts/check_ai_task_storage_retention.py
+python scripts/check_ai_task_storage_cleanup.py
+python scripts/check_ai_task_storage_maintenance.py
+python scripts/check_ai_task_storage_disposition.py
+python scripts/check_ai_task_storage_evidence.py
+python scripts/check_ai_task_storage_evidence_store.py
+python scripts/check_ai_task_storage_evidence_classification.py
+python scripts/check_ai_task_storage_evidence_v2.py
+python scripts/check_ai_task_storage_monitor.py
 python scripts/check_ai_task_control_plane.py
 python scripts/check_ai_task_phase3c_control_plane.py
 ```
@@ -87,7 +100,7 @@ production app OCIと同居するLinux runnerは、新しい重い作業を始�
 
 容量不足は `INSUFFICIENT_STORAGE` とphase、available/requiredの数値で報告する。容量の確保や取得原因の解消前に同じ重い作業を再実行しない。閾値はinstalled runnerのtrusted codeで管理し、task本文から変更しない。Windowsなどproductionと同居しないrunnerの通常処理はこのホスト用の判定対象外。計算式、同一filesystemの集計、初回rolloutとP1課題は [production storage capacity](operations/storage-capacity.md) を参照する。
 
-この容量判定はbackup/release/imageのretentionを実装しない。失敗したstaging、既存worktree、backupを自動削除せず、Docker pruneもしない。必要な容量が足りない場合は現在動くappを維持し、診断をもとに運用者へ引き渡す。既存のtask status、lease、retry、成功証明の契約は変更しない。
+この容量判定自身はbackup/release/imageのcleanupを起動しない。失敗したstaging、既存worktree、backupを自動削除せず、Docker pruneもしない。P1c-2Bの明示的maintenance実行器は別entry pointで、同じdeploy lockの下で対象ごとに新しい参照・終了・復元証拠を再検証する。必要な容量が足りない場合は現在動くappを維持し、診断をもとに運用者へ引き渡す。既存のtask status、lease、retry、成功証明の契約は変更しない。
 
 ### deployment lease
 

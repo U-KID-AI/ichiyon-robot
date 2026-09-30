@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import filecmp
 import hmac
 import json
@@ -18,6 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import FastAPI, Header, HTTPException, Request, status
 from starlette.concurrency import run_in_threadpool
 from minecraft_cosmetics_apply import PackApplications, MAX_ARCHIVE, deployment_lock
+from minecraft_diagnostics import Diagnostics
 
 
 PROJECT_DIR = Path(os.getenv("MINECRAFT_CONTROL_PROJECT_DIR", "/home/ubuntu/minecraft-bedrock-creative"))
@@ -27,6 +29,9 @@ CONTAINER_NAME = os.getenv("MINECRAFT_CONTROL_CONTAINER_NAME", "minecraft-bedroc
 PACK_SOURCE_DIR_RAW = os.getenv("MINECRAFT_CONTROL_PACK_SOURCE_DIR", "").strip()
 PACK_SOURCE_DIR = Path(PACK_SOURCE_DIR_RAW).expanduser() if PACK_SOURCE_DIR_RAW else None
 CONTROL_SECRET = os.getenv("MINECRAFT_CONTROL_SECRET", "")
+DIAGNOSTICS_SECRET = os.getenv("MINECRAFT_DIAGNOSTICS_SECRET", "")
+DIAGNOSTICS_BROADCAST_CONTAINER = os.getenv("MINECRAFT_DIAGNOSTICS_BROADCAST_CONTAINER", "")
+DIAGNOSTICS_LOCK = asyncio.Lock()
 BACKUP_DIR = PROJECT_DIR / "backups"
 WORLD_NAME = os.getenv("MINECRAFT_CONTROL_WORLD_NAME", "ichiyon-creative-flat")
 BEDROCK_PORT = os.getenv("MINECRAFT_CONTROL_BEDROCK_PORT", "19134")
@@ -193,16 +198,32 @@ def parse_started_at(value: str) -> Optional[datetime]:
         return None
 
 
-def bds_version(inspect_data: Optional[Dict[str, Any]]) -> Optional[str]:
-    if inspect_data:
-        for entry in inspect_data.get("Config", {}).get("Env", []) or []:
-            if entry.startswith("VERSION="):
-                return entry.split("=", 1)[1]
-    for path in sorted(DATA_DIR.glob("bedrock_server-*")):
-        match = re.search(r"bedrock_server-(.+)$", path.name)
-        if match:
-            return match.group(1)
-    return None
+def parse_bedrock_probe(output: str, returncode: int) -> Dict[str, Any]:
+    """Parse only mc-monitor's successful loopback response, never configuration.
+
+    A Bedrock status reply is not proof of client login or friend connectivity.
+    Preserve the existing successful-exit readiness contract. Unknown output
+    formats leave the runtime version/player count unknown without making
+    successful mc-monitor probes fail managed apply or restart readiness.
+    """
+    result: Dict[str, Any] = {
+        "responding": returncode == 0,
+        "player_count": None,
+        "player_names": [],
+        "version": None,
+        "probe_scope": "container_loopback",
+    }
+    if returncode != 0:
+        return result
+    match = re.fullmatch(
+        r"127\.0\.0\.1:" + re.escape(BEDROCK_PORT)
+        + r" : version=([0-9]{1,5}(?:\.[0-9]{1,5}){2,3})"
+        + r" online=([0-9]{1,9}) max=([0-9]{1,9})",
+        output.strip(),
+    )
+    if match and 0 <= int(match[2]) <= int(match[3]) and int(match[3]) > 0:
+        result.update(responding=True, version=match[1], player_count=int(match[2]))
+    return result
 
 
 def bridge_status_from_mc_monitor() -> Dict[str, Any]:
@@ -210,16 +231,7 @@ def bridge_status_from_mc_monitor() -> Dict[str, Any]:
         ["docker", "exec", CONTAINER_NAME, "mc-monitor", "status-bedrock", "--host", "127.0.0.1", "--port", BEDROCK_PORT],
         timeout=10,
     )
-    if result.returncode != 0:
-        return {"responding": False, "player_count": None, "player_names": []}
-    output = (result.stdout + "\n" + result.stderr).strip()
-    match = re.search(r"online=(\d+)\s+max=(\d+)", output)
-    return {
-        "responding": True,
-        "player_count": int(match.group(1)) if match else None,
-        "player_names": [],
-        "raw_status": output[:300],
-    }
+    return parse_bedrock_probe(result.stdout, result.returncode)
 
 
 def status_payload() -> Dict[str, Any]:
@@ -231,11 +243,7 @@ def status_payload() -> Dict[str, Any]:
     uptime_seconds = None
     if started and state.get("Status") == "running":
         uptime_seconds = int((datetime.now(timezone.utc) - started).total_seconds())
-    bridge = bridge_status_from_mc_monitor() if state.get("Status") == "running" else {
-        "responding": False,
-        "player_count": None,
-        "player_names": [],
-    }
+    bridge = bridge_status_from_mc_monitor() if state.get("Status") == "running" else parse_bedrock_probe("", 1)
     if state.get("Status") != "running":
         server_status = "OFFLINE"
     elif bridge.get("responding"):
@@ -261,7 +269,13 @@ def status_payload() -> Dict[str, Any]:
             "memory": host_memory(),
         },
         "bds": {
-            "version": bds_version(inspect_data),
+            "version": bridge.get("version"),
+            "version_source": "loopback_status" if bridge.get("version") else None,
+        },
+        "connectivity": {
+            "container_loopback": bridge.get("responding", False),
+            "direct_ip_login": "not_tested",
+            "friend_join": "not_tested",
         },
         "bridge": bridge,
     }
@@ -457,6 +471,22 @@ def wait_for_ready(timeout_seconds: int, *, require_healthy: bool = False) -> Di
 def get_status(x_minecraft_control_secret: Optional[str] = Header(default=None)) -> Dict[str, Any]:
     require_secret(x_minecraft_control_secret)
     return status_payload()
+
+
+@app.get("/diagnostics")
+async def get_diagnostics(x_minecraft_diagnostics_secret: Optional[str] = Header(default=None)) -> Dict[str, Any]:
+    if not DIAGNOSTICS_SECRET or DIAGNOSTICS_SECRET == CONTROL_SECRET:
+        raise HTTPException(status_code=503, detail="diagnostics disabled")
+    if x_minecraft_diagnostics_secret is None or not hmac.compare_digest(x_minecraft_diagnostics_secret, DIAGNOSTICS_SECRET):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    try:
+        collector = Diagnostics(CONTAINER_NAME, DIAGNOSTICS_BROADCAST_CONTAINER, BEDROCK_PORT)
+    except ValueError:
+        raise HTTPException(status_code=503, detail="diagnostics configuration rejected") from None
+    if DIAGNOSTICS_LOCK.locked():
+        raise HTTPException(status_code=429, detail="diagnostics busy")
+    async with DIAGNOSTICS_LOCK:
+        return await collector.snapshot()
 
 
 @app.post("/restart")
