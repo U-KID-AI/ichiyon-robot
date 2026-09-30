@@ -91,13 +91,13 @@ Dockerでは候補imageのfull size合計と解放量は異なる。image IDを�
 
 ## interrupted stagingの扱い
 
-P1c-1では既存P1a分類を保ったまま、`cleanup`に`SAFE_TO_CLEAN` / `NEEDS_REVIEW` / `ACTIVE`の追加判定を出す。実装は純粋な判定関数`ai_task_storage_cleanup.py`であり、executorはない。P1c-2Aでは正式deployのreceipt writerと固定領域のread-only attestorを追加した。`durable_operations`とnodeの`operation_id` / `ownership_verified` / `owner_state`に検証結果を出す。契約は[storage-foundation.md](storage-foundation.md)を参照する。既存production inventoryには必要なdurable evidenceがないため、古さやlockの空きだけで`SAFE_TO_CLEAN`にはならない。固定evidence領域、終了証明、全参照、保持期間を含む条件は[storage-recovery.md](storage-recovery.md)に記載する。`SAFE_TO_CLEAN`も採取時点の提案であり、実行許可ではない。
+P1c-1では既存P1a分類を保ったまま、`cleanup`に`SAFE_TO_CLEAN` / `NEEDS_REVIEW` / `ACTIVE`の追加判定を出す。`ai_task_storage_cleanup.py`自体は純粋な判定関数である。P1c-2A/P1c-2A.1は正式deployのreceipt writerと固定領域のread-only attestor/indexを追加し、`durable_operations`とnodeの`operation_id` / `ownership_verified` / `owner_state`へ検証結果を出す。P1c-2Bは別entry pointの[maintenance executor](storage-maintenance.md)を実装し、operator disposition、独立保管/restore、lock下のfresh eligibility、exact tree/windowとpartial failureを検証する。古いproduction objectへ必要証拠を推測で付与せず、古さやlockの空きだけで`SAFE_TO_CLEAN`にしない。`SAFE_TO_CLEAN`は採取時点の提案であり、明示applyと実行直前の再検証が必要である。
 
 現protocolは`.prepare-<sha>.*`、`.release-<sha>.*`、`.backup-<sha>.*`、helper/infra/pointerを作る。random suffixやmtimeだけではoperation ID、owner、lease、終了を証明できない。deploy lockが今空いていても、そのpathが別processから再使用されない証明にはならない。
 
 P1aはstagingを`ACTIVE`または`NEEDS_REVIEW`にする。`ready`と`checksum_manifest_present`は存在の観測であり、staging tar/checksumの完全検証結果ではない。`operation_sha`、`ownership`、`lock_held_during_observation`、読めたcurrent/release/backup参照を添える。既存stagingにはdurable operation owner/terminal receiptがないため`ownership=unknown`、fd/cwd/mmap、protocol processのSHA、lockから稼働可能性が見える場合は`possible_active`とする。`.backup-*`内の`READY`があってもpublish前かもしれず、未完了であっても復旧に唯一必要な資料かもしれない。2026-09-28の中断backup等の障害証拠は、別の調査記録と照合して保持する。
 
-将来の自動回収には、少なくとも次をすべて要求する。
+P1c-2Bの明示maintenanceは、少なくとも次をすべて要求する。timerによる自動回収は実装しない。
 
 1. 作成時に永続化したoperation UUID、host boot ID、PID/start time、owner/lease、対象SHA、作成したpathの一覧が一致する。
 2. terminal状態が記録され、owner processとleaseが終了している。lock取得下で再検証し、active operationと競合しない。
@@ -106,7 +106,7 @@ P1aはstagingを`ACTIVE`または`NEEDS_REVIEW`にする。`ready`と`checksum_m
 5. 障害資料としての保存期間と調査完了を確認し、必要な証跡を別のdurable領域に保存・検証済み。
 6. backupなら完了/中断、checksum、restore要否を確認し、`READY`だけやmtimeだけで判断しない。
 
-既存の未記録stagingへ、後付けで「古いからowner不在」と推定する規則は適用しない。
+既存の未記録stagingへ、後付けで「古いからowner不在」と推定する規則は適用しない。active/stale/owner不明は保持する。minimum preservation、固定evidenceとbackup契約は[storage recovery](storage-recovery.md)、新しいdisposition/plan/window/監査の実行手順は[storage maintenance](storage-maintenance.md)を参照する。
 
 ## `shared/data/backups`の再帰収録調査
 

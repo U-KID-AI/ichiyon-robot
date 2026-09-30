@@ -1,6 +1,6 @@
 # Production storage monitoring and P1c-2A boundaries
 
-P1c-2Aは将来のcleanupに必要な証拠と容量監視を追加する。backup/release/image/stagingの自動削除、Docker prune、空き容量を理由にした自動cleanupは行わない。[P0容量guard](storage-capacity.md)が引き続き新規Runner作業・deployを許可または拒否する。[cleanup planner](storage-retention.md)はplan/eligibilityまでで、monitorのWARNING/CRITICALは削除許可ではない。
+P1c-2Aはcleanupに必要な証拠と容量監視を追加し、mainへ統合済み。P1c-2Bでは[fresh maintenance](storage-maintenance.md)のdisposition attestor、保持graph、明示window、exact-path executorとpartial failure auditを実装済み。backup/release/image/stagingのtimerによる自動削除、Docker prune、空き容量を理由にした自動cleanupは行わない。[P0容量guard](storage-capacity.md)が引き続き新規Runner作業・deployを許可または拒否する。[cleanup planner](storage-retention.md)自身はplan/eligibilityだけで、monitorのWARNING/CRITICALは削除許可ではない。本番の保管/restore/review発行とapplyは別工程で、今回production削除は実施していない。
 
 P1c-2A.1では、頻繁なsame-SHA成功receiptの増加を[durable indexとsuccess rollup](storage-evidence-index.md)で扱う。以下のv1説明は既存receiptの契約として残し、新operationはv2 indexへ記録する。既存v1 fileを移動・書換え・削除しない。
 
@@ -58,7 +58,7 @@ deploymentのdurable receiptはログrotation対象にしない。P1c-2A.1はobj
 
 P1c-2Aのv1 writerはsame-SHA reconcileでもactiveとterminalの2文書を残し、一括inventoryの上限8,192件に到達する問題があった。P1c-2A.1の2026-09-28実測では、timerはservice終了後15秒、実際の直近operation開始間隔は平均152.453秒であった。この窓からの外挿は空から上限まで346.916時間（14.455日）であり、15〜16秒をoperation間隔とする旧仮定は現在の実測値ではない。新方式の分類、限界、atomic compaction、legacy互換性は[専用設計](storage-evidence-index.md)を参照する。
 
-既存Codex stdout/stderr捕捉は64 KiBの上限を維持する。過去taskの最終出力・diff・診断artifactの世代保持は変更しない。host journalには今回明示的な新上限を配備せず、既存のsystemd管理を維持する。receipt総数と既存task artifactの総量まで一定にするには、P1c-2Bで保持graphと別の承認された回収処理が必要になる。
+既存Codex stdout/stderr捕捉は64 KiBの上限を維持する。過去taskの最終出力・diff・診断artifactの世代保持は変更しない。host journalにはP1c-2Aで明示的な新上限を配備せず、既存のsystemd管理を維持する。P1c-2Bの保持graphはA/B receiptをlosslessでKEEPし、archiveの未証明参照を保護する。evidence全体の物理bytesや既存task artifact総量を永遠に一定とする機能ではない。
 
 ## Deployment evidence契約
 
@@ -82,10 +82,10 @@ collectorはactiveとterminalのchecksum連鎖、厳密schema、owner/mode、ide
 
 adminとbot/data_storeのJSON history producerは`bot/recovery_history.py`へ集約した。allowlistはquotes/reactions/ng_words/kuji.jsonのみ、出力は従来のdata/backupsに固定する。任意pathやtask入力は受け取らない。root app containerが作るfileは0644、directoryは0755で、hostのubuntu backup writerが全文を読める既存契約を維持する。host shared rootのアクセス制限は変更しない。numeric notification stateもpending段階から0644にして同じ契約を守る。
 
-固定将来rootは`/home/ubuntu/ichiyon-recovery-archives`だが、`migration_plan()`はplan-onlyでactionsは空。新rootへの書込み、既存dataの移動、除外、削除は行わない。producerだけをrollbackしてもlegacy出力をそのまま利用できる。切替には固定mount、原本inventoryとdelta capture、独立archive publish、隔離FULL/split restore、旧backup保持と参照graphの証明が必要であり、未完了の間はFULL scopeを維持する。
+recovery archiveの固定rootは`/home/ubuntu/ichiyon-recovery-archives`。`migration_plan()`は引き続きplan-onlyでactionsは空であり、productionのproducer切替・既存dataの移動・除外を自動実施しない。producerだけをrollbackしてもlegacy出力をそのまま利用できる。切替には原本inventoryとdelta capture、独立archive publish、隔離FULL/split restore、旧backup保持と参照graphの証明が必要であり、未完了の間はFULL scopeを維持する。P1c-2Bの`cleanup-preserved`は個別cleanupの保管/復元証明で、このproducer migrationの完了を意味しない。
 
 ## 検証と運用上の限界
 
 `python scripts/check_ai_task_storage_monitor.py` はP0再利用、bytes/inode、WARNING/CRITICAL、計測不能、同一filesystem、report publication、deployment lock競合、固定通知経路、cooldown、transport/state失敗、runtime隔離をfixtureで検証する。Linux固有のflock/symlink動作はLinux CIで検証する。実通知先へ試験メッセージを送るtestではない。
 
-Runner schedulerを長く停止すればworkerも停止するため、独立したhost監視の代替ではない。reportのstale警告にはapp/botが稼働している必要がある。P1c-2Bではdurable evidenceが蓄積した後のfresh eligibility、receipt/archiveの保持graph、maintenance window、exact path executorと部分失敗監査を別途実装する。今回monitorからcleanupを呼ぶ経路はない。
+Runner schedulerを長く停止すればworkerも停止するため、独立したhost監視の代替ではない。reportのstale警告にはapp/botが稼働している必要がある。P1c-2Bのfresh eligibility、receipt/archive保持graph、maintenance window、exact-path executor、partial failure auditは[storage maintenance](storage-maintenance.md)に実装と検証を記録する。monitorからcleanupを呼ぶ経路はない。残るproduction実行・実機/外部前提は[CURRENT_BACKLOG](../CURRENT_BACKLOG.md)で区別する。

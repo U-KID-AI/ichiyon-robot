@@ -828,8 +828,12 @@ class RetentionCollectorTests(unittest.TestCase):
                 if kind == 'images':
                     image_calls += 1
                     if image_calls > 1:
-                        write_fixture_text(host.paths['releases'] / OLD / 'rollback-images.txt',
-                                           (image_id('d') + '\n') * 3)
+                        path = host.paths['releases'] / OLD / 'rollback-images.txt'
+                        before = path.stat()
+                        write_fixture_text(path, (image_id('e') + '\n') * 3)
+                        # Coarse filesystem clocks can otherwise hide a same-size
+                        # fixture write in one tick. Explicitly advance its time.
+                        os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns + 1_000_000_000))
                 return host.docker(kind, identifiers)
             snapshot = host.collect(self.collector, docker=racing_docker)
             self.assertFalse(snapshot['references_complete'])

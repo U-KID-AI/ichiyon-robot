@@ -253,7 +253,7 @@ def validate_backup(path, *, releases_root=RELEASES_ROOT, recovery_root=RECOVERY
         raise BackupError('backup_validation_unavailable_or_invalid') from None
 
 
-def stage_directory(path, target_sha, backups_root):
+def stage_directory(path, target_sha, backups_root, *, expected_uid=None):
     """Only an exact mktemp backup staging path under the installation's root."""
     need(isinstance(target_sha, str) and SHA.fullmatch(target_sha), 'backup_target_invalid')
     root = directory(backups_root)
@@ -263,7 +263,9 @@ def stage_directory(path, target_sha, backups_root):
     need(path.stat().st_dev == root.stat().st_dev, 'backup_stage_device_invalid')
     if os.name != 'nt':
         value = path.lstat()
-        need(value.st_uid == os.geteuid() and value.st_mode & 0o077 == 0, 'backup_stage_owner_mode_invalid')
+        owner = os.geteuid() if expected_uid is None else expected_uid
+        need(type(owner) is int and owner >= 0 and value.st_uid == owner
+             and value.st_mode & 0o077 == 0, 'backup_stage_owner_mode_invalid')
     return path, root
 
 
@@ -275,10 +277,10 @@ def directory_binding(path):
 
 def validate_staged_backup(path, target_sha, *, backups_root=BACKUPS_ROOT,
                            releases_root=RELEASES_ROOT, recovery_root=RECOVERY_ROOT,
-                           dump_validator=list_dump):
+                           dump_validator=list_dump, expected_uid=None):
     """Validate a not-yet-renamed backup with an explicitly bound target SHA."""
     try:
-        path, root = stage_directory(path, target_sha, backups_root)
+        path, root = stage_directory(path, target_sha, backups_root, expected_uid=expected_uid)
         binding = directory_binding(root)
         proof = _validate_backup(path, Path(releases_root), Path(recovery_root),
                                  dump_validator, target_sha=target_sha)

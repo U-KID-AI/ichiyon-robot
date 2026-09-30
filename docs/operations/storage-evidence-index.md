@@ -2,6 +2,8 @@
 
 P1c-2Aのsame-SHA reconciliationは、実体を残さず成功した場合にも`active/`と`operations/`へv1文書を残していた。両directoryを一括で読むreaderは8,192 entriesを超えるとfail closedする。P1c-2A.1は上限を増やさず、頻繁な成功reconcileの記録を固定サイズのrecent領域と累積rollupへ移す。backup/release/image/stagingのcleanup executorは追加しない。
 
+上記はP1c-2A.1のscope。後続P1c-2Bは[storage maintenance](storage-maintenance.md)のfresh disposition/eligibility、receipt/archive保持graph、明示window、exact-path executor、partial failure auditを実装済み。今回production削除は行わず、原本/restore/operator review発行とapplyを本番工程へ残す。このindexのA/B lossless保持・C compaction契約は変更しない。
+
 実装は[`ai_task_storage_evidence.py`](../../scripts/ai_task_storage_evidence.py)、pureな[`ai_task_storage_evidence_classification.py`](../../scripts/ai_task_storage_evidence_classification.py)、固定rootの[`ai_task_storage_evidence_store.py`](../../scripts/ai_task_storage_evidence_store.py)。容量admissionは引き続き[P0 guard](storage-capacity.md)、cleanup可否は[retention planner](storage-retention.md)の独立した判定である。
 
 ## 実測したscheduler cadence
@@ -69,7 +71,7 @@ rollupはschema/version、target/previous SHA、最初と最後の完了時刻�
 
 readerは`mode=ro`、`query_only=ON`、明示的read transactionでsnapshotを固定する。hot journalの復旧のために書込み権限へfallbackしない。破損したchecksum/index/counter/schemaや読取り不能を検出した場合は証拠不明として扱い、cleanupを許可しない。DB全体を毎回JSON配列へ展開せず、recent/activeは固定上限、A/Bとrollupは128件以下のpage、current objectの逆引きはobject_indexを使う。
 
-A/Bのlossless rawと関連indexは削除しない。C履歴が20,000回増えてもrecent rawは64件、同一SHAのrollupは1件となる。異なるreleaseのA/Bやrollup総数は保存義務に伴って増えるため、evidence全体の物理bytesが永遠に一定になるという意味ではない。これらのarchive・保持設計はP1c-2B以降で扱う。
+A/Bのlossless rawと関連indexは削除しない。C履歴が20,000回増えてもrecent rawは64件、同一SHAのrollupは1件となる。異なるreleaseのA/Bやrollup総数は保存義務に伴って増えるため、evidence全体の物理bytesが永遠に一定になるという意味ではない。P1c-2Bは全pageのA/Bとactive、legacy、object/archive edgeを含む保持graphを実装し、lossless receiptをKEEPする。off-host復元やincident reviewが未証明のarchiveもKEEPし、rawやarchiveを自動削除しない。
 
 ## Cleanup plannerとの境界
 
@@ -97,6 +99,8 @@ python scripts/check_ai_task_storage_evidence_classification.py
 python scripts/check_ai_task_storage_evidence.py
 python scripts/check_ai_task_storage_evidence_v2.py
 python scripts/check_ai_task_storage_cleanup.py
+python scripts/check_ai_task_storage_maintenance.py
+python scripts/check_ai_task_storage_disposition.py
 python scripts/check_ai_task_storage_retention.py
 python scripts/check_ai_task_storage_monitor.py
 python scripts/check_ai_task_deploy.py
@@ -110,4 +114,4 @@ CI後、actual PR headに対するfresh P0を確認してmergeし、既存Runner
 
 backup/release/image/stagingの自動削除、Docker prune、legacy objectの強制cleanup、preservation期間短縮はこの実装に含めない。通常deployが自分の一時領域を片付けること、および検証済みCの内部raw rowをrollupへcompactすることは、production objectのcleanupとは区別する。
 
-P1c-2Bへはobject/incident archiveの長期保持・独立バックアップ、残留activeの証拠を保持した明示的回復手順、maintenance window内のfresh参照確認、exact path cleanup executorと部分失敗監査を残す。
+P1c-2Bのmaintenance window内のfresh参照確認、exact-path cleanupとpartial failure auditは実装済み。独立payload/rehearsalの全hashを再検証するdisposition attestorを使い、残留active/stale/owner不明は保持する。本番原本・隔離restore・operator review発行と明示applyは別工程で、mtimeから終了receiptを捏造しない。現在のproduction待ちは[CURRENT_BACKLOG](../CURRENT_BACKLOG.md)を参照する。
