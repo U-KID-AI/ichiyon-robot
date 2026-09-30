@@ -43,7 +43,7 @@ DIRECTIONS = (
 HEADER_UUID = "fe55c87e-d7a2-4e3c-88fb-43009f65df75"
 MODULE_UUID = "a3d30f1b-8445-4e46-a670-e53433ec8d7a"
 
-PACK_VERSION = [1, 2, 2]
+PACK_VERSION = [1, 2, 1]
 
 # No separate rim in this canonical rendering pass.
 # These are intentionally far below the previous 64/255 diagnostic.
@@ -146,6 +146,7 @@ def generated_files(root=ROOT / "minecraft"):
     put(
         RP + "manifest.json",
         {
+            "capabilities": ["pbr"],
             "format_version": 2,
             "header": {
                 "name": "Ichiyon Aquarium Glass",

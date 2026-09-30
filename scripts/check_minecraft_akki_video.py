@@ -74,7 +74,7 @@ class AkkiVideoChecks(unittest.TestCase):
         manifest=read(RP/'manifest.json')
         self.assertEqual(manifest['header']['uuid'],'c2de9f3f-7956-4c7a-b6a1-63b264a9a059')
         self.assertEqual(manifest['modules'][0]['uuid'],'4e49c6a4-2f67-4e31-9c5c-5946ec3ec437')
-        self.assertEqual(manifest['header']['version'],[1,0,2])
+        self.assertEqual(manifest['header']['version'],[1,0,1])
         self.assertIn(VIDEO_AKKI,DIRECT_RESOURCE_PACKS)
         sound=read(RP/'sounds/sound_definitions.json')['sound_definitions']['ichiyon.video_screen_akki.audio']
         self.assertEqual((sound['min_distance'],sound['max_distance']),(1,12))

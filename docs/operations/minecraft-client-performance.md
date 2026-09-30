@@ -1,9 +1,10 @@
 # Client performance diagnosis and temporary video profile
 
-This release records public client capability information and pauses Big Video
-and RP PBR declarations. It does not measure FPS, actual RAM use, GPU time, packet
-loss or historical TPS. An improvement after this combined release alone cannot
-distinguish Big Video from PBR.
+This release records public client capability information and pauses Big Video.
+Vibrant Visuals/PBR declarations remain unchanged, keeping that variable constant
+for the Big Video comparison. Display Script scheduling is also optimized.
+The diagnostics do not measure FPS, actual RAM use, GPU time, packet loss or
+historical TPS.
 
 ## Diagnostics
 
@@ -63,16 +64,16 @@ docker logs --timestamps --since 2026-09-30T15:00:00Z minecraft-bedrock-creative
   their tick callbacks do not enumerate players or run video/audio processing.
   Stale active-display audio cleanup runs on startup/join; normal playback still
   retries failed audio cleanup. The existing wall/map scan remains every 100 ticks.
-- Remove the nine PBR declarations introduced by PR #109; preserve every UUID
-  and increment both header/module versions. The aquarium generator has the same
-  manifest change; its block geometry, materials and textures are unchanged.
+- Keep the PBR declarations introduced by PR #109, all RP manifests/UUIDs and the
+  aquarium generator unchanged. The eight remaining RPs keep their contents and
+  installed versions when the DB catalog has not changed.
 
 To restore Big, set both flags to true, update the paused-profile expectations,
-and validate the archive/runtime tests. Its retained manifest is already newer
-than the observed pre-pause 1.0.1; compare against the actual last deployed Big
-version before restoring and bump further if needed. Re-enable via an ordinary
+and validate the archive/runtime tests. Its retained manifest is the observed
+pre-pause 1.0.1; compare against the actual last deployed Big version before
+restoring and bump it if its contents have changed. Re-enable via an ordinary
 managed release; do not copy raw pack directories or manually edit world refs.
-PBR restoration is independent of the Big flags.
+PBR remains enabled throughout; no PBR restoration is necessary.
 
 ## Deployment boundary and observed baseline
 
@@ -91,25 +92,25 @@ Read-only observation on 2026-10-01 before this change:
 | Item | Production before | Proposed managed release |
 | --- | --- | --- |
 | Active RP count | 9 | 8 |
-| Sum of active RP file sizes | 125,784,348 bytes (125.78 MB) | About 23.42 MB with the same DB assets |
+| Sum of active RP file sizes | 125,784,348 bytes (125.78 MB) | 23,416,424 bytes (23.42 MB), projected with the same DB assets |
 | Big RP size | 102,367,924 bytes | 0 distributed bytes |
 | Big runtime | Enabled | Disabled |
-| PBR declarations | All 9 active RPs | None |
+| PBR declarations | All 9 active RPs | Preserved on all 8 remaining active RPs |
 | Behavior packs | 2 | Same 2; bridge Script content updated |
 
-The after-size is a projection from the observed live files, excluding Big and
-allowing for small manifest changes. It is not an observed deployed result or GPU
+The after-size is a projection from the observed live files, excluding only Big.
+It is not an observed deployed result or GPU
 memory measurement. The actual export depends on the DB catalog at deployment.
-Removing PBR does not prove that every client uses a particular graphics mode.
+An RP's PBR declaration does not prove a client's active graphics mode.
 
 Observed versions and expected managed transitions if production is unchanged:
-core 1.0.5 -> 1.0.6; skins/posters 1.0.3 -> 1.0.4;
-accessories/small/records/Akki 1.0.1 -> 1.0.2; aquarium 1.2.1 -> 1.2.2;
-bridge BP 1.1.51 -> 1.1.52. Unchanged avatar BP should retain 1.1.51.
+core stays 1.0.5; skins/posters stay 1.0.3;
+accessories/small/records/Akki stay 1.0.1; aquarium stays 1.2.1.
+Bridge BP changes 1.1.51 -> 1.1.52. Unchanged avatar BP should retain 1.1.51.
 The service chooses versions above actual installed content versions, including
 when the source manifest version is lower; never overwrite with guessed versions.
 
-Fixture coverage includes nine installed PBR RPs -> eight standard RPs, preservation
+Fixture coverage includes nine installed PBR RPs -> eight unchanged PBR RPs, preservation
 of foreign references and world bytes, exact UUID checks before shutdown, retained
 original Big files, removal failure and post-install health failure restoring the
 original packs/references/active marker byte-for-byte, and idempotent reapplication.
@@ -117,5 +118,5 @@ Original Big asset/builder/runtime tests remain runnable even while paused.
 
 After approval/deployment, compare the same players, location, view direction and
 client settings. Record join capability logs and a short client FPS/frame-time
-sample alongside server load. If performance improves, restore only one of Big
-or PBR in a separately approved test to distinguish their contribution.
+sample alongside server load. If needed, restore only Big in a separately
+approved test while keeping PBR and client settings constant.

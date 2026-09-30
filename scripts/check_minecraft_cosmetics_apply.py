@@ -84,7 +84,7 @@ class ApplyChecks(unittest.TestCase):
         refs = json.loads((self.api.DATA_DIR / 'worlds/test-world/world_behavior_packs.json').read_text(encoding='utf-8'))
         self.assertEqual(refs[0]['pack_id'], 'keep-other-pack'); self.assertEqual(len(refs), 3)
         resources = json.loads((self.api.DATA_DIR / 'worlds/test-world/world_resource_packs.json').read_text(encoding='utf-8'))
-        self.assertIn({'pack_id': 'c2de9f3f-7956-4c7a-b6a1-63b264a9a059', 'version': [1, 0, 2]}, resources)
+        self.assertIn({'pack_id': 'c2de9f3f-7956-4c7a-b6a1-63b264a9a059', 'version': [1, 0, 1]}, resources)
         active = json.loads((self.manager.root / 'active.json').read_text(encoding='utf-8'))
         self.assertIn('resource_packs/ichiyon_video_akki_rp', [p['path'] for p in active['packs']])
         permission = json.loads((self.api.DATA_DIR / deploy.PERMISSIONS).read_text(encoding='utf-8'))
@@ -247,6 +247,8 @@ class SplitApplyChecks(unittest.TestCase):
             self.files[pack + '/content.txt'] = pack.encode()
         self.files['cosmetics-build.json']['retired_packs'].append(
             {'path': big, 'uuid': self.pack_id(big)})
+        for pack in self.packs[2:]:
+            self.files[pack + '/manifest.json']['capabilities'] = ['pbr']
         for pack in (*self.packs[2:], big):
             manifest = self.manifest(pack)
             manifest['capabilities'] = ['pbr']
@@ -261,7 +263,7 @@ class SplitApplyChecks(unittest.TestCase):
         self.original = self.snapshot()
         return big
 
-    def test_big_retirement_removes_only_owned_pack_and_pbr_versions_increase_above_live(self):
+    def test_big_retirement_preserves_other_pbr_packs_versions_and_bytes(self):
         big = self.big_retirement_fixture()
         job = self.apply()
         self.assertFalse((self.api.DATA_DIR / big).exists())
@@ -270,10 +272,12 @@ class SplitApplyChecks(unittest.TestCase):
         self.assertEqual(self.refs()[0]['extra'], 'preserve')
         for pack in self.packs[2:]:
             manifest = deploy.read_json(self.api.DATA_DIR / pack / 'manifest.json')
-            self.assertNotIn('pbr', manifest.get('capabilities', []))
+            self.assertEqual(manifest['capabilities'], ['pbr'])
             self.assertEqual(manifest['header']['uuid'], self.pack_id(pack))
-            self.assertEqual(manifest['header']['version'], [1, 0, 100])
-            self.assertEqual(manifest['modules'][0]['version'], [1, 0, 100])
+            self.assertEqual(manifest['header']['version'], [1, 0, 99])
+            self.assertEqual(manifest['modules'][0]['version'], [1, 0, 99])
+            self.assertEqual((self.api.DATA_DIR / pack / 'manifest.json').read_bytes(),
+                             self.original[pack + '/manifest.json'])
             self.assertEqual((self.api.DATA_DIR / pack / 'content.txt').read_bytes(), pack.encode())
         self.assertEqual((self.api.DATA_DIR / 'worlds/test-world/level.dat').read_bytes(), b'world data must survive')
         backup = self.manager.root / job['operation_id'] / 'original'
