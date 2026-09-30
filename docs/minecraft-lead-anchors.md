@@ -1,5 +1,9 @@
 # リード表示回帰修正 — RP 1.0.32
 
+## 2026-09-30 現行状態
+
+locator修正と`check_minecraft_lead_anchors.py`はmainへ統合済み。`.github/workflows/checks.yml`のminecraft-cosmetics jobにlead checkerとpack version checkが組込み済み。RP 1.0.32は当時のrevisionで、現在のmanifestや配備版へ固定する指示ではない。配備は[managed release](operations/managed-minecraft-release.md)で現在のDB素材・manifest・world参照を同期する。残件は実機描画QAで、[CURRENT_BACKLOG](CURRENT_BACKLOG.md)を参照。以下の過去検証結果はhistoricalで、現在の残タスク判定には使わない。
+
 ## 履歴と実装方式
 
 PR #42 (84dd167) はmolcar/gontaのclient entityにlocatorsを追加したが、
@@ -48,14 +52,13 @@ idle上下動は0〜0.1、walk上下動は0〜0.24、Z回転は±1.8度。
 - `python3.12 scripts/check_resource_pack_versions_test.py`: 既存version-policy回帰検証。
   未コミット差分には同じvalidate関数でHEAD manifestからのversion増加を確認する。
 - CIの `.github/workflows/checks.yml` は既にPR base/headのversionチェックを実行する。
-  GitHub CI成功はPR未作成のため未確認。lead検査のCI組み込みはまだない。
+  lead検査も現行CIへ組込み済み。初回ローカル検証時のPR未作成は過去の記録。
 
 ## 人間への引き継ぎ（needs_human）
 
-Runner指示によりcommit/push/PR/merge/本番操作は行わない。
-人間側でPR、CI、review、merge、承認済みBDS配備を実施する。
+初回作業の公開制約はhistorical。現行の配備はmanaged releaseを利用し、人間は実機描画結果を確認する。
 world_resource_packs.jsonのRP UUID `3e1bcf76-b5e3-465a-a184-d2d90cfa0d74` を
-[1,0,32]へ同期し、必要な再起動、health、配置packとmerge済みmainの一致を確認する。
+現行配備manifestのversionへ同期し、healthと配置pack・merge SHAの一致を確認する。
 本番world JSONはリポジトリに新設しない。復旧は承認されたpack/参照の復元手順を使う。
 
 各4entityについて人間が以下を確認するまで表示回帰の解消を確定しない。
@@ -66,11 +69,11 @@ world_resource_packs.jsonのRP UUID `3e1bcf76-b5e3-465a-a184-d2d90cfa0d74` を
 - RP再取得とContent Log（client entity、geometry、texture、locatorエラーなし）。
 - モデル位置・大きさ・collision・AI・速度・texture・騎乗に回帰がないこと。
 
-## 検証結果
+## 初回作業時の検証結果（historical）
 
 Python 3.12でlead検証5件と既存version-policy回帰2件が成功。
 HEAD→worktree manifestを既存validate関数で検証して成功。
 client/geometryをHEADと比較し、locator以外の内容が同一であることを確認した。
 Python compile、git diff --checkも成功。
 標準Python 3.8では既存配備モジュールの型注釈を読み込めず、3.12で再検証した。
-既存avatar総合検査はPillow未導入で起動できないため、依存を備えた環境で要再実行。
+初回作業時のavatar総合検査はPillow未導入で起動できなかった。この環境制約は当時の記録で、現行CIではPillowを導入してavatar/lead検査を実行する。現在の残件は上記のBedrock実機描画QAであり、古い依存不足を未実装やCI未登録と扱わない。

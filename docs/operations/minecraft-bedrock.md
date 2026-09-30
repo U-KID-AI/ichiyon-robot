@@ -1,5 +1,9 @@
 # Minecraft Bedrock Dedicated Server 運用メモ
 
+## 2026-09-30 現行実装
+
+残件のsource of truthは[CURRENT_BACKLOG](../CURRENT_BACKLOG.md)。以下のホスト/構成の棚卸しはhistoricalで、現在の稼働状態や残タスク判定には使わない。Discord連携は`bot/services/minecraft_control.py`と`bot/services/minecraft_bridge.py`、`scripts/minecraft/minecraft_control_api.py`で実装済み。managed cosmetics配備と状態取得は実装済みで、実機QA・本番状態の確認とは区別する。
+
 この文書は、`141.147.145.113` 上の Minecraft Bedrock Dedicated Server を、既存ワールドを壊さずに共同建築向けへ安定化するための棚卸しと手順です。
 
 ## 現在確認した構成
@@ -130,6 +134,6 @@ Windows からの実行例:
 4. 停止時間
 5. 実クライアントで建築物が残ること
 
-## Discord 連携の将来案
+## Discord 連携（実装済み）
 
-Bot から Docker socket を直接操作させる設計は避けます。将来実装する場合は、許可された Minecraft 操作だけを受け付ける小さな管理サービス、または sudo command allow-list 方式で、状態表示・オンライン人数・バックアップ・起動/停止/再起動通知を実装します。
+Botからは認証されたControl APIを呼び、Docker操作はホスト側APIが担当する。`/status`、`/restart`、managed cosmetics applyとNarita Bridgeは実装済み。バックアップは`/restart`内と運用スクリプトで作成し、独立した`/backup` endpointはない。今回の`/status`はloopback probeからversion/人数を取得し、外部直接IP・フレンド接続の成功は`not_tested`として区別する。終了コード0の応答判定は従来通り維持し、未知の出力形式ではversion/人数だけを不明にする。読み取り専用`/diagnostics`の設定と配備前確認は[MINECRAFT_DIAGNOSTICS](../MINECRAFT_DIAGNOSTICS.md)を参照。フレンド接続の障害調査と実機QAは[NetherNet診断](nethernet-diagnostics.md)へ分離する。

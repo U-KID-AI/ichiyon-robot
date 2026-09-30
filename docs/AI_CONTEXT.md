@@ -1,5 +1,9 @@
 # AI開発コンテキスト
 
+## 2026-09-30 残件の判定
+
+[CURRENT_BACKLOG](CURRENT_BACKLOG.md)を現時点の残件のsource of truthとする。v2/v3の設計メモはhistoricalで、未実装判定に使わない。guild/DB/OAuth/Bot instance/権限・feature flag基盤、Windows/Linux Runner、managed Minecraft、storage P0〜P1c-2A.1はmainに実装済み。今回のP1c-2Bはfresh eligibility、保持graph、maintenance window、exact-path executor、partial failure auditを実装し、production実行を別工程にする。契約と実行前提は[storage maintenance](operations/storage-maintenance.md)。実装、production適用、実機QAを分け、旧change-policy、編集path制限、Codex content reviewを復活させない。
+
 この文書は現在の実行モデルとリポジトリ構成をまとめる。稼働環境、migration適用状態、外部サービスの到達性は作業時に確認し、秘密情報は記載しない。
 
 ## リポジトリ構成
@@ -42,7 +46,7 @@ migration用entry pointは `scripts/migrate.py`。適用対象、データ、バ
 
 Narita BridgeはMinecraft behavior packとBotを接続し、構造化コマンドを `minecraft_command_queue` で扱う。Minecraft向けAPIやプレイヤー名の入力検証は各サービスの通信契約であり、Codexのファイル編集権限とは別である。
 
-アプリとMinecraftへの公開は対象別のdeployment adapterが担当する。対象の選択、必要な運用設定、実際に反映されたSHAとhealthを確認する。Minecraftの運用詳細は `AI_MINECRAFT_DEPLOYMENT.md` を参照する。既存DB、world、共有データは通常のテストfixtureと混同しない。
+アプリとMinecraftへの公開は対象別のdeployment adapterが担当する。対象の選択、必要な運用設定、実際に反映されたSHAとhealthを確認する。Minecraftの通常運用は[managed release](operations/managed-minecraft-release.md)を参照する。`AI_MINECRAFT_DEPLOYMENT.md`のraw Git-pack/SSH経路はlegacy契約記録で、通常経路のfallbackには使わない。既存DB、world、共有データは通常のテストfixtureと混同しない。
 
 ## Discordへの結果通知
 

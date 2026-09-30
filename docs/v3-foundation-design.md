@@ -1,13 +1,29 @@
 # v3.0 前半 設計メモ
 
+## Historical — 現在の残タスク判定には使わない
+
+日付別の設計・導入記録を保存する。2026-09-30現在、`BOT_INSTANCE_ID`、`bot_instances`/`bot_permissions`、bot/guild scope、Bot切替とユーザー管理・voice linesは実装済み。根拠は`migrations/025_add_bot_instance_foundation.sql`と後続migration、`admin/bot_context.py`/`admin/bots.py`、`check_bot_instance_config.py`/`check_bot_scoped_guild_settings.py`/`check_admin_bot_switching.py`/`check_admin_user_management.py`。本文冒頭や過去の「未実装」「後続」はその日付時点の記録で現在の判定ではない。残件は[CURRENT_BACKLOG](CURRENT_BACKLOG.md)。
+
+| 初期案・過去TODO | 2026-09-30のコード上の状態 |
+| --- | --- |
+| Bot instance、Bot/guild権限、主要設定のbot scope | 実装済み。`admin/bot_context.py`、`bot/repositories/permissions.py`とmigration 025〜031を参照 |
+| デッキ検索取得開始日 | 実装済み。`deck_search_settings`、`bot/services/deck_search.py`、`runtime_db.py`の更新/確認/リセットを参照 |
+| X更新通知、キーワード絞り込み、コピー、一括ON/OFF | 実装済み。`bot/services/x_update_notifications.py`、`admin/x_updates.py`を参照。実APIの到達性は運用時に測定する |
+| 反応/NGワード/モード/自動投稿/閾値ルール/特殊効果タグのコピー、一括ON/OFF | 実装済み。各admin/repositoryとチェックを参照。子設定の複製は親のコピー契約に従う |
+| 特殊効果の個別倍率上限 | 実装済み。migration 024、`admin/special_effects.py`、`runtime_db.py`の`max_multiplier`を参照 |
+| 許可されたBot一覧、Bot選択、許可Bot/guildだけの表示 | 実装済み。`/bots`、`/bots/{bot_id}/guilds`と`can_access_bot_guild`を参照 |
+| 全Bot設定を同時に比較する統合横断一覧、倍率上限の一括編集、限定機能の別対象複製 | 将来構想。現在のBot切替や個別編集の欠陥・必須未実装には分類しない |
+
+過去のmigration未適用という記述から、現在のproduction/stagingの適用状況を推定しない。新しい配備ごとにmigrationと稼働SHAを確認する。
+
 ## 目的
 
 いちよんロボとイルシアを、同じソース・同じDB基盤で別Botインスタンスとして同時稼働できる形へ進める。
 差分はソース分岐ではなく、`bot_id`、`guild_id`、DB設定、`.env`、Bot Token、機能ON/OFFで表現する。
 
-このメモは現状調査に基づく実装方針であり、DB変更はまだ行わない。
+この初期メモは設計当時の調査に基づく方針で、当時の作業ではDB変更を行わなかった。現在の導入状況は上の対照表と後段の日付別記録を参照する。
 
-## 現状
+## 初期設計時の現状（historical）
 
 - 起動設定は `bot/config.py` が `.env` を読む。
 - Bot実行は `main.py` に集約され、DB backend時は1分ループでモード期限切れと自動投稿を処理する。
@@ -18,7 +34,7 @@
 - 特殊効果の `probability_multiplier` は `runtime_db.py` の共通重み・確率処理で参照される。
 - リアクション閾値返信は `reaction_threshold_rules.config_json` と `reaction_threshold_events` で管理する。
 
-## 追加したい共通軸
+## 初期案の共通軸（historical）
 
 ### BOT_INSTANCE_ID
 
@@ -576,7 +592,7 @@ migration:
 - 追加カラムのみで、既存データのUPDATE/DELETEや既存カラム削除はない。
 - 本番DBへの適用は別作業。
 
-未実装:
+当時の未実装（現在の状態は冒頭の対照表を参照）:
 
 - bot_id単位の特殊効果権限スコープ。
 - 開発者だけのBot横断表示。
@@ -664,12 +680,11 @@ migration:
 - スマホ表示では機能概要をカード上から隠し、iボタンの詳細に寄せる。
 - スマホ表示のカードpadding、テーブル行、ボタンを少し圧縮した。
 
-未実装/注意:
+当時の未実装/注意（現在の状態は冒頭の対照表を参照）:
 
 - X更新通知のキーワード検索はRecent Searchを使うため、X側の検索仕様に依存する。
 - 取得後フィルタは必ず併用する。
 - `bot_id` 権限スコープ、Bot横断表示は後続。
-- `bot_id` 讓ｩ髯舌せ繧ｳ繝ｼ繝励。ot讓ｪ譁ｭ陦ｨ遉ｺ縺ｯ蠕檎ｶ壹・
 
 ## 2026-07-05 Bot切替 / ユーザー管理 / セリフ設定
 
