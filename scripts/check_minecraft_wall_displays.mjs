@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import vm from "node:vm";
 import { createWallDisplays, createVideoDisplays, detectVideoScreen, detectFloorButton, detectControlButton, detectMapWall, isVanillaButton, audienceGain } from "../minecraft/behavior_packs/import_structures/scripts/wall_displays_core.js";
 import { WALL_DISPLAYS as config, BIG_VIDEO_DISPLAY as bigConfig, AKKI_VIDEO_DISPLAY as akkiConfig } from "../minecraft/behavior_packs/import_structures/scripts/wall_displays_config.js";
+import { BIG_VIDEO_ENABLED } from "../minecraft/behavior_packs/import_structures/scripts/wall_displays_config.js";
+import { VIDEO_BIG_MEDIA as bigMedia } from "../minecraft/behavior_packs/import_structures/scripts/video_big_media.generated.js";
 import { VIDEO_MEDIA as media } from "../minecraft/behavior_packs/import_structures/scripts/video_media.generated.js";
 
 import { VIDEO_AKKI_MEDIA as akkiMedia } from "../minecraft/behavior_packs/import_structures/scripts/video_akki_media.generated.js";
@@ -400,4 +403,76 @@ test("exact production map target/button rescans without refresh or writes; othe
   f.press("minecraft:pale_oak_button",{x:17,y:95,z:243});assert.equal(f.players[0].messages.length,3);
   const other=fixture();other.map(95,246);assert.equal(detectMapWall(other.dimension).status,"not_found");
 });
+test("all active displays share one player snapshot per tick; all OFF ticks do no player/audio work", () => {
+  const f = threeFixture();
+  let reads = 0;
+  f.world.getAllPlayers = () => { reads++; return [...f.players]; };
+  const initialSounds = f.sounds.length;
+  for (let i = 0; i < 20; i++) { f.system.currentTick++; f.group.tick(); }
+  assert.equal(reads, 0); assert.equal(f.sounds.length, initialSounds);
+  for (const id of ["small", "big", "akki"]) f.pressDisplay(id);
+  reads = 0;
+  f.system.currentTick++;
+  f.group.tick(); f.group.tick();
+  assert.equal(reads, 1);
+  f.system.currentTick++; f.group.tick();
+  assert.equal(reads, 2);
+  f.group.reset();
+  reads = 0;
+  const sounds = f.sounds.length;
+  f.system.currentTick++; f.group.tick();
+  assert.equal(reads, 0); assert.equal(f.sounds.length, sounds);
+  const late = f.player("off-join");
+  f.group.cleanPlayer(late);
+  assert.equal(f.sounds.filter(s => s.id === "off-join" && s.action === "stopSound").length, 3);
+});
+
+test("production entry pauses only Big; startup/load/spawn retire only Big helpers without block changes", () => {
+  assert.equal(BIG_VIDEO_ENABLED, false);
+  const f = fixture(); f.video(); akkiWall(f); akkiButton(f);
+  const stale = f.dimension.spawnEntity(bigConfig.video.entity, { x: 0, y: 0, z: 0 });
+  const unrelated = f.dimension.spawnEntity("ichiyon:molcar", { x: 0, y: 0, z: 0 });
+  const subscriptions = {}, starts = [], intervals = [];
+  Object.assign(f.system, {
+    run: fn => starts.push(fn),
+    runInterval: (fn, period) => intervals.push({ fn, period }),
+  });
+  f.world.afterEvents = new Proxy({}, { get: (_, key) => ({ subscribe: fn => { subscriptions[key] = fn; } }) });
+  const before = [...f.blocks.entries()];
+  const source = readFileSync(new URL("../minecraft/behavior_packs/import_structures/scripts/wall_displays.js", import.meta.url), "utf8")
+    .replace(/^import .*;\r?\n/gm, "");
+  const context = vm.createContext({
+    world: f.world, system: f.system, createVideoDisplays, BIG_VIDEO_ENABLED,
+    WALL_DISPLAYS: config, BIG_VIDEO_DISPLAY: bigConfig, AKKI_VIDEO_DISPLAY: akkiConfig,
+    VIDEO_MEDIA: media, VIDEO_BIG_MEDIA: bigMedia, VIDEO_AKKI_MEDIA: akkiMedia,
+  });
+  vm.runInContext(source + "\nglobalThis.group = displays;", context);
+  starts.forEach(fn => fn());
+  assert.deepEqual(Object.keys(context.group.status()), ["small", "akki"]);
+  assert(!stale.isValid); assert(unrelated.isValid);
+  assert.equal(f.entities.filter(e => e.isValid && e.typeId === config.video.entity).length, 1);
+  assert.equal(f.entities.filter(e => e.isValid && e.typeId === akkiConfig.video.entity).length, 1);
+  for (const event of ["entityLoad", "entitySpawn"]) {
+    const late = f.dimension.spawnEntity(bigConfig.video.entity, { x: 0, y: 0, z: 0 });
+    subscriptions[event]({ entity: late });
+    assert(!late.isValid);
+    subscriptions[event]({ entity: unrelated });
+    assert(unrelated.isValid);
+  }
+  let reads = 0;
+  f.world.getAllPlayers = () => { reads++; return f.players; };
+  for (let i = 0; i < 20; i++) {
+    f.system.currentTick++;
+    intervals.find(i => i.period === 1).fn();
+  }
+  assert.equal(reads, 0);
+  subscriptions.playerSpawn({ player: f.player("joined"), initialSpawn: true });
+  assert.equal(f.sounds.filter(s => s.id === "joined").length, 2);
+  const small = context.group.status().small;
+  subscriptions.buttonPush({ block: { typeId: "minecraft:stone_button", dimension: f.dimension, location: small.screen.button } });
+  assert(context.group.status().small.on);
+  assert(!context.group.status().akki.on);
+  assert.deepEqual([...f.blocks.entries()], before);
+});
+
 console.log(`${passed} wall display runtime tests passed`);

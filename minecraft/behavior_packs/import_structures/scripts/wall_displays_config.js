@@ -1,4 +1,7 @@
 // All installation coordinates live here. Detection never changes world blocks.
+// Must match minecraft_resource_packs.BIG_VIDEO_ENABLED (checked in CI).
+export const BIG_VIDEO_ENABLED = false;
+
 export const WALL_DISPLAYS = Object.freeze({
   dimension: "minecraft:overworld",
   video: { x: 132, width: 11, height: 4, minBottom: 251, maxBottom: 260,

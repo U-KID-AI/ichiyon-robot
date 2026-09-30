@@ -14,7 +14,7 @@ from bot.services.minecraft_cosmetics import (
 )
 from bot.services.minecraft_cosmetics_posters import compile_posters, poster_entry
 from bot.services.minecraft_resource_packs import (
-    RESOURCE_PACKS, DIRECT_RESOURCE_PACKS, LEGACY_UUID, split_resource_packs,
+    RESOURCE_PACKS, DIRECT_RESOURCE_PACKS, RETIRED_RESOURCE_PACKS, split_resource_packs,
     MAX_ARCHIVE, MAX_EXPANDED, MAX_FILE, MAX_FILES,
 )
 
@@ -296,7 +296,8 @@ def pack_zip(root, records, revision):
                   for pack in DIRECT_RESOURCE_PACKS for p in (root / pack).rglob("*") if p.is_file()})
     proof = {"revision": revision, "catalog_digest": catalog_digest(records),
              "packs": [p.rstrip("/") for p in (BP, BRIDGE, *RESOURCE_PACKS)],
-             "retired_packs": [{"path": RP.rstrip("/"), "uuid": LEGACY_UUID}]}
+             "retired_packs": [{"path": path, "uuid": identity}
+                               for path, identity in RETIRED_RESOURCE_PACKS.items()]}
     files["cosmetics-build.json"] = json_bytes(proof)
     if len(files) > MAX_FILES:
         raise ValueError("too many files")

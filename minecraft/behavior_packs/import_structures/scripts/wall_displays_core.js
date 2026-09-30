@@ -107,7 +107,7 @@ export function audienceGain(player, screen, config = WALL_DISPLAYS) {
   return distance < config.video.audienceRadius ? 1 : 0;
 }
 
-export function createWallDisplays({ world, system, media, now = () => Date.now(), config = WALL_DISPLAYS, log = console.warn }) {
+export function createWallDisplays({ world, system, media, now = () => Date.now(), config = WALL_DISPLAYS, log = console.warn, getPlayers = () => world.getAllPlayers() }) {
   let screen, mapWall, entity, on = false, started = 0, frame = -1, lastCycle = -1;
   let videoStatus = "cold", mapStatus = "cold", buttonStatus = "cold", lastButtonTick = -100;
   let controlButton;
@@ -211,17 +211,20 @@ export function createWallDisplays({ world, system, media, now = () => Date.now(
     if (on) reset();
     else { on = true; started = now(); frame = 0; lastCycle = -1; entity.setProperty("ichiyon:frame", 0); tick(); }
   }
-  function tick() {
-    const players = world.getAllPlayers();
-    // Reload can leave client audio alive briefly. Clear only our sound IDs.
-    for (const player of players) if (!cleanedPlayers.has(player.id)) {
+  function cleanPlayer(player) {
+    // Reload/join cleanup is event-driven even while every display is OFF.
+    if (!cleanedPlayers.has(player.id)) {
       try {
         if (media.sound) player.stopSound(media.sound);
         cleanedPlayers.add(player.id);
       } catch { /* Audio cleanup must never interrupt the frame clock. */ }
     }
+  }
+  function tick() {
     if (!on) return;
     if (!entity?.isValid || !screen) { reset(); return; }
+    const players = getPlayers();
+    for (const player of players) cleanPlayer(player);
     const elapsed = Math.max(0, (now() - started) / 1000);
     const cycle = Math.floor(elapsed / media.duration);
     const time = elapsed % media.duration;
@@ -271,13 +274,37 @@ export function createWallDisplays({ world, system, media, now = () => Date.now(
     cleanedPlayers.delete(id);
     audioRetryAfter.delete(id);
   }
-  return { scan, scanMap, tick, button, reset, recover, release, leave,
+  return { scan, scanMap, tick, button, reset, recover, release, leave, cleanPlayer,
     status: () => ({ on, frame, videoStatus, mapStatus, buttonStatus, screen, mapWall, listeners: listeners.size }) };
 }
 
-export function createVideoDisplays({ world, system, displays, now, log = console.warn }) {
+export function createVideoDisplays({ world, system, displays, now, log = console.warn, retiredEntityTypes = [] }) {
+  let snapshotTick = -1, snapshot;
+  const getPlayers = () => {
+    if (snapshotTick !== system.currentTick) {
+      snapshot = world.getAllPlayers();
+      snapshotTick = system.currentTick;
+    }
+    return snapshot;
+  };
+  const retired = new Set(retiredEntityTypes);
+  function recoverRetired(entity) {
+    try {
+      if (retired.has(entity.typeId)) { entity.remove(); return true; }
+    } catch { /* An unloading helper can be removed on its next entityLoad. */ }
+    return false;
+  }
+  function retireLoaded() {
+    for (const id of ["minecraft:overworld", "minecraft:nether", "minecraft:the_end"]) {
+      for (const type of retired) {
+        try {
+          for (const entity of world.getDimension(id).getEntities({ type })) recoverRetired(entity);
+        } catch { /* No chunks are force-loaded for cleanup. */ }
+      }
+    }
+  }
   const instances = displays.map(({ id, config, media }) => ({ id,
-    core: createWallDisplays({ world, system, config, media, now, log }), lastError: -100 }));
+    core: createWallDisplays({ world, system, config, media, now, log, getPlayers }), lastError: -100 }));
   const call = (method, ...args) => {
     for (const entry of instances) {
       try { entry.core[method](...args); }
@@ -290,8 +317,11 @@ export function createVideoDisplays({ world, system, displays, now, log = consol
       }
     }
   };
-  return Object.fromEntries(["scan", "tick", "button", "recover", "release", "leave", "reset"]
+  return Object.fromEntries(["scan", "tick", "button", "release", "leave", "reset", "cleanPlayer"]
     .map((method) => [method, (...args) => call(method, ...args)]).concat([
+      ["recover", entity => { if (!recoverRetired(entity)) call("recover", entity); }],
+      ["recoverRetired", recoverRetired],
+      ["retireLoaded", retireLoaded],
       ["status", () => Object.fromEntries(instances.map(({ id, core }) => [id, core.status()]))],
     ]));
 }

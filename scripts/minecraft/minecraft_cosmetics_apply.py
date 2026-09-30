@@ -24,7 +24,10 @@ MAX_FILE = 8 * 1024 * 1024
 MAX_FILES = 16384
 PACKS = ('behavior_packs/import_structures', 'behavior_packs/ichiyon_avatar_bp', 'resource_packs/ichiyon_avatar_rp')
 BEHAVIOR_PACKS = PACKS[:2]
-RETIRED_PACKS = {PACKS[2]: '3e1bcf76-b5e3-465a-a184-d2d90cfa0d74'}
+RETIRED_PACKS = {
+    PACKS[2]: '3e1bcf76-b5e3-465a-a184-d2d90cfa0d74',
+    'resource_packs/ichiyon_video_big_rp': 'a9689c00-b236-53ec-b952-a5fa64cb0cbc',
+}
 CATALOG = BEHAVIOR_PACKS[0] + '/scripts/cosmetics_catalog.js'
 PERMISSIONS = 'config/2fbc1c02-0c4d-4e98-a851-c1e41337c7a8/permissions.json'
 TERMINAL = ('succeeded', 'failed', 'recovery_failed')

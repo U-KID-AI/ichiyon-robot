@@ -1,7 +1,4 @@
 {
-  "capabilities": [
-    "pbr"
-  ],
   "format_version": 2,
   "header": {
     "description": "Canonical connected translucent aquarium glass",
@@ -15,7 +12,7 @@
     "version": [
       1,
       2,
-      1
+      2
     ]
   },
   "modules": [
@@ -25,7 +22,7 @@
       "version": [
         1,
         2,
-        1
+        2
       ]
     }
   ]
