@@ -1,16 +1,16 @@
 # Remote branch deletion candidates — 2026-09-30
 
-No remote branches were deleted. Main baseline: `d93718673158ae886b1b598473d9a7c8b688a732`. GitHub branch API (all pages), open PR heads and fresh fetched ancestry were checked. Each candidate is an ancestor of main, has zero unique commits, is not an open PR head and is not default/protected. The old default and the explicitly preserved Minecraft branch are additionally excluded. Recheck these conditions immediately before any later deletion.
+No remote branches were deleted. Main baseline: `d93718673158ae886b1b598473d9a7c8b688a732`. Final GitHub branch API (all pages), open PR heads and fetched ancestry were checked after publishing PR #110 and closing the superseded PRs. Each candidate is an ancestor of main, has zero unique commits, is not an open PR head and is not default/protected. The old default and the explicitly preserved Minecraft branch are additionally excluded. Recheck all conditions immediately before any later deletion.
 
-Candidates: **159** / remote branches: **223**.
+Candidates: **159** / remote branches: **224**.
 
 | Branch | Tip SHA |
 | --- | --- |
 | `ai/bootstrap-phase0` | `95ebda360cf2bb47053b47da5d354caf3062d8ec` |
 | `ai/phase1-task-foundation` | `0c54ec2994fca14842c9d77dec56aa733f81404a` |
 | `ai/phase2-runner-foundation` | `6244718232f6bb9ac72898bf682ca595d114f035` |
-| `ai/task/d4d6b772-9951-46f9-99cd-531a898b56b2` | `9980f4ce73bdaadb42c4b95939f845d249887dae` |
 | `ai/task/80331f8e-8992-4722-ae18-059707979009` | `8f35ead5e60f5f61cf23b4c6db0bbeec78c20642` |
+| `ai/task/d4d6b772-9951-46f9-99cd-531a898b56b2` | `9980f4ce73bdaadb42c4b95939f845d249887dae` |
 | `chore/infrastructure-maintenance` | `ace00c3d5828fc9d0e9bc25397051c59a08f7b44` |
 | `codex/death-prairie-investigation` | `c91473b8fb6f89114bc64b645f2c36df8fc7697b` |
 | `codex/death-prairie-local-bake` | `3e99e7331080c76aa74859350d3b095df6b7e039` |
@@ -166,71 +166,72 @@ Candidates: **159** / remote branches: **223**.
 | `sync/import-structures-prod-20260920` | `621c956869282d0830fd5133ea6be641aaf38808` |
 | `sync/minecraft-prod-20260920` | `f19d2399589f617d3d9e40b1b3c68973dd41f3c6` |
 
-## Excluded
+## Excluded (65)
 
-| Branch | Reason |
+| Branch | Reasons |
 | --- | --- |
-| `ai/avatar-cosmetics` | not ancestor or tip unavailable locally |
-| `ai/fix-cosmetics-startup-wait` | not ancestor or tip unavailable locally |
-| `ai/phase2d-auto-review-merge` | not ancestor or tip unavailable locally |
-| `ai/phase2d-review-gate-race-fix` | not ancestor or tip unavailable locally |
-| `ai/protect-web-cosmetics` | not ancestor or tip unavailable locally |
-| `ai/task/b8f22141-74da-45b2-9396-439da6a59010` | not ancestor or tip unavailable locally |
-| `ai/task/d5b81bbc-9c87-4604-8cf5-ffde134d3d04` | not ancestor or tip unavailable locally |
-| `ai/task/d8ee3c18-d2ce-4e39-a4c4-f9cfe8ec347f` | not ancestor or tip unavailable locally |
-| `ai/task/dcbc8ec1-3206-4ff1-8b62-6b6499b69c96` | not ancestor or tip unavailable locally |
-| `ai/task/e2039f47-3da4-4eb4-a90b-205b08d25fa1` | not ancestor or tip unavailable locally |
-| `ai/task/ef3b3537-e34e-4565-8177-fd8d6da76a14` | not ancestor or tip unavailable locally |
-| `ai/task/f13fc4f1-f9c6-4c74-8fc4-d97bbb5d07b9` | open PR head |
-| `ai/task/1f0b4895-98e3-4504-a980-7779eff72e9c` | not ancestor or tip unavailable locally |
-| `ai/task/3bd2a9ed-2cf0-46b4-9bb5-6f0c9890e65b` | not ancestor or tip unavailable locally |
-| `ai/task/6d6f1098-1110-4d37-8963-640dcd9abdb6` | not ancestor or tip unavailable locally |
-| `ai/task/6fc0c653-ec20-4b79-a319-7aa86b0685b7` | not ancestor or tip unavailable locally |
-| `ai/task/8bb1139e-0bf2-4987-aa17-86aa3123de65` | not ancestor or tip unavailable locally |
-| `ai/task/9ccaf626-ceba-4e48-9002-c3da79f3b18a` | not ancestor or tip unavailable locally |
-| `ai/task/22cc762b-164a-4219-8fb1-43b63aea2096` | not ancestor or tip unavailable locally |
-| `ai/task/43aee095-bdbe-480f-be37-652955e9827a` | open PR head |
-| `ai/task/95a9aa8e-30d0-431e-b000-5fca6095c171` | not ancestor or tip unavailable locally |
-| `ai/task/140c1ba8-1b96-4f79-b97e-2b6472e252d0` | not ancestor or tip unavailable locally |
-| `ai/task/501becdb-9afe-4854-ad68-8ad7b08ee3db` | not ancestor or tip unavailable locally |
-| `ai/task/703f4750-9e05-4eeb-a9e8-004813baaeef` | open PR head |
-| `ai/task/19577b28-6e41-4bda-b06a-dd77eb2f72d9` | open PR head |
-| `ai/task/61535b55-9799-4d82-80f1-f0662fbe4528` | not ancestor or tip unavailable locally |
-| `assets/avatar-mannequin-skins` | not ancestor or tip unavailable locally |
-| `chore/add-pikachu-reference-structure` | not ancestor or tip unavailable locally |
-| `codex/ai-runner-git-compat` | not ancestor or tip unavailable locally |
-| `codex/ai-runner-normal-git` | not ancestor or tip unavailable locally |
-| `codex/mokuro-mob` | not ancestor or tip unavailable locally |
-| `codex/molcar-creative-groups` | not ancestor or tip unavailable locally |
-| `codex/poster-creative-group` | not ancestor or tip unavailable locally |
-| `codex/poster-group-legacy-compat` | not ancestor or tip unavailable locally |
-| `feat/game-price-providers-mention-shortcuts` | not ancestor or tip unavailable locally |
-| `feat/vibrant-visuals-compat-20260929` | not ancestor or tip unavailable locally |
-| `feature/loser-papyrus-trigger` | not ancestor or tip unavailable locally |
-| `feature/mode-feature-requirements-audit` | not ancestor or tip unavailable locally |
-| `feature/phase3c2-fixed-deploy-adapter` | not ancestor or tip unavailable locally |
-| `feature/phase3c3-runner-wiring` | not ancestor or tip unavailable locally |
-| `feature/phase3c-deploy-control-plane` | not ancestor or tip unavailable locally |
-| `feature/phase3d-discord-ai-channel` | not ancestor or tip unavailable locally |
-| `feature/special-effect-mode-enter-runtime` | not ancestor or tip unavailable locally |
-| `feature/v1-basic-bot` | default/protected/preserved branch |
-| `feature/youtube-n-pull-artist100-bulk-import` | not ancestor or tip unavailable locally |
-| `fix/ai-review-phase-boundary` | not ancestor or tip unavailable locally |
-| `fix/avatar-rp-version-test` | not ancestor or tip unavailable locally |
-| `fix/death-prairie-day-night-swap-20260925` | not ancestor or tip unavailable locally |
-| `fix/death-prairie-generator-version` | not ancestor or tip unavailable locally |
-| `fix/death-prairie-texture-20260925-114218` | not ancestor or tip unavailable locally |
-| `fix/foreground-audio-chain` | not ancestor or tip unavailable locally |
-| `fix/linux-ai-runner` | not ancestor or tip unavailable locally |
-| `fix/minecraft-atomic-symlink-safety` | not ancestor or tip unavailable locally |
-| `fix/phase3d2-legacy-release-compat` | not ancestor or tip unavailable locally |
-| `fix/phase3d3-legacy-image-compat` | not ancestor or tip unavailable locally |
-| `fix/phase3d4-legacy-image-metadata` | not ancestor or tip unavailable locally |
-| `fix/phase3d5-legacy-compose-contract` | not ancestor or tip unavailable locally |
-| `fix/phase3d6-legacy-rollback-image-health` | not ancestor or tip unavailable locally |
-| `fix/phase3d7-ai-discord-env-wiring` | not ancestor or tip unavailable locally |
-| `fix/player-min-engine-version` | not ancestor or tip unavailable locally |
-| `issue/deck-search-speedup` | not ancestor or tip unavailable locally |
-| `main` | default/protected/preserved branch |
-| `perf/youtube-extract-prefetch-cache` | not ancestor or tip unavailable locally |
-| `reconcile/production-runtime-20260920` | not ancestor or tip unavailable locally |
+| `ai/avatar-cosmetics` | not main ancestor, unique commits |
+| `ai/fix-cosmetics-startup-wait` | not main ancestor, unique commits |
+| `ai/phase2d-auto-review-merge` | not main ancestor, unique commits |
+| `ai/phase2d-review-gate-race-fix` | not main ancestor, unique commits |
+| `ai/protect-web-cosmetics` | not main ancestor, unique commits |
+| `ai/task/140c1ba8-1b96-4f79-b97e-2b6472e252d0` | not main ancestor, unique commits |
+| `ai/task/19577b28-6e41-4bda-b06a-dd77eb2f72d9` | not main ancestor, unique commits |
+| `ai/task/1f0b4895-98e3-4504-a980-7779eff72e9c` | not main ancestor, unique commits |
+| `ai/task/22cc762b-164a-4219-8fb1-43b63aea2096` | not main ancestor, unique commits |
+| `ai/task/3bd2a9ed-2cf0-46b4-9bb5-6f0c9890e65b` | not main ancestor, unique commits |
+| `ai/task/43aee095-bdbe-480f-be37-652955e9827a` | not main ancestor, unique commits |
+| `ai/task/501becdb-9afe-4854-ad68-8ad7b08ee3db` | not main ancestor, unique commits |
+| `ai/task/61535b55-9799-4d82-80f1-f0662fbe4528` | not main ancestor, unique commits |
+| `ai/task/6d6f1098-1110-4d37-8963-640dcd9abdb6` | not main ancestor, unique commits |
+| `ai/task/6fc0c653-ec20-4b79-a319-7aa86b0685b7` | not main ancestor, unique commits |
+| `ai/task/703f4750-9e05-4eeb-a9e8-004813baaeef` | not main ancestor, unique commits |
+| `ai/task/8bb1139e-0bf2-4987-aa17-86aa3123de65` | not main ancestor, unique commits |
+| `ai/task/95a9aa8e-30d0-431e-b000-5fca6095c171` | not main ancestor, unique commits |
+| `ai/task/9ccaf626-ceba-4e48-9002-c3da79f3b18a` | not main ancestor, unique commits |
+| `ai/task/b8f22141-74da-45b2-9396-439da6a59010` | not main ancestor, unique commits |
+| `ai/task/d5b81bbc-9c87-4604-8cf5-ffde134d3d04` | not main ancestor, unique commits |
+| `ai/task/d8ee3c18-d2ce-4e39-a4c4-f9cfe8ec347f` | not main ancestor, unique commits |
+| `ai/task/dcbc8ec1-3206-4ff1-8b62-6b6499b69c96` | not main ancestor, unique commits |
+| `ai/task/e2039f47-3da4-4eb4-a90b-205b08d25fa1` | not main ancestor, unique commits |
+| `ai/task/ef3b3537-e34e-4565-8177-fd8d6da76a14` | not main ancestor, unique commits |
+| `ai/task/f13fc4f1-f9c6-4c74-8fc4-d97bbb5d07b9` | not main ancestor, unique commits |
+| `assets/avatar-mannequin-skins` | not main ancestor, unique commits |
+| `chore/add-pikachu-reference-structure` | not main ancestor, unique commits |
+| `codex/ai-runner-git-compat` | not main ancestor, unique commits |
+| `codex/ai-runner-normal-git` | not main ancestor, unique commits |
+| `codex/backlog-cleanup-20260930` | open PR head, not main ancestor, unique commits |
+| `codex/mokuro-mob` | not main ancestor, unique commits |
+| `codex/molcar-creative-groups` | not main ancestor, unique commits |
+| `codex/poster-creative-group` | not main ancestor, unique commits |
+| `codex/poster-group-legacy-compat` | not main ancestor, unique commits |
+| `feat/game-price-providers-mention-shortcuts` | not main ancestor, unique commits |
+| `feat/vibrant-visuals-compat-20260929` | not main ancestor, unique commits |
+| `feature/loser-papyrus-trigger` | not main ancestor, unique commits |
+| `feature/mode-feature-requirements-audit` | not main ancestor, unique commits |
+| `feature/phase3c-deploy-control-plane` | not main ancestor, unique commits |
+| `feature/phase3c2-fixed-deploy-adapter` | not main ancestor, unique commits |
+| `feature/phase3c3-runner-wiring` | not main ancestor, unique commits |
+| `feature/phase3d-discord-ai-channel` | not main ancestor, unique commits |
+| `feature/special-effect-mode-enter-runtime` | not main ancestor, unique commits |
+| `feature/v1-basic-bot` | explicitly preserved, not main ancestor, unique commits |
+| `feature/youtube-n-pull-artist100-bulk-import` | not main ancestor, unique commits |
+| `fix/ai-review-phase-boundary` | not main ancestor, unique commits |
+| `fix/avatar-rp-version-test` | not main ancestor, unique commits |
+| `fix/death-prairie-day-night-swap-20260925` | not main ancestor, unique commits |
+| `fix/death-prairie-generator-version` | not main ancestor, unique commits |
+| `fix/death-prairie-texture-20260925-114218` | not main ancestor, unique commits |
+| `fix/foreground-audio-chain` | not main ancestor, unique commits |
+| `fix/linux-ai-runner` | not main ancestor, unique commits |
+| `fix/minecraft-atomic-symlink-safety` | not main ancestor, unique commits |
+| `fix/phase3d2-legacy-release-compat` | not main ancestor, unique commits |
+| `fix/phase3d3-legacy-image-compat` | not main ancestor, unique commits |
+| `fix/phase3d4-legacy-image-metadata` | not main ancestor, unique commits |
+| `fix/phase3d5-legacy-compose-contract` | not main ancestor, unique commits |
+| `fix/phase3d6-legacy-rollback-image-health` | not main ancestor, unique commits |
+| `fix/phase3d7-ai-discord-env-wiring` | not main ancestor, unique commits |
+| `fix/player-min-engine-version` | not main ancestor, unique commits |
+| `issue/deck-search-speedup` | not main ancestor, unique commits |
+| `main` | default branch, protected branch |
+| `perf/youtube-extract-prefetch-cache` | not main ancestor, unique commits |
+| `reconcile/production-runtime-20260920` | not main ancestor, unique commits |

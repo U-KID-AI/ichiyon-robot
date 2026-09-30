@@ -26,6 +26,8 @@
 
 現行mainのGitHub checks成功を確認し、今回変更分は対応checkerとPR CIで検証する。詳細結果は[BACKLOG_TEST_RESULTS.json](BACKLOG_TEST_RESULTS.json)とPR checksに記録する。Windows上で実行できないLinux descriptor/flock試験をPASSと置き換えず、Linux CIで確認する。
 
+今回の変更は[PR #110](https://github.com/U-KID-AI/ichiyon-robot/pull/110)で公開した。ローカルLinux Python 3.11の43 checker、Python compile、main全差分のwhitespace checkはPASS。初回失敗と修正は[BACKLOG_TESTS](BACKLOG_TESTS.md)へ記録し、CIの隔離PostgreSQL試験もPR checksで確認する。production配備やmainへのmerge完了をこの公開だけから推定しない。
+
 ## コード完成・production作業待ち
 
 | ID | 残る作業 | 完了条件 |
@@ -70,14 +72,14 @@
 
 | 対象 | 実コード比較に基づく判定 |
 | --- | --- |
-| [#46](https://github.com/U-KID-AI/ichiyon-robot/pull/46) | CPU/memory取得はmainに既存。未吸収だったloopback実測runtime version/player countの厳密解析と観測metadataを現行`/status`へ移植し、`friend_join=not_tested`で実際の確認範囲を区別する。古いbranchの直接merge/rebaseはしない |
-| [#47](https://github.com/U-KID-AI/ichiyon-robot/pull/47) | 固定read-only diagnosticsの有用部分をmainへ移植し、分離secret、bounded収集とfixture/CIを追加。現行Bridge/managed releaseの成功契約を保持 |
+| [#46](https://github.com/U-KID-AI/ichiyon-robot/pull/46) | CPU/memory取得はmainに既存。未吸収だったloopback実測runtime version/player countの厳密解析と観測metadataを現行`/status`へ移植し、`friend_join=not_tested`で実際の確認範囲を区別する。#110にsupersededとして理由付きclose済み |
+| [#47](https://github.com/U-KID-AI/ichiyon-robot/pull/47) | 固定read-only diagnosticsの有用部分をmainへ移植し、分離secret、bounded収集とfixture/CIを追加。現行Bridge/managed releaseの成功契約を保持。#110にsupersededとして理由付きclose済み |
 | [#49](https://github.com/U-KID-AI/ichiyon-robot/pull/49) | genericな診断抑制は現行のredaction済み全量attachmentにsuperseded。不要と確認して理由付きでclose済み |
-| [#56](https://github.com/U-KID-AI/ichiyon-robot/pull/56) | 原因の表示順改善だけ移植。短文だけに置換して全量診断を失う案は採用しない |
+| [#56](https://github.com/U-KID-AI/ichiyon-robot/pull/56) | 原因の表示順改善だけ移植。全量redacted attachmentを維持。#110にsupersededとして理由付きclose済み |
 | default branch | `feature/v1-basic-bot`から`main`へ変更済み。旧default固有の2 merge commitはmerge-baseから旧tipへのtree差分が0で、有効な固有変更がないことを確認した |
-| remote branches | **削除実施0件**。mainのancestor、unique commit 0、open PR headではない、default/protectedではない条件を全て満たした候補は159/223件。[候補一覧](REMOTE_BRANCH_CANDIDATES.md)を保存。実行直前に全条件を再確認する |
+| remote branches | **削除実施0件**。mainのancestor、unique commit 0、open PR headではない、default/protectedではない条件を全て満たした候補は159/224件（#110公開後の最終監査）。[候補一覧](REMOTE_BRANCH_CANDIDATES.md)を保存。実行直前に全条件を再確認する |
 
-#46/#47/#56のcloseは移植結果を含む新PR公開後、未移植の有効差分が残っていないことを確認して行う。必要変更を残したままcloseしない。PRの最終状態と新PR URLは今回PR/最終報告にも記録する。
+#46/#47/#49/#56は実装比較で必要な未移植変更がないことを確認し、理由付きでcloseした。replacementは#110。古いheadのmerge/rebaseやremote branch削除は行っていない。
 
 ## 文書の判定優先順位
 
