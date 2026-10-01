@@ -459,6 +459,34 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await self.observe('WARNING', 4600))
         self.assertTrue(await self.observe('WARNING', 1000+24*3600))
 
+    async def test_legacy_baseline_seeds_once_and_detects_worsening_after_restart(self):
+        for status, reason in (('WARNING', 'P0_RESERVE_HEADROOM_LOW'), ('CRITICAL', 'P0_REJECTED')):
+            self.state.write_text(json.dumps(dict(status=status, reason=reason,
+                                                 attempted_at=1000, sent_at=1000)))
+            notifier._MEMORY = {}
+            self.assertFalse(await self.observe(status, 1100))
+            saved = json.loads(self.state.read_text())
+            self.assertEqual((saved['attempted_at'], saved['sent_at']), (1000, 1000))
+            self.assertEqual(saved['capacity']['runner:docker+releases']['available'], 12*storage.GIB)
+            notifier._MEMORY = {}
+            self.assertFalse(await self.observe(status, 1200, available=int(11.6*storage.GIB)))
+            self.assertEqual(json.loads(self.state.read_text()), saved)
+            notifier._MEMORY = {}
+            self.assertTrue(await self.observe(status, 1300, available=11*storage.GIB))
+        self.assertEqual(len(self.channel.sent), 2)
+
+    async def test_legacy_baseline_write_failure_does_not_send_or_move_clock(self):
+        legacy = dict(status='WARNING', reason='P0_RESERVE_HEADROOM_LOW',
+                      attempted_at=1000, sent_at=1000)
+        self.state.write_text(json.dumps(legacy))
+        with patch.object(notifier, '_save', side_effect=OSError('private')):
+            self.assertFalse(await self.observe('WARNING', 1100))
+        self.assertEqual(json.loads(self.state.read_text()), legacy)
+        self.assertEqual(notifier._MEMORY, {})
+        self.assertEqual(self.channel.sent, [])
+        self.assertFalse(await self.observe('WARNING', 1200))
+        self.assertEqual(json.loads(self.state.read_text())['sent_at'], 1000)
+
     async def test_corrupt_state_is_not_first_startup_and_recovers_when_repaired(self):
         self.assertTrue(await self.observe('WARNING', 1000))
         saved = self.state.read_text()
