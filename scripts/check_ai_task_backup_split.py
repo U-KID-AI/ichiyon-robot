@@ -134,6 +134,31 @@ class SplitWriterTests(unittest.TestCase):
         self.assertFalse((stage.path / 'READY').exists())
         self.assertTrue(any(path.name.startswith('.pending-') for path in self.recovery.iterdir()))
 
+    def test_post_ready_change_retracts_only_own_marker(self):
+        stage = self.stage('post-ready')
+        original = split.source_inventory
+        def changed_after_ready(shared):
+            if (stage.path / 'READY').exists():
+                (self.shared / 'data/backups/late.json').write_bytes(b'late historical update')
+            return original(shared)
+        with patch.object(split, 'source_inventory', side_effect=changed_after_ready):
+            with self.assertRaisesRegex(backup.BackupError, 'source_changed'):
+                self.write(stage)
+        self.assertFalse((stage.path / 'READY').exists())
+        self.assertTrue((stage.path / 'persistence.tar').exists())
+        self.assertTrue((self.shared / 'data/backups/late.json').exists())
+
+    @unittest.skipUnless(os.name == 'posix', 'Linux mount table contract')
+    def test_same_device_bind_mount_is_rejected(self):
+        real_read = Path.read_text
+        def mounted(path, *args, **kwargs):
+            if str(path) == '/proc/self/mountinfo':
+                return '1 0 8:1 / ' + str(self.shared / 'data/backups') + ' rw - ext4 /dev/test rw\n'
+            return real_read(path, *args, **kwargs)
+        with patch.object(Path, 'read_text', mounted):
+            with self.assertRaisesRegex(backup.BackupError, 'source_mount_crossing'):
+                self.write(self.stage('mount'))
+
 
 if __name__ == '__main__':
     unittest.main()
