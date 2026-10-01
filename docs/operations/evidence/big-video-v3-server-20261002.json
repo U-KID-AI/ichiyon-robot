@@ -1,0 +1,79 @@
+[
+  {
+    "case": "v3_vector_100",
+    "utc": "2026-10-01T16:13:20.048724Z",
+    "server_started": true,
+    "oom_killed": false,
+    "ref_unchanged": true,
+    "pack_diagnostics": [
+      "[2026-10-01 16:13:25:488 INFO] Version: 1.26.52.3",
+      "[2026-10-01 16:13:25:491 INFO] Profiler config ('bootstrap.json') load result: success=1, errorMessage=(null)",
+      "[2026-10-01 16:13:25:497 INFO] No CDN config file found at: cdn_config.json for dedicated server",
+      "[2026-10-01 16:13:27:007 INFO] Pack Stack - None",
+      "[2026-10-01 16:13:33:037 WARN] Use allowlist add <playername> for you and your friends so that they can access the server, or modify allowlist.json manually."
+    ],
+    "client_connected": false
+  },
+  {
+    "case": "v3_string_100",
+    "utc": "2026-10-01T16:13:38.132085Z",
+    "server_started": true,
+    "oom_killed": false,
+    "ref_unchanged": true,
+    "pack_diagnostics": [
+      "[2026-10-01 16:13:43:399 INFO] Version: 1.26.52.3",
+      "[2026-10-01 16:13:43:399 INFO] Profiler config ('bootstrap.json') load result: success=1, errorMessage=(null)",
+      "[2026-10-01 16:13:43:405 INFO] No CDN config file found at: cdn_config.json for dedicated server",
+      "[2026-10-01 16:13:44:789 INFO] Pack Stack - None",
+      "[2026-10-01 16:13:50:496 WARN] Use allowlist add <playername> for you and your friends so that they can access the server, or modify allowlist.json manually."
+    ],
+    "client_connected": false
+  },
+  {
+    "case": "v3_vector_update_101",
+    "utc": "2026-10-01T16:13:55.114863Z",
+    "server_started": true,
+    "oom_killed": false,
+    "ref_unchanged": true,
+    "pack_diagnostics": [
+      "[2026-10-01 16:14:00:712 INFO] Version: 1.26.52.3",
+      "[2026-10-01 16:14:00:715 INFO] Profiler config ('bootstrap.json') load result: success=1, errorMessage=(null)",
+      "[2026-10-01 16:14:00:724 INFO] No CDN config file found at: cdn_config.json for dedicated server",
+      "[2026-10-01 16:14:01:973 INFO] Pack Stack - None",
+      "[2026-10-01 16:14:07:087 WARN] Use allowlist add <playername> for you and your friends so that they can access the server, or modify allowlist.json manually."
+    ],
+    "client_connected": false
+  },
+  {
+    "case": "v3_vector_rollback_100",
+    "utc": "2026-10-01T16:14:12.238948Z",
+    "server_started": true,
+    "oom_killed": false,
+    "ref_unchanged": true,
+    "pack_diagnostics": [
+      "[2026-10-01 16:14:17:763 INFO] Version: 1.26.52.3",
+      "[2026-10-01 16:14:17:764 INFO] Profiler config ('bootstrap.json') load result: success=1, errorMessage=(null)",
+      "[2026-10-01 16:14:17:766 INFO] No CDN config file found at: cdn_config.json for dedicated server",
+      "[2026-10-01 16:14:19:092 INFO] Pack Stack - None",
+      "[2026-10-01 16:14:24:831 WARN] Use allowlist add <playername> for you and your friends so that they can access the server, or modify allowlist.json manually."
+    ],
+    "client_connected": false
+  },
+  {
+    "case": "invalid_manifest_control",
+    "utc": "2026-10-01T16:14:29.263820Z",
+    "server_started": true,
+    "oom_killed": false,
+    "ref_unchanged": true,
+    "pack_diagnostics": [
+      "[2026-10-01 16:14:34:764 INFO] Version: 1.26.52.3",
+      "[2026-10-01 16:14:34:766 INFO] Profiler config ('bootstrap.json') load result: success=1, errorMessage=(null)",
+      "[2026-10-01 16:14:34:774 INFO] No CDN config file found at: cdn_config.json for dedicated server",
+      "[2026-10-01 16:14:34:835 WARN] [Packs] Pack Manifest version 0 is deprecated, please include format_version 2 in your manifest.json.",
+      "[2026-10-01 16:14:35:991 WARN] Configured pack (id: 301f1595-9d5b-569a-991a-c6b5f5d6a842, version: 1.0.0) was not found and was ignored",
+      "[2026-10-01 16:14:36:080 INFO] Pack Stack - None",
+      "[2026-10-01 16:14:42:247 WARN] Use allowlist add <playername> for you and your friends so that they can access the server, or modify allowlist.json manually."
+    ],
+    "client_connected": false
+  }
+]

@@ -1,84 +1,126 @@
-# Paused Big Video: offline subpacks and enable boundary
+# Big Video: paused, measured-tier enable preparation
 
-This change does not deploy, merge to production, add a world reference, start
-Big's runtime, or distribute Big to any client. Client log schema v2 is code for
-a subsequent normal managed release; production continues running PR #111 until
-that release is explicitly requested.
+PR #112 includes main through `f28c116` (#113/#114 storage changes). Big remains
+retired from the managed catalog, and the Script flag stays false. This PR does
+not add a production world reference or deploy Big. Client diagnostics v2 remain
+included for a subsequent release.
 
-## Observed production, 2026-10-01 JST
+## Observed production, 2026-10-02 01:02 JST
 
-Read-only SSH inspection at the start of this task confirmed:
+Read-only SSH inspection, independently of GitHub main, confirmed:
 
-- App release `a563bc0a8b1a84d80dd484ac4169c546481637c5` (PR #111).
-- BDS `1.26.52.3`, healthy, started `2026-10-01 03:44:18 JST`.
-- Eight active RP references; Big UUID `a9689c00-b236-53ec-b952-a5fa64cb0cbc`
-  absent from `world_resource_packs.json`; its live RP directory absent.
-- Compiler `BIG_VIDEO_ENABLED = False`; live Script flag also `false`.
-- Managed retirement identifies only Big's exact path/UUID (plus the pre-existing
-  legacy avatar RP retirement). Startup/entityLoad/entitySpawn cleanup targets
-  only `ichiyon:video_screen_big`; the BP definition is retained for stale helpers.
+- App release `f28c11614174d535edd53a213f5b515980a51b0b`.
+- BDS `1.26.52.3`, healthy, started **2026-10-02 00:24:09 JST**.
+- Eight RP references. Big UUID `a9689c00-b236-53ec-b952-a5fa64cb0cbc` and its
+  live RP directory are absent; live Script `BIG_VIDEO_ENABLED = false`.
+- Latest managed application succeeded at **00:24:28 JST**.
 
-The new slow-scan retry covers transient helper removal failures without loading
-chunks, spawning helpers, writing blocks or touching small/Akki entities. Fixtures
-cover failure/retry and unrelated mobs. This is not an observation that all
-persisted entities in unloaded production chunks have been counted or removed.
+Retirement uses Big's exact path/UUID plus the pre-existing avatar retirement.
+Only `ichiyon:video_screen_big` helpers are removed on startup, entity load/spawn
+and slow-scan retry. Unloaded chunks are never forced to load. This does not
+claim that every persisted helper has been counted or removed.
 
-## Source layout and tier selection
+## No adopted full threshold
 
-Only the inactive Big manifest moves to V3, UUIDs unchanged, version `1.0.2`.
-V3 header/module versions and min engine version are SemVer strings; metadata
-authors are present. The eight active RP manifests remain V2, including PBR.
-`min_engine_version: "1.26.52"` is an authoring minimum, not proof of compatibility.
+The earlier fixed tier-3 choice is withdrawn. `FULL_MIN_TIER = None` and the
+inactive V3 manifest lists **only lightweight at tier 1**. Full assets remain
+under `subpacks/full`, but that folder is not selectable. All current RP tiers
+1 through 5 resolve to lightweight in the offline selection model.
+Big itself remains absent from production.
+
+`threshold_from_observed_rp_tiers(pixel9a, es, sourui)` models the requested
+decision: full starts at Pixel's observed automatic RP tier only when both
+protected players and Switch tier 1 are strictly below it. Unknown/equal/higher
+protected tiers return `None`, keeping *all* tiers lightweight. The helper does
+not certify its inputs, ingest logs or enable anything. Tests cover all
+combinations of tiers 1–5 and each possible future threshold 2–5.
+
+Never use Script memoryTier as those inputs. The user identified Pixel 9a as
+`FellYapper4649`. Its available production samples and Sourui3's samples both
+show `Mobile`, Script memoryTier `3`, maxRenderDistance `22`, `Deferred`, `Touch`.
+Equal diagnostics establish neither equal nor different RP tiers. Es6741 has no
+client-performance sample in the inspected September 30–October 2 logs.
+Guessing that Sourui is below Pixel has no supporting discriminator here.
+
+The documented selector has no player-name predicate. The current compiler
+distributes one world RP stack, not per-player archives. Hiding a player's
+screen/audio would not prevent atlas loading. Named-player load exclusion is
+**not implemented or claimed**. If tiers overlap, keep that whole tier light;
+this may prevent Pixel playback too.
+
+Microsoft documents highest threshold <= device with manual downgrade and lists
+current Switch at tier 1. No Switch 2 or other device lookup is encoded.
+[Official subpack selection](https://learn.microsoft.com/en-us/minecraft/creator/documents/buildingsubpacks?view=minecraft-bedrock-stable).
+
+## Assets and download versus loading
 
 ```text
 ichiyon_video_big_rp/
-  manifest.json                       V3, subpack thresholds 1 and 3
+  manifest.json                       V3; only tier-1 lightweight registered
   entity/, models/, render_controllers/, textures/   static black fallback
-  subpacks/lightweight/               same lightweight definitions, one 1x1 PNG
-  subpacks/full/                      unchanged full definitions/audio/26 atlases
+  subpacks/lightweight/               same definitions; one 1x1 black PNG
+  subpacks/full/                      retained, unregistered full assets
 ```
 
-| Engine RP performance tier | Default selected subpack | Video atlas textures in selected view |
-| --- | --- | --- |
-| 1, 2 | lightweight | 0 |
-| 3, 4, 5 | full | 26 |
+UUIDs stay unchanged and Big's offline version is `1.0.2`. Eight active RPs stay
+V2 with PBR. Base/lightweight have zero atlases, no OGG/sound registration,
+no animation/frame switching and no full definitions. Layout validation rejects
+even an unreferenced atlas outside full.
 
-The engine chooses highest threshold <= device tier; users may select a lower
-compatible subpack. Base fallback is also lightweight. No Script-side selection,
-device-name table or Script memory enum conversion is involved. The official
-table lists current Switch at tier 1 and does not name Switch 2 as of the review
-date; both rely on the engine's choice. Future engine device classification needs
-no code update. [Official subpack selection](https://learn.microsoft.com/en-us/minecraft/creator/documents/buildingsubpacks?view=minecraft-bedrock-stable).
+Full remains **510.15 seconds, 128x72, 20fps, 10,203 frames, 26 atlases**.
+`minecraft/video_screen_big/full_media.lock.json` locks all 26 PNGs and the OGG
+against pre-pause bytes by size/SHA256. RGBA 405,194,400 bytes / mipmap estimate
+540,259,200 bytes are estimates, not measured residency.
 
-Full media remains **510.15 seconds, 128x72, 20fps, 10,203 frames, 26 atlases**
-(1950x1998 each). `full_media.lock.json` pins the pre-pause 26 PNGs and OGG by size
-and SHA256. No transcoding occurred. Atlas RGBA estimate: 405,194,400 bytes;
-with mipmaps: 540,259,200 bytes. These are estimates, not measured GPU residency.
-The light view has one black pixel, no frame animation and no registered audio.
+A logical selected view proves placement, **not client behavior**. Whole-pack
+download/cache may contain full media. The current request permits that if low
+clients demonstrably do not decode/load or make full atlases resident. Record
+network/cache bytes separately. A black screen, small overlay or unchanged FPS
+alone cannot prove texture residency.
 
-## Compatibility verdict: enable BLOCKED
+## Tiny RP-tier probe (isolated clients only)
 
-Microsoft still documents `memory_performance_tier` as experimental and requiring
-V3. The manifest reference describes V3 as preview and requires string versions.
-Do not copy the subpack tutorial's inconsistent legacy-format example into V2.
+```sh
+python scripts/build_minecraft_rp_tier_probe.py --output /tmp/rp-tier-probe.mcpack
+```
+
+Separate UUID `301f1595-9d5b-569a-991a-c6b5f5d6a842`, version `1.0.0`.
+Five tiny overlays at thresholds 1–5; no video/audio/Script or production
+connection. Only cobblestone texture/name changes inside the test world.
+Base shows `0` / `SELECTION UNVERIFIED`; overlays show `RP TIER 1`–`RP TIER 5`
+and a block number. English/Japanese labels are included. Do not add to global
+resources or production.
+
+1. Record client version/date/player name. Import into a fresh disposable
+   creative world with no other RPs or cached manual subpack choice.
+2. Activate the probe, leave the selector untouched, enter the world and
+   hold/place cobblestone. Record the label, block number and selected-subpack
+   screenshot. Base `0`, import failure or disagreement means inconclusive.
+3. Record automatic selection **before** manual downgrade. Repeat a fresh
+   import/world to exclude saved overrides. A displayed choice alone does not
+   prove that this exact stable client supports V3 automatic selection.
+4. Record Pixel, Es and Sourui separately. Currently only Pixel is available.
+   Missing protected-device results remain unknown; Script memoryTier cannot
+   establish their RP tiers.
+
+## Compatibility and enable boundary
+
+Official docs label performance subpacks experimental/V3 and manifest V3 preview.
 [Manifest reference](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/addonsreference/packmanifest?view=minecraft-bedrock-stable).
+An authoring minimum of `1.26.52` does not prove stable support.
 
-Local version-check tooling understands the narrow release SemVer authoring
-contract so CI can review the inactive source. Production pack generation and
-Control API apply deliberately remain V2-only. They reject V3 or V2 containing
-`memory_performance_tier` before BDS stop, world-ref writes or active-marker
-changes. Existing apply version selection/world refs still use three integers;
-rollback for the eight active packs and Big retirement remains covered.
+Compiler/Control API remain V2-only, rejecting V3 or V2 containing performance
+tiers **before** BDS stop, ref writes or marker changes. Do not remove the guard
+based on server startup or offline fixtures alone. The offline version checker
+supports V3 SemVer for inactive authoring only. Existing V2 apply/retirement/
+rollback tests preserve UUID/version, foreign refs, backup, health, active
+marker and failure recovery.
 
-**Subpack resource selection does not prove selective network delivery.** A
-whole Big RP contains full atlases even when its lightweight overlay contains
-none. The current compiler/Control API have no per-client archive selection or
-observed RP-performance-tier input. The fixtures prove the local selected file
-view is atlas-free; they cannot prove the client's download/cache lacks full
-atlas bytes. The stricter “do not distribute to Tier 1–2” requirement therefore
-remains blocked too. No automatic tier-filtered download is claimed.
+See the [isolated compatibility record](minecraft-big-video-v3-compatibility.md).
+Client selection, cache invalidation and low-client texture loading remain
+separate requirements even if BDS accepts a manifest/reference.
 
-## Build and check, with Big still paused
+## Validation and subsequent enable
 
 ```sh
 python scripts/build_minecraft_big_video_subpacks.py --check
@@ -87,33 +129,18 @@ python scripts/check_minecraft_big_video.py
 python scripts/build_minecraft_big_video_subpacks.py --check-enable
 ```
 
-The last command is read-only and currently exits **2** with explicit blockers.
-It is not an enable command and has no override flag. Without `--check`, the
-subpack builder regenerates only local lightweight files and the offline Big
-manifest. The existing video builder writes Big's media directly under
-`subpacks/full`; small/Akki output paths are unchanged. External original MP4s
-remain outside Git as before. The committed media and original builder/tests
-are retained, including synthetic atlas-boundary generation checks.
+Read-only `--check-enable` exits **2** with blockers, flags, null full threshold
+and all-light selection; no override switch. `manifest_for_threshold` is for
+future isolated fixtures; generated source stays all-light. The normal video
+builder writes media into full; small/Akki paths stay unchanged.
 
-## Separate task to enable, never in this change
+Resolve observed/protected tiers, then test actual BDS + clients for automatic/
+manual selection, refs, update, rollback and cache invalidation. Low clients
+must complete cold join/download/cache/world join/near-screen/ON-OFF with
+texture-load evidence. Implement only the successfully measured V3 contract.
+Run tests/CI, take a verified production backup, use managed apply and verify
+health plus real low/full behavior. Never hand-edit production refs or substitute
+render-only player exclusion.
 
-1. A human first confirms the phone stutter outcome with Big paused. Keep PBR,
-   location and client settings recorded; do not infer the outcome from a tier.
-2. Verify V3 automatic selection, manual downgrade and cold/warm pack loading
-   against the actual BDS/clients in an isolated world. Measure Tier 1–2 loaded
-   textures and network downloads/cache, not just logical file paths. Resolve the
-   no-heavy-download requirement before proceeding; a whole archive is insufficient.
-3. Add reviewed V3 support through compiler, standalone Control API, version
-   comparison, world-ref encoding, cache invalidation, backups and rollback. Test
-   paused V2 -> Big V3 -> rollback on independent fixtures and the isolated world.
-   Keep UUIDs and require a version above the actual last Big install.
-4. Replace the readiness check's blockers only with the validated contract and
-   evidence. Update compiler/Script flags and paused expectations together in a
-   separately requested PR; run all managed/archive/runtime/CI checks.
-5. Only after that PR and explicit enable authorization, update the standalone
-   service as needed and use the normal managed release. Never copy raw packs or
-   edit production world refs by hand. Keep the paused release available for rollback.
-
-For public client log fields, null/error handling and join-history/sync access,
-see [client performance diagnostics](minecraft-client-performance.md). Script
-`clientSystemInfo.memoryTier` and RP `memory_performance_tier` are independent.
+[Client diagnostics v2](minecraft-client-performance.md) remain diagnostic only;
+these logs never drive RP selection.

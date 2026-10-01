@@ -71,6 +71,16 @@ jobs:
           python scripts/check_minecraft_death_prairie_dog.py
           python scripts/check_taketumi_ai.py
 
+      - name: Build isolated RP tier probe (never a managed production pack)
+        run: python scripts/build_minecraft_rp_tier_probe.py --output "${{ runner.temp }}/rp-tier-probe-1.0.0.mcpack"
+
+      - name: Upload isolated RP tier probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: rp-tier-probe-1.0.0
+          path: ${{ runner.temp }}/rp-tier-probe-1.0.0.mcpack
+          if-no-files-found: error
+
   python-and-compose:
     runs-on: ubuntu-latest
     services:

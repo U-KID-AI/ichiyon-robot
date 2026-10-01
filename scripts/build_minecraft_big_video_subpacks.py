@@ -15,7 +15,10 @@ PACK = "minecraft/resource_packs/ichiyon_video_big_rp"
 UUID = "a9689c00-b236-53ec-b952-a5fa64cb0cbc"
 STEM = "video_screen_big"
 BLACK = "video_big_black"
-TIERS = {"lightweight": 1, "full": 3}
+SUBPACKS = ("lightweight", "full")
+# No full threshold has been measured. Full assets stay in Git but are not a
+# selectable subpack, even if somebody imports this inactive source manually.
+FULL_MIN_TIER = None
 MANIFEST = {
     "format_version": 3,
     "header": {"name": "Ichiyon Video Big", "description": "Paused: experimental tiered Big Video",
@@ -23,10 +26,32 @@ MANIFEST = {
     "modules": [{"type": "resources", "uuid": "dce8cadf-c59a-59c6-9862-b590cd2cc461", "version": "1.0.2"}],
     "capabilities": ["pbr"],
     "metadata": {"authors": ["Ichiyon"]},
-    "subpacks": [{"folder_name": name, "name": label, "memory_performance_tier": TIERS[name]}
-                 for name, label in [("lightweight", "Lightweight - static black screen"),
-                                     ("full", "Full - 128x72, 20fps")]],
+    "subpacks": [{"folder_name": "lightweight", "name": "Lightweight - static black screen",
+                  "memory_performance_tier": 1}],
 }
+
+
+def manifest_for_threshold(full_min_tier=None):
+    """Offline authoring only; a candidate threshold is not an enable approval."""
+    manifest = json.loads(json.dumps(MANIFEST))
+    if full_min_tier is not None:
+        if type(full_min_tier) is not int or not 2 <= full_min_tier <= 5:
+            raise ValueError("Full threshold must be an observed RP tier from 2 through 5")
+        manifest['subpacks'].append({'folder_name': 'full', 'name': 'Full - 128x72, 20fps',
+                                    'memory_performance_tier': full_min_tier})
+    return manifest
+
+
+def threshold_from_observed_rp_tiers(pixel9a, es, sourui):
+    """Only pass observed automatic RP tiers, never Script memoryTier values.
+
+    Unknown or overlapping tiers leave *every* tier lightweight. This deliberately
+    has no device-name lookup or guessed numeric fallback. It is not proof that
+    caller-supplied integers were observed; the isolated-client record is required.
+    """
+    if any(type(t) is not int or not 1 <= t <= 5 for t in (pixel9a, es, sourui)):
+        return None
+    return pixel9a if max(1, es, sourui) < pixel9a else None
 
 
 def json_bytes(value):
@@ -61,7 +86,7 @@ def generated_files(pack):
 
 def validate_manifest(manifest):
     # Narrow V3 authoring contract only. The live apply parser still rejects V3.
-    if manifest != MANIFEST:
+    if json.dumps(manifest, sort_keys=True) != json.dumps(MANIFEST, sort_keys=True):
         raise ValueError("Big V3 manifest differs from the reviewed offline contract")
 
 
@@ -84,13 +109,15 @@ def validate_layout(pack):
         raise ValueError("Full video must retain exactly 26 atlases")
 
 
-def selected_subpack(device_tier, manual=None):
+def selected_subpack(device_tier, manual=None, *, full_min_tier=FULL_MIN_TIER):
     """Fixture model of the documented rule; never used for runtime/device guesses."""
     if type(device_tier) is not int or device_tier < 1:
         raise ValueError("An observed resource-pack performance tier is required")
-    selected = max((name for name, tier in TIERS.items() if tier <= device_tier), key=TIERS.get)
+    tiers = {s['folder_name']: s['memory_performance_tier']
+             for s in manifest_for_threshold(full_min_tier)['subpacks']}
+    selected = max((name for name, tier in tiers.items() if tier <= device_tier), key=tiers.get)
     if manual is not None:
-        if manual not in TIERS or TIERS[manual] > TIERS[selected]:
+        if manual not in tiers or tiers[manual] > tiers[selected]:
             raise ValueError("Manual subpack exceeds the engine default")
         selected = manual
     return selected
@@ -98,7 +125,7 @@ def selected_subpack(device_tier, manual=None):
 
 def selected_files(pack, subpack):
     """Logical base+one-subpack overlay, NOT a pack to distribute to a client."""
-    if subpack not in TIERS:
+    if subpack not in SUBPACKS:
         raise ValueError("Unknown subpack")
     files = {p.relative_to(pack).as_posix(): p.read_bytes() for p in pack.rglob("*")
              if p.is_file() and "subpacks" not in p.relative_to(pack).parts}
@@ -123,13 +150,17 @@ def enable_report():
     state = pause_state()
     return {"scope": "local_source_only", **state, "big_video_enabled": any(state.values()),
             "enable_status": "blocked", "production_manifest_contract": 2,
-            "offline_big_manifest": 3, "selection": {str(t): selected_subpack(t) for t in range(1, 6)},
+            "offline_big_manifest": 3, "full_min_tier": FULL_MIN_TIER,
+            "selection": {str(t): selected_subpack(t) for t in range(1, 6)},
+            "network_delivery": "Whole-RP download/cache may include full bytes; this is separate from texture loading",
+            "named_player_load_exclusion": "Not implemented; the documented subpack selector has no player-name predicate",
             "blocking_requirements": [
-                "Human confirmation of phone improvement while Big remains paused; separate enable task",
+                "Pixel 9a automatic RP tier/subpack observation and a full threshold that protects Es6741, Sourui3 and Switch",
+                "Es/Sourui unknown or overlapping RP tiers cannot guarantee full exclusion; keep all tiers lightweight",
                 "Actual BDS/target clients validate experimental V3 and automatic/manual subpack selection",
                 "Managed compiler, Control API, version comparison, world refs and rollback support V3 end-to-end",
-                "Prove Tier 1/2 network download excludes full atlases; local subpack overlay does not prove this",
-                "Cold/warm client load and texture-residency tests for Tier 1/2 and manual lightweight selection"]}
+                "Low-client cold join/download/cache/world join/near-screen ON-OFF proves no full-atlas decode/load/residency",
+                "Successful production backup before a separately validated managed enable"]}
 
 
 def main():

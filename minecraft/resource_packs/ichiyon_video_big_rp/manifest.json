@@ -27,11 +27,6 @@
       "folder_name": "lightweight",
       "name": "Lightweight - static black screen",
       "memory_performance_tier": 1
-    },
-    {
-      "folder_name": "full",
-      "name": "Full - 128x72, 20fps",
-      "memory_performance_tier": 3
     }
   ]
 }
