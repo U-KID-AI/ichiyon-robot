@@ -25,7 +25,10 @@ alert. A Discord acceptance followed by a process/filesystem failure remains an
 uncertain delivery: exactly-once transport is not claimed.
 
 Existing hourly-format notification state is accepted on upgrade, so deployment
-does not restart the WARNING reminder clock. Malformed state fails closed and
+does not restart the WARNING reminder clock. Its missing numeric baseline is
+persisted once from the first matching observation, without sending a message or
+changing the original delivery timestamp; subsequent deterioration is measured
+from that observation until the next successful delivery. Malformed state fails closed and
 logs `Storage notification unavailable` without treating each poll as first
 startup. Restore its last known successful state after inspecting the file; do
 not repeatedly delete it to force notifications. Numeric state is atomically

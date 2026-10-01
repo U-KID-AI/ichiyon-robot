@@ -220,6 +220,14 @@ async def notify_storage_once(bot, now=None):
             if delivery_order(_MEMORY) > delivery_order(previous):
                 previous = _MEMORY
             if not should_notify(report, previous, current):
+                # Legacy successful deliveries have no numeric baseline. Seed
+                # it once without sending or moving the original reminder clock.
+                if (_number(previous.get('sent_at')) and not previous.get('capacity')
+                        and previous.get('status') == report['status']
+                        and previous.get('reason') == report['reason'] and report['p0']):
+                    seeded = dict(previous, capacity=capacity_baseline(report))
+                    _save(seeded)
+                    _MEMORY = seeded
                 return False
             # Persist the attempt before transport. A failure has a retry delay
             # even across container restarts, and uncertain sends are not spammed.
