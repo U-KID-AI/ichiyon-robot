@@ -125,6 +125,7 @@ jobs:
           python scripts/check_recovery_history.py
           python scripts/check_ai_task_recovery_plan.py
           python scripts/check_ai_task_backup_restore.py --postgres-bin /usr/lib/postgresql/16/bin -v
+          python scripts/check_ai_task_backup_split.py
           python scripts/check_ai_task_control_tunnel.py
           python scripts/check_nethernet_diagnostics.py
           python scripts/check_minecraft_control_status.py
