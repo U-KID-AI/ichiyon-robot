@@ -584,6 +584,11 @@ def main():
         backup_validate(path, Path(sys.argv[3]), Path(sys.argv[4]))
     elif mode == 'backup-full':
         ai_task_backup.write_full_backup_metadata(path, sys.argv[3], dump_validator=backup_dump_readable)
+    elif mode == 'backup-mode':
+        print(ai_task_backup_split.activation_mode())
+    elif mode == 'backup-split':
+        assert ai_task_backup_split.activation_mode() == 'split'
+        ai_task_backup_split.write_split_backup(path, sys.argv[3], dump_validator=backup_dump_readable)
     elif mode == 'cleanup':
         cleanup(path, sys.argv[3])
     elif mode == 'release':
@@ -792,6 +797,10 @@ else
     fi
     # Re-measure after build, immediately before accepting rollback obligation.
     # Failure exits with quiesced=0: no app stop and no rollback recreation.
+    # Missing activation keeps FULL scope. Invalid/corrupt proof fails before
+    # stopping apps; a task/env flag cannot enable exclusions.
+    backup_mode=$(python3 -I "$helper" backup-mode "$release")
+    [[ $backup_mode == full || $backup_mode == split ]]
     storage_check pre-stop
     # Set rollback obligation before the first operation that can stop an app.
     quiesced=1
@@ -805,8 +814,12 @@ else
         printf '%s\n' "$previous" >"$backup_stage/previous"
         cp -- "$infra_file" "$backup_stage/infra.json"
         docker exec ichiyon-robot-db sh -c 'exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' >"$backup_stage/production.dump"
-        tar --dereference -C "$shared_root" -cf "$backup_stage/persistence.tar" data assets/images secrets .env
-        python3 -I "$helper" backup-full "$backup_stage" "$sha"
+        if [[ $backup_mode == split ]]; then
+            python3 -I "$helper" backup-split "$backup_stage" "$sha"
+        else
+            tar --dereference -C "$shared_root" -cf "$backup_stage/persistence.tar" data assets/images secrets .env
+            python3 -I "$helper" backup-full "$backup_stage" "$sha"
+        fi
         python3 -I "$helper" backup "$backup_stage" "$previous" "$infra_file"
         sync -f "$backup_stage"
         # No replacement, including empty directories. The deployment lock serializes publishers.

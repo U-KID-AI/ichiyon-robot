@@ -808,6 +808,44 @@ class DisposablePostgres:
 
 @unittest.skipUnless(POSTGRES_BIN, 'use --postgres-bin for real disposable DB rehearsal')
 class PostgreSQLRestoreRehearsalTests(unittest.TestCase):
+    def test_split_producer_real_database_and_persistence_restore(self):
+        import ai_task_backup_split as split_writer
+        with DisposablePostgres(POSTGRES_BIN) as postgres, \
+                tempfile.TemporaryDirectory(prefix='ichiyon-split-db-') as directory:
+            postgres.sql("CREATE TABLE split_probe(id serial PRIMARY KEY, value text);"
+                         "INSERT INTO split_probe(value) VALUES ('live'),('historical');"
+                         "CREATE TABLE schema_migrations(version text PRIMARY KEY);"
+                         "INSERT INTO schema_migrations VALUES ('fixture_001');")
+            root = Path(directory)
+            full = BackupFixture(root / 'full', dump=postgres.dump())
+            stage = BackupFixture(root / 'split', version=1,
+                                  dump=(full.path / 'production.dump').read_bytes()).make_writer_stage()
+            (stage.path / 'persistence.tar').unlink()
+            shared = root / 'shared'
+            for name, payload in FILES.items():
+                path = shared / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(payload)
+            proof = split_writer.write_split_backup(stage.path, TARGET, shared_root=shared,
+                backups_root=stage.path.parent, releases_root=stage.releases,
+                recovery_root=stage.recovery, dump_validator=postgres.dump_validator)
+            self.assertEqual(proof['inventory'], full.validate(postgres.dump_validator)['inventory'])
+            stage.path.rename(stage.path.parent / TARGET)
+            stage.path = stage.path.parent / TARGET
+            destination = root / 'restored'
+            destination.mkdir()
+            restored = stage.restore(destination, postgres.dump_validator)
+            self.assertEqual(file_map(Path(restored['persistence'])), FILES)
+            postgres.sql('CREATE DATABASE split_restored;')
+            postgres.run('pg_restore', postgres.connection('split_restored') +
+                         ['--no-owner', '--no-privileges', '--exit-on-error',
+                          str(Path(restored['metadata']) / 'production.dump')])
+            for query in ('SELECT * FROM split_probe ORDER BY id;',
+                          'SELECT version FROM schema_migrations ORDER BY version;'):
+                self.assertEqual(postgres.sql(query), postgres.sql(query, 'split_restored'))
+            self.assertEqual(postgres.sql("INSERT INTO split_probe(value) VALUES ('restored') RETURNING id;",
+                                          'split_restored').splitlines()[0], b'3')
+
     def test_real_dump_restore_and_exact_files_across_split_archive(self):
         with DisposablePostgres(POSTGRES_BIN) as postgres, \
                 tempfile.TemporaryDirectory(prefix='ichiyon-real-backup-') as directory:

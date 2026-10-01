@@ -14,7 +14,9 @@ from bot import config
 
 REPORT = Path('/app/data/storage-monitor.json')
 STATE = Path('/app/data/storage-monitor-notification.json')
-COOLDOWN_SECONDS = 3600
+WARNING_REMINDER_SECONDS = 24 * 3600
+CRITICAL_REMINDER_SECONDS = 6 * 3600
+DETERIORATION_BYTES = 1024**3
 RETRY_SECONDS = 300
 STALE_SECONDS = 1200
 MAX_BYTES = 65536
@@ -80,19 +82,66 @@ def validated_report(value, now):
 
 
 def should_notify(report, previous, now):
-    if report['status'] == 'OK':
-        return False
     if not isinstance(previous, dict):
         previous = {}
     attempt, sent = previous.get('attempted_at'), previous.get('sent_at')
-    if _number(attempt) and now-attempt < RETRY_SECONDS:
-        # Escalation may bypass a successful lower-severity cooldown, but not an
-        # uncertain failed transport (which may already have delivered a message).
-        if not (report['status'] == 'CRITICAL' and previous.get('status') == 'WARNING'
-                and previous.get('sent_at') == attempt):
-            return False
+    # Preserve the last *successful* notification across failed sends. Retrying
+    # an uncertain transport is bounded even if the container restarts.
+    if _number(attempt) and attempt != sent and now-attempt < RETRY_SECONDS:
+        return False
+    if report['status'] == 'OK':
+        return _number(sent) and previous.get('status') in ('WARNING', 'CRITICAL')
     same = previous.get('status') == report['status'] and previous.get('reason') == report['reason']
-    return not (same and _number(sent) and now-sent < COOLDOWN_SECONDS)
+    interval = WARNING_REMINDER_SECONDS if report['status'] == 'WARNING' else CRITICAL_REMINDER_SECONDS
+    return not (same and _number(sent) and now-sent < interval
+                and not deteriorated(report, previous))
+
+
+def capacity_baseline(report):
+    return {row['phase'] + ':' + '+'.join(sorted(row['filesystem'].split('+'))):
+            dict(available=row['available_bytes'], headroom=row['available_bytes']-row['required_bytes'])
+            for row in report['p0']}
+
+
+def deteriorated(report, previous):
+    """A cumulative >=1 GiB loss since the last delivery warrants a new alert.
+
+    Compare each filesystem/phase separately, including an increase in required
+    capacity. Ordinary five-minute sampling jitter never resets the baseline.
+    """
+    old = previous.get('capacity', {})
+    return any(key in old and any(old[key][metric]-value[metric] >= DETERIORATION_BYTES
+               for metric in ('available', 'headroom'))
+               for key, value in capacity_baseline(report).items())
+
+
+def validated_state(value):
+    """Accept the deployed v1 state as well as the new delivery baseline.
+
+    A corrupt state is not treated as first startup: that would repeat alerts on
+    every poll/restart. It fails closed with a diagnostic until repaired.
+    """
+    if not isinstance(value, dict):
+        raise ValueError('notification_state_invalid')
+    for key in ('attempted_at', 'sent_at'):
+        if value.get(key) is not None and not _number(value[key]):
+            raise ValueError('notification_state_invalid')
+    if value.get('status') is not None and value['status'] not in STATES:
+        raise ValueError('notification_state_invalid')
+    if value.get('reason') is not None and value['reason'] not in REASONS:
+        raise ValueError('notification_state_invalid')
+    if _number(value.get('sent_at')) and (value.get('status') not in STATES or value.get('reason') not in REASONS):
+        raise ValueError('notification_state_invalid')
+    capacity = value.get('capacity', {})
+    if not isinstance(capacity, dict) or len(capacity) > 16:
+        raise ValueError('notification_state_invalid')
+    for key, row in capacity.items():
+        if (not isinstance(key, str) or not isinstance(row, dict)
+                or set(row) != {'available', 'headroom'} or not _number(row['available'])
+                or type(row['headroom']) not in (int, float)
+                or not math.isfinite(row['headroom']) or abs(row['headroom']) >= 10**20):
+            raise ValueError('notification_state_invalid')
+    return value
 
 
 def _save(value):
@@ -113,13 +162,26 @@ def _save(value):
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(name, str(STATE))
+        if os.name == 'posix':
+            descriptor = os.open(str(STATE.parent), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
     finally:
         if os.path.exists(name):
             os.unlink(name)  # Only this attempt's private unpublished file.
 
 
 def format_warning(report):
-    lines = ['production storage ' + report['status'], 'reason: ' + report['reason']]
+    lines = ['production storage ' + ('RECOVERED' if report['status'] == 'OK' else report['status'])]
+    runner = [row for row in report['p0'] if row['phase'] == 'runner']
+    if runner:
+        tightest = min(runner, key=lambda row: row['available_bytes']-row['required_bytes'])
+        lines.extend(['空き: {:.2f} GiB'.format(tightest['available_bytes']/1024**3),
+                      'Runner安全必要量: {:.2f} GiB'.format(tightest['required_bytes']/1024**3),
+                      '残余裕: {:.2f} GiB'.format((tightest['available_bytes']-tightest['required_bytes'])/1024**3)])
+    lines.append('reason: ' + report['reason'])
     if report.get('sampled_at') is not None:
         lines.append('observed: ' + datetime.fromtimestamp(report['sampled_at'], timezone.utc).isoformat())
     for row in report['p0']:
@@ -149,22 +211,24 @@ async def notify_storage_once(bot, now=None):
                     return False
                 report = dict(status='CRITICAL', reason='P0_MEASUREMENT_UNAVAILABLE', p0=[], sampled_at=None)
             try:
-                previous = _read(STATE)
+                previous = validated_state(_read(STATE))
             except FileNotFoundError:
                 previous = {}
-            if _MEMORY.get('attempted_at', -1) > previous.get('attempted_at', -1):
+            def delivery_order(state):
+                return tuple(state.get(key) if _number(state.get(key)) else -1
+                             for key in ('attempted_at', 'sent_at'))
+            if delivery_order(_MEMORY) > delivery_order(previous):
                 previous = _MEMORY
             if not should_notify(report, previous, current):
                 return False
             # Persist the attempt before transport. A failure has a retry delay
             # even across container restarts, and uncertain sends are not spammed.
-            pending = dict(status=report['status'], reason=report['reason'], attempted_at=current,
-                           sent_at=previous.get('sent_at') if previous.get('status') == report['status']
-                           and previous.get('reason') == report['reason'] else None)
+            pending = dict(previous, attempted_at=current)
             _MEMORY = pending
             _save(pending)
             await channel.send(format_warning(report), allowed_mentions=discord.AllowedMentions.none())
-            complete = dict(pending, sent_at=current)
+            complete = dict(pending, status=report['status'], reason=report['reason'],
+                            sent_at=current, capacity=capacity_baseline(report))
             _MEMORY = complete
             _save(complete)
             return True

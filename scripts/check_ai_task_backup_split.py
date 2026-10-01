@@ -1,0 +1,201 @@
+"""Offline split producer tests: exact scope, deduplication, delta, fail closed."""
+from pathlib import Path
+import hashlib
+import json
+import os
+import tempfile
+import unittest
+from unittest.mock import patch
+
+import ai_task_backup as backup
+import ai_task_backup_split as split
+from check_ai_task_backup_restore import BackupFixture, FILES, TARGET, file_map
+
+
+class SplitWriterTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='ichiyon-split-test-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.shared = self.root / 'shared'
+        for name, value in FILES.items():
+            path = self.shared / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(value)
+        self.recovery = self.root / 'recovery'
+        self.recovery.mkdir()
+
+    def stage(self, name):
+        fixture = BackupFixture(self.root / name, version=1).make_writer_stage()
+        # This is a disposable fixture only; production stages start with three inputs.
+        (fixture.path / 'persistence.tar').unlink()
+        return fixture
+
+    def write(self, fixture, validator=None):
+        return split.write_split_backup(fixture.path, TARGET, shared_root=self.shared,
+            backups_root=fixture.path.parent, releases_root=fixture.releases, recovery_root=self.recovery,
+            dump_validator=validator or (lambda _: True))
+
+    def test_absent_activation_defaults_to_full(self):
+        self.assertEqual(split.activation_mode(activation=self.root/'absent'), 'full')
+
+    @unittest.skipUnless(os.name == 'posix', 'production activation ownership contract')
+    def test_activation_requires_complete_proofs_original_pin_and_archive(self):
+        full = BackupFixture(self.root/'activation-full')
+        produced = self.write(self.stage('activation-split'))
+        history = [r for r in full.validate()['inventory'] if split.historical(r['path'])]
+        evidence = self.root/'evidence'; evidence.mkdir(mode=0o700)
+        activation, pins = evidence/'split-backup-activation.json', self.root/'pins.json'
+        body = dict(version=1, backup_sha=TARGET, archive_id=produced['recovery_archive_id'],
+            historical_inventory_sha256=hashlib.sha256(json.dumps(history,sort_keys=True,separators=(',',':')).encode()).hexdigest(),
+            full_checksums=full.validate()['checksums'], verified=dict.fromkeys(split.REQUIRED_PROOFS, True),
+            rehearsal_sha256='a'*64)
+        def save():
+            envelope = dict(body=body, sha256=hashlib.sha256(json.dumps(body,sort_keys=True,separators=(',',':')).encode()).hexdigest())
+            activation.write_text(json.dumps(envelope)); activation.chmod(0o600)
+        pins.write_text(json.dumps(dict(backups=[TARGET]))); pins.chmod(0o600)
+        options = dict(activation=activation,pins=pins,backups_root=full.path.parent,
+                       recovery_root=self.recovery,expected_uid=os.getuid())
+        save()
+        self.assertEqual(split.activation_mode(**options), 'split')
+        for name in split.REQUIRED_PROOFS:
+            body['verified'][name] = False; save()
+            with self.assertRaises(backup.BackupError):
+                split.activation_mode(**options)
+            body['verified'][name] = True
+        save()
+        pins.write_text(json.dumps(dict(backups=[])))
+        with self.assertRaisesRegex(backup.BackupError, 'pin_required'):
+            split.activation_mode(**options)
+        pins.write_text(json.dumps(dict(backups=[TARGET])))
+        (self.recovery/body['archive_id']/'recovery.tar').write_bytes(b'corrupt')
+        with self.assertRaises(backup.BackupError):
+            split.activation_mode(**options)
+
+    def test_full_and_split_restore_exact_files_previous_dump(self):
+        full = BackupFixture(self.root / 'full', version=2)
+        fixture = self.stage('split')
+        proof = self.write(fixture)
+        # Existing v2 validator verifies the union; existing restore implementation is reused.
+        self.assertEqual(proof['inventory'], full.validate()['inventory'])
+        self.assertEqual(proof['previous_release'], full.validate()['previous_release'])
+        self.assertTrue(all(not split.historical(row['path']) for row in
+                           backup.archive_inventory(fixture.path / 'persistence.tar', split=True)))
+        fixture.path.rename(fixture.path.parent / TARGET)
+        fixture.path = fixture.path.parent / TARGET
+        destination = self.root / 'restore'
+        destination.mkdir()
+        restored = backup.restore_files(fixture.path, destination, releases_root=fixture.releases,
+                                        recovery_root=self.recovery, dump_validator=lambda _: True)
+        self.assertEqual(file_map(Path(restored['persistence'])), FILES)
+        self.assertEqual((Path(restored['metadata']) / 'production.dump').read_bytes(),
+                         (full.path / 'production.dump').read_bytes())
+
+    def test_unchanged_history_reuses_archive_even_when_mtime_changes(self):
+        first = self.write(self.stage('first'))
+        for name in FILES:
+            if split.historical(name):
+                os.utime(self.shared / name, (1, 1))
+        second = self.write(self.stage('second'))
+        self.assertEqual(first['recovery_archive_id'], second['recovery_archive_id'])
+        self.assertEqual(len(list(self.recovery.iterdir())), 1)
+
+    def test_new_historical_delta_is_captured_and_old_archive_retained(self):
+        first = self.write(self.stage('first'))
+        (self.shared / 'data/backups/new.json').write_bytes(b'new snapshot')
+        second = self.write(self.stage('second'))
+        self.assertNotEqual(first['recovery_archive_id'], second['recovery_archive_id'])
+        self.assertEqual(len(list(self.recovery.iterdir())), 2)
+        self.assertIn('data/backups/new.json', {row['path'] for row in second['inventory']})
+
+    def test_bad_existing_archive_is_never_overwritten(self):
+        proof = self.write(self.stage('first'))
+        archive = self.recovery / proof['recovery_archive_id'] / 'recovery.tar'
+        archive.write_bytes(b'corrupt')
+        stage = self.stage('second')
+        with self.assertRaises(backup.BackupError):
+            self.write(stage)
+        self.assertEqual(archive.read_bytes(), b'corrupt')
+        self.assertFalse((stage.path / 'READY').exists())
+
+    def test_source_change_before_ready_retains_unpublished_stage(self):
+        stage = self.stage('changing')
+        def validator(_):
+            (self.shared / 'data/backups/new.json').write_bytes(b'delta during backup')
+            return True
+        with self.assertRaisesRegex(backup.BackupError, 'source_changed'):
+            self.write(stage, validator)
+        self.assertFalse((stage.path / 'READY').exists())
+        self.assertTrue((stage.path / 'production.dump').exists())
+        self.assertTrue((self.shared / 'data/backups/new.json').exists())
+
+    def test_missing_history_or_unreadable_dump_rejected(self):
+        stage = self.stage('bad-dump')
+        with self.assertRaises(backup.BackupError):
+            self.write(stage, lambda _: False)
+        self.assertFalse((stage.path / 'READY').exists())
+        (self.shared / 'data/backups').rename(self.shared / 'data/history-moved')
+        with self.assertRaisesRegex(backup.BackupError, 'historical_root_required'):
+            self.write(self.stage('missing-history'))
+
+    def test_links_and_hardlinks_rejected(self):
+        source = self.shared / 'data/runtime.json'
+        alias = self.shared / 'data/alias.json'
+        try:
+            os.link(source, alias)
+        except OSError:
+            self.skipTest('hardlink unavailable')
+        with self.assertRaises(backup.BackupError):
+            self.write(self.stage('hardlink'))
+        alias.unlink()
+        try:
+            alias.symlink_to(source)
+        except OSError:
+            return
+        with self.assertRaises(backup.BackupError):
+            self.write(self.stage('symlink'))
+
+    def test_published_generation_cannot_be_rewritten(self):
+        stage = self.stage('same')
+        self.write(stage)
+        original = file_map(stage.path)
+        with self.assertRaises(backup.BackupError):
+            self.write(stage)
+        self.assertEqual(file_map(stage.path), original)
+
+    def test_archive_publication_failure_has_no_backup_ready(self):
+        stage = self.stage('failure')
+        with patch.object(Path, 'rename', side_effect=OSError('fixture publication failure')):
+            with self.assertRaises(OSError):
+                self.write(stage)
+        self.assertFalse((stage.path / 'READY').exists())
+        self.assertTrue(any(path.name.startswith('.pending-') for path in self.recovery.iterdir()))
+
+    def test_post_ready_change_retracts_only_own_marker(self):
+        stage = self.stage('post-ready')
+        original = split.source_inventory
+        def changed_after_ready(shared):
+            if (stage.path / 'READY').exists():
+                (self.shared / 'data/backups/late.json').write_bytes(b'late historical update')
+            return original(shared)
+        with patch.object(split, 'source_inventory', side_effect=changed_after_ready):
+            with self.assertRaisesRegex(backup.BackupError, 'source_changed'):
+                self.write(stage)
+        self.assertFalse((stage.path / 'READY').exists())
+        self.assertTrue((stage.path / 'persistence.tar').exists())
+        self.assertTrue((self.shared / 'data/backups/late.json').exists())
+
+    @unittest.skipUnless(os.name == 'posix', 'Linux mount table contract')
+    def test_same_device_bind_mount_is_rejected(self):
+        real_read = Path.read_text
+        def mounted(path, *args, **kwargs):
+            if str(path) == '/proc/self/mountinfo':
+                return '1 0 8:1 / ' + str(self.shared / 'data/backups') + ' rw - ext4 /dev/test rw\n'
+            return real_read(path, *args, **kwargs)
+        with patch.object(Path, 'read_text', mounted):
+            with self.assertRaisesRegex(backup.BackupError, 'source_mount_crossing'):
+                self.write(self.stage('mount'))
+
+
+if __name__ == '__main__':
+    unittest.main()
