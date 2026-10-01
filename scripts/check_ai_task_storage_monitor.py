@@ -525,6 +525,20 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(await notifier.notify_storage_once(self.bot, 1000))
         self.assertEqual(self.channel.sent, [])
 
+    async def test_completed_state_write_failure_preserves_memory_delivery(self):
+        real_save = notifier._save
+        calls = []
+        def save(value):
+            calls.append(value)
+            if len(calls) == 2:
+                raise OSError('completed state write failed')
+            real_save(value)
+        with patch.object(notifier, '_save', side_effect=save):
+            self.assertFalse(await self.observe('WARNING', 1000))
+        self.assertEqual(len(self.channel.sent), 1)
+        self.assertFalse(await self.observe('WARNING', 1600))
+        self.assertEqual(len(self.channel.sent), 1)
+
     async def test_ok_does_not_notify(self):
         self.path.write_text(json.dumps(report('OK')))
         self.assertFalse(await notifier.notify_storage_once(self.bot, 1000))

@@ -214,7 +214,10 @@ async def notify_storage_once(bot, now=None):
                 previous = validated_state(_read(STATE))
             except FileNotFoundError:
                 previous = {}
-            if _MEMORY.get('attempted_at', -1) > previous.get('attempted_at', -1):
+            def delivery_order(state):
+                return tuple(state.get(key) if _number(state.get(key)) else -1
+                             for key in ('attempted_at', 'sent_at'))
+            if delivery_order(_MEMORY) > delivery_order(previous):
                 previous = _MEMORY
             if not should_notify(report, previous, current):
                 return False
