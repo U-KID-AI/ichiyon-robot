@@ -381,6 +381,115 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await notifier.notify_storage_once(self.bot, 1100))
         self.assertEqual(len(self.channel.sent), 1)
 
+    async def observe(self, status, now, available=None, required=None, reason=None):
+        value = report(status, now)
+        if available is not None:
+            value['p0'][0]['available_bytes'] = available
+        if required is not None:
+            value['p0'][0]['required_bytes'] = required
+        if reason is not None:
+            value['reasons'] = [reason]
+        self.path.write_text(json.dumps(value))
+        return await notifier.notify_storage_once(self.bot, now)
+
+    async def test_warning_transition_and_1h_23h_24h_reminder_after_restart(self):
+        self.assertFalse(await self.observe('OK', 900))
+        self.assertTrue(await self.observe('WARNING', 1000))
+        for elapsed in (3600, 23*3600):
+            notifier._MEMORY = {}
+            self.assertFalse(await self.observe('WARNING', 1000+elapsed))
+        notifier._MEMORY = {}
+        self.assertTrue(await self.observe('WARNING', 1000+24*3600))
+        self.assertFalse(await self.observe('WARNING', 1000+24*3600+1))
+        self.assertEqual(len(self.channel.sent), 2)
+
+    async def test_cumulative_worsening_and_required_growth(self):
+        self.assertTrue(await self.observe('WARNING', 1000))
+        self.assertFalse(await self.observe('WARNING', 1100, available=int(11.6*storage.GIB)))
+        notifier._MEMORY = {}
+        self.assertTrue(await self.observe('WARNING', 1200, available=11*storage.GIB))
+        self.assertFalse(await self.observe('WARNING', 1250, available=11*storage.GIB))
+        self.assertTrue(await self.observe('WARNING', 1300, available=11*storage.GIB, required=11*storage.GIB))
+
+    async def test_reason_change_is_immediate_after_successful_delivery(self):
+        self.assertTrue(await self.observe('CRITICAL', 1000))
+        self.assertTrue(await self.observe('CRITICAL', 1001, reason='P0_MEASUREMENT_UNAVAILABLE'))
+
+    async def test_critical_reminder_is_six_hours(self):
+        self.assertTrue(await self.observe('WARNING', 1000))
+        self.assertTrue(await self.observe('CRITICAL', 1001))
+        for elapsed in (1, 3600, 6*3600-1):
+            notifier._MEMORY = {}
+            self.assertFalse(await self.observe('CRITICAL', 1001+elapsed))
+        self.assertTrue(await self.observe('CRITICAL', 1001+6*3600))
+
+    async def test_recovered_once_after_either_alert_then_warning_is_immediate(self):
+        for status, start in (('WARNING', 1000), ('CRITICAL', 2000)):
+            self.assertTrue(await self.observe(status, start))
+            notifier._MEMORY = {}
+            self.assertTrue(await self.observe('OK', start+1))
+            self.assertTrue(self.channel.sent[-1][0].startswith('production storage RECOVERED\n'))
+            notifier._MEMORY = {}
+            self.assertFalse(await self.observe('OK', start+2))
+            self.assertFalse(await self.observe('OK', start+100))
+
+    async def test_failed_recovery_retries_and_keeps_last_success_across_restart(self):
+        self.assertTrue(await self.observe('WARNING', 1000))
+        self.channel.fail = True
+        self.assertFalse(await self.observe('OK', 1010))
+        self.assertEqual(json.loads(self.state.read_text())['status'], 'WARNING')
+        notifier._MEMORY = {}
+        self.channel.fail = False
+        self.assertFalse(await self.observe('OK', 1100))
+        self.assertTrue(await self.observe('OK', 1310))
+        self.assertFalse(await self.observe('OK', 1311))
+
+    async def test_failed_worsening_retries_against_successful_baseline(self):
+        self.assertTrue(await self.observe('WARNING', 1000))
+        self.channel.fail = True
+        self.assertFalse(await self.observe('WARNING', 1010, available=11*storage.GIB))
+        notifier._MEMORY = {}
+        self.channel.fail = False
+        self.assertFalse(await self.observe('WARNING', 1100, available=11*storage.GIB))
+        self.assertTrue(await self.observe('WARNING', 1310, available=11*storage.GIB))
+
+    async def test_legacy_hourly_state_does_not_repeat_on_upgrade(self):
+        self.state.write_text(json.dumps(dict(status='WARNING', reason='P0_RESERVE_HEADROOM_LOW',
+                                             attempted_at=1000, sent_at=1000)))
+        self.assertFalse(await self.observe('WARNING', 4600))
+        self.assertTrue(await self.observe('WARNING', 1000+24*3600))
+
+    async def test_corrupt_state_is_not_first_startup_and_recovers_when_repaired(self):
+        self.assertTrue(await self.observe('WARNING', 1000))
+        saved = self.state.read_text()
+        for corrupt in ('{', '[]', 'null', '{"sent_at": "broken"}',
+                        '{"capacity": {"runner:releases": null}}'):
+            self.state.write_text(corrupt)
+            notifier._MEMORY = {}
+            self.assertFalse(await self.observe('WARNING', 4600))
+            self.assertEqual(self.state.read_text(), corrupt)
+        self.assertEqual(len(self.channel.sent), 1)
+        self.state.write_text(saved)
+        self.assertFalse(await self.observe('WARNING', 4600))
+        self.assertTrue(await self.observe('WARNING', 1000+24*3600))
+
+    async def test_readable_warning_header_and_no_automatic_cleanup_claim(self):
+        self.assertTrue(await self.observe('WARNING', 1000))
+        message = self.channel.sent[-1][0]
+        self.assertEqual(message.splitlines()[:4], ['production storage WARNING',
+            '空き: 12.00 GiB', 'Runner安全必要量: 10.00 GiB', '残余裕: 2.00 GiB'])
+        self.assertIn('自動cleanupは実行していません', message)
+
+    def test_deterioration_compares_same_filesystem_and_phase_only(self):
+        current = notifier.validated_report(report(), 1000)
+        previous = dict(capacity=notifier.capacity_baseline(current))
+        current['p0'][0]['filesystem'] = 'docker+releases'
+        self.assertFalse(notifier.deteriorated(current, previous))
+        current['p0'][0]['available_bytes'] -= storage.GIB
+        self.assertTrue(notifier.deteriorated(current, previous))
+        current['p0'][0]['phase'] = 'deploy-start'
+        self.assertFalse(notifier.deteriorated(current, previous))
+
     @unittest.skipUnless(os.name == 'posix', 'POSIX host backup permission contract')
     async def test_root_written_numeric_state_is_host_backup_readable(self):
         self.assertTrue(await notifier.notify_storage_once(self.bot, 1000))
