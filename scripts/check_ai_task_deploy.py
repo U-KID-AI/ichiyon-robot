@@ -1147,7 +1147,7 @@ class StorageProtocolTests(unittest.TestCase):
 
     def run_protocol(self, fail_phase='', reason='BYTES', same_sha=False,
                      evidence_fail='', fail_migrate=False, cancel=False, existing_release=True,
-                     health_failures=0, ancillary_unlink_failure=False):
+                     health_failures=0, ancillary_unlink_failure=False, backup_mode='full'):
         bash = shutil.which('bash')
         if os.name == 'nt':
             bash = 'C:/Program Files/Git/bin/bash.exe'
@@ -1239,6 +1239,10 @@ python3() {
                 if [[ $fail_migrate == true ]]; then return 1; fi
                 ;;
             backup) echo VALIDATE_BACKUP >&2 ;;
+            backup-mode)
+                if [[ $backup_mode == invalid ]]; then return 1; fi
+                echo "$backup_mode" ;;
+            backup-split) echo SPLIT_BACKUP_WRITE >&2; printf fixture-split >"$backup_stage/persistence.tar" ;;
             health)
                 health_calls=$((health_calls + 1))
                 echo HEALTH >&2
@@ -1274,6 +1278,7 @@ rm() {
                              evidence_fail=evidence_fail, fail_migrate=str(fail_migrate).lower(),
                              cancel=str(cancel).lower(), health_failures=str(health_failures),
                              ancillary_unlink_failure=str(ancillary_unlink_failure).lower(),
+                             backup_mode=backup_mode,
                              helper=fixture_helper.as_posix(), original_helper=fixture_helper.as_posix(),
                              diagnostics=fixture_diagnostics.as_posix())
             prefix = ''.join(key + '=' + shlex.quote(value) + '\n' for key, value in variables.items())
@@ -1284,6 +1289,23 @@ rm() {
             result = subprocess.run([bash, '-s'], input=script, text=True, capture_output=True,
                                     timeout=30, check=False)
             return result
+
+    def test_split_activation_is_required_before_app_stop(self):
+        result = self.run_protocol(backup_mode='invalid')
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertNotIn(' stop admin bot bot-irsia', result.stderr)
+        self.assertNotIn('DB_DUMP', result.stderr)
+        self.assertNotIn('SPLIT_BACKUP_WRITE', result.stderr)
+
+    def test_validated_split_uses_same_dump_validation_and_quiescence(self):
+        result = self.run_protocol(backup_mode='split')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('DB_DUMP', result.stderr)
+        self.assertIn('SPLIT_BACKUP_WRITE', result.stderr)
+        self.assertIn('VALIDATE_BACKUP', result.stderr)
+        self.assertNotIn('\nBACKUP_WRITE', result.stderr)
+        self.assertLess(result.stderr.index('CHECK pre-stop'), result.stderr.index(' stop admin bot bot-irsia'))
+        self.assertLess(result.stderr.index(' stop admin bot bot-irsia'), result.stderr.index('SPLIT_BACKUP_WRITE'))
 
     def assert_no_stop(self, result):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)

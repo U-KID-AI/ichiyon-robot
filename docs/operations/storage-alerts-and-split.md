@@ -48,14 +48,23 @@ inventory before READY. If source content changes, the backup stays unpublished.
 Interrupted stages remain for inspection. Distinct historical snapshots create
 distinct archives; this is not per-file deduplication or archive garbage collection.
 
-The existing production deployment continues to create FULL backups. This PR
-does not silently activate a reduced persistence scope. The new producer is
-ready for a separately verified production cutover; code/fixture success alone
-is not that cutover. Before wiring it into the quiesced deployment backup phase,
+The deployment defaults to FULL. A fixed operator-issued receipt at
+`/home/ubuntu/ichiyon-storage-evidence/split-backup-activation.json` can select
+the split producer in the existing quiesced backup phase. Missing activation
+keeps FULL; corrupt or incomplete activation fails before stopping apps.
+The receipt requires the original FULL backup checksums, historical inventory
+digest, published archive ID, rehearsal digest and all seven restoration facts.
+The original FULL backup must also remain in `ichiyon-retention-pins.json`.
+Archive and original backup bytes are rechecked on every invocation. Neither
+an environment variable nor task text can enable exclusions.
+
+Before issuing the activation receipt,
 record live inventory, archive publication/checksum, FULL/split equality, actual
 isolated PostgreSQL and persistence/history restore, current/previous release
 consistency, independent off-host custody, peak capacity, and durable archive
-retention. The existing deployment lock must serialize publication. The fixed
+retention. Synthetic booleans must never be issued as production proof. A receipt
+checksum detects corruption; it is not a signature against the privileged
+operator. The existing deployment lock serializes publication. The fixed
 production recovery root remains `/home/ubuntu/ichiyon-recovery-archives`.
 
 Tests: `check_ai_task_backup_split.py`, `check_ai_task_backup_restore.py` (with

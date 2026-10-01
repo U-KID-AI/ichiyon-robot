@@ -1,5 +1,6 @@
 """Offline split producer tests: exact scope, deduplication, delta, fail closed."""
 from pathlib import Path
+import hashlib
 import json
 import os
 import tempfile
@@ -34,6 +35,42 @@ class SplitWriterTests(unittest.TestCase):
         return split.write_split_backup(fixture.path, TARGET, shared_root=self.shared,
             backups_root=fixture.path.parent, releases_root=fixture.releases, recovery_root=self.recovery,
             dump_validator=validator or (lambda _: True))
+
+    def test_absent_activation_defaults_to_full(self):
+        self.assertEqual(split.activation_mode(activation=self.root/'absent'), 'full')
+
+    @unittest.skipUnless(os.name == 'posix', 'production activation ownership contract')
+    def test_activation_requires_complete_proofs_original_pin_and_archive(self):
+        full = BackupFixture(self.root/'activation-full')
+        produced = self.write(self.stage('activation-split'))
+        history = [r for r in full.validate()['inventory'] if split.historical(r['path'])]
+        evidence = self.root/'evidence'; evidence.mkdir(mode=0o700)
+        activation, pins = evidence/'split-backup-activation.json', self.root/'pins.json'
+        body = dict(version=1, backup_sha=TARGET, archive_id=produced['recovery_archive_id'],
+            historical_inventory_sha256=hashlib.sha256(json.dumps(history,sort_keys=True,separators=(',',':')).encode()).hexdigest(),
+            full_checksums=full.validate()['checksums'], verified=dict.fromkeys(split.REQUIRED_PROOFS, True),
+            rehearsal_sha256='a'*64)
+        def save():
+            envelope = dict(body=body, sha256=hashlib.sha256(json.dumps(body,sort_keys=True,separators=(',',':')).encode()).hexdigest())
+            activation.write_text(json.dumps(envelope)); activation.chmod(0o600)
+        pins.write_text(json.dumps(dict(backups=[TARGET]))); pins.chmod(0o600)
+        options = dict(activation=activation,pins=pins,backups_root=full.path.parent,
+                       recovery_root=self.recovery,expected_uid=os.getuid())
+        save()
+        self.assertEqual(split.activation_mode(**options), 'split')
+        for name in split.REQUIRED_PROOFS:
+            body['verified'][name] = False; save()
+            with self.assertRaises(backup.BackupError):
+                split.activation_mode(**options)
+            body['verified'][name] = True
+        save()
+        pins.write_text(json.dumps(dict(backups=[])))
+        with self.assertRaisesRegex(backup.BackupError, 'pin_required'):
+            split.activation_mode(**options)
+        pins.write_text(json.dumps(dict(backups=[TARGET])))
+        (self.recovery/body['archive_id']/'recovery.tar').write_bytes(b'corrupt')
+        with self.assertRaises(backup.BackupError):
+            split.activation_mode(**options)
 
     def test_full_and_split_restore_exact_files_previous_dump(self):
         full = BackupFixture(self.root / 'full', version=2)

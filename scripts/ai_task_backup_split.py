@@ -17,6 +17,70 @@ import uuid
 
 import ai_task_backup as backup
 
+ACTIVATION = Path('/home/ubuntu/ichiyon-storage-evidence/split-backup-activation.json')
+PINS = Path('/home/ubuntu/ichiyon-retention-pins.json')
+REQUIRED_PROOFS = {'live_inventory', 'full_split_restore', 'postgres_restore',
+                   'persistence_restore', 'history_restore', 'release_consistency', 'offhost_restore'}
+
+
+def activation_mode(*, activation=ACTIVATION, pins=PINS, backups_root=backup.BACKUPS_ROOT,
+                    recovery_root=backup.RECOVERY_ROOT, expected_uid=None):
+    """FULL by default; only a fixed, operator-issued verified receipt enables split.
+
+    Like P1c-2B disposition, the envelope checksum detects corruption, not a
+    malicious privileged operator. Restoration facts are issued only after the
+    actual rehearsals; archive and original backup bytes are rechecked here.
+    """
+    activation, pins = Path(activation), Path(pins)
+    if not activation.exists() and not activation.is_symlink():
+        return 'full'
+    if expected_uid is None:
+        import pwd
+        expected_uid = pwd.getpwnam('ubuntu').pw_uid
+    root = backup.directory(activation.parent).stat()
+    backup.need(root.st_uid == expected_uid and stat.S_IMODE(root.st_mode) == 0o700,
+                'split_activation_directory_invalid')
+    def read_owned(path):
+        info = path.lstat()
+        backup.need(info.st_uid == expected_uid and stat.S_IMODE(info.st_mode) == 0o600,
+                    'split_activation_owner_or_mode_invalid')
+        return backup.content(path, 32*1024*1024)
+    raw = read_owned(activation)
+    envelope = backup.strict_json(raw)
+    backup.need(isinstance(envelope, dict) and set(envelope) == {'body', 'sha256'}, 'split_activation_invalid')
+    body = envelope['body']
+    checksum = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+    backup.need(envelope['sha256'] == checksum and isinstance(body, dict)
+        and set(body) == {'version', 'backup_sha', 'archive_id', 'historical_inventory_sha256',
+                         'full_checksums', 'verified', 'rehearsal_sha256'}
+        and type(body['version']) is int and body['version'] == 1
+        and isinstance(body['backup_sha'], str) and backup.SHA.fullmatch(body['backup_sha'])
+        and all(isinstance(body[k], str) and backup.DIGEST.fullmatch(body[k]) for k in
+                ('archive_id', 'historical_inventory_sha256', 'rehearsal_sha256'))
+        and isinstance(body['verified'], dict) and set(body['verified']) == REQUIRED_PROOFS
+        and all(value is True for value in body['verified'].values()), 'split_activation_unverified')
+    required_sums = set(backup.V2_CHECKSUM_FILES)
+    backup.need(isinstance(body['full_checksums'], dict) and set(body['full_checksums']) == required_sums,
+                'split_activation_backup_invalid')
+    pinned = backup.strict_json(read_owned(pins))
+    backup.need(isinstance(pinned, dict) and isinstance(pinned.get('backups'), list)
+                and body['backup_sha'] in pinned['backups'], 'split_original_backup_pin_required')
+    full = backup.directory(Path(backups_root) / body['backup_sha'])
+    backup.need(backup.content(full / 'READY', 0) == b'' and
+                backup.checksums(full, required_sums) == body['full_checksums'], 'split_original_backup_changed')
+    manifest = backup.strict_json(backup.content(full / 'manifest.json', 32*1024*1024))
+    backup.need(manifest.get('version') == 2 and manifest.get('target_release') == body['backup_sha']
+                and manifest.get('persistence') == dict(include=backup.SCOPE, exclude=[])
+                and manifest.get('recovery') is None, 'split_original_not_full')
+    inventory = backup.manifest_inventory(manifest['inventory'])
+    history = [row for row in inventory if historical(row['path'])]
+    backup.need(hashlib.sha256(json.dumps(history, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+                == body['historical_inventory_sha256'], 'split_original_history_changed')
+    verify_archive(recovery_root, body['archive_id'], history)
+    backup.need(read_owned(activation) == raw and backup.strict_json(read_owned(pins)) == pinned,
+                'split_activation_changed')
+    return 'split'
+
 
 def historical(name):
     return name == 'data/backups' or name.startswith('data/backups/')
