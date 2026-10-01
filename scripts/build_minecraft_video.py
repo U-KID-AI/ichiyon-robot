@@ -43,6 +43,11 @@ class VideoProfile:
     black_stem: str = "video_black"
 
     @property
+    def resource_subdir(self):
+        # Big's full assets must never fall through into the shared base pack.
+        return "subpacks/full" if self.stem == "video_screen_big" else ""
+
+    @property
     def cell_width(self):
         return self.width + 2
 
@@ -190,7 +195,7 @@ def write_definitions(root, media, atlas_count, profile=SMALL):
     video_controller, black_controller = f"controller.render.ichiyon_{stem}", f"controller.render.ichiyon_{black}"
     frame = "math.max(0, q.property('ichiyon:frame'))"
     bp = root / "minecraft/behavior_packs/ichiyon_avatar_bp"
-    rp = root / "minecraft/resource_packs" / profile.rp_name
+    rp = root / "minecraft/resource_packs" / profile.rp_name / profile.resource_subdir
     scripts = root / "minecraft/behavior_packs/import_structures/scripts"
     write_json(bp / f"entities/{stem}.json", {"format_version": "1.21.0", "minecraft:entity": {
         "description": {"identifier": f"ichiyon:{stem}", "is_spawnable": False,
@@ -240,7 +245,7 @@ def build(source, root=ROOT, profile=SMALL):
     metadata = probe(source)
     video = next(stream for stream in metadata["streams"] if stream["codec_type"] == "video")
     has_audio = any(stream["codec_type"] == "audio" for stream in metadata["streams"])
-    rp = root / "minecraft/resource_packs" / profile.rp_name
+    rp = root / "minecraft/resource_packs" / profile.rp_name / profile.resource_subdir
     sound_dir = rp / "sounds" / profile.stem
     texture_dir = rp / "textures/entity" / profile.stem
     sound_dir.mkdir(parents=True, exist_ok=True)

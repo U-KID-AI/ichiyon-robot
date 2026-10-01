@@ -7,7 +7,7 @@ import { createPosterRuntime } from "../minecraft/behavior_packs/import_structur
 
 const player = () => ({
   name: "TestMobile", id: "entity-id-must-not-be-in-performance-log",
-  clientSystemInfo: { platformType: "Mobile", memoryTier: 0, maxRenderDistance: 12,
+  clientSystemInfo: { platformType: "Mobile", memoryTier: 0, maxRenderDistance: 12, locale: "ja_JP",
     deviceId: "private-device-id", ip: "private-ip", token: "private-token" },
   graphicsMode: "Deferred", inputInfo: { lastInputModeUsed: "Touch" },
   dimension: { id: "minecraft:overworld" }, location: { x: 1, y: 70, z: 1 },
@@ -17,11 +17,12 @@ const timestamp = "2026-10-01T00:00:00.000Z";
 test("API whitelist retains zero memory tier and logs a single JSON line", () => {
   const p = player(); p.name = "Test\nMobile";
   const value = readClientPerformance(p, () => timestamp), logs = [];
-  assert.equal(value.memoryTier, 0);
+  assert.equal(value.clientSystemInfo.memoryTier, 0);
+  assert.equal(value.clientSystemInfo.locale, "ja_JP");
   assert.equal(value.graphicsMode, "Deferred");
-  assert.equal(value.platformType, "Mobile");
-  assert.equal(value.maxRenderDistance, 12);
-  assert.equal(value.lastInputModeUsed, "Touch");
+  assert.equal(value.clientSystemInfo.platformType, "Mobile");
+  assert.equal(value.clientSystemInfo.maxRenderDistance, 12);
+  assert.equal(value.inputInfo.lastInputModeUsed, "Touch");
   assert.equal(value.timestamp, timestamp);
   logClientPerformance(value, line => logs.push(line));
   assert.equal(logs.length, 1);
@@ -31,15 +32,19 @@ test("API whitelist retains zero memory tier and logs a single JSON line", () =>
   assert(!logs[0].includes("entity-id"));
   assert.doesNotThrow(() => logClientPerformance(value, () => { throw Error("logger failed"); }));
 });
-test("each getter fails independently without serializing errors or nested objects", () => {
-  for (const key of ["platformType", "memoryTier", "maxRenderDistance", "graphicsMode", "lastInputModeUsed"]) {
-    const p = player(), target = key === "graphicsMode" ? p : key === "lastInputModeUsed" ? p.inputInfo : p.clientSystemInfo;
+test("each getter fails independently without serializing errors or API objects", () => {
+  const fields = ["player_name", "clientSystemInfo.platformType", "clientSystemInfo.memoryTier",
+    "clientSystemInfo.maxRenderDistance", "clientSystemInfo.locale", "graphicsMode", "inputInfo.lastInputModeUsed"];
+  const get = (value, path) => path.split(".").reduce((v, key) => v[key], value);
+  for (const path of fields) {
+    const key = path === "player_name" ? "name" : path.split(".").at(-1);
+    const p = player(), target = path.startsWith("clientSystemInfo.") ? p.clientSystemInfo : path.startsWith("inputInfo.") ? p.inputInfo : p;
     Object.defineProperty(target, key, { get() { throw Error("private-token"); } });
     const value = readClientPerformance(p);
-    assert.equal(value[key], null);
-    assert.equal(value.unavailable[key], "error");
-    for (const other of ["platformType", "memoryTier", "maxRenderDistance", "graphicsMode", "lastInputModeUsed"]) {
-      if (other !== key) assert.notEqual(value[other], null);
+    assert.equal(get(value, path), null);
+    assert.equal(value.unavailable[path], "error");
+    for (const other of fields) {
+      if (other !== path) assert.notEqual(get(value, other), null);
     }
     assert(!JSON.stringify(value).includes("private"));
   }
@@ -50,13 +55,26 @@ test("each getter fails independently without serializing errors or nested objec
     assert.equal(readClientPerformance(p).graphicsMode, "Deferred");
   }
   const missing = readClientPerformance({});
-  assert.equal(missing.memoryTier, null);
-  assert.equal(missing.unavailable.memoryTier, "unavailable");
+  assert.equal(missing.clientSystemInfo.memoryTier, null);
+  assert.equal(missing.unavailable["clientSystemInfo.memoryTier"], "unavailable");
   const p = player();
   p.graphicsMode = { toJSON() { throw Error("private-token"); } };
   p.clientSystemInfo.maxRenderDistance = NaN;
   assert.equal(readClientPerformance(p).unavailable.graphicsMode, "invalid");
-  assert.equal(readClientPerformance(p).maxRenderDistance, null);
+  assert.equal(readClientPerformance(p).clientSystemInfo.maxRenderDistance, null);
+  assert.equal(readClientPerformance(p, () => { throw Error("secret"); }).unavailable.timestamp, "error");
+});
+
+test("Script memory enum and Console are never mapped to RP tier or device model", () => {
+  for (const raw of [0, 1, 2, 3, 4, 42]) {
+    const p = player(); p.clientSystemInfo.memoryTier = raw; p.clientSystemInfo.platformType = "Console";
+    const value = readClientPerformance(p);
+    assert.equal(value.clientSystemInfo.memoryTier, raw);
+    assert.equal(value.clientSystemInfo.platformType, "Console");
+    assert.equal(value.schema, "ichiyon.client_performance.v2");
+    assert(!/memory_performance_tier|Switch|Xbox|GPU|SoC|RAM|deviceId|token/.test(JSON.stringify(value)));
+    assert.equal(value.memoryTier, undefined);
+  }
 });
 
 function bridgeFixture(p = player()) {
@@ -83,10 +101,13 @@ test("real join hook, delayed probes, sync command payload and bounded join hist
   f.subscriptions.playerSpawn({ player: f.p, initialSpawn: true });
   for (const fn of f.delayed) fn();
   assert.equal(f.logs.filter(line => line.startsWith("[NaritaBridge:client_performance]")).length, 1);
-  assert(f.joinDiagnostics.some(e => e.event === "client_performance" && e.client_performance.memoryTier === 0));
-  assert(f.joinDiagnostics.filter(e => e.event === "inventory_probe").every(e => e.client_performance.lastInputModeUsed === "Touch"));
+  assert(f.joinDiagnostics.some(e => e.event === "client_performance" && e.client_performance.clientSystemInfo.memoryTier === 0));
+  assert(f.joinDiagnostics.filter(e => e.event === "inventory_probe").every(e => e.client_performance.inputInfo.lastInputModeUsed === "Touch"));
   const diagnostic = f.playerDiagnosticPayload("TestMobile");
-  assert.equal(diagnostic.client_performance.platformType, "Mobile");
+  assert.equal(diagnostic.client_performance.clientSystemInfo.platformType, "Mobile");
+  assert.equal(diagnostic.client_performance.clientSystemInfo.locale, "ja_JP");
+  f.p.clientSystemInfo.locale = "en_US";
+  assert.equal(f.playerDiagnosticPayload("TestMobile").client_performance.clientSystemInfo.locale, "en_US");
   assert.equal(f.playerDiagnosticPayload("Absent").client_performance, null);
   f.subscriptions.playerSpawn({ player: f.p, initialSpawn: false });
   assert.equal(f.logs.filter(line => line.startsWith("[NaritaBridge:client_performance]")).length, 1);
@@ -99,6 +120,7 @@ test("real join hook, delayed probes, sync command payload and bounded join hist
   assert(message.length <= 1700);
   assert(history.events_truncated);
   assert.equal(history.events[0].client_performance.player_name, "Test79");
+  assert.equal(history.events[0].client_performance.clientSystemInfo.locale, "en_US");
   assert(f.joinDiagnostics.length <= 300);
 });
 test("throwing client API does not break the real join hook or inventory probes", () => {

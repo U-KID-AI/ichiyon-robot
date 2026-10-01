@@ -170,6 +170,11 @@ def prepare_manifests(stage, live):
     retired_ids = {entry['uuid'] for entry in retired}
     for pack in packs:
         manifest = read_json(stage / pack / 'manifest.json')
+        # This live transaction still uses vector versions/world refs. Never
+        # silently normalize a V3 manifest or accept its feature in V2.
+        if manifest.get('format_version') != 2 or any(
+                'memory_performance_tier' in sub for sub in manifest.get('subpacks', [])):
+            raise ValueError('managed apply supports manifest V2 only; V3/subpack enable blocked')
         identity = valid_uuid(manifest['header']['uuid'])
         if identity in identities or identity in retired_ids:
             raise ValueError('duplicate pack identity')

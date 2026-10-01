@@ -1,0 +1,113 @@
+{
+  "source_commit": "a563bc0a8b1a84d80dd484ac4169c546481637c5",
+  "files": {
+    "sounds/video_screen_big/audio.ogg": {
+      "bytes": 3899402,
+      "sha256": "654382e0c5b0f40005a060ad53aa4ba4c14530f74482cbb6c401899eae14555e"
+    },
+    "textures/entity/video_screen_big/atlas_000.png": {
+      "bytes": 3025082,
+      "sha256": "8990a97f062c125291319d76519040b1a5e22bf030c33151a459f7078e043c17"
+    },
+    "textures/entity/video_screen_big/atlas_001.png": {
+      "bytes": 4528855,
+      "sha256": "4d4ae4569fb873ec54266436f5b6147a5a647bb57864bf22f50d087356add6b8"
+    },
+    "textures/entity/video_screen_big/atlas_002.png": {
+      "bytes": 4405752,
+      "sha256": "b9646dc25ebf52fbe1d2cb607a6b51d882b49f94ada30d365601b789b00f64fd"
+    },
+    "textures/entity/video_screen_big/atlas_003.png": {
+      "bytes": 4629074,
+      "sha256": "159c8c7412f8fccde31cdd91903475ab93436dc1ddceb5cf15d78c4b90f3e356"
+    },
+    "textures/entity/video_screen_big/atlas_004.png": {
+      "bytes": 4143033,
+      "sha256": "fcc35a5161074eff9b49ca193a26ac6a20f88e003bd342459e9df6196e561fac"
+    },
+    "textures/entity/video_screen_big/atlas_005.png": {
+      "bytes": 4013540,
+      "sha256": "13736bbf457cddb391b3fa2a3742d596375b814215ea962f5ef7e67f36da2c68"
+    },
+    "textures/entity/video_screen_big/atlas_006.png": {
+      "bytes": 2794377,
+      "sha256": "d3da861aa3a4d256dfe29bb407eaefbcd41ebd82713231a962f835be1512286a"
+    },
+    "textures/entity/video_screen_big/atlas_007.png": {
+      "bytes": 2587624,
+      "sha256": "67efefa2b2f6c7a648640252de987dc15b02c54110e340c211daca9e237bfc02"
+    },
+    "textures/entity/video_screen_big/atlas_008.png": {
+      "bytes": 1978756,
+      "sha256": "7bc7ab47aeb03ee5b323ea036d4d9bd24ed734bc07921f9482d9f9a825c1b8f2"
+    },
+    "textures/entity/video_screen_big/atlas_009.png": {
+      "bytes": 3399661,
+      "sha256": "bb68e713f123f0fbddf748999305f5d8417517649bff7f32f0dbb592ad3be119"
+    },
+    "textures/entity/video_screen_big/atlas_010.png": {
+      "bytes": 4322443,
+      "sha256": "48d52f810d98d91db1dc3aff4376fe29bb58a9abbb3a4dcfbb4bbea708a7ce18"
+    },
+    "textures/entity/video_screen_big/atlas_011.png": {
+      "bytes": 3923250,
+      "sha256": "fd2c9bc51eb481fc9ef798a7a1110002467d7f72744fda643c2a3340a5bb79ce"
+    },
+    "textures/entity/video_screen_big/atlas_012.png": {
+      "bytes": 4863158,
+      "sha256": "e98d81f7f809d29dcb5bed5c876a44532ab83e3a393f1cdea64361a72cd702b3"
+    },
+    "textures/entity/video_screen_big/atlas_013.png": {
+      "bytes": 4633055,
+      "sha256": "b14bc5065a56b90f373b5e84e8ecdf77b121b40785d8b1911b0e750bf1db7815"
+    },
+    "textures/entity/video_screen_big/atlas_014.png": {
+      "bytes": 5328176,
+      "sha256": "1ee255c6d07c3e7f5902e50ab8f4da088a27630c706ed5e77af3ffca8d75cc11"
+    },
+    "textures/entity/video_screen_big/atlas_015.png": {
+      "bytes": 5961369,
+      "sha256": "10cbe1164c31cbe69c96aec919080a78c2d6189e0cba19d737130c01cc085a30"
+    },
+    "textures/entity/video_screen_big/atlas_016.png": {
+      "bytes": 4959319,
+      "sha256": "7073e7404150007a68e2a60b41a02a8887d676479d184ca5414b2ab08722bba9"
+    },
+    "textures/entity/video_screen_big/atlas_017.png": {
+      "bytes": 4294918,
+      "sha256": "36b909907102f1886502ad22764479cdc85f2762390ab8c3c8fa6067f94e314d"
+    },
+    "textures/entity/video_screen_big/atlas_018.png": {
+      "bytes": 2261797,
+      "sha256": "ee7e09252cc790bcae18922e931039ff4e35ff768548d53fdbe1e025687d9a7a"
+    },
+    "textures/entity/video_screen_big/atlas_019.png": {
+      "bytes": 4905559,
+      "sha256": "4dc654cd31a9cf21f1af6dd3c4b38a55fa539d838c26b95d8b6e85fe58cf5dd1"
+    },
+    "textures/entity/video_screen_big/atlas_020.png": {
+      "bytes": 5444683,
+      "sha256": "ce78b786ee59d5084263a00b18a13f690428d79e4e062e1bd068be2d6ed3b8a1"
+    },
+    "textures/entity/video_screen_big/atlas_021.png": {
+      "bytes": 4957327,
+      "sha256": "53843a698ed2c230d9aa0619da4284e45c2db642625fa2eb9383c42762fdd062"
+    },
+    "textures/entity/video_screen_big/atlas_022.png": {
+      "bytes": 4326585,
+      "sha256": "763909076a6b43f71adb0e28c0b190c2701045f9b869c8a57759097710182cc5"
+    },
+    "textures/entity/video_screen_big/atlas_023.png": {
+      "bytes": 2582318,
+      "sha256": "1cfa1105c40910281027237ec409883a8a7ee9ed2e9dc5682a2c6f3162216e9c"
+    },
+    "textures/entity/video_screen_big/atlas_024.png": {
+      "bytes": 175096,
+      "sha256": "6b814f7a717697a5ece7a061d1606d668cd12607775b1f93fbf01f225fdb37cc"
+    },
+    "textures/entity/video_screen_big/atlas_025.png": {
+      "bytes": 16407,
+      "sha256": "d1f342aa7c347fe0a3d6455df6ba6a6a689e7ba59ccd7b44a7da7ee114131d14"
+    }
+  }
+}

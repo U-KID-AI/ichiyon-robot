@@ -12,7 +12,7 @@ from PIL import Image, ImageChops
 
 from build_minecraft_video import BIG_PROFILES, ROOT, SMALL, build, make_atlases, probe, run, write_definitions
 
-RP = ROOT / "minecraft/resource_packs/ichiyon_video_big_rp"
+RP = ROOT / "minecraft/resource_packs/ichiyon_video_big_rp/subpacks/full"
 BP = ROOT / "minecraft/behavior_packs/ichiyon_avatar_bp"
 REPORT_DIR = ROOT / "minecraft/video_screen_big"
 SCRIPTS = ROOT / "minecraft/behavior_packs/import_structures/scripts"
@@ -236,7 +236,7 @@ class BigVideoChecks(unittest.TestCase):
             self.assertEqual(report["output"]["atlasCount"], 2)
             self.assertEqual(report["output"]["frameCount"], 408)
             self.assertIsNone(report["output"]["sound"])
-            generated_rp = root / "minecraft/resource_packs/ichiyon_video_big_rp"
+            generated_rp = root / "minecraft/resource_packs/ichiyon_video_big_rp/subpacks/full"
             self.assertEqual(read(generated_rp / "sounds/sound_definitions.json")["sound_definitions"], {})
             self.assertFalse(list(root.rglob("manifest.json")))
             textures = generated_rp / "textures/entity/video_screen_big"

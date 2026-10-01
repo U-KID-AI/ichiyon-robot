@@ -24,7 +24,7 @@ world.afterEvents.entityDie.subscribe((event) => {
 system.runInterval(() => displays.tick(), 1);
 system.runInterval(() => displays.scan(), 100);
 system.run(() => {
-  displays.retireLoaded();
   for (const player of world.getAllPlayers()) displays.cleanPlayer(player);
+  // scan also retires loaded Big helpers; failed removals retry every 100 ticks.
   displays.scan();
 });

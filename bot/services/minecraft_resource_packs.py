@@ -13,7 +13,7 @@ CORE, SKINS, ACCESSORIES, POSTERS, VIDEO, RECORDS = SPLIT_RESOURCE_PACKS
 VIDEO_BIG = "resource_packs/ichiyon_video_big_rp/"
 VIDEO_BIG_UUID = "a9689c00-b236-53ec-b952-a5fa64cb0cbc"
 # Paired with wall_displays_config.js; the regression check enforces agreement.
-# Retain the source assets and builder so re-enabling is an ordinary release.
+# V3 subpacks remain offline-only. See docs/operations/minecraft-big-video-subpacks.md.
 BIG_VIDEO_ENABLED = False
 VIDEO_AKKI = "resource_packs/ichiyon_video_akki_rp/"
 AQUARIUM_GLASS = "resource_packs/ichiyon_aquarium_glass_rp/"
@@ -118,5 +118,10 @@ def split_resource_packs(root, files):
         else:
             result[owner(relative) + relative] = data
     for pack in RESOURCE_PACKS:
-        result[pack + "manifest.json"] = (root / pack / "manifest.json").read_bytes()
+        raw = (root / pack / "manifest.json").read_bytes()
+        manifest = json.loads(raw)
+        if manifest.get("format_version") != 2 or any(
+                "memory_performance_tier" in sub for sub in manifest.get("subpacks", [])):
+            raise ValueError("managed compiler supports manifest V2 only; V3/subpack enable blocked")
+        result[pack + "manifest.json"] = raw
     return result
