@@ -85,7 +85,7 @@ class AkkiVideoChecks(unittest.TestCase):
             self.assertFalse(list((ROOT/'minecraft/resource_packs'/name).rglob('*akki*')))
 
     def test_small_big_definitions_are_unchanged_by_profile_refactor(self):
-        for profile in (SMALL,BIG_PROFILES['big-128']):
+        for profile in (SMALL,BIG_PROFILES['big-96-15']):
             report=read(ROOT/'minecraft'/profile.stem/'build_report.json')['output']
             media={k:report[k] for k in ('fps','frameCount','duration','sound')}
             with tempfile.TemporaryDirectory() as tmp:
