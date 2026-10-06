@@ -286,6 +286,32 @@ class SplitApplyChecks(unittest.TestCase):
         self.apply()
         self.assertEqual(self.snapshot(), first)  # Reconciliation never bumps again.
 
+    def test_big_reactivation_preserves_other_pbr_packs_and_world(self):
+        big = self.big_retirement_fixture()
+        self.apply()
+        before = self.snapshot()
+        self.packs.append(big)
+        self.files['cosmetics-build.json']['retired_packs'] = [
+            entry for entry in self.files['cosmetics-build.json']['retired_packs'] if entry['path'] != big]
+        manifest = self.manifest(big)
+        manifest['header']['version'] = [1, 0, 2]
+        manifest['modules'][0]['version'] = [1, 0, 2]
+        manifest['capabilities'] = ['pbr']
+        self.files[big + '/manifest.json'] = manifest
+        self.files[big + '/content.txt'] = b'lightweight 96x54 15fps media'
+        self.apply()
+        for pack in self.packs[2:-1]:
+            for path, data in before.items():
+                if path.startswith(pack + '/'):
+                    self.assertEqual((self.api.DATA_DIR / path).read_bytes(), data, path)
+        self.assertEqual((self.api.DATA_DIR / 'worlds/test-world/level.dat').read_bytes(), b'world data must survive')
+        self.assertEqual([ref['pack_id'] for ref in self.refs()],
+                         ['keep-other-pack', *(self.pack_id(p) for p in self.packs[2:])])
+        self.assertEqual(deploy.read_json(self.api.DATA_DIR / big / 'manifest.json'), manifest)
+        first = self.snapshot()
+        self.apply()
+        self.assertEqual(self.snapshot(), first)
+
     def test_big_retirement_health_failure_restores_all_nine_pbr_packs_and_world_refs(self):
         self.big_retirement_fixture()
         job = self.submit()

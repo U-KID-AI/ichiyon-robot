@@ -1,0 +1,37 @@
+{
+  "source": {
+    "filename": "3865_trimmed.mp4",
+    "sha256": "81b0bf65950537f08f2ec993bccbf438adb5546e9e77f1b2301251d9f698b8aa"
+  },
+  "profile": "big-96-15",
+  "files": {
+    "sounds/video_screen_big/audio.ogg": {
+      "bytes": 2241993,
+      "sha256": "cc26207dc5aa8fdb5360def4f24c7ea9b6eea0817c7de52b97fd400098dc0500"
+    },
+    "textures/entity/video_screen_big/atlas_000.png": {
+      "bytes": 4985782,
+      "sha256": "58f75b0316bf0ab34fcc52fd7b61359598a2251cce25afe87b543c2faafb2a01"
+    },
+    "textures/entity/video_screen_big/atlas_001.png": {
+      "bytes": 5761339,
+      "sha256": "72b62b954d2cb3a44df61e124fd84a099034ea1c1d9030c1e3515042bc4c3269"
+    },
+    "textures/entity/video_screen_big/atlas_002.png": {
+      "bytes": 6446711,
+      "sha256": "68966f9e8f5150200fb325094af02db33ddd1fdcf3f0ea9a322e4ed4c8f0ae9a"
+    },
+    "textures/entity/video_screen_big/atlas_003.png": {
+      "bytes": 4154780,
+      "sha256": "c25bcf9ddb3cf52f298e1e820a16b029ccd0fce691f4866727c05554e7b19633"
+    },
+    "textures/entity/video_screen_big/atlas_004.png": {
+      "bytes": 5693551,
+      "sha256": "9eb9d4c51dd7b6d540d7153d6ae35a24235ade582a7ff000b0d343989a0dd136"
+    },
+    "textures/entity/video_screen_big/atlas_005.png": {
+      "bytes": 3574959,
+      "sha256": "444d726816a154b9b72e398da84bc25b3b3d51c8453a694e063a8db00c47c2e7"
+    }
+  }
+}
