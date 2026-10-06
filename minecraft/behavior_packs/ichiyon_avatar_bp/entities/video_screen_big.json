@@ -11,7 +11,7 @@
           "type": "int",
           "range": [
             -1,
-            10202
+            4199
           ],
           "default": -1,
           "client_sync": true

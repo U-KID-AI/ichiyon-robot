@@ -10,7 +10,7 @@ import unittest
 
 from PIL import Image, ImageChops
 
-from build_minecraft_video import BIG_PROFILES, ROOT, SMALL, build, make_atlases, probe, run, write_definitions
+from build_minecraft_video import AKKI, BIG_PROFILES, FPS, ROOT, SMALL, build, make_atlases, probe, run, video_filter, write_definitions
 
 RP = ROOT / "minecraft/resource_packs/ichiyon_video_big_rp"
 BP = ROOT / "minecraft/behavior_packs/ichiyon_avatar_bp"
@@ -30,15 +30,19 @@ class BigVideoChecks(unittest.TestCase):
         cls.output = cls.report["output"]
         cls.profile = BIG_PROFILES[cls.output["profile"]]
 
-    def test_source_and_20fps_contract(self):
+    def test_trimmed_source_and_big_only_15fps_contract(self):
         source, output = self.report["source"], self.output
         self.assertEqual((source["width"], source["height"], source["fps"], source["frameCount"]),
-                         (640, 360, "24/1", 12244))
-        self.assertEqual(source["bytes"], 24332100)
+                         (640, 360, "24/1", 6720))
+        self.assertEqual(source["filename"], "3865_trimmed.mp4")
+        self.assertEqual(source["bytes"], 35601226)
         self.assertEqual(source["audio"], {"codec": "aac", "channels": 2, "sampleRate": 44100})
-        self.assertEqual((output["frameWidth"], output["frameHeight"], output["fps"]), (128, 72, 20))
-        self.assertEqual(output["duration"], output["frameCount"] / 20)
-        self.assertLess(abs(output["duration"] - source["videoDuration"]), 1 / 20)
+        self.assertEqual((output["frameWidth"], output["frameHeight"], output["fps"]), (96, 54, 15))
+        self.assertEqual((output["duration"], output["frameCount"], output["atlasCount"]), (280, 4200, 6))
+        self.assertEqual((output["gridColumns"], output["gridRows"], output["framesPerAtlas"]), (20, 36, 720))
+        self.assertEqual(output["duration"], output["frameCount"] / 15)
+        self.assertLess(abs(output["duration"] - source["videoDuration"]), 1 / 15)
+        self.assertEqual((FPS, SMALL.fps, AKKI.fps, BIG_PROFILES["big-128"].fps), (20, 20, 20, 20))
         self.assertEqual(output["sound"], "ichiyon.video_screen_big.audio")
 
     def test_generated_javascript(self):
@@ -50,6 +54,24 @@ class BigVideoChecks(unittest.TestCase):
         self.assertEqual(media, {key: self.output[key] for key in ("fps", "frameCount", "duration", "sound")})
         subprocess.run(["node", "--input-type=module", "--check"], input=script.encode(), check=True,
                        capture_output=True)
+
+    def test_locked_media_and_v2_pack(self):
+        lock = read(REPORT_DIR / "full_media.lock.json")
+        self.assertEqual(lock["profile"], "big-96-15")
+        self.assertEqual(lock["source"], {key: self.report["source"][key] for key in ("filename", "sha256")})
+        self.assertEqual(set(lock["files"]), {"sounds/video_screen_big/audio.ogg", *{
+            f"textures/entity/video_screen_big/atlas_{i:03d}.png" for i in range(6)}})
+        for name, expected in lock["files"].items():
+            data = (RP / name).read_bytes()
+            self.assertEqual(len(data), expected["bytes"])
+            self.assertEqual(hashlib.sha256(data).hexdigest(), expected["sha256"])
+        manifest = read(RP / "manifest.json")
+        self.assertEqual(manifest["format_version"], 2)
+        self.assertEqual(manifest["header"]["uuid"], "a9689c00-b236-53ec-b952-a5fa64cb0cbc")
+        self.assertEqual(manifest["header"]["version"], [1, 0, 2])
+        self.assertEqual(manifest["modules"][0]["version"], [1, 0, 2])
+        self.assertNotIn("subpacks", manifest)
+        self.assertFalse((RP / "subpacks").exists())
 
     def test_only_synchronized_frame_property(self):
         entity = read(BP / "entities/video_screen_big.json")["minecraft:entity"]
@@ -142,7 +164,7 @@ class BigVideoChecks(unittest.TestCase):
                 for slot in range(used, p.capacity):
                     x, y = slot % p.cols * p.cell_width, slot // p.cols * p.cell_height
                     self.assertIsNone(atlas.crop((x, y, x + p.cell_width, y + p.cell_height)).getbbox())
-        self.assertGreater(len(hashes), 20)
+        self.assertGreater(len(hashes), 2 * output["atlasCount"])
         with Image.open(textures / "black.png") as black:
             self.assertEqual(black.size, (1, 1))
             self.assertEqual(black.getpixel((0, 0)), (0, 0, 0))
@@ -197,7 +219,8 @@ class BigVideoChecks(unittest.TestCase):
         report = read(REPORT_DIR / "profile_estimates.json")
         self.assertEqual(len(report["sampleStartsSeconds"]), 8)
         self.assertEqual(report["sampleSecondsPerWindow"], 3)
-        self.assertEqual([p["profile"] for p in report["profiles"]], list(BIG_PROFILES))
+        # Historical estimates cover the old 20fps source, not the new full build.
+        self.assertEqual([p["profile"] for p in report["profiles"]], ["big-192", "big-160", "big-128"])
         for estimate in report["profiles"]:
             self.assertEqual(estimate["sampleFrames"], 480)
             self.assertEqual(estimate["fps"], 20)
@@ -226,30 +249,32 @@ class BigVideoChecks(unittest.TestCase):
         self.assertEqual((SMALL.width, SMALL.height, SMALL.fps, SMALL.cols, SMALL.rows), (64, 36, 20, 10, 10))
 
     def test_short_fixture_crosses_atlas_boundary_and_prunes_only_owned_files(self):
+        p = self.profile
+        frames = p.capacity + 3
         with tempfile.TemporaryDirectory(prefix="big-video-fixture-") as temporary:
             temp = Path(temporary)
             source = temp / "fixture.mp4"
             root = temp / "output"
-            run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=128x72:rate=24:duration=20.4",
+            run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+                 f"testsrc2=size={p.width}x{p.height}:rate={p.fps}:duration={frames / p.fps}",
                  "-c:v", "mpeg4", str(source)])
             report = build(source, root, self.profile)
             self.assertEqual(report["output"]["atlasCount"], 2)
-            self.assertEqual(report["output"]["frameCount"], 408)
+            self.assertEqual(report["output"]["frameCount"], frames)
             self.assertIsNone(report["output"]["sound"])
             generated_rp = root / "minecraft/resource_packs/ichiyon_video_big_rp"
             self.assertEqual(read(generated_rp / "sounds/sound_definitions.json")["sound_definitions"], {})
             self.assertFalse(list(root.rglob("manifest.json")))
             textures = generated_rp / "textures/entity/video_screen_big"
             # The final three frames occupy the first three cells in atlas 1.
-            raw = run(["ffmpeg", "-v", "error", "-i", str(source), "-vf", "fps=20",
+            raw = run(["ffmpeg", "-v", "error", "-i", str(source), "-vf", video_filter(p),
                        "-pix_fmt", "rgb24", "-f", "rawvideo", "-"])
-            p = self.profile
             frame_bytes = p.width * p.height * 3
             with Image.open(textures / "atlas_001.png") as atlas:
                 for slot in range(3):
                     x = slot * p.cell_width + 1
                     self.assertEqual(atlas.crop((x, 1, x + p.width, 1 + p.height)).tobytes(),
-                                     raw[(405 + slot) * frame_bytes:(406 + slot) * frame_bytes])
+                                     raw[(p.capacity + slot) * frame_bytes:(p.capacity + slot + 1) * frame_bytes])
             first = temp / "first.png"
             Image.frombytes("RGB", (p.width, p.height), raw[:frame_bytes]).save(first)
             # An unrelated PNG must survive atlas cleanup.

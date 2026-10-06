@@ -74,16 +74,16 @@ class SplitChecks(unittest.TestCase):
                 self.assertNotIn(section["uuid"], uuids)
                 self.assertNotEqual(section["uuid"], LEGACY_UUID)
                 uuids.add(section["uuid"])
-                self.assertEqual(section["version"], [1, 2, 1] if pack == AQUARIUM_GLASS else [1, 0, 1])
+                self.assertEqual(section["version"], [1, 2, 1] if pack == AQUARIUM_GLASS else [1, 0, 2] if pack == VIDEO_BIG else [1, 0, 1])
         with ZipFile(BytesIO(pack_zip(self.root, self.records, 12))) as archive:
             proof = json.loads(archive.read("cosmetics-build.json"))
             self.assertEqual(proof["packs"], [p.rstrip("/") for p in (BP, BRIDGE, *RESOURCE_PACKS)])
-            self.assertEqual(len(RESOURCE_PACKS), 8)
+            self.assertEqual(len(RESOURCE_PACKS), 9)
             self.assertEqual(proof["retired_packs"], [
                 {"path": LEGACY.rstrip("/"), "uuid": LEGACY_UUID},
-                {"path": VIDEO_BIG.rstrip("/"), "uuid": VIDEO_BIG_UUID},
             ])
-            self.assertFalse(any(name.startswith(VIDEO_BIG) for name in archive.namelist()))
+            self.assertEqual(sum(name.startswith(VIDEO_BIG + "textures/entity/video_screen_big/atlas_") for name in archive.namelist()), 6)
+            self.assertFalse(any("/subpacks/" in name for name in archive.namelist()))
             direct = {p.relative_to(self.root).as_posix(): p for pack in DIRECT_RESOURCE_PACKS
                       for p in (self.root / pack).rglob("*") if p.is_file()}
             self.assertEqual(set(archive.namelist()) - {"cosmetics-build.json"}, set(self.split) | direct.keys())
@@ -94,25 +94,29 @@ class SplitChecks(unittest.TestCase):
 
     def test_direct_pack_never_receives_legacy_registries_or_language_files(self):
         self.assertEqual([p for p in self.split if p.startswith(VIDEO_AKKI)], [VIDEO_AKKI + "manifest.json"])
-        self.assertFalse(any(p.startswith(VIDEO_BIG) for p in self.split))
+        self.assertEqual([p for p in self.split if p.startswith(VIDEO_BIG)], [VIDEO_BIG + "manifest.json"])
         from bot.services import minecraft_resource_packs as packs
         with patch.object(packs, "RESOURCE_PACKS", SPLIT_RESOURCE_PACKS):
             previous = split_resource_packs(self.root, self.source)
         self.assertEqual(previous, {p: data for p, data in self.split.items() if not p.startswith(DIRECT_RESOURCE_PACKS)})
 
-    def test_paused_profile_and_standalone_retirement_allowlist_agree(self):
+    def test_big_v2_enabled_and_no_longer_retired(self):
         from scripts.minecraft import minecraft_cosmetics_apply as deploy
-        self.assertFalse(BIG_VIDEO_ENABLED)
-        self.assertNotIn(VIDEO_BIG, RESOURCE_PACKS)
-        self.assertEqual(RETIRED_RESOURCE_PACKS[VIDEO_BIG.rstrip("/")], VIDEO_BIG_UUID)
+        self.assertTrue(BIG_VIDEO_ENABLED)
+        self.assertIn(VIDEO_BIG, RESOURCE_PACKS)
+        self.assertNotIn(VIDEO_BIG.rstrip("/"), RETIRED_RESOURCE_PACKS)
         for path, identity in RETIRED_RESOURCE_PACKS.items():
             self.assertEqual(deploy.RETIRED_PACKS[path], identity)
         config = (self.root / BRIDGE / "scripts/wall_displays_config.js").read_text(encoding="utf-8")
-        self.assertIn("export const BIG_VIDEO_ENABLED = false;", config)
+        self.assertIn("export const BIG_VIDEO_ENABLED = true;", config)
         self.assertTrue(list((self.root / VIDEO_BIG / "textures").rglob("atlas_*.png")))
-        for pack in (*RESOURCE_PACKS, VIDEO_BIG):
+        for pack in RESOURCE_PACKS:
             path = self.root / pack / "manifest.json"
-            self.assertEqual(json.loads(path.read_bytes())["capabilities"], ["pbr"], str(path))
+            manifest = json.loads(path.read_bytes())
+            self.assertEqual(manifest["capabilities"], ["pbr"], str(path))
+            self.assertEqual(manifest["format_version"], 2)
+            self.assertNotIn("subpacks", manifest)
+        self.assertEqual(json.loads((self.root / VIDEO_BIG / "manifest.json").read_bytes())["header"]["uuid"], VIDEO_BIG_UUID)
 
     def test_direct_content_only_bumps_its_pack_after_six_pack_install(self):
         from scripts.minecraft.minecraft_cosmetics_apply import unpack, content_hash
@@ -146,7 +150,7 @@ class SplitChecks(unittest.TestCase):
             unpack(pack_zip(source, self.records, 14), third, live)
             for pack in RESOURCE_PACKS:
                 version = json.loads((third / pack / "manifest.json").read_bytes())["header"]["version"]
-                self.assertEqual(version, [1, 2, 1] if pack == "resource_packs/ichiyon_aquarium_glass_rp/" else [1, 0, 2] if pack == VIDEO_AKKI else [1, 0, 1])
+                self.assertEqual(version, [1, 2, 1] if pack == AQUARIUM_GLASS else [1, 0, 2] if pack in (VIDEO_AKKI, VIDEO_BIG) else [1, 0, 1])
                 if pack != VIDEO_AKKI:
                     self.assertEqual(content_hash(third / pack), original[pack])
                 shutil.copytree(third / pack, live / pack, dirs_exist_ok=True)

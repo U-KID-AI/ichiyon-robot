@@ -4,8 +4,8 @@
     {
       "description": {
         "identifier": "geometry.ichiyon_video_screen_big",
-        "texture_width": 128,
-        "texture_height": 72,
+        "texture_width": 96,
+        "texture_height": 54,
         "visible_bounds_width": 26,
         "visible_bounds_height": 13,
         "visible_bounds_offset": [
@@ -41,8 +41,8 @@
                     0
                   ],
                   "uv_size": [
-                    128,
-                    72
+                    96,
+                    54
                   ]
                 }
               }

@@ -427,9 +427,10 @@ test("all active displays share one player snapshot per tick; all OFF ticks do n
   assert.equal(f.sounds.filter(s => s.id === "off-join" && s.action === "stopSound").length, 3);
 });
 
-test("production entry pauses only Big; startup/load/spawn retire only Big helpers without block changes", () => {
-  assert.equal(BIG_VIDEO_ENABLED, false);
-  const f = fixture(); f.video(); akkiWall(f); akkiButton(f);
+test("production entry re-enables Big alongside Small/Akki without block changes", () => {
+  assert.equal(BIG_VIDEO_ENABLED, true);
+  assert.deepEqual([bigMedia.fps, bigMedia.frameCount, bigMedia.duration], [15, 4200, 280]);
+  const f = fixture(); f.video(); bigWall(f); floorButton(f); akkiWall(f); akkiButton(f);
   const stale = f.dimension.spawnEntity(bigConfig.video.entity, { x: 0, y: 0, z: 0 });
   const unrelated = f.dimension.spawnEntity("ichiyon:molcar", { x: 0, y: 0, z: 0 });
   const subscriptions = {}, starts = [], intervals = [];
@@ -448,14 +449,15 @@ test("production entry pauses only Big; startup/load/spawn retire only Big helpe
   });
   vm.runInContext(source + "\nglobalThis.group = displays;", context);
   starts.forEach(fn => fn());
-  assert.deepEqual(Object.keys(context.group.status()), ["small", "akki"]);
+  assert.deepEqual(Object.keys(context.group.status()), ["small", "big", "akki"]);
   assert(!stale.isValid); assert(unrelated.isValid);
   assert.equal(f.entities.filter(e => e.isValid && e.typeId === config.video.entity).length, 1);
   assert.equal(f.entities.filter(e => e.isValid && e.typeId === akkiConfig.video.entity).length, 1);
+  assert.equal(f.entities.filter(e => e.isValid && e.typeId === bigConfig.video.entity).length, 1);
   for (const event of ["entityLoad", "entitySpawn"]) {
     const late = f.dimension.spawnEntity(bigConfig.video.entity, { x: 0, y: 0, z: 0 });
     subscriptions[event]({ entity: late });
-    assert(!late.isValid);
+    assert.equal(late.isValid, event === "entitySpawn");
     subscriptions[event]({ entity: unrelated });
     assert(unrelated.isValid);
   }
@@ -467,9 +469,14 @@ test("production entry pauses only Big; startup/load/spawn retire only Big helpe
   }
   assert.equal(reads, 0);
   subscriptions.playerSpawn({ player: f.player("joined"), initialSpawn: true });
-  assert.equal(f.sounds.filter(s => s.id === "joined").length, 2);
+  assert.equal(f.sounds.filter(s => s.id === "joined").length, 3);
   const small = context.group.status().small;
   subscriptions.buttonPush({ block: { typeId: "minecraft:stone_button", dimension: f.dimension, location: small.screen.button } });
+  assert(context.group.status().small.on);
+  assert(!context.group.status().akki.on);
+  const big = context.group.status().big;
+  subscriptions.buttonPush({ block: { typeId: "minecraft:cherry_button", dimension: f.dimension, location: big.screen.button } });
+  assert(context.group.status().big.on);
   assert(context.group.status().small.on);
   assert(!context.group.status().akki.on);
   assert.deepEqual([...f.blocks.entries()], before);

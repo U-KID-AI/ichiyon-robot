@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
 import math
@@ -73,6 +73,10 @@ BIG_PROFILES = {f"big-{width}": VideoProfile(
     generated_name="video_big_media.generated.js", stream=True, min_distance=32,
     direct_pack=True, black_stem="video_big_black",
 ) for width, height in [(192, 108), (160, 90), (128, 72)]}
+BIG_PROFILES["big-96-15"] = replace(
+    BIG_PROFILES["big-128"], name="big-96-15", width=96, height=54,
+    cols=20, rows=36, fps=15,
+)
 AKKI = VideoProfile(name="akki", stem="video_screen_akki", rp_name="ichiyon_video_akki_rp",
     black_width=208, bounds_width=14, material="ichiyon_video_akki_uv",
     export_name="VIDEO_AKKI_MEDIA", generated_name="video_akki_media.generated.js",
@@ -166,7 +170,7 @@ def sample_profiles(source, root=ROOT):
         "width": video["width"], "height": video["height"], "fps": video["avg_frame_rate"],
         "frameCount": int(video["nb_frames"]), "videoDuration": duration,
         "containerDuration": float(metadata["format"]["duration"])},
-        "method": "Eight distributed 3-second samples at output 20fps; RGB PNG atlases with 1-pixel extruded edges. PNG estimate is sample bytes/frame times estimated full frame count; audio and definitions excluded.",
+        "method": "Eight distributed 3-second samples at each profile's output fps; RGB PNG atlases with 1-pixel extruded edges. PNG estimate is sample bytes/frame times estimated full frame count; audio and definitions excluded.",
         "sampleStartsSeconds": starts, "sampleSecondsPerWindow": sample_seconds,
         "memoryNote": "Decoded RGBA assumes every atlas resident, no GPU compression. Mipmaps add approximately one third. Engine overhead and the separate small-screen pack are excluded; actual device residency is implementation-dependent.",
         "profiles": results}
@@ -314,14 +318,38 @@ def build(source, root=ROOT, profile=SMALL):
     return report
 
 
+def update_full_media_lock(root, profile, report):
+    """Explicitly accept an intentional Big media replacement, never a routine build."""
+    if profile.stem != "video_screen_big":
+        raise ValueError("The full media lock belongs to Big Video only")
+    root = Path(root)
+    rp = root / "minecraft/resource_packs" / profile.rp_name
+    paths = sorted((rp / "textures/entity/video_screen_big").glob("atlas_*.png"))
+    if report["output"]["sound"]:
+        paths.append(rp / "sounds/video_screen_big/audio.ogg")
+    write_json(root / "minecraft/video_screen_big/full_media.lock.json", {
+        "source": {key: report["source"][key] for key in ("filename", "sha256")},
+        "profile": profile.name,
+        "files": {p.relative_to(rp).as_posix(): {
+            "bytes": p.stat().st_size, "sha256": hashlib.sha256(p.read_bytes()).hexdigest(),
+        } for p in sorted(paths)},
+    })
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
     parser.add_argument("--output-root", type=Path, default=ROOT)
     parser.add_argument("--sample-big-profiles", action="store_true")
     parser.add_argument("--profile", choices=PROFILES, default="small")
+    parser.add_argument("--update-full-media-lock", action="store_true",
+                        help="Accept the generated Big video as the new locked media")
     args = parser.parse_args()
+    if args.update_full_media_lock and (args.sample_big_profiles or PROFILES[args.profile].stem != "video_screen_big"):
+        parser.error("--update-full-media-lock requires a full Big build")
     if args.sample_big_profiles:
         sample_profiles(args.source, args.output_root)
     else:
-        build(args.source, args.output_root, PROFILES[args.profile])
+        report = build(args.source, args.output_root, PROFILES[args.profile])
+        if args.update_full_media_lock:
+            update_full_media_lock(args.output_root, PROFILES[args.profile], report)
