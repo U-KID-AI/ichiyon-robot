@@ -85,6 +85,73 @@ class DatabaseChecks(unittest.TestCase):
         with self.connect() as conn:
             self.assertEqual(MinecraftCosmeticsRepository(conn).assets(), [record])
 
+    def test_deleted_poster_is_durable_audited_and_id_not_reused(self):
+        with self.connect() as conn:
+            repo = MinecraftCosmeticsRepository(conn)
+            poster = repo.add(kind="poster", name="Delete me", texture=png(), width=3, height=2, created_by="tester")
+            accessory = repo.add(kind="accessory", name="Keep me", texture=png(),
+                                 geometry=json_bytes(geometry()), icon=png(), slot="hat", created_by="tester")
+            self.assertEqual(poster["id"], accessory["id"])
+            self.assertTrue(repo.delete_asset("poster", poster["id"], "deleter"))
+        with self.connect() as conn:
+            repo = MinecraftCosmeticsRepository(conn)
+            self.assertEqual(repo.assets(), [accessory])
+            self.assertEqual(repo.deleted_assets(), {("poster", poster["id"])})
+            row = conn.execute("SELECT deleted_at,texture FROM minecraft_cosmetic_assets WHERE kind='poster' AND asset_id=%s",
+                               (poster["id"],)).fetchone()
+            self.assertIsNotNone(row[0])
+            self.assertEqual(bytes(row[1]), poster["texture"])
+            self.assertEqual(conn.execute("SELECT kind,asset_id,deleted_by FROM minecraft_cosmetic_deleted_assets").fetchall(),
+                             [("poster", poster["id"], "deleter")])
+            with self.assertRaisesRegex(ValueError, "削除できるポスターがありません"):
+                repo.delete_asset("poster", poster["id"], "again")
+            next_poster = repo.add(kind="poster", name="Next", texture=png(), width=1, height=1, created_by="tester")
+            self.assertEqual(next_poster["id"], poster["id"] + 1)
+
+    def test_skin_and_poster_with_same_id_are_deleted_independently(self):
+        with self.connect() as conn:
+            repo = MinecraftCosmeticsRepository(conn)
+            skin = repo.add(kind="skin", name="Keep skin", texture=png(), created_by="tester")
+            for i in range(5):
+                repo.add(kind="poster", name=f"Poster {i}", texture=png(), width=1, height=1, created_by="tester")
+            repo.delete_asset("poster", skin["id"], "tester")
+            self.assertIn(skin, repo.assets())
+            self.assertEqual(repo.deleted_assets(), {("poster", 5)})
+            poster = repo.add(kind="poster", name="Other poster", texture=png(), width=1, height=1, created_by="tester")
+            with self.assertRaisesRegex(ValueError, "削除できるスキンがありません"):
+                repo.delete_skin(poster["id"], "tester")
+            repo.delete_skin(skin["id"], "tester")
+            self.assertIn(poster, repo.assets())
+            self.assertEqual(repo.deleted_assets(), {("poster", 5), ("skin", 5)})
+            self.assertIsNotNone(conn.execute("SELECT deleted_at FROM minecraft_cosmetic_assets WHERE kind='skin' AND asset_id=5").fetchone()[0])
+
+    def test_delete_rejects_missing_posters_invalid_ids_and_other_kinds(self):
+        with self.connect() as conn:
+            repo = MinecraftCosmeticsRepository(conn)
+            accessory = repo.add(kind="accessory", name="Hat", texture=png(),
+                                 geometry=json_bytes(geometry()), icon=png(), slot="hat", created_by="tester")
+            for identifier in (1, 4, 99):
+                with self.assertRaisesRegex(ValueError, "削除できるポスターがありません"):
+                    repo.delete_asset("poster", identifier, "tester")
+            for identifier in (0, -1, True, "1", 1.5, 1000):
+                with self.assertRaisesRegex(ValueError, "ポスターIDが不正"):
+                    repo.delete_asset("poster", identifier, "tester")
+            for kind in ("accessory", "unknown", "poster' OR TRUE--"):
+                with self.assertRaisesRegex(ValueError, "スキンとポスターだけ"):
+                    repo.delete_asset(kind, 1, "tester", builtin_ids={1})
+            self.assertEqual(repo.assets(), [accessory])
+            self.assertEqual(repo.deleted_assets(), set())
+
+    def test_catalog_builtin_poster_tombstone_reserves_id_without_db_asset(self):
+        with self.connect() as conn:
+            repo = MinecraftCosmeticsRepository(conn)
+            repo.delete_asset("poster", 12, "first", builtin_ids={12})
+            repo.delete_asset("poster", 12, "second", builtin_ids={12})
+            self.assertEqual(repo.assets(), [])
+            self.assertEqual(repo.deleted_assets(), {("poster", 12)})
+            self.assertEqual(conn.execute("SELECT deleted_by FROM minecraft_cosmetic_deleted_assets").fetchone()[0], "first")
+            self.assertEqual(repo.add(kind="poster", name="Next", texture=png(), width=1, height=1, created_by="tester")["id"], 13)
+
     def test_posters_are_durable_and_ids_are_serialized(self):
         def add(i):
             with self.connect() as conn:

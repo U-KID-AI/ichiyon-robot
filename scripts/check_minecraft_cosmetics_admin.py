@@ -1,9 +1,14 @@
 """HTTP/auth/CSRF/multipart tests with a fake catalog; no production connections."""
 from contextlib import contextmanager
+from html.parser import HTMLParser
+from io import BytesIO
+import json
 from pathlib import Path
 import sys
 import unittest
 from unittest.mock import patch, AsyncMock
+import uuid
+from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -19,7 +24,7 @@ with patch("dotenv.load_dotenv", return_value=False):
     from admin import minecraft_cosmetics as admin
 
 from check_minecraft_cosmetics import png, geometry
-from bot.services.minecraft_cosmetics import asset, json_bytes, MAX_UPLOAD
+from bot.services.minecraft_cosmetics import asset, json_bytes, MAX_UPLOAD, MAX_ID
 
 
 class FakeRepository:
@@ -35,9 +40,15 @@ class FakeRepository:
         entry = asset(kind, 5 if kind == "skin" else 1, "test_asset", **kwargs)
         self.added.append(entry)
         return entry
-    def delete_skin(self, asset_id, deleted_by):
-        self.deleted.add(("skin", asset_id))
-        self.added = [entry for entry in self.added if not (entry["kind"] == "skin" and entry["id"] == asset_id)]
+    def delete_asset(self, kind, asset_id, deleted_by, *, builtin_ids=()):
+        if kind not in ("skin", "poster"):
+            raise ValueError("削除できるのはスキンとポスターだけです。")
+        if type(asset_id) is not int or not 1 <= asset_id <= MAX_ID:
+            raise ValueError("素材IDが不正です。")
+        if asset_id not in builtin_ids and not any(entry["kind"] == kind and entry["id"] == asset_id for entry in self.added):
+            raise ValueError("削除できる素材がありません。")
+        self.deleted.add((kind, asset_id))
+        self.added[:] = [entry for entry in self.added if not (entry["kind"] == kind and entry["id"] == asset_id)]
         return True
 
 
@@ -93,17 +104,19 @@ class AdminChecks(unittest.TestCase):
 
     def test_anonymous_requires_login_but_any_logged_in_user_can_access(self):
         self.assertEqual(self.client.get("/minecraft/cosmetics").status_code, 401)
+        self.assertEqual(self.client.post("/minecraft/cosmetics/assets/poster/1/delete", data={"csrf": "test-csrf"}).status_code, 401)
         self.sign_in("viewer")
         self.assertEqual(self.client.get("/minecraft/cosmetics").status_code, 200)
         self.assertNotEqual(self.client.get("/minecraft/cosmetics/application").status_code, 403)
 
     def test_csrf_required_for_every_mutation(self):
         self.sign_in()
-        for path in ("/assets", "/export", "/assets/skin/1/delete", "/apply"):
+        for path in ("/assets", "/export", "/assets/skin/1/delete", "/assets/poster/1/delete", "/apply"):
             for token in ("", "wrong"):
                 response = self.client.post("/minecraft/cosmetics" + path, data={"csrf": token})
                 self.assertEqual(response.status_code, 403)
         self.assertFalse(FakeRepository.added)
+        self.assertFalse(FakeRepository.deleted)
 
     def test_registration_skin_and_preview(self):
         self.sign_in()
@@ -148,6 +161,104 @@ class AdminChecks(unittest.TestCase):
                                                 files={"texture": ("photo.png", png())})
                     self.assertEqual(response.status_code, 400)
         self.assertEqual(len(FakeRepository.added), 1)
+
+    def test_poster_delete_hides_preview_catalog_and_export_apply_assets(self):
+        self.sign_in()
+        response = self.client.post("/minecraft/cosmetics/assets",
+            data={"csrf": "test-csrf", "kind": "poster", "name": "Delete this poster", "width": "3", "height": "2"},
+            files={"texture": ("photo.png", png())}, follow_redirects=False)
+        self.assertEqual(response.status_code, 303)
+        FakeRepository.added.append(asset("poster", 2, "poster_2", "Keep this poster", png(), width=1, height=1))
+        repo = FakeRepository(None)
+        before = admin.catalog_digest(admin.records(repo))
+        self.assertEqual(self.client.get("/minecraft/cosmetics/preview/poster/1").status_code, 200)
+        response = self.client.post("/minecraft/cosmetics/assets/poster/1/delete",
+                                    data={"csrf": "test-csrf"}, follow_redirects=False)
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(repo.deleted_assets(), {("poster", 1)})
+        self.assertEqual([entry["id"] for entry in repo.assets()], [2])
+        page = self.client.get("/minecraft/cosmetics")
+        self.assertNotIn("Delete this poster", page.text)
+        self.assertIn("Keep this poster", page.text)
+        self.assertEqual(self.client.get("/minecraft/cosmetics/preview/poster/1").status_code, 404)
+        self.assertEqual(self.client.get("/minecraft/cosmetics/preview/poster/2").status_code, 200)
+        self.assertNotEqual(before, admin.catalog_digest(admin.records(repo)))
+        exported = self.client.post("/minecraft/cosmetics/export", data={"csrf": "test-csrf"})
+        self.assertEqual(exported.status_code, 200)
+        with patch.object(admin, "cosmetics_control", AsyncMock(return_value={"status": "idle"})) as api:
+            response = self.client.post("/minecraft/cosmetics/apply",
+                data={"csrf": "test-csrf", "operation_id": str(uuid.uuid4())}, follow_redirects=False)
+            self.assertEqual(response.status_code, 303)
+            applied = api.call_args.args[1]
+        for data in (exported.content, applied):
+            with ZipFile(BytesIO(data)) as archive:
+                names = archive.namelist()
+                self.assertFalse(any("poster_managed_1" in name for name in names))
+                self.assertTrue(any("poster_managed_2" in name for name in names))
+                catalog = json.loads(archive.read("cosmetics/catalog.lock.json"))
+                self.assertEqual([p["baseId"] for p in catalog["posters"]], ["ichiyon:poster_managed_2"])
+                for name in names:
+                    if name.endswith((".json", ".js", ".lang")):
+                        self.assertNotIn(b"poster_managed_1", archive.read(name), name)
+                self.assertIn("behavior_packs/ichiyon_avatar_bp/blocks/poster_raio_r0c0.json", names)
+
+    def test_delete_buttons_confirm_names_and_accessory_rejection(self):
+        class Forms(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.forms = {}
+            def handle_starttag(self, tag, attrs):
+                attributes = dict(attrs)
+                if tag == "form":
+                    self.forms[attributes.get("action")] = attributes
+        self.sign_in()
+        name = "Poster '\" <>&"
+        FakeRepository.added.extend([
+            asset("poster", 1, "poster_1", name, png(), width=1, height=1),
+            asset("accessory", 1, "hat", "Keep hat", png(), geometry=json_bytes(geometry()), icon=png(), slot="hat"),
+        ])
+        page = self.client.get("/minecraft/cosmetics")
+        forms = Forms()
+        forms.feed(page.text)
+        form = forms.forms["/minecraft/cosmetics/assets/poster/1/delete"]
+        self.assertEqual(form["onsubmit"], "return confirm(this.dataset.confirm);")
+        self.assertEqual(form["data-confirm"], name + " を削除します。このIDは再利用されず、ゲーム反映後は一覧から消えます。よろしいですか？")
+        self.assertIn("ポスターを削除", page.text)
+        self.assertIn("スキンを削除", page.text)
+        self.assertIn("/minecraft/cosmetics/assets/skin/1/delete", forms.forms)
+        self.assertNotIn("/minecraft/cosmetics/assets/accessory/1/delete", forms.forms)
+        for kind in ("accessory", "unknown"):
+            response = self.client.post(f"/minecraft/cosmetics/assets/{kind}/1/delete", data={"csrf": "test-csrf"})
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("スキンとポスターだけ", response.text)
+        self.assertEqual(len(FakeRepository.added), 2)
+        self.assertFalse(FakeRepository.deleted)
+
+    def test_missing_poster_cannot_claim_skin_builtin_id(self):
+        self.sign_in()
+        for identifier in (1, 4, 99, 0):
+            response = self.client.post(f"/minecraft/cosmetics/assets/poster/{identifier}/delete",
+                data={"csrf": "test-csrf", "builtin_ids": str(identifier)})
+            self.assertEqual(response.status_code, 400)
+        self.assertFalse(FakeRepository.deleted)
+
+    def test_builtin_poster_uses_exact_kind_tombstone(self):
+        self.sign_in()
+        builtin = asset("poster", 1, "builtin_poster", "Builtin poster", png(), width=1, height=1)
+        builtins = admin.builtin_assets(admin.ROOT) + [builtin]
+        with patch.object(admin, "builtin_assets", return_value=builtins):
+            before = admin.catalog_digest(admin.records(FakeRepository(None)))
+            self.assertEqual(self.client.get("/minecraft/cosmetics/preview/poster/1").status_code, 200)
+            response = self.client.post("/minecraft/cosmetics/assets/poster/1/delete",
+                                        data={"csrf": "test-csrf"}, follow_redirects=False)
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(FakeRepository.deleted, {("poster", 1)})
+            self.assertEqual(self.client.get("/minecraft/cosmetics/preview/poster/1").status_code, 404)
+            self.assertEqual(self.client.get("/minecraft/cosmetics/preview/skin/1").status_code, 200)
+            remaining = admin.records(FakeRepository(None))
+            self.assertNotIn(builtin, remaining)
+            self.assertNotEqual(before, admin.catalog_digest(remaining))
+            self.assertNotIn("Builtin poster", self.client.get("/minecraft/cosmetics").text)
 
     def test_invalid_upload_returns_readable_error(self):
         self.sign_in()
