@@ -97,10 +97,12 @@ def register_minecraft_cosmetics_routes(templates):
         user = require_login(request)
         try:
             await bounded_form(request)
-            if kind != "skin":
-                raise ValueError("削除できるのはスキンだけです。")
+            if kind not in ("skin", "poster"):
+                raise ValueError("削除できるのはスキンとポスターだけです。")
+            builtin_ids = {entry["id"] for entry in builtin_assets(ROOT) if entry["kind"] == kind}
             with get_connection() as connection:
-                MinecraftCosmeticsRepository(connection).delete_skin(asset_id, str(user["user_id"]))
+                MinecraftCosmeticsRepository(connection).delete_asset(
+                    kind, asset_id, str(user["user_id"]), builtin_ids=builtin_ids)
                 connection.commit()
         except ValueError as exc:
             return page(request, error=str(exc), code=400)

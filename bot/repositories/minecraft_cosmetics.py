@@ -58,27 +58,34 @@ class MinecraftCosmeticsRepository:
         return record
 
     def delete_skin(self, asset_id, deleted_by):
+        return self.delete_asset("skin", asset_id, deleted_by, builtin_ids=range(1, 5))
+
+    def delete_asset(self, kind, asset_id, deleted_by, *, builtin_ids=()):
+        """Soft-delete one kind/ID; builtin IDs must come from the trusted catalog."""
+        if kind not in ("skin", "poster"):
+            raise ValueError("削除できるのはスキンとポスターだけです。")
+        label = "スキン" if kind == "skin" else "ポスター"
         if type(asset_id) is not int or not 1 <= asset_id <= MAX_ID:
-            raise ValueError("スキンIDが不正です。")
+            raise ValueError(f"{label}IDが不正です。")
         with self.connection.cursor() as cursor:
             cursor.execute("LOCK TABLE minecraft_cosmetic_assets IN SHARE ROW EXCLUSIVE MODE")
             cursor.execute("""
                 SELECT name FROM minecraft_cosmetic_assets
-                WHERE kind='skin' AND asset_id=%s AND deleted_at IS NULL
-            """, (asset_id,))
+                WHERE kind=%s AND asset_id=%s AND deleted_at IS NULL
+            """, (kind, asset_id))
             row = fetch_one(cursor)
-            if row is None and asset_id > 4:
-                raise ValueError("削除できるスキンがありません。")
+            if row is None and asset_id not in builtin_ids:
+                raise ValueError(f"削除できる{label}がありません。")
             cursor.execute("""
                 INSERT INTO minecraft_cosmetic_deleted_assets (kind, asset_id, deleted_by)
-                VALUES ('skin', %s, %s)
+                VALUES (%s, %s, %s)
                 ON CONFLICT (kind, asset_id) DO NOTHING
-            """, (asset_id, deleted_by))
+            """, (kind, asset_id, deleted_by))
             cursor.execute("""
                 UPDATE minecraft_cosmetic_assets
                 SET deleted_at = COALESCE(deleted_at, NOW())
-                WHERE kind='skin' AND asset_id=%s
-            """, (asset_id,))
+                WHERE kind=%s AND asset_id=%s
+            """, (kind, asset_id))
         return True
 
     def revision(self):
