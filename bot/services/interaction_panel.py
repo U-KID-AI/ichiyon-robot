@@ -11,6 +11,13 @@ from bot.repositories.feature_flags import FeatureFlagRepository
 from bot.repositories.games import GameRepository
 from bot.repositories.youtube_n_pull import YouTubeNPullRepository
 from bot.services import game_provider
+from bot.services.interaction_adapter import (
+    PANEL_CUSTOM_ID_PREFIX,
+    InteractionMessageAdapter,
+    InteractionSendChannel,
+    custom_id,
+)
+from bot.services.minecraft_panel import MinecraftPanelView
 from bot.services.voice_audio import (
     get_guild_voice_client,
     play_audio_asset_row,
@@ -36,7 +43,6 @@ from bot.services.voice_music import (
 from bot.services.youtube_n_pull import handle_youtube_n_pull_command, is_youtube_n_pull_schema_missing
 
 
-PANEL_CUSTOM_ID_PREFIX = "ichiyon_panel"
 MENTION_ONLY_MESSAGE = "何をしますか？"
 MAX_SELECT_OPTIONS = 25
 SOUNDBOARD_ASSETS_PER_PAGE = 20
@@ -50,10 +56,6 @@ AUDIO_ASSET_DYNAMIC_BUTTON_TEMPLATE = (
         PANEL_BOT_ID_PATTERN,
     )
 )
-
-
-def custom_id(*parts: str) -> str:
-    return ":".join([PANEL_CUSTOM_ID_PREFIX, config.BOT_INSTANCE_ID] + [str(part) for part in parts])
 
 
 def audio_asset_custom_id(bot_id: str, asset_id: int) -> str:
@@ -92,30 +94,6 @@ async def defer_interaction_if_needed(interaction: discord.Interaction, *, ephem
 
 def mention_text_is_empty(command_text: Optional[str]) -> bool:
     return command_text is not None and not str(command_text or "").strip()
-
-
-class InteractionSendChannel:
-    def __init__(self, interaction: discord.Interaction) -> None:
-        self.interaction = interaction
-        self.id = getattr(getattr(interaction, "channel", None), "id", None)
-
-    async def send(self, content=None, **kwargs):
-        allowed = kwargs.pop("allowed_mentions", None)
-        if allowed is None:
-            allowed = discord.AllowedMentions.none()
-        if not self.interaction.response.is_done():
-            await self.interaction.response.send_message(content, allowed_mentions=allowed, ephemeral=True, **kwargs)
-            return
-        await self.interaction.followup.send(content, allowed_mentions=allowed, ephemeral=True, **kwargs)
-
-
-class InteractionMessageAdapter:
-    def __init__(self, interaction: discord.Interaction, content: str = "") -> None:
-        self.interaction = interaction
-        self.guild = interaction.guild
-        self.author = interaction.user
-        self.channel = InteractionSendChannel(interaction)
-        self.content = content
 
 
 def build_main_view() -> discord.ui.View:
@@ -171,6 +149,8 @@ def normalize_panel_command(command_text: Optional[str]) -> str:
 
 
 def panel_command_kind(command_text: Optional[str]) -> Optional[str]:
+    if str(command_text or "").strip() == "マイクラ":
+        return "minecraft"
     normalized = normalize_panel_command(command_text)
     if normalized in {"パネル", "panel"}:
         return "root"
@@ -198,6 +178,10 @@ async def handle_context_panel_command(message: discord.Message, command_text: O
 
     if kind == "root":
         await send_main_panel(message)
+        return True
+
+    if kind == "minecraft":
+        await message.channel.send("Minecraft操作", view=MinecraftPanelView(), allowed_mentions=discord.AllowedMentions.none())
         return True
 
     if kind == "game":
@@ -231,6 +215,7 @@ async def handle_interaction_panel_mention(message: discord.Message, command_tex
 
 def register_persistent_views(bot: discord.Client) -> None:
     bot.add_view(MainPanelView())
+    bot.add_view(MinecraftPanelView())
     bot.add_view(MusicPanelView())
     bot.add_view(AudioCategoryView())
     bot.add_view(GamePanelView())
@@ -242,6 +227,11 @@ def register_persistent_views(bot: discord.Client) -> None:
 class MainPanelView(discord.ui.View):
     def __init__(self) -> None:
         super().__init__(timeout=None)
+
+    @discord.ui.button(label="Minecraft", style=discord.ButtonStyle.primary, custom_id=custom_id("main", "minecraft"))
+    async def minecraft(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        await interaction.response.send_message("Minecraft操作", view=MinecraftPanelView(),
+                                                ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
     @discord.ui.button(label="音楽", style=discord.ButtonStyle.primary, custom_id=custom_id("main", "music"))
     async def music(self, interaction: discord.Interaction, _button: discord.ui.Button):

@@ -170,6 +170,7 @@ jobs:
           python scripts/check_empty_mention_regression.py
           python scripts/check_mention_shortcuts_runtime.py
           python scripts/check_interaction_panel_runtime.py
+          python scripts/check_minecraft_panel.py
           python scripts/check_mezamashi_horoscope.py
           python scripts/check_minecraft_narita_bridge.py
           python scripts/check_voice_vc_commands.py
