@@ -1,5 +1,6 @@
 import asyncio
 import re
+from dataclasses import dataclass
 from typing import Optional
 
 import discord
@@ -189,6 +190,36 @@ _PLAYERLESS_COMMAND_TYPES_BY_TEXT = {
     SERVER_STATUS_COMMAND: "server_status",
     SERVER_RESTART_COMMAND: "server_restart",
 }
+
+
+@dataclass(frozen=True)
+class MinecraftPanelCommand:
+    text: str
+    command_type: str
+    category: str
+    needs_player: bool = True
+
+
+def minecraft_panel_commands():
+    """Derive button metadata from the same registry used by the text parser."""
+    commands = []
+    for text, command_type in _COMMAND_TYPES_BY_TEXT.items():
+        if text in _UNAVAILABLE_COMMAND_MESSAGES:
+            continue
+        if command_type.startswith("poster_"):
+            category = "posters"
+        elif command_type.endswith("_near_player"):
+            category = "mobs"
+        elif command_type in ("held_item_inspect", "sync_diagnostics"):
+            category = "diagnostics"
+        else:
+            category = "items"
+        commands.append(MinecraftPanelCommand(text, command_type, category))
+    commands.extend(MinecraftPanelCommand(text, command_type, "server", False)
+                    for text, command_type in _PLAYERLESS_COMMAND_TYPES_BY_TEXT.items())
+    return tuple(commands)
+
+
 _SUCCESS_MESSAGES = {
     **{
         command: "{player} の近くで" + label + "を完了しました。"
