@@ -426,7 +426,7 @@ class AvatarChecks(unittest.TestCase):
         repo = ast.parse((ROOT / "bot/repositories/minecraft_bridge.py").read_text(encoding="utf-8"))
         allowed = next(ast.literal_eval(node.value) for node in repo.body if isinstance(node, ast.Assign)
                        and any(isinstance(t, ast.Name) and t.id == "MINECRAFT_COMMAND_TYPES" for t in node.targets))
-        sql = (ROOT / "migrations/064_add_minecraft_avatar_commands.sql").read_text(encoding="utf-8")
+        sql = (ROOT / "migrations/070_add_minecraft_online_players.sql").read_text(encoding="utf-8")
         self.assertEqual(set(re.findall(r"'([a-z0-9_]+)'", sql)), set(allowed))
         bridge = (ROOT / "minecraft/behavior_packs/import_structures/scripts/avatar_commands.js").read_text(encoding="utf-8")
         entries = dict(re.findall(r"^  (avatar_\w+): (\{[^\n]+\}),$", bridge, re.M))

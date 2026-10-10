@@ -78,6 +78,33 @@ class PanelChecks(unittest.IsolatedAsyncioTestCase):
             bridge, "fetch_online_players",
             AsyncMock(return_value=["Sourui3", "Yuki351"]),
         ))
+        self.control_status = self.stack.enter_context(patch.object(
+            bridge, "fetch_control_status",
+            AsyncMock(return_value={
+                "server_status": "ONLINE",
+                "container": {
+                    "state": "running",
+                    "health": "healthy",
+                    "restart_count": 0,
+                    "started_at": None,
+                    "uptime_seconds": 10,
+                    "cpu_percent": 0,
+                    "memory": "test",
+                },
+                "host": {
+                    "cpu_percent": 0,
+                    "memory": "test",
+                },
+                "bridge": {
+                    "responding": True,
+                    "player_count": 2,
+                    "player_names": [],
+                },
+                "bds": {
+                    "version": "test",
+                },
+            }),
+        ))
         self.configured = self.stack.enter_context(patch.object(bridge, "control_api_configured", return_value=True))
         self.restart = self.stack.enter_context(patch.object(bridge, "request_control_restart", AsyncMock(return_value={})))
         panel._RUNNING_USERS.clear()
@@ -127,20 +154,47 @@ class PanelChecks(unittest.IsolatedAsyncioTestCase):
 
     async def test_online_select_defers_before_network_and_opens_private_target(self):
         event = interaction(ephemeral=False)
-        async def fetch():
-            event.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
-            return {"bridge": {"player_names": ["Sourui3", "Yuki351", "Sourui3", "bad name", None]}}
+
+        async def fetch(_message):
+            event.response.defer.assert_awaited_once_with(
+                ephemeral=True,
+                thinking=True,
+            )
+            return ["Sourui3", "Yuki351"]
+
         self.fetch.side_effect = fetch
-        await click(panel.MinecraftPanelView(), "プレイヤー操作", event)
+
+        await click(
+            panel.MinecraftPanelView(),
+            "\u30d7\u30ec\u30a4\u30e4\u30fc\u64cd\u4f5c",
+            event,
+        )
+
         view = shown_view(event)
-        select = next(c for c in view.children if isinstance(c, panel.PlayerSelect))
-        self.assertEqual([o.value for o in select.options], ["Sourui3", "Yuki351"])
+        select = next(
+            c for c in view.children
+            if isinstance(c, panel.PlayerSelect)
+        )
+
+        self.assertEqual(
+            [o.value for o in select.options],
+            ["Sourui3", "Yuki351"],
+        )
+
+        self.fetch.assert_awaited_once()
+
         select._values = ["Yuki351"]
+
         chosen = interaction()
         await select.callback(chosen)
+
         target = shown_view(chosen)
+
         self.assertEqual(target.player, "Yuki351")
-        self.assertIn("対象: Yuki351", chosen.edit_original_response.call_args.kwargs["content"])
+        self.assertIn(
+            "\u5bfe\u8c61: Yuki351",
+            chosen.edit_original_response.call_args.kwargs["content"],
+        )
         self.assertEqual(target.timeout, panel.SESSION_TIMEOUT)
         self.assertFalse(target.is_persistent())
         self.assertTrue(view.is_finished())
@@ -150,34 +204,74 @@ class PanelChecks(unittest.IsolatedAsyncioTestCase):
         self.fetch.side_effect = None
 
         empty = interaction()
-        await click(panel.MinecraftPanelView(), "???????", empty)
+
+        await click(
+            panel.MinecraftPanelView(),
+            "\u30d7\u30ec\u30a4\u30e4\u30fc\u64cd\u4f5c",
+            empty,
+        )
+
         empty_view = shown_view(empty)
+
         self.assertIn(
-            "??????????????????",
+            "\u73fe\u5728\u30aa\u30f3\u30e9\u30a4\u30f3\u306e\u30d7\u30ec\u30a4\u30e4\u30fc\u306f\u3044\u307e\u305b\u3093",
             empty.edit_original_response.call_args.kwargs["content"],
         )
-        self.assertFalse(any(isinstance(c, discord.ui.Select) for c in empty_view.children))
+
+        self.assertFalse(
+            any(
+                isinstance(c, discord.ui.Select)
+                for c in empty_view.children
+            )
+        )
 
         manual = interaction()
-        await click(empty_view, "Minecraft????", manual)
+
+        await click(
+            empty_view,
+            "Minecraft\u540d\u3092\u5165\u529b",
+            manual,
+        )
+
         self.assertIsInstance(
             manual.response.send_modal.call_args.args[0],
             panel.PlayerNameModal,
         )
 
-        self.fetch.side_effect = bridge.OnlinePlayersError("bridge_unavailable")
+        self.fetch.side_effect = bridge.OnlinePlayersError(
+            "bridge_unavailable"
+        )
 
         failed = interaction()
-        await click(panel.MinecraftPanelView(), "???????", failed)
+
+        await click(
+            panel.MinecraftPanelView(),
+            "\u30d7\u30ec\u30a4\u30e4\u30fc\u64cd\u4f5c",
+            failed,
+        )
+
         failed_view = shown_view(failed)
+
         self.assertIn(
-            "???????????????????????",
+            "\u30aa\u30f3\u30e9\u30a4\u30f3\u30d7\u30ec\u30a4\u30e4\u30fc\u4e00\u89a7\u3092\u53d6\u5f97\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f",
             failed.edit_original_response.call_args.kwargs["content"],
         )
-        self.assertFalse(any(isinstance(c, discord.ui.Select) for c in failed_view.children))
+
+        self.assertFalse(
+            any(
+                isinstance(c, discord.ui.Select)
+                for c in failed_view.children
+            )
+        )
 
         manual = interaction()
-        await click(failed_view, "Minecraft????", manual)
+
+        await click(
+            failed_view,
+            "Minecraft\u540d\u3092\u5165\u529b",
+            manual,
+        )
+
         self.assertIsInstance(
             manual.response.send_modal.call_args.args[0],
             panel.PlayerNameModal,
