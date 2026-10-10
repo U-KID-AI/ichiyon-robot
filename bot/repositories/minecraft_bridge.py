@@ -33,6 +33,7 @@ MINECRAFT_COMMAND_TYPES = (
     "sync_diagnostics",
     "join_history",
     "server_status",
+    "online_players",
     "taketumi_spawn_near_player",
     "taketumi_remove_near_player",
     "poster_irsia",
