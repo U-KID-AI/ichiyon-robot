@@ -16,11 +16,11 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 
 function fixture() {
   const logs = [], requests = [];
-  const f = { get: async () => ({ status: 200, body: '{"command":null}' }), post: async () => ({ status: 200 }), execute: async () => false };
+  const f = { get: async () => ({ status: 200, body: '{"command":null}' }), post: async () => ({ status: 200 }), execute: async () => false, players: [] };
   const context = vm.createContext({
     console: { warn: text => logs.push(text) },
     system: { currentTick: 0, runInterval() {}, runTimeout() {}, run() {} },
-    world: { afterEvents: new Proxy({}, { get: () => ({ subscribe() {} }) }), getAllPlayers: () => [] },
+    world: { afterEvents: new Proxy({}, { get: () => ({ subscribe() {} }) }), getAllPlayers: () => f.players },
     variables: { get: name => name === "MINECRAFT_BRIDGE_GUILD_ID" ? "guild" : undefined },
     secrets: { get: () => "test-secret-do-not-log" },
     HttpHeader: class { constructor(name, value) { Object.assign(this, { name, value }); } },
@@ -81,6 +81,82 @@ test("one guard spans GET, parse, execution and result POST without duplicate ex
   await f.pollOnce();
   assert.equal(f.requests.length, 3);
   assert.equal(executions, 1);
+});
+
+
+test("online_players returns the current valid sorted unique Bedrock roster", async () => {
+  const f = fixture();
+
+  f.players = [
+    { name: "Yuki351" },
+    { name: "Sourui3" },
+    { name: "Yuki351" },
+    { name: "bad name" },
+  ];
+
+  f.get = async () => ({
+    status: 200,
+    body: JSON.stringify({
+      command: {
+        type: "online_players",
+        request_id: "roster-1",
+      },
+    }),
+  });
+
+  let resultBody = null;
+
+  f.post = async request => {
+    resultBody = JSON.parse(request.body);
+    return { status: 200 };
+  };
+
+  await f.pollOnce();
+
+  assert.ok(resultBody);
+  assert.equal(resultBody.status, "succeeded");
+  assert.equal(resultBody.reason, "ok");
+
+  const payload = JSON.parse(resultBody.message);
+
+  assert.equal(payload.schema, "ichiyon.minecraft_online_players.v1");
+  assert.equal(typeof payload.timestamp_ms, "number");
+  assert.equal(payload.count, 2);
+  assert.deepEqual(payload.players, ["Sourui3", "Yuki351"]);
+});
+
+test("online_players returns an empty roster when nobody is online", async () => {
+  const f = fixture();
+
+  f.players = [];
+
+  f.get = async () => ({
+    status: 200,
+    body: JSON.stringify({
+      command: {
+        type: "online_players",
+        request_id: "roster-empty",
+      },
+    }),
+  });
+
+  let resultBody = null;
+
+  f.post = async request => {
+    resultBody = JSON.parse(request.body);
+    return { status: 200 };
+  };
+
+  await f.pollOnce();
+
+  assert.ok(resultBody);
+  assert.equal(resultBody.status, "succeeded");
+
+  const payload = JSON.parse(resultBody.message);
+
+  assert.equal(payload.schema, "ichiyon.minecraft_online_players.v1");
+  assert.equal(payload.count, 0);
+  assert.deepEqual(payload.players, []);
 });
 
 for (const failure of ["get", "http", "parse", "null", "execute", "post", "post_status", "constructor"]) {

@@ -3,6 +3,7 @@ import asyncio
 from contextlib import ExitStack, redirect_stdout
 from dataclasses import replace
 import io
+import json
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -73,8 +74,37 @@ class PanelChecks(unittest.IsolatedAsyncioTestCase):
         permissions.has_global_admin.return_value = False
         permissions.list_manageable_guilds_for_bot.return_value = []
         self.permissions = self.stack.enter_context(patch.object(bridge, "PermissionRepository", return_value=permissions))
-        self.fetch = self.stack.enter_context(patch.object(bridge, "fetch_control_status", AsyncMock(
-            return_value={"bridge": {"player_names": ["Sourui3", "Yuki351"]}})))
+        self.fetch = self.stack.enter_context(patch.object(
+            bridge, "fetch_online_players",
+            AsyncMock(return_value=["Sourui3", "Yuki351"]),
+        ))
+        self.control_status = self.stack.enter_context(patch.object(
+            bridge, "fetch_control_status",
+            AsyncMock(return_value={
+                "server_status": "ONLINE",
+                "container": {
+                    "state": "running",
+                    "health": "healthy",
+                    "restart_count": 0,
+                    "started_at": None,
+                    "uptime_seconds": 10,
+                    "cpu_percent": 0,
+                    "memory": "test",
+                },
+                "host": {
+                    "cpu_percent": 0,
+                    "memory": "test",
+                },
+                "bridge": {
+                    "responding": True,
+                    "player_count": 2,
+                    "player_names": [],
+                },
+                "bds": {
+                    "version": "test",
+                },
+            }),
+        ))
         self.configured = self.stack.enter_context(patch.object(bridge, "control_api_configured", return_value=True))
         self.restart = self.stack.enter_context(patch.object(bridge, "request_control_restart", AsyncMock(return_value={})))
         panel._RUNNING_USERS.clear()
@@ -124,37 +154,194 @@ class PanelChecks(unittest.IsolatedAsyncioTestCase):
 
     async def test_online_select_defers_before_network_and_opens_private_target(self):
         event = interaction(ephemeral=False)
-        async def fetch():
-            event.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
-            return {"bridge": {"player_names": ["Sourui3", "Yuki351", "Sourui3", "bad name", None]}}
+
+        async def fetch(_message):
+            event.response.defer.assert_awaited_once_with(
+                ephemeral=True,
+                thinking=True,
+            )
+            return ["Sourui3", "Yuki351"]
+
         self.fetch.side_effect = fetch
-        await click(panel.MinecraftPanelView(), "プレイヤー操作", event)
+
+        await click(
+            panel.MinecraftPanelView(),
+            "\u30d7\u30ec\u30a4\u30e4\u30fc\u64cd\u4f5c",
+            event,
+        )
+
         view = shown_view(event)
-        select = next(c for c in view.children if isinstance(c, panel.PlayerSelect))
-        self.assertEqual([o.value for o in select.options], ["Sourui3", "Yuki351"])
+        select = next(
+            c for c in view.children
+            if isinstance(c, panel.PlayerSelect)
+        )
+
+        self.assertEqual(
+            [o.value for o in select.options],
+            ["Sourui3", "Yuki351"],
+        )
+
+        self.fetch.assert_awaited_once()
+
         select._values = ["Yuki351"]
+
         chosen = interaction()
         await select.callback(chosen)
+
         target = shown_view(chosen)
+
         self.assertEqual(target.player, "Yuki351")
-        self.assertIn("対象: Yuki351", chosen.edit_original_response.call_args.kwargs["content"])
+        self.assertIn(
+            "\u5bfe\u8c61: Yuki351",
+            chosen.edit_original_response.call_args.kwargs["content"],
+        )
         self.assertEqual(target.timeout, panel.SESSION_TIMEOUT)
         self.assertFalse(target.is_persistent())
         self.assertTrue(view.is_finished())
 
-    async def test_api_failure_empty_or_malformed_roster_has_manual_fallback(self):
-        for value in (bridge.MinecraftControlError("offline"), {}, None, {"bridge": {"player_names": []}},
-                      {"bridge": {"player_names": "Sourui3"}}, {"bridge": []}):
-            self.fetch.side_effect = value if isinstance(value, Exception) else None
-            self.fetch.return_value = value
-            event = interaction()
-            await click(panel.MinecraftPanelView(), "プレイヤー操作", event)
-            view = shown_view(event)
-            self.assertFalse(any(isinstance(c, discord.ui.Select) for c in view.children))
-            manual = interaction()
-            await click(view, "Minecraft名を入力", manual)
-            self.assertIsInstance(manual.response.send_modal.call_args.args[0], panel.PlayerNameModal)
-            manual.response.defer.assert_not_awaited()
+    async def test_empty_roster_and_bridge_failure_are_distinct_with_manual_fallback(self):
+        self.fetch.return_value = []
+        self.fetch.side_effect = None
+
+        empty = interaction()
+
+        await click(
+            panel.MinecraftPanelView(),
+            "\u30d7\u30ec\u30a4\u30e4\u30fc\u64cd\u4f5c",
+            empty,
+        )
+
+        empty_view = shown_view(empty)
+
+        self.assertIn(
+            "\u73fe\u5728\u30aa\u30f3\u30e9\u30a4\u30f3\u306e\u30d7\u30ec\u30a4\u30e4\u30fc\u306f\u3044\u307e\u305b\u3093",
+            empty.edit_original_response.call_args.kwargs["content"],
+        )
+
+        self.assertFalse(
+            any(
+                isinstance(c, discord.ui.Select)
+                for c in empty_view.children
+            )
+        )
+
+        manual = interaction()
+
+        await click(
+            empty_view,
+            "Minecraft\u540d\u3092\u5165\u529b",
+            manual,
+        )
+
+        self.assertIsInstance(
+            manual.response.send_modal.call_args.args[0],
+            panel.PlayerNameModal,
+        )
+
+        self.fetch.side_effect = bridge.OnlinePlayersError(
+            "bridge_unavailable"
+        )
+
+        failed = interaction()
+
+        await click(
+            panel.MinecraftPanelView(),
+            "\u30d7\u30ec\u30a4\u30e4\u30fc\u64cd\u4f5c",
+            failed,
+        )
+
+        failed_view = shown_view(failed)
+
+        self.assertIn(
+            "\u30aa\u30f3\u30e9\u30a4\u30f3\u30d7\u30ec\u30a4\u30e4\u30fc\u4e00\u89a7\u3092\u53d6\u5f97\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f",
+            failed.edit_original_response.call_args.kwargs["content"],
+        )
+
+        self.assertFalse(
+            any(
+                isinstance(c, discord.ui.Select)
+                for c in failed_view.children
+            )
+        )
+
+        manual = interaction()
+
+        await click(
+            failed_view,
+            "Minecraft\u540d\u3092\u5165\u529b",
+            manual,
+        )
+
+        self.assertIsInstance(
+            manual.response.send_modal.call_args.args[0],
+            panel.PlayerNameModal,
+        )
+
+    def test_online_players_result_parser_validates_machine_contract(self):
+        good = {
+            "status": "succeeded",
+            "result_message": json.dumps({
+                "schema": bridge.ONLINE_PLAYERS_SCHEMA,
+                "timestamp_ms": 123456789,
+                "count": 3,
+                "players": ["Yuki351", "Sourui3", "Yuki351"],
+            }),
+        }
+
+        self.assertEqual(
+            bridge.parse_online_players_result(good),
+            ["Sourui3", "Yuki351"],
+        )
+
+        bad_results = (
+            None,
+            {},
+            {"status": "failed", "result_message": ""},
+            {"status": "succeeded", "result_message": "not-json"},
+            {
+                "status": "succeeded",
+                "result_message": json.dumps({
+                    "schema": "wrong.schema",
+                    "timestamp_ms": 1,
+                    "count": 0,
+                    "players": [],
+                }),
+            },
+            {
+                "status": "succeeded",
+                "result_message": json.dumps({
+                    "schema": bridge.ONLINE_PLAYERS_SCHEMA,
+                    "timestamp_ms": 1,
+                    "count": 2,
+                    "players": ["Sourui3"],
+                }),
+            },
+            {
+                "status": "succeeded",
+                "result_message": json.dumps({
+                    "schema": bridge.ONLINE_PLAYERS_SCHEMA,
+                    "timestamp_ms": 1,
+                    "count": 1,
+                    "players": ["bad name"],
+                }),
+            },
+        )
+
+        for value in bad_results:
+            with self.assertRaises(bridge.OnlinePlayersError):
+                bridge.parse_online_players_result(value)
+
+    def test_panel_roster_source_is_bridge_online_players_not_control_status(self):
+        source = (
+            Path(__file__).resolve().parent.parent
+            / "bot"
+            / "services"
+            / "minecraft_panel.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("fetch_online_players", source)
+        self.assertNotIn("fetch_control_status", source)
+        self.assertNotIn('["player_names"]', source)
 
     async def test_modal_validation_and_owner(self):
         for name in ("", "bad name", "@everyone", "x" * 17, "日本語", "abc\n/give"):

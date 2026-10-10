@@ -563,6 +563,25 @@ async function handleJoinHistory(command) {
   await postResult(requestId, "succeeded", "ok", JSON.stringify(payload));
 }
 
+async function handleOnlinePlayers(command) {
+  const requestId = String(command.request_id || "");
+  if (!requestId) return;
+  let players;
+  try {
+    players = [...new Set(world.getAllPlayers().map(player => player.name)
+      .filter(name => typeof name === "string" && isValidPlayerName(name)))].sort();
+  } catch (_error) {
+    await postResult(requestId, "failed", "online_players_failed", "");
+    return;
+  }
+  await postResult(requestId, "succeeded", "ok", JSON.stringify({
+    schema: "ichiyon.minecraft_online_players.v1",
+    timestamp_ms: Date.now(),
+    count: players.length,
+    players,
+  }));
+}
+
 async function handleServerStatus(command) {
   const requestId = String(command.request_id || "");
   if (!requestId) {
@@ -1259,6 +1278,10 @@ async function pollCommand() {
   }
   if (command.type === "server_status") {
     await handleServerStatus(command);
+    return;
+  }
+  if (command.type === "online_players") {
+    await handleOnlinePlayers(command);
     return;
   }
   if (Object.prototype.hasOwnProperty.call(ITEM_TYPES_BY_COMMAND, command.type)) {

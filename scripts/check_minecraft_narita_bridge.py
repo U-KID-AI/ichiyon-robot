@@ -486,6 +486,7 @@ def static_checks():
     migration_051 = (ROOT_DIR / "migrations" / "051_add_taketumi_entity_commands.sql").read_text(encoding="utf-8")
     migration_052 = (ROOT_DIR / "migrations" / "052_add_minecraft_poster_commands.sql").read_text(encoding="utf-8")
     migration_053 = (ROOT_DIR / "migrations" / "053_add_more_minecraft_poster_commands.sql").read_text(encoding="utf-8")
+    migration_070 = (ROOT_DIR / "migrations" / "070_add_minecraft_online_players.sql").read_text(encoding="utf-8")
     script = (ROOT_DIR / "minecraft" / "behavior_packs" / "import_structures" / "scripts" / "main.js").read_text(encoding="utf-8")
     control_api = (ROOT_DIR / "scripts" / "minecraft" / "minecraft_control_api.py").read_text(encoding="utf-8")
     control_env = (ROOT_DIR / "scripts" / "minecraft" / "minecraft-control-api.env.example").read_text(encoding="utf-8")
@@ -529,6 +530,17 @@ def static_checks():
     results.append(check("queue migration 053 preserves E sacred letter", "e_schrift_item" in migration_053))
     results.append(check("queue allows held item inspect", "held_item_inspect" in migration_053 and "held_item_inspect" in MINECRAFT_COMMAND_TYPES))
     results.append(check("queue allows minecraft status", "server_status" in migration_053 and "server_status" in MINECRAFT_COMMAND_TYPES))
+    results.append(check(
+        "queue allows machine-readable online player roster",
+        "online_players" in migration_070 and "online_players" in MINECRAFT_COMMAND_TYPES,
+    ))
+    results.append(check(
+        "script handles online player roster from Bedrock world state",
+        "handleOnlinePlayers" in script
+        and 'command.type === "online_players"' in script
+        and "world.getAllPlayers()" in script
+        and "ichiyon.minecraft_online_players.v1" in script,
+    ))
     results.append(check("migration 053 uses existing safe constraint", "minecraft_command_queue_type_safe" in migration_053))
     results.append(check("script rejects unknown command type", "unknown_command_type" in script))
     results.append(check("script uses fixed structure id", "mystructure:narita_map_item" in script and "command.structure" not in script))

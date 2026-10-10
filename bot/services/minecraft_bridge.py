@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 from dataclasses import dataclass
 from typing import Optional
@@ -370,6 +371,58 @@ async def handle_minecraft_command(message: discord.Message, command_text: Optio
             return True
 
     return await _handle_bridge_queue_command(message, guild_id, command_type, minecraft_player_name)
+
+
+ONLINE_PLAYERS_SCHEMA = "ichiyon.minecraft_online_players.v1"
+
+
+class OnlinePlayersError(ValueError):
+    """An unavailable or invalid Bridge roster, distinct from an empty roster."""
+
+
+def parse_online_players_result(result) -> list[str]:
+    if result is None:
+        raise OnlinePlayersError("bridge_timeout_or_unavailable")
+    if not isinstance(result, dict):
+        raise OnlinePlayersError("invalid_result_contract")
+    if result.get("status") == "failed":
+        raise OnlinePlayersError("command_failed")
+    if result.get("status") != "succeeded":
+        raise OnlinePlayersError("invalid_result_status")
+    message = result.get("result_message")
+    if not isinstance(message, str):
+        raise OnlinePlayersError("invalid_result_message")
+    try:
+        payload = json.loads(message)
+    except ValueError as exc:
+        raise OnlinePlayersError("invalid_json") from exc
+    if not isinstance(payload, dict) or payload.get("schema") != ONLINE_PLAYERS_SCHEMA:
+        raise OnlinePlayersError("invalid_schema")
+    players = payload.get("players")
+    if not isinstance(players, list) or any(
+        not isinstance(name, str) or not is_valid_minecraft_player_name(name) for name in players
+    ):
+        raise OnlinePlayersError("invalid_players")
+    # Validate the wire count before defensive de-duplication of valid names.
+    if type(payload.get("count")) is not int or payload["count"] != len(players):
+        raise OnlinePlayersError("invalid_count")
+    if type(payload.get("timestamp_ms")) is not int or payload["timestamp_ms"] < 0:
+        raise OnlinePlayersError("invalid_timestamp")
+    return sorted(set(players))
+
+
+async def fetch_online_players(message) -> list[str]:
+    guild_id = get_message_guild_id(message)
+    if guild_id is None:
+        raise OnlinePlayersError("guild_required")
+    try:
+        result = await _enqueue_bridge_command_result(
+            message, guild_id, "online_players", "OnlinePlayers",
+            config.MINECRAFT_COMMAND_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:
+        raise OnlinePlayersError("bridge_unavailable") from exc
+    return parse_online_players_result(result)
 
 
 async def _handle_bridge_queue_command(

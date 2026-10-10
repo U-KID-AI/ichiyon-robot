@@ -54,23 +54,16 @@ async def execute(interaction, command, player=None):
         _RUNNING_USERS.discard(key)
 
 
-def online_players(status):
-    data = status.get("bridge") if isinstance(status, dict) else None
-    names = data.get("player_names") if isinstance(data, dict) else None
-    if not isinstance(names, list):
-        return []
-    return list(dict.fromkeys(name for name in names
-                             if isinstance(name, str) and bridge.is_valid_minecraft_player_name(name)))
-
-
 async def choose_player(interaction, *, replace=False):
     await defer(interaction, replace=replace)
+    adapter = InteractionMessageAdapter(interaction)
+    adapter.id = interaction.id
     try:
-        players = online_players(await bridge.fetch_control_status())
-        message = "対象プレイヤーを選択してください。" if players else "オンラインのプレイヤーを取得できませんでした。Minecraft名を入力できます。"
-    except bridge.MinecraftControlError:
+        players = await bridge.fetch_online_players(adapter)
+        message = "対象プレイヤーを選択してください。" if players else "現在オンラインのプレイヤーはいません。\nMinecraft名を手入力できます。"
+    except bridge.OnlinePlayersError:
         players = []
-        message = "Minecraft管理APIを利用できません。Minecraft名を入力できます。"
+        message = "オンラインプレイヤー一覧を取得できませんでした。\nMinecraft名を手入力できます。"
     await show(interaction, message, PlayerSelectView(interaction.user.id, players), replace=replace)
 
 
