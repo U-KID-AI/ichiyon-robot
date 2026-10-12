@@ -1,5 +1,7 @@
 # Current backlog — 2026-09-30
 
+> **2026-10-12 更新:** いちよんラボ全体のMinecraft/Mob/バイオーム/いちよんロボの追加・改修・実機QAを、調整版WSJF・依存関係・暫定工数で整理した [統合優先度台帳](tasks/ichiyon-lab-priorities-2026-10-12.md) を追加した。**雪原バイオームと、中断して戻した神社山バイオームは別件として収録**。**Rhodes（ロドス）アイランドはユーザー完成確認済みなので対象外**。この下の2026-09-30監査表は当時の技術的証拠を保存する履歴であり、2026-10-12時点のproduction状態を保証するものではない。実装済み / PR merge / production反映 / Minecraft実機QAは区別する。
+
 この文書を現時点の残タスクの **source of truth** とする。判定はコード、checker、現行CI、GitHubのPR/commitを照合して行い、古いTODOや初回作業の制約だけから未実装と判定しない。「実装済み」はproductionへの適用やMinecraft実機QAの完了を意味しない。
 
 監査基準はfetch済み`origin/main`の`d93718673158ae886b1b598473d9a7c8b688a732`（[PR #109](https://github.com/U-KID-AI/ichiyon-robot/pull/109)）。今回の実装は、このmainから作成した`codex/backlog-cleanup-20260930`に積む。既存`codex/minecraft-fixes-batch-20260924`とその12 commitは保持し、reset/rebase/削除を行わない。
