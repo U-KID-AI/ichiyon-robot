@@ -92,6 +92,17 @@ test('switching held item before scheduled paw use cancels removal',()=>{
   scheduled.splice(0).forEach(fn=>fn());assert(m.isValid);
 });
 const bp=JSON.parse(readFileSync(new URL('../minecraft/behavior_packs/ichiyon_avatar_bp/entities/garbage_molcar.json',import.meta.url)))['minecraft:entity'];
+test('native fall immunity matches all regular Molcars without changing health or other damage',()=>{
+  const sensor=bp.components['minecraft:damage_sensor'];
+  assert.deepEqual(sensor,{triggers:[{cause:'fall',deals_damage:'no'}]});
+  assert.deepEqual(bp.components['minecraft:health'],{value:30,max:30});
+  for(const type of ['molcar','molcar2','molcar3']){
+    const regular=JSON.parse(readFileSync(new URL(`../minecraft/behavior_packs/ichiyon_avatar_bp/entities/${type}.behavior.json`,import.meta.url)))['minecraft:entity'];
+    assert.deepEqual(sensor,regular.components['minecraft:damage_sensor']);
+  }
+  // Following/pickup events must not remove or replace the permanent fall guard.
+  for(const group of Object.values(bp.component_groups))assert(!('minecraft:damage_sensor' in group));
+});
 test('isolated friendly native AI and persistent inventory',()=>{
   assert.equal(bp.components['minecraft:movement'].value,.34);
   assert.equal(bp.component_groups['ichiyon:garbage_following']['minecraft:behavior.follow_owner'].speed_multiplier,1.25);
@@ -162,30 +173,68 @@ test('pre-upgrade owner and storage survive load-time following goal repair',()=
   assert.equal(m.getDynamicProperty(OWNER),p.id);assert.equal(m.container.getItem(0).amount,7);
   assert.equal(m.container.getItem(0).nameTag,'saved');
 });
-test('both combat copies exclude garbage damage and knockback but preserve other ram combat',()=>{
-  for(const pack of ['import_structures','ichiyon_avatar_bp']){
-    const intervals=[];
+const combatPacks=['import_structures','ichiyon_avatar_bp'];
+const combatSource=pack=>readFileSync(new URL(`../minecraft/behavior_packs/${pack}/scripts/molcar_combat.js`,import.meta.url),'utf8');
+test('combat copies remain identical',()=>assert.equal(combatSource(combatPacks[0]),combatSource(combatPacks[1])));
+for(const pack of combatPacks){
+  function collisionScene(sourceType='ichiyon:molcar',fallback=false){
+    const intervals=[],sounds=[];
     const rider={id:'rider',typeId:'minecraft:player'};
-    const make=(typeId,id)=>({typeId,id,location:{x:.5,y:64,z:0},hits:0,knockbacks:0,ejected:0,
+    const make=(typeId,id)=>Object.assign(entity(typeId,id),{location:{x:.5,y:64,z:0},hp:30,hits:0,knockbacks:[],impulses:[],ejected:0,speed:.4,
       getComponent(name){
-        if(name==='minecraft:health')return{currentValue:30};
-        if(name==='minecraft:rideable')return{getRiders:()=>this.id==='source'?[rider]:[],ejectRiders:()=>this.ejected++};
+        if(name==='minecraft:health')return{currentValue:this.hp};
+        if(name==='minecraft:rideable'&&this.typeId!==GARBAGE)return{getRiders:()=>this.id==='source'?[rider]:[],ejectRiders:()=>this.ejected++};
       },
-      getVelocity:()=>({x:.4,y:0,z:0}),applyDamage(){this.hits++;},applyKnockback(){this.knockbacks++;},applyImpulse(){}});
-    const source=make('ichiyon:molcar','source'),garbage=make(GARBAGE,'garbage'),cow=make('minecraft:cow','cow'),other=make('ichiyon:molcar2','other');
+      getVelocity(){return{x:this.speed,y:0,z:0};},applyDamage(n){this.hits++;this.hp-=n;},
+      applyKnockback(horizontal,vertical){if(fallback&&this.typeId===GARBAGE)throw Error('unavailable');this.knockbacks.push({horizontal,vertical});},
+      applyImpulse(v){this.impulses.push(v);}});
+    const source=make(sourceType,'source'),garbage=make(GARBAGE,'garbage'),cow=make('minecraft:cow','cow'),other=make('ichiyon:molcar2','other');
     source.location.x=0;
+    garbage.setDynamicProperty(OWNER,'owner');garbage.setDynamicProperty('ichiyon:pickup_enabled',true);
+    garbage.container.setItem(0,new Stack('filled_map',1,'saved map'));
     const all=[source,garbage,cow,other];
-    const dimension={playSound(){},getEntities:q=>q.type?all.filter(e=>e.typeId===q.type):all};
+    const dimension={playSound:(name,location)=>sounds.push({name,location}),
+      getEntities:q=>q.type?all.filter(e=>e.typeId===q.type):all.filter(e=>Math.hypot(e.location.x-q.location.x,e.location.z-q.location.z)<=q.maxDistance)};
     all.forEach(e=>e.dimension=dimension);
     const signal={subscribe(){}};
     const world={getAllPlayers:()=>[],getDimension:n=>n==='overworld'?dimension:{getEntities:()=>[]},
       beforeEvents:{entityHurt:signal},afterEvents:{entitySpawn:signal,entityHurt:signal,entityDie:signal}};
-    const sourceText=readFileSync(new URL(`../minecraft/behavior_packs/${pack}/scripts/molcar_combat.js`,import.meta.url),'utf8').replace(/^import .*;\r?\n/,'');
+    const sourceText=combatSource(pack).replace(/^import .*;\r?\n/,'');
     vm.runInNewContext(sourceText,{world,system:{runInterval:fn=>intervals.push(fn)},console:{warn(){}}});
-    intervals[0]();
-    assert.equal(garbage.hits,0,pack);assert.equal(garbage.knockbacks,0,pack);assert.equal(garbage.ejected,0,pack);
-    assert.equal(cow.hits,1,pack);assert.equal(cow.knockbacks,1,pack);
-    assert.equal(other.hits,0,pack);assert.equal(other.knockbacks,1,pack);assert.equal(other.ejected,1,pack);
+    return{step:intervals[0],source,garbage,cow,other,sounds};
   }
-});
+  for(const type of ['ichiyon:molcar','ichiyon:molcar2','ichiyon:molcar3'])test(`${pack}: ${type} knocks garbage back without damage or state loss`,()=>{
+    const {step,garbage,cow,other,sounds}=collisionScene(type);step();
+    assert.equal(garbage.hits,0);assert.equal(garbage.hp,30);assert.equal(garbage.ejected,0);
+    assert.equal(garbage.knockbacks.length,1);
+    assert.equal(garbage.knockbacks[0].horizontal.x,5);assert.equal(garbage.knockbacks[0].horizontal.z,0);
+    assert.equal(garbage.knockbacks[0].vertical,.9);
+    assert(sounds.some(s=>s.name==='ichiyon:molcar.crash'&&s.location===garbage.location));
+    assert.equal(garbage.getDynamicProperty(OWNER),'owner');assert.equal(garbage.getDynamicProperty('ichiyon:pickup_enabled'),true);
+    assert.equal(garbage.container.getItem(0).opaque,'map-uuid-123');assert.equal(garbage.container.getItem(0).nameTag,'saved map');
+    assert.deepEqual(garbage.events,[]);assert(garbage.isValid);
+    assert.equal(cow.hits,1);assert.equal(cow.hp,4);assert.equal(cow.knockbacks.length,1);
+    assert.equal(other.hits,0);assert.equal(other.knockbacks.length,1);assert.equal(other.ejected,1);
+    assert.equal(other.knockbacks[0].horizontal.x,5);assert.equal(other.knockbacks[0].vertical,.9);
+    step();assert.equal(garbage.knockbacks.length,1);assert.equal(cow.hits,1);assert.equal(other.knockbacks.length,1);
+    for(let i=0;i<5;i++)step(); // Existing 12-tick collision cooldown, loop runs every 2 ticks.
+    assert.equal(garbage.knockbacks.length,2);assert.equal(garbage.hp,30);
+  });
+  test(`${pack}: garbage collision retains speed, radius and forward gates`,()=>{
+    const {step,source,garbage}=collisionScene();
+    source.speed=.119;step();assert.equal(garbage.knockbacks.length,0);
+    source.speed=.12;garbage.location.x=1.81;step();assert.equal(garbage.knockbacks.length,0);
+    garbage.location.x=-.5;step();assert.equal(garbage.knockbacks.length,0);
+    garbage.location.x=1.8;step();assert.equal(garbage.knockbacks.length,1);assert.equal(garbage.hp,30);
+  });
+  test(`${pack}: garbage uses existing impulse fallback without damage`,()=>{
+    const {step,garbage}=collisionScene('ichiyon:molcar',true);step();
+    assert.equal(garbage.hp,30);assert.equal(garbage.hits,0);assert.equal(garbage.impulses.length,1);
+    assert.equal(garbage.impulses[0].x,1);assert.equal(garbage.impulses[0].y,.45);assert.equal(garbage.impulses[0].z,0);
+  });
+  test(`${pack}: garbage is never processed as an attacking Molcar`,()=>{
+    const {step,garbage,cow,other,sounds}=collisionScene(GARBAGE);step();
+    assert.equal(cow.hits,0);assert.equal(other.knockbacks.length,0);assert.equal(garbage.knockbacks.length,0);assert.equal(sounds.length,0);
+  });
+}
 console.log(`${passed} garbage/paw checks passed`);

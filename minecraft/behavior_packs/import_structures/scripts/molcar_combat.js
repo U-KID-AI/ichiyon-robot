@@ -7,6 +7,8 @@ const MOLCAR_TYPES = [
 ];
 
 const MOLCAR_SET = new Set(MOLCAR_TYPES);
+// Passive collision recipient only; never include it in the driving/ram loop.
+const GARBAGE_MOLCAR = "ichiyon:garbage_molcar";
 
 const MIN_RAM_SPEED = 0.12;
 const HIT_RADIUS = 1.8;
@@ -43,7 +45,7 @@ function playMolcarSound(
   } = {}
 ) {
   try {
-    if (!molcar || !MOLCAR_SET.has(molcar.typeId)) {
+    if (!molcar || (!MOLCAR_SET.has(molcar.typeId) && molcar.typeId !== GARBAGE_MOLCAR)) {
       return false;
     }
 
@@ -285,7 +287,8 @@ function driveZombieMolcar(molcar) {
 function canHit(molcar, target, riders) {
   try {
     if (target.id === molcar.id) return false;
-    if (target.typeId === "ichiyon:garbage_molcar") return false;
+    // Garbage Molcars use ramMolcar; never apply general Mob ram damage.
+    if (target.typeId === GARBAGE_MOLCAR) return false;
 
     for (const rider of riders) {
       if (target.id === rider.id) return false;
@@ -537,7 +540,7 @@ function processMolcar(dimension, molcar) {
       }
     }
 
-    if (MOLCAR_SET.has(target.typeId)) {
+    if (MOLCAR_SET.has(target.typeId) || target.typeId === GARBAGE_MOLCAR) {
       ramMolcar(
         molcar,
         target,

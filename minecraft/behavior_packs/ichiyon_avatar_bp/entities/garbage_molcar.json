@@ -19,6 +19,7 @@
     "components": {
       "minecraft:type_family": {"family": ["garbage_molcar", "mob"]},
       "minecraft:health": {"value": 30, "max": 30},
+      "minecraft:damage_sensor": {"triggers": [{"cause": "fall", "deals_damage": "no"}]},
       "minecraft:collision_box": {"width": 1.5, "height": 1.25},
       "minecraft:movement": {"value": 0.34},
       "minecraft:movement.basic": {},

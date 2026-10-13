@@ -20,8 +20,14 @@
 - Mokuro's carry prompt is empty-hand-only; leads are handled by native leash
   interaction. Its mobile leash distances are explicitly 4 / 6 / 12 blocks.
 
-The ordinary Molcar's BP, geometry, texture, animations and combat script are
-unchanged. The new Mob shares only animation/sound references, with copied and
+- Falls cause no damage, using the same native damage sensor as ordinary Molcars.
+  Other damage and the 30 HP maximum are unchanged. A regular Molcar collision
+  uses the existing strong horizontal/upward knockback and crash sound, without
+  damage. The garbage Molcar remains a passive recipient, with no riding or ram
+  attack. Neither path clears ownership, pickup/follow state or stored items.
+
+The ordinary Molcar's BP, geometry, texture and animations are unchanged.
+The new Mob shares animation/sound references, with copied and
 recolored geometry plus a separate generated texture and truck cargo cubes.
 The generated paw icon is 64x64 RGBA; the generated Molcar atlas is 128x64 RGBA.
 
