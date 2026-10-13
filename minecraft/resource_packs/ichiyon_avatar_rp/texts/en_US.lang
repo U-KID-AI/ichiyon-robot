@@ -48,6 +48,7 @@ item.ichiyon:bartholomew_kuma_paw.name=Bartholomew Kuma's Paw
 entity.ichiyon:death_prairie_dog.name=Death Prairie Dog
 item.spawn_egg.entity.ichiyon:death_prairie_dog.name=Death Prairie Dog Spawn Egg
 item.ichiyon:record_lets_cooking_molcar.name=Let's Cooking Molcar
+item.ichiyon:molcar_float_ring.name=Molcar Swim Ring
 action.interact.ichiyon_cosmetic_wardrobe=Change outfit
 action.interact.ichiyon_cosmetic_remove=Remove accessory
 action.interact.ichiyon_cosmetic_equip=Equip accessory

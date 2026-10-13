@@ -42,13 +42,15 @@ class LeadAnchorChecks(unittest.TestCase):
                 self.assertEqual(client["spawn_egg"], {
                     "base_color": base, "overlay_color": overlay})
                 self.assertEqual(client["materials"], {"default": "entity_alphatest"})
-                self.assertEqual(client["render_controllers"], ["controller.render.default"])
+                self.assertEqual(client["render_controllers"], ["controller.render.default"] + (
+                    [{"controller.render.ichiyon.float_ring": "query.property('ichiyon:float_ring') == 1"}]
+                    if name.startswith("molcar") else []))
                 for texture in client["textures"].values():
                     path = RP / (texture + ".png")
                     self.assertTrue(path.is_file())
                     self.assertEqual(path.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
                 geometry = read_json(RP / f"models/entity/{name}.geo.json")["minecraft:geometry"][0]
-                self.assertEqual(client["geometry"], {"default": geometry["description"]["identifier"]})
+                self.assertEqual(client["geometry"]["default"], geometry["description"]["identifier"])
                 bones = {b["name"]: b for b in geometry["bones"]}
                 self.assertEqual(len(bones), len(geometry["bones"]))
                 for start in bones:
@@ -60,7 +62,9 @@ class LeadAnchorChecks(unittest.TestCase):
                         seen.add(current)
                         current = bones[current].get("parent")
                 animations = read_json(RP / f"animations/{name}.animation.json")["animations"]
-                for ref in client["animations"].values():
+                for key, ref in client["animations"].items():
+                    if key == "float_ring":
+                        continue  # The float-ring checker validates this separate skeleton.
                     self.assertIn(ref, animations)
                     self.assertLessEqual(set(animations[ref]["bones"]), set(bones))
 
@@ -121,7 +125,7 @@ class LeadAnchorChecks(unittest.TestCase):
         from ai_task_minecraft_deploy import sync_world_json
         manifest = read_json(RP / "manifest.json")
         version = manifest["header"]["version"]
-        self.assertEqual(version, [1, 0, 48])
+        self.assertEqual(version, [1, 0, 49])
         self.assertTrue(all(m["version"] == version for m in manifest["modules"]))
         old = [{"pack_id": manifest["header"]["uuid"], "version": [1, 0, 31]}]
         result = json.loads(sync_world_json(json.dumps(old), [json.dumps(manifest)]))
@@ -130,7 +134,7 @@ class LeadAnchorChecks(unittest.TestCase):
     def test_lead_locators_attach_to_body_surface(self):
         # Model-space points must be on actual body cubes, not collision bounds
         # or animated wheels/legs. Inherit body/root transforms through the bone.
-        for name in ("molcar", "molcar2", "molcar3", "gonta"):
+        for name in ("molcar", "molcar2", "molcar3", "gonta", "mokuro"):
             with self.subTest(entity=name):
                 client = read_json(RP / f"entity/{name}.entity.json")["minecraft:client_entity"]["description"]
                 geometry = read_json(RP / f"models/entity/{name}.geo.json")["minecraft:geometry"][0]

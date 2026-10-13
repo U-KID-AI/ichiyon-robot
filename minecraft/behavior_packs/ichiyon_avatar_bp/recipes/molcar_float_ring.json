@@ -1,0 +1,33 @@
+{
+  "format_version": "1.20.10",
+  "minecraft:recipe_shaped": {
+    "description": {
+      "identifier": "ichiyon:molcar_float_ring"
+    },
+    "key": {
+      "R": {
+        "item": "minecraft:red_wool"
+      },
+      "W": {
+        "item": "minecraft:white_wool"
+      }
+    },
+    "pattern": [
+      " WR",
+      "W W",
+      "RW "
+    ],
+    "result": {
+      "count": 1,
+      "item": "ichiyon:molcar_float_ring"
+    },
+    "tags": [
+      "crafting_table"
+    ],
+    "unlock": [
+      {
+        "item": "minecraft:white_wool"
+      }
+    ]
+  }
+}

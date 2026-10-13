@@ -50,6 +50,7 @@ item.ichiyon:bartholomew_kuma_paw.name=バーソロミュー・くまの手
 entity.ichiyon:death_prairie_dog.name=デスプレーリードッグ
 item.spawn_egg.entity.ichiyon:death_prairie_dog.name=デスプレーリードッグのスポーンエッグ
 item.ichiyon:record_lets_cooking_molcar.name=Let's Cooking Molcar
+item.ichiyon:molcar_float_ring.name=モルカーの浮き輪
 action.interact.ichiyon_cosmetic_wardrobe=着替える
 action.interact.ichiyon_cosmetic_remove=アクセサリーを外す
 action.interact.ichiyon_cosmetic_equip=アクセサリーを装着

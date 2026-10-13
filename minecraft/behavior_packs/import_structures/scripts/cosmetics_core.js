@@ -1,11 +1,15 @@
 // Injected engine APIs keep state transitions testable without a live world.
 export function createCosmetics({ catalog, world, system, ItemStack, ActionFormData, GameMode }) {
   const egg = "ichiyon:avatar_selector";
-  const slots = ["hat", "face", "neck", "back"];
-  const slotLabels = { hat: "頭", face: "顔", neck: "首", back: "背中" };
+  const slots = ["hat", "face", "neck", "back", "float_ring"];
+  const slotLabels = { hat: "頭", face: "顔", neck: "首", back: "背中", float_ring: "浮き輪" };
+  // Functional equipment uses its own property/ID space; never reserve a DB ID.
+  const ring = { id: 1, slot: "float_ring", item: "ichiyon:molcar_float_ring", name: "モルカーの浮き輪" };
   const skins = new Map(catalog.skins.map(skin => [skin.id, skin]));
   const accessories = new Map(catalog.accessories.map(item => [item.id, item]));
   const itemMap = new Map(catalog.accessories.map(item => [item.item, item]));
+  itemMap.set(ring.item, ring);
+  const accessoryAt = (slot, id) => slot === ring.slot ? (id === ring.id ? ring : undefined) : accessories.get(id);
   const playersBusy = new Map();
   const entitiesBusy = new Set();
   const valid = entity => !!entity && entity.isValid;
@@ -137,8 +141,8 @@ export function createCosmetics({ catalog, world, system, ItemStack, ActionFormD
     const component = `ichiyon:${slot}`;
     const oldId = target.getProperty(component);
     if (oldId === nextId) return;
-    const previous = accessories.get(oldId);
-    const next = accessories.get(nextId);
+    const previous = accessoryAt(slot, oldId);
+    const next = accessoryAt(slot, nextId);
     if (!slots.includes(slot) || (oldId !== 0 && !previous) || (nextId !== 0 && (!next || next.slot !== slot))) throw new Error("invalid slot");
     const bag = inventory(player);
     if (!bag) throw new Error("no inventory");
@@ -169,9 +173,9 @@ export function createCosmetics({ catalog, world, system, ItemStack, ActionFormD
   }
 
   async function accessoryMenu(player, target) {
-    const equipped = slots.map(slot => ({ slot, id: target.getProperty(`ichiyon:${slot}`) })).filter(item => accessories.has(item.id));
+    const equipped = slots.map(slot => ({ slot, id: target.getProperty(`ichiyon:${slot}`) })).filter(item => accessoryAt(item.slot, item.id));
     if (!equipped.length) { say(player, "アクセサリーを手に持って使うと装着できます。"); return; }
-    const chosen = await choose(player, "アクセサリーを外す", equipped.map(item => ({ value: item, text: `${slotLabels[item.slot]}：${accessories.get(item.id).name}` })));
+    const chosen = await choose(player, "アクセサリーを外す", equipped.map(item => ({ value: item, text: `${slotLabels[item.slot]}：${accessoryAt(item.slot, item.id).name}` })));
     if (!chosen || !nearby(player, target)) return;
     if (target.getProperty(`ichiyon:${chosen.slot}`) !== chosen.id) { say(player, "装着状態が変わりました。もう一度選んでください。"); return; }
     mutateAccessory(player, target, chosen.slot, 0);

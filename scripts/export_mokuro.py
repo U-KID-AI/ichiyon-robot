@@ -90,6 +90,9 @@ def export():
 
     for node in source["outliner"]:
         visit(node)
+    # Model-space chest anchor, inherited by the existing body animation.
+    # Keep the immutable source, cubes, pivots and collision box untouched.
+    next(b for b in bones if b["name"] == "body")["locators"] = {"lead": [0, 6, -5]}
     geometry = {"format_version": "1.12.0", "minecraft:geometry": [{
         "description": {"identifier": "geometry.mokuro", "texture_width": 64,
                         "texture_height": 64, "visible_bounds_width": 3,

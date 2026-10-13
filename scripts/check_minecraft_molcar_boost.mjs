@@ -35,6 +35,39 @@ function fixture(typeId = MOLCAR_TYPES[0]) {
   return { core, system, mount, player, movement, container, scheduled, sounds, errors, writes, deps, event, flush, use };
 }
 
+function withWater(f) {
+  f.mount.getProperty = key => key === "ichiyon:float_ring" ? 1 : undefined;
+  const getComponent = f.mount.getComponent;
+  const water = { currentValue: .04, effectiveMax: .065,
+    setCurrentValue(value) { if (this.reject) return false; this.currentValue = value; return true; } };
+  f.mount.getComponent = key => key === "minecraft:underwater_movement" ? water : getComponent(key);
+  return water;
+}
+
+test("swim ring water speed shares one boost timer and restores on expiry/dismount/reload", () => {
+  for (const reason of ["expiry", "dismount", "reload"]) {
+    const f = fixture(), water = withWater(f); f.use();
+    assert.equal(water.currentValue, .065); assert.equal(f.container.getItem(0).amount, 3);
+    if (reason === "expiry") { f.system.currentTick += 100; f.core.tick(); }
+    if (reason === "dismount") { f.player.riding = undefined; f.core.tick(); }
+    if (reason === "reload") createMolcarBoost(f.deps).scan();
+    assert.equal(water.currentValue, .04); assert.equal(f.movement.currentValue, .4);
+  }
+});
+test("ring equipped during boost is synchronized, removal leaves land boost unchanged", () => {
+  const f = fixture(); f.use(); const water = withWater(f); f.core.tick();
+  assert.equal(water.currentValue, .065);
+  const getComponent = f.mount.getComponent;
+  f.mount.getComponent = key => key === "minecraft:underwater_movement" ? undefined : getComponent(key);
+  f.core.tick(); assert.equal(f.movement.currentValue, .65);
+  f.system.currentTick += 100; f.core.tick(); assert.equal(f.movement.currentValue, .4);
+});
+test("water speed write rejection does not consume carrot; scan repairs markerless stale water speed", () => {
+  const f = fixture(), water = withWater(f); water.effectiveMax = .04;
+  f.use(); assert.equal(f.container.getItem(0).amount, 4); assert.equal(f.movement.currentValue, .4);
+  water.effectiveMax = .065; water.currentValue = .065; f.core.scan(); assert.equal(water.currentValue, .04);
+});
+
 test("three native movement definitions allow boost and preserve steering", () => {
   for (const type of MOLCAR_TYPES) {
     const name = type.split(":")[1];

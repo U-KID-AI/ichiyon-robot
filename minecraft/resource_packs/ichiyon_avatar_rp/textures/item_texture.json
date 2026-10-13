@@ -7,6 +7,9 @@
     "ichiyon:bartholomew_kuma_paw": {
       "textures": "textures/items/bartholomew_kuma_paw"
     },
+    "ichiyon:molcar_float_ring": {
+      "textures": "textures/items/molcar_float_ring"
+    },
     "ichiyon:record_lets_cooking_molcar": {
       "textures": "textures/items/record_lets_cooking_molcar"
     },

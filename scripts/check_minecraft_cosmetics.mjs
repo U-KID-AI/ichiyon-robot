@@ -5,6 +5,48 @@ import { test } from "node:test";
 const source = await readFile(new URL("../minecraft/behavior_packs/import_structures/scripts/cosmetics_core.js", import.meta.url), "utf8");
 const { createCosmetics } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 
+test("swim ring coexists with every DB slot and returns via the existing removal menu", async () => {
+  for (const type of ["molcar", "molcar2", "molcar3"]) {
+    const f = setup(), p = f.makePlayer(), mob = f.makeEntity(`ichiyon:${type}`);
+    for (const slot of ["hat", "face", "neck", "back"]) mob.properties[`ichiyon:${slot}`] = 1;
+    p.items[0] = { typeId: "ichiyon:molcar_float_ring", amount: 1 };
+    const event = { player: p, target: mob, itemStack: p.items[0] };
+    f.core.interact(event); assert.equal(event.cancel, true); await f.advance();
+    assert.equal(mob.properties["ichiyon:float_ring"], 1); assert.equal(p.items[0], undefined);
+    for (const slot of ["hat", "face", "neck", "back"]) assert.equal(mob.properties[`ichiyon:${slot}`], 1);
+    f.answers.push({ selection: 4 }); await f.core.accessoryMenu(p, mob); await f.advance();
+    assert.equal(mob.properties["ichiyon:float_ring"], 0);
+    assert.equal(p.items[0].typeId, "ichiyon:molcar_float_ring");
+  }
+});
+
+test("swim ring rejects garbage and unrelated mobs; riding/lead/carrot still pass through", async () => {
+  const f = setup(), p = f.makePlayer();
+  for (const type of ["ichiyon:garbage_molcar", "ichiyon:mokuro", "minecraft:pig"]) {
+    const event = { player: p, target: f.makeEntity(type), itemStack: { typeId: "ichiyon:molcar_float_ring", amount: 1 } };
+    f.core.interact(event); assert.notEqual(event.cancel, true);
+  }
+  for (const itemStack of [undefined, { typeId: "minecraft:lead" }, { typeId: "minecraft:carrot" }]) {
+    const event = { player: p, target: f.makeEntity("ichiyon:molcar"), itemStack };
+    f.core.interact(event); assert.notEqual(event.cancel, true);
+  }
+});
+
+test("ring contention, failed property write, full inventory and creative use preserve items", async () => {
+  const f = setup(), a = f.makePlayer(), b = f.makePlayer(), mob = f.makeEntity("ichiyon:molcar");
+  a.items[0] = b.items[0] = { typeId: "ichiyon:molcar_float_ring", amount: 1 };
+  mob.failSet = true; assert.throws(() => f.core.mutateAccessory(a, mob, "float_ring", 1));
+  assert.equal(a.items[0].amount, 1); await f.advance(); mob.failSet = false;
+  f.core.mutateAccessory(a, mob, "float_ring", 1);
+  assert.throws(() => f.core.mutateAccessory(b, mob, "float_ring", 1)); await f.advance();
+  assert.equal(b.items[0].amount, 1); assert.equal(a.items[0], undefined);
+  a.items.fill({ typeId: "minecraft:stone", amount: 64 });
+  f.core.mutateAccessory(a, mob, "float_ring", 0); await f.advance();
+  assert.equal(mob.properties["ichiyon:float_ring"], 1);
+  a.mode = "creative"; f.core.mutateAccessory(a, mob, "float_ring", 0); await f.advance();
+  assert.equal(mob.properties["ichiyon:float_ring"], 0); assert.equal(a.items[0].typeId, "minecraft:stone");
+});
+
 function setup() {
   let tick = 0;
   const tasks = [];
@@ -14,7 +56,7 @@ function setup() {
   const dimension = { id: "overworld", getBlock: loc => ({ isAir: loc.y >= 64, isLiquid: false }), spawnEntity: () => { const entity = makeEntity("ichiyon:avatar"); spawned.push(entity); return entity; } };
   let entityIndex = 0;
   function makeEntity(typeId) {
-    const properties = { "ichiyon:skin_id": 0, "ichiyon:hat": 0, "ichiyon:face": 0, "ichiyon:neck": 0, "ichiyon:back": 0 };
+    const properties = { "ichiyon:skin_id": 0, "ichiyon:hat": 0, "ichiyon:face": 0, "ichiyon:neck": 0, "ichiyon:back": 0, "ichiyon:float_ring": 0 };
     const dynamic = {};
     const entity = {
       id: `entity${entityIndex++}`, typeId, isValid: true, dimension, location: { x: 0, y: 64, z: 0 }, variant: 0,

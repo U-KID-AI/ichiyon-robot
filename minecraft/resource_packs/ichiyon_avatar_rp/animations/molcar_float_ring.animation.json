@@ -1,0 +1,18 @@
+{
+  "animations": {
+    "animation.molcar.float_ring": {
+      "animation_length": 2,
+      "bones": {
+        "float_ring": {
+          "rotation": [
+            "math.sin(query.anim_time * 180) * 0.35",
+            0,
+            0
+          ]
+        }
+      },
+      "loop": true
+    }
+  },
+  "format_version": "1.8.0"
+}

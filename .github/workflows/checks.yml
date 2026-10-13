@@ -53,6 +53,7 @@ jobs:
           python scripts/check_minecraft_lead_anchors.py
           python scripts/check_minecraft_pikachu.py
           python scripts/check_minecraft_mokuro.py
+          python scripts/check_minecraft_priority_one.py
           python scripts/check_minecraft_garbage_molcar.py
           node scripts/check_minecraft_molcar_boost.mjs
           python scripts/check_molcar_records.py

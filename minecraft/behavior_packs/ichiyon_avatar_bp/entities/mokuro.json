@@ -7,6 +7,7 @@
       "is_summonable": true,
       "is_experimental": false,
       "properties": {
+        "ichiyon:falling": {"type": "bool", "default": false, "client_sync": true},
         "ichiyon:boosting": {"type": "bool", "default": false, "client_sync": true},
         "ichiyon:carried": {"type": "bool", "default": false, "client_sync": true},
         "ichiyon:gliding": {"type": "bool", "default": false, "client_sync": true}
@@ -34,6 +35,7 @@
     },
     "components": {
       "minecraft:type_family": {"family": ["mokuro", "mob"]},
+      "minecraft:damage_sensor": {"triggers": [{"cause": "fall", "deals_damage": "no"}]},
       "minecraft:health": {"value": 20, "max": 20},
       "minecraft:collision_box": {"width": 0.75, "height": 0.875},
       "minecraft:nameable": {},
@@ -55,12 +57,12 @@
       "ichiyon:mokuro_attach": {
         "remove": {"component_groups": ["ichiyon:mokuro_mobile"]},
         "add": {"component_groups": ["ichiyon:mokuro_carried"]},
-        "set_property": {"ichiyon:carried": true, "ichiyon:gliding": false, "ichiyon:boosting": false}
+        "set_property": {"ichiyon:falling": false, "ichiyon:carried": true, "ichiyon:gliding": false, "ichiyon:boosting": false}
       },
       "ichiyon:mokuro_detach": {
         "remove": {"component_groups": ["ichiyon:mokuro_carried"]},
         "add": {"component_groups": ["ichiyon:mokuro_mobile"]},
-        "set_property": {"ichiyon:carried": false, "ichiyon:gliding": false, "ichiyon:boosting": false}
+        "set_property": {"ichiyon:falling": false, "ichiyon:carried": false, "ichiyon:gliding": false, "ichiyon:boosting": false}
       }
     }
   }

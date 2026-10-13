@@ -13,6 +13,7 @@ from bot.services.minecraft_cosmetics import (
     MOLCARS, SLOTS, MAX_ID, asset, json_bytes, public_asset,
 )
 from bot.services.minecraft_cosmetics_posters import compile_posters, poster_entry
+from bot.services.minecraft_molcar_float import compile_float_ring
 from bot.services.minecraft_resource_packs import (
     RESOURCE_PACKS, DIRECT_RESOURCE_PACKS, RETIRED_RESOURCE_PACKS, split_resource_packs,
     MAX_ARCHIVE, MAX_EXPANDED, MAX_FILE, MAX_FILES,
@@ -247,6 +248,7 @@ def compile_files(root, records, *, revision=None):
         put(BP + f"items/cosmetics/accessory_{accessory['id']}.json", {"format_version": "1.26.0", "minecraft:item": {
             "description": {"identifier": item_id, "menu_category": {"category": "equipment", "group": ACCESSORY_GROUPS[accessory["slot"]]}},
             "components": {"minecraft:display_name": {"value": accessory["name"]}, "minecraft:icon": item_id, "minecraft:max_stack_size": 1, "minecraft:interact_button": "モルカーに装着"}}})
+    compile_float_ring(lambda path: json.loads(files[path]) if path in files else read(path), put, files, atlas)
     put(RP + "textures/item_texture.json", atlas)
     creative_catalog_path = BP + "item_catalog/crafting_item_catalog.json"
     if accessories or (root / creative_catalog_path).exists():
@@ -257,7 +259,8 @@ def compile_files(root, records, *, revision=None):
     for locale, translations in labels.items():
         path = RP + f"texts/{locale}.lang"
         lines = [line for line in (root / path).read_text(encoding="utf-8").splitlines()
-                 if not line.startswith("action.interact.ichiyon_cosmetic_") and line.partition("=")[0] not in ACCESSORY_GROUPS.values()]
+                 if not line.startswith(("action.interact.ichiyon_cosmetic_", "item.ichiyon:molcar_float_ring.name=")) and line.partition("=")[0] not in ACCESSORY_GROUPS.values()]
+        lines.append("item.ichiyon:molcar_float_ring.name=" + ("モルカーの浮き輪" if locale == "ja_JP" else "Molcar Swim Ring"))
         lines.extend(f"action.interact.ichiyon_cosmetic_{key}={value}" for key, value in translations.items())
         for slot in SLOTS:
             if any(a["slot"] == slot for a in accessories):
@@ -265,7 +268,7 @@ def compile_files(root, records, *, revision=None):
         files[path] = ("\n".join(lines) + "\n").encode("utf-8")
     put(RP + "render_controllers/cosmetics_accessories.render_controllers.json", {"format_version": "1.8.0", "render_controllers": accessory_controllers})
     compile_posters(root, [a for a in records if a["kind"] == "poster"], files)
-    for pack, patch in ((BP, 43), (RP, 48), (BRIDGE, 41)):
+    for pack, patch in ((BP, 44), (RP, 49), (BRIDGE, 42)):
         manifest = read(pack + "manifest.json")
         version = [1, 0, patch] if revision is None else [1, 1, revision]
         manifest["header"]["version"] = version

@@ -1,17 +1,42 @@
 {
-  "format_version": "1.20.80",
+  "format_version": "1.26.30",
   "minecraft:entity": {
     "component_groups": {
+      "ichiyon:float_ring": {
+        "minecraft:buoyant": {
+          "apply_gravity": false,
+          "base_buoyancy": 0.55,
+          "can_auto_step_from_liquid": true,
+          "drag_down_on_buoyancy_removed": 0,
+          "liquid_blocks": [
+            "minecraft:water",
+            "minecraft:flowing_water"
+          ],
+          "movement_type": "none"
+        },
+        "minecraft:underwater_movement": {
+          "value": 0.04
+        }
+      },
+      "ichiyon:normal_water": {
+        "minecraft:behavior.float": {
+          "priority": 0
+        },
+        "minecraft:underwater_movement": {
+          "value": 0.02
+        }
+      },
       "ichiyon:zombie_molcar": {
         "minecraft:addrider": {
-          "entity_type": "minecraft:zombie"
+          "riders": [
+            {
+              "entity_type": "minecraft:zombie"
+            }
+          ]
         }
       }
     },
     "components": {
-      "minecraft:behavior.float": {
-        "priority": 0
-      },
       "minecraft:can_power_jump": {},
       "minecraft:collision_box": {
         "height": 1.25,
@@ -22,6 +47,52 @@
           {
             "cause": "fall",
             "deals_damage": "no"
+          }
+        ]
+      },
+      "minecraft:environment_sensor": {
+        "triggers": [
+          {
+            "event": "ichiyon:float_ring_on",
+            "filters": {
+              "all_of": [
+                {
+                  "domain": "ichiyon:float_ring",
+                  "test": "int_property",
+                  "value": 1
+                },
+                {
+                  "operator": "not",
+                  "test": "has_component",
+                  "value": "minecraft:buoyant"
+                }
+              ]
+            }
+          },
+          {
+            "event": "ichiyon:float_ring_off",
+            "filters": {
+              "all_of": [
+                {
+                  "domain": "ichiyon:float_ring",
+                  "test": "int_property",
+                  "value": 0
+                },
+                {
+                  "any_of": [
+                    {
+                      "test": "has_component",
+                      "value": "minecraft:buoyant"
+                    },
+                    {
+                      "operator": "not",
+                      "test": "has_component",
+                      "value": "minecraft:behavior.float"
+                    }
+                  ]
+                }
+              ]
+            }
           }
         ]
       },
@@ -56,6 +127,19 @@
             },
             "swing": false,
             "use_item": false
+          },
+          {
+            "interact_text": "action.interact.ichiyon_cosmetic_equip",
+            "on_interact": {
+              "filters": {
+                "domain": "hand",
+                "subject": "other",
+                "test": "has_equipment",
+                "value": "ichiyon:molcar_float_ring"
+              }
+            },
+            "swing": false,
+            "use_item": false
           }
         ]
       },
@@ -74,10 +158,8 @@
         "can_path_over_water": true
       },
       "minecraft:physics": {},
-      "minecraft:pushable": {
-        "is_pushable": true,
-        "is_pushable_by_piston": true
-      },
+      "minecraft:pushable_by_block": {},
+      "minecraft:pushable_by_entity": {},
       "minecraft:rideable": {
         "family_types": [
           "player",
@@ -131,6 +213,15 @@
           ],
           "type": "int"
         },
+        "ichiyon:float_ring": {
+          "client_sync": true,
+          "default": 0,
+          "range": [
+            0,
+            1
+          ],
+          "type": "int"
+        },
         "ichiyon:hat": {
           "client_sync": true,
           "default": 0,
@@ -152,6 +243,30 @@
       }
     },
     "events": {
+      "ichiyon:float_ring_off": {
+        "add": {
+          "component_groups": [
+            "ichiyon:normal_water"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "ichiyon:float_ring"
+          ]
+        }
+      },
+      "ichiyon:float_ring_on": {
+        "add": {
+          "component_groups": [
+            "ichiyon:float_ring"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "ichiyon:normal_water"
+          ]
+        }
+      },
       "ichiyon:spawn_zombie_molcar": {
         "add": {
           "component_groups": [
