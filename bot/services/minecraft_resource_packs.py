@@ -31,6 +31,8 @@ MAX_FILES = 16384
 
 
 def owner(path):
+    if "molcar_float_ring" in path:
+        return ACCESSORIES
     if "video_screen" in path or path == "materials/entity.material":
         return VIDEO
     if path.startswith(("sounds/records/", "textures/items/record_")):
@@ -51,6 +53,8 @@ def owner(path):
 
 
 def entry_owner(key):
+    if "molcar_float_ring" in key:
+        return ACCESSORIES
     if "video_screen" in key:
         return VIDEO
     if "record_" in key or ":record." in key:

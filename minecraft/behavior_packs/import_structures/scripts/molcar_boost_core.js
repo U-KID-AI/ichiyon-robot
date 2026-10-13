@@ -1,6 +1,8 @@
 export const MOLCAR_TYPES = ["ichiyon:molcar", "ichiyon:molcar2", "ichiyon:molcar3"];
 export const BASE_SPEED = 0.4;
 export const BOOST_SPEED = 0.65;
+export const WATER_BASE_SPEED = 0.04;
+export const WATER_BOOST_SPEED = 0.065;
 export const BOOST_TICKS = 100;
 export const BOOST_MARKER = "molcar:carrot_boost";
 const TYPES = new Set(MOLCAR_TYPES);
@@ -28,6 +30,17 @@ export function createMolcarBoost({ world, system, report = console.warn }) {
     if (!movement || movement.effectiveMax + MOVEMENT_EPSILON < speed
         || !movement.setCurrentValue(Math.min(speed, movement.effectiveMax))) {
       throw Error(`movement attribute cannot accept ${speed} for ${entity.typeId}`);
+    }
+    setWaterSpeed(entity, speed === BOOST_SPEED ? WATER_BOOST_SPEED : WATER_BASE_SPEED);
+  }
+  function setWaterSpeed(entity, speed) {
+    // Only the ring opts into water boost; unequipped entities retain native 0.02.
+    if (entity.getProperty?.("ichiyon:float_ring") !== 1) return;
+    const movement = entity.getComponent("minecraft:underwater_movement");
+    if (!movement || Math.abs(movement.currentValue - speed) <= MOVEMENT_EPSILON) return;
+    if (movement.effectiveMax + MOVEMENT_EPSILON < speed
+        || !movement.setCurrentValue(Math.min(speed, movement.effectiveMax))) {
+      throw Error(`water movement attribute cannot accept ${speed} for ${entity.typeId}`);
     }
   }
   function stop(state) {
@@ -103,6 +116,7 @@ export function createMolcarBoost({ world, system, report = console.warn }) {
         if (system.currentTick >= state.until || !alive(state.entity) || !alive(state.player)
             || mountOf(state.player)?.id !== state.entity.id
             || state.player.dimension.id !== state.entity.dimension.id) stop(state);
+        else setWaterSpeed(state.entity, WATER_BOOST_SPEED); // ring equipped during a boost
       } catch (e) { error(e); }
     }
     for (const [id, tick] of lastUse) if (tick < system.currentTick) lastUse.delete(id);
@@ -115,7 +129,9 @@ export function createMolcarBoost({ world, system, report = console.warn }) {
           if (!active.has(entity.id)) {
             try {
               if (entity.getDynamicProperty(BOOST_MARKER) !== undefined
-                  || entity.getComponent("minecraft:movement")?.currentValue > BASE_SPEED + MOVEMENT_EPSILON) recover(entity);
+                  || entity.getComponent("minecraft:movement")?.currentValue > BASE_SPEED + MOVEMENT_EPSILON
+                  || (entity.getProperty?.("ichiyon:float_ring") === 1
+                    && entity.getComponent("minecraft:underwater_movement")?.currentValue > WATER_BASE_SPEED + MOVEMENT_EPSILON)) recover(entity);
             } catch (e) { error(e); }
           }
         }

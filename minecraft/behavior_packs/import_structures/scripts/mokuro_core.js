@@ -6,6 +6,7 @@ const DETACH = "ichiyon:mokuro_detach";
 const GLIDE = "ichiyon:gliding";
 const CARRIED = "ichiyon:carried";
 const BOOST = "ichiyon:boosting";
+const FALLING = "ichiyon:falling";
 export const JUMP_ASSIST = 1.15;
 const SLOW_FALL_REFRESH = 6;
 const SLOW_FALL_DURATION = 8;
@@ -60,6 +61,7 @@ export function attachmentPrediction(velocity, displacement) {
 export function createMokuro({ world, system, ActionFormData, report = console.warn }) {
   const owners = new Map();
   const entities = new Map();
+  const birds = new Map();
   const forms = new Set();
   const notices = new Map();
   function error(label, e) {
@@ -90,6 +92,21 @@ export function createMokuro({ world, system, ActionFormData, report = console.w
     }
     state.slowFallUntil = undefined;
     state.slowFallTick = undefined;
+  }
+  function refreshSlowFall(state) {
+    const effect = state.player.getEffect("slow_falling");
+    const owned = effect?.amplifier === 0 && effect.duration >= 0
+      && effect.duration <= state.slowFallUntil - system.currentTick;
+    if (!effect || (owned && system.currentTick - state.slowFallTick >= SLOW_FALL_REFRESH)) {
+      state.player.addEffect("slow_falling", SLOW_FALL_DURATION, { amplifier: 0, showParticles: false });
+      state.slowFallUntil = system.currentTick + SLOW_FALL_DURATION;
+      state.slowFallTick = system.currentTick;
+    }
+  }
+  function stopDescent(entity) {
+    const bird = birds.get(entity.id);
+    if (bird) clearFlight(bird);
+    if (entity.getProperty(FALLING)) entity.setProperty(FALLING, false);
   }
   function forget(state) {
     clearFlight(state);
@@ -125,6 +142,7 @@ export function createMokuro({ world, system, ActionFormData, report = console.w
   }
   function recover(entity) {
     if (entity?.typeId !== MOKURO || !alive(entity) || entities.has(entity.id)) return;
+    if (!birds.has(entity.id)) birds.set(entity.id, { player: entity });
     if (entity.getDynamicProperty(OWNER) !== undefined || entity.getProperty(CARRIED)) restore(entity);
     // Spawn/load repair only when mobile components are absent; never restart a healthy path.
     else if (!entity.getComponent("minecraft:navigation.walk")
@@ -151,6 +169,7 @@ export function createMokuro({ world, system, ActionFormData, report = console.w
     owners.set(player.id, state);
     entities.set(entity.id, state);
     try {
+      stopDescent(entity);
       entity.triggerEvent(ATTACH);
       const pose = attachmentPose(player, mode);
       entity.teleport(pose.location, { rotation: pose.rotation, keepVelocity: false });
@@ -228,6 +247,7 @@ export function createMokuro({ world, system, ActionFormData, report = console.w
     forms.delete(id);
   }
   function died(entity) {
+    birds.delete(entity.id);
     const state = entities.get(entity.id);
     if (state) forget(state);
     else releasePlayer(entity.id);
@@ -238,6 +258,23 @@ export function createMokuro({ world, system, ActionFormData, report = console.w
         && (state.boosted || state.gliding || state.landingUntil >= system.currentTick)) event.cancel = true;
   }
   function tick() {
+    // Only loaded Mokuro are tracked. Native slow falling changes gravity without
+    // fighting leash velocity, teleporting, or introducing an upward impulse.
+    for (const [id, bird] of birds) {
+      try {
+        const e = bird.player;
+        if (!alive(e)) { birds.delete(id); continue; }
+        const falling = !entities.has(id) && !e.getProperty(CARRIED)
+          && !e.isOnGround && !e.isInWater && e.getVelocity().y < -0.01;
+        if (!!e.getProperty(FALLING) !== falling) e.setProperty(FALLING, falling);
+        if (falling) refreshSlowFall(bird);
+        else clearFlight(bird);
+      } catch (e) {
+        // Unloaded references are removed; entityLoad/the existing scan re-adds them.
+        birds.delete(id);
+        error("descent will recover on load", e);
+      }
+    }
     for (const state of owners.values()) {
       try {
         const { player: p, entity } = state;
@@ -280,14 +317,7 @@ export function createMokuro({ world, system, ActionFormData, report = console.w
             state.gliding = false;
             entity.setProperty(GLIDE, false);
           } else {
-            const effect = p.getEffect("slow_falling");
-            const ownedEffect = effect?.amplifier === 0 && effect.duration >= 0
-              && effect.duration <= state.slowFallUntil - system.currentTick;
-            if (!effect || (ownedEffect && system.currentTick - state.slowFallTick >= SLOW_FALL_REFRESH)) {
-              p.addEffect("slow_falling", SLOW_FALL_DURATION, { amplifier: 0, showParticles: false });
-              state.slowFallUntil = system.currentTick + SLOW_FALL_DURATION;
-              state.slowFallTick = system.currentTick;
-            }
+            refreshSlowFall(state);
             const velocity = p.getVelocity(), view = p.getViewDirection();
             state.glideTarget = glideTarget(velocity, view, state.glideTarget);
             const impulse = glideImpulse(velocity, view, state.glideTarget);

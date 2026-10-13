@@ -85,8 +85,10 @@ class MokuroChecks(unittest.TestCase):
         self.assertFalse(any(k.startswith("minecraft:behavior.") or k.startswith("minecraft:navigation.") for k in carried))
         self.assertEqual(carried["minecraft:physics"], {"has_gravity": False, "has_collision": False})
         for components in [entity["components"], *entity["component_groups"].values()]:
-            self.assertFalse(any("attack" in k or "damage_sensor" in k for k in components))
+            self.assertFalse(any("attack" in k for k in components))
             self.assertNotIn("minecraft:pushable", components)
+        self.assertEqual(entity["components"]["minecraft:damage_sensor"],
+                         {"triggers": [{"cause": "fall", "deals_damage": "no"}]})
         self.assertFalse((BP / "spawn_rules/mokuro.json").exists())
 
     def test_client_wiring_and_localization(self):

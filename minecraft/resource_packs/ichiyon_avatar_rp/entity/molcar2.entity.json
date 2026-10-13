@@ -3,18 +3,23 @@
   "minecraft:client_entity": {
     "description": {
       "animations": {
+        "float_ring": "animation.molcar.float_ring",
         "idle": "animation.molcar2.idle",
         "walk": "animation.molcar2.walk"
       },
       "geometry": {
-        "default": "geometry.molcar2"
+        "default": "geometry.molcar2",
+        "float_ring": "geometry.ichiyon.molcar2.float_ring"
       },
       "identifier": "ichiyon:molcar2",
       "materials": {
         "default": "entity_alphatest"
       },
       "render_controllers": [
-        "controller.render.default"
+        "controller.render.default",
+        {
+          "controller.render.ichiyon.float_ring": "query.property('ichiyon:float_ring') == 1"
+        }
       ],
       "scripts": {
         "animate": [
@@ -23,6 +28,9 @@
           },
           {
             "walk": "query.is_moving"
+          },
+          {
+            "float_ring": "query.property('ichiyon:float_ring') == 1 && query.is_in_water"
           }
         ]
       },
@@ -31,7 +39,8 @@
         "overlay_color": "#B0B0B0"
       },
       "textures": {
-        "default": "textures/entity/molcar2"
+        "default": "textures/entity/molcar2",
+        "float_ring": "textures/entity/molcar_float_ring"
       }
     }
   }

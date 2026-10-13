@@ -53,7 +53,8 @@ This is not native Elytra flight. It uses bounded impulses with horizontal
 inertia, view-directed steering and a downward target speed. Ground jumps get
 one upward impulse, never repeated midair. Fall protection covers head ascent,
 active head glide and its
-two-tick landing window. Other damage, including damage to Mokuro, is unchanged.
+two-tick landing window. Other player damage is unchanged. Free Mokuro also have
+slow descent and fall immunity; see [priority-one features](minecraft-priority-one.md).
 Detaching immediately revokes glide and fall protection.
 
 ## State And Recovery
@@ -76,7 +77,7 @@ teleports detach, restoring the mobile group first. Unloaded entities are
 recovered on load. A Script/BDS restart intentionally detaches instead of
 silently reattaching to an offline player. Health and entity identity persist.
 
-Only attached entities run every tick. Every 100 ticks, a typed query of loaded
+Attached entities and loaded birds' descent state run every tick. Every 100 ticks, a typed query of loaded
 Mokuro entities in the three dimensions catches orphaned attachment state.
 Spawn (deferred one tick), load and that existing scan also repair a normal
 individual only if navigation or positive movement is missing. This reapplies

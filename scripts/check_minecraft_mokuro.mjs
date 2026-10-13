@@ -401,4 +401,45 @@ await test("head/back offsets unchanged; stop and reversal immediately clear old
     assert(Math.abs(mob.location.x - pose.location.x + .15) < 1e-12);
   }
 });
+await test("free descending bird flaps with bounded native slow fall and no impulse/teleport", () => {
+  const f = fixture(); f.core.recover(f.mob); f.mob.isOnGround = false; f.mob.velocity.y = -.5;
+  f.mob.teleport = () => { throw Error("free bird must not teleport"); };
+  for (let i = 0; i < 25; i++) { f.core.tick(); f.system.currentTick++; }
+  assert.equal(f.mob.props["ichiyon:falling"], true);
+  assert.equal(f.mob.effectCalls.length, 5);
+  assert(f.mob.effectCalls.every(c => c.duration === 8 && c.options.amplifier === 0 && !c.options.showParticles));
+  assert.equal(f.mob.impulses.length, 0); assert.equal(f.p.effectCalls.length, 0);
+  f.mob.isOnGround = true; f.core.tick();
+  assert.equal(f.mob.props["ichiyon:falling"], false); assert.equal(f.mob.getEffect("slow_falling"), undefined);
+});
+await test("leashed descent keeps horizontal motion; rising, water and carrying suppress it", () => {
+  const f = fixture(); f.mob.leashed = true; f.core.recover(f.mob); f.mob.isOnGround = false;
+  f.mob.velocity = { x: .3, y: -.4, z: -.2 }; f.core.tick();
+  assert(f.mob.props["ichiyon:falling"]); assert.deepEqual(f.mob.velocity, { x: .3, y: -.4, z: -.2 });
+  for (const mode of ["rise", "water", "carry"]) {
+    f.mob.velocity.y = mode === "rise" ? .2 : -.4;
+    f.mob.isInWater = mode === "water"; f.mob.props["ichiyon:carried"] = mode === "carry";
+    f.core.tick(); assert.equal(f.mob.props["ichiyon:falling"], false);
+    assert.equal(f.mob.getEffect("slow_falling"), undefined);
+  }
+});
+await test("free bird load/restart recovers descent, external effects survive, attach clears own effect", () => {
+  const f = fixture(); f.core.scan(); f.mob.isOnGround = false; f.mob.velocity.y = -.4; f.core.tick();
+  const loaded = createMokuro(f.deps); loaded.scan(); f.system.currentTick += 9; loaded.tick();
+  assert(f.mob.getEffect("slow_falling"));
+  f.mob.addEffect("slow_falling", 100, { amplifier: 1 }); f.mob.isOnGround = true; loaded.tick();
+  assert.equal(f.mob.getEffect("slow_falling").amplifier, 1);
+  f.mob.removeEffect("slow_falling"); f.mob.isOnGround = false; loaded.tick();
+  assert(loaded.attach(f.p, f.mob, "head")); assert.equal(f.mob.getEffect("slow_falling"), undefined);
+  assert.equal(f.mob.props["ichiyon:falling"], false);
+});
+await test("free fall controller reuses flap, returns to walk/idle and yields to attachment", () => {
+  for (const next of ["idle", "walk", "carried"]) {
+    const a = animationFixture(); a.query.is_on_ground = false; a.props["ichiyon:falling"] = true;
+    assert.equal(a.step(), "falling"); assert.equal(a.step(3), "falling");
+    if (next === "carried") a.props["ichiyon:carried"] = true;
+    else { a.query.is_on_ground = true; a.query.ground_speed = next === "walk" ? .3 : 0; }
+    assert.equal(a.step(), next);
+  }
+});
 console.log(`${count} Mokuro runtime checks passed`);
