@@ -43,8 +43,8 @@
       <label class="check-row"><input type="checkbox" name="enabled" {% if form.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>ON</label>
     </section>
 
-    <section class="panel">
-      <h2>除外条件</h2>
+    <details class="panel form-section">
+      <summary>除外条件</summary>
       <div class="form-grid">
         <label class="check-row"><input type="checkbox" name="include_shorts" {% if form.include_shorts %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>Shortsを含める</label>
         <label class="check-row"><input type="checkbox" name="include_live" {% if form.include_live %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>現在ライブを含める</label>
@@ -52,7 +52,7 @@
       </div>
       <label>タイトル必須語<textarea name="include_title_terms" rows="4" {% if not can_edit %}disabled{% endif %}>{{ form.include_title_terms }}</textarea></label>
       <label>タイトル除外語<textarea name="exclude_title_terms" rows="4" {% if not can_edit %}disabled{% endif %}>{{ form.exclude_title_terms }}</textarea></label>
-    </section>
+    </details>
 
     <section class="panel">
       <h2>ソース</h2>

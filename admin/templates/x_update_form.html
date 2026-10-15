@@ -33,22 +33,22 @@
       <label class="checkbox-label"><input type="checkbox" name="enabled" {% if watch.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>有効</label>
     </section>
 
-    <section class="panel">
-      <h2>投稿対象</h2>
+    <details class="panel form-section">
+      <summary>投稿対象</summary>
       <p class="empty">通常投稿は常に対象。返信/リポスト/引用は必要な時だけON。</p>
       <label class="checkbox-label"><input type="checkbox" name="include_replies" {% if watch.include_replies %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>返信も通知</label>
       <label class="checkbox-label"><input type="checkbox" name="include_reposts" {% if watch.include_reposts %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>リポストも通知</label>
       <label class="checkbox-label"><input type="checkbox" name="include_quotes" {% if watch.include_quotes %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>引用も通知</label>
-    </section>
+    </details>
 
-    <section class="panel">
-      <h2>キーワード</h2>
+    <details class="panel form-section">
+      <summary>キーワード</summary>
       <div class="form-grid">
         <label>必須ワード<textarea name="include_keywords" rows="4" placeholder="シャドバ&#10;Shadowverse&#10;デッキ" {% if not can_edit %}disabled{% endif %}>{{ watch.include_keywords }}</textarea></label>
         <label>除外ワード<textarea name="exclude_keywords" rows="4" placeholder="PR&#10;キャンペーン" {% if not can_edit %}disabled{% endif %}>{{ watch.exclude_keywords }}</textarea></label>
       </div>
       <p class="empty">カンマ区切り・改行区切り。必須ワードはどれか1つを含む投稿だけ通知。除外ワードは優先して除外。</p>
-    </section>
+    </details>
 
     <section class="panel">
       <h2>投稿文</h2>

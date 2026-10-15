@@ -89,6 +89,7 @@
       </label>
 
       <h3>スケジュール</h3>
+      <p class="hint">選んだ種類に必要な項目だけ表示します。隠した項目の値も保存されます。</p>
       <div class="form-grid">
         <label>
           種類
@@ -101,9 +102,9 @@
             <option value="interval" {% if post.schedule_type == "interval" %}selected{% endif %}>一定間隔</option>
           </select>
         </label>
-        <label>月<input type="number" name="month" value="{{ post.month }}" min="1" max="12" {% if not can_edit %}disabled{% endif %}></label>
-        <label>日<input type="number" name="day" value="{{ post.day }}" min="1" max="31" {% if not can_edit %}disabled{% endif %}></label>
-        <label>
+        <label data-schedule-for="once yearly">月<input type="number" name="month" value="{{ post.month }}" min="1" max="12" {% if not can_edit %}disabled{% endif %}></label>
+        <label data-schedule-for="once yearly monthly">日<input type="number" name="day" value="{{ post.day }}" min="1" max="31" {% if not can_edit %}disabled{% endif %}></label>
+        <label data-schedule-for="weekly">
           曜日
           <select name="weekday" {% if not can_edit %}disabled{% endif %}>
             {% for item in weekdays %}
@@ -111,8 +112,8 @@
             {% endfor %}
           </select>
         </label>
-        <label>時刻<input type="time" name="time" value="{{ post.time }}" {% if not can_edit %}disabled{% endif %}></label>
-        <label>何分ごと<input type="number" name="interval_minutes" value="{{ post.interval_minutes }}" min="1" max="1440" {% if not can_edit %}disabled{% endif %}></label>
+        <label data-schedule-for="once yearly monthly weekly daily">時刻<input type="time" name="time" value="{{ post.time }}" {% if not can_edit %}disabled{% endif %}></label>
+        <label data-schedule-for="interval">何分ごと<input type="number" name="interval_minutes" value="{{ post.interval_minutes }}" min="1" max="1440" {% if not can_edit %}disabled{% endif %}></label>
         <label>タイムゾーン<input type="text" name="timezone" value="{{ post.timezone }}" placeholder="Asia/Tokyo" {% if not can_edit %}disabled{% endif %}></label>
       </div>
       <p class="empty">現在の設定: {{ schedule_summary }}</p>

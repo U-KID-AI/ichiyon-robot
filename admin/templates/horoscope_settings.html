@@ -29,13 +29,15 @@
       <label class="check-row"><input type="checkbox" name="ranking_command_enabled" {% if settings.ranking_command_enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>12星座一覧コマンド 有効</label>
       <label class="check-row"><input type="checkbox" name="zodiac_command_enabled" {% if settings.zodiac_command_enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>個別星座検索 有効</label>
 
-      <h3>自動投稿</h3>
-      <p class="hint">既存の自動投稿にも「めざまし占い」を追加しています。ここでは将来の簡易自動投稿設定用に、初期値OFFで保持します。</p>
-      <label class="check-row"><input type="checkbox" name="auto_post_enabled" {% if settings.auto_post_enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>自動投稿 有効</label>
-      <div class="form-grid">
-        <label>投稿チャンネルID<input type="text" name="auto_post_channel_id" value="{{ settings.auto_post_channel_id or '' }}" {% if not can_edit %}disabled{% endif %}></label>
-        <label>投稿時刻<input type="time" name="auto_post_time" value="{{ settings.auto_post_time or '07:10' }}" {% if not can_edit %}disabled{% endif %}></label>
-      </div>
+      <details class="form-section">
+        <summary>自動投稿</summary>
+        <p class="hint">既存の自動投稿にも「めざまし占い」を追加しています。ここでは将来の簡易自動投稿設定用に、初期値OFFで保持します。</p>
+        <label class="check-row"><input type="checkbox" name="auto_post_enabled" {% if settings.auto_post_enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>自動投稿 有効</label>
+        <div class="form-grid">
+          <label>投稿チャンネルID<input type="text" name="auto_post_channel_id" value="{{ settings.auto_post_channel_id or '' }}" {% if not can_edit %}disabled{% endif %}></label>
+          <label>投稿時刻<input type="time" name="auto_post_time" value="{{ settings.auto_post_time or '07:10' }}" {% if not can_edit %}disabled{% endif %}></label>
+        </div>
+      </details>
 
       {% if can_edit %}<button type="submit">保存</button>{% else %}<button type="button" disabled>閲覧のみ</button>{% endif %}
     </form>

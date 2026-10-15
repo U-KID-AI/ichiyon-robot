@@ -47,7 +47,7 @@ from admin.reaction_thresholds import (
     router as reaction_threshold_router,
 )
 from admin.role_labels import ROLE_DESCRIPTIONS, ROLE_LABELS, role_description, role_label
-from admin.servers import register_server_routes, router as server_router
+from admin.servers import FEATURE_NAV_GROUPS, register_server_routes, router as server_router
 from admin.schedule_templates import (
     register_schedule_template_routes,
     router as schedule_template_router,
@@ -91,6 +91,7 @@ templates.env.globals["role_labels"] = ROLE_LABELS
 templates.env.globals["role_descriptions"] = ROLE_DESCRIPTIONS
 templates.env.filters["role_label"] = role_label
 templates.env.filters["role_description"] = role_description
+templates.env.globals["feature_nav_groups"] = FEATURE_NAV_GROUPS
 app.state.templates = templates
 register_auth_routes(templates)
 register_minecraft_cosmetics_routes(templates)

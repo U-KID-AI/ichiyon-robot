@@ -85,9 +85,6 @@
         <input type="checkbox" name="enabled" {% if reaction.enabled %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
         有効
       </label>
-      <details>
-        <summary>詳細設定</summary>
-      </details>
       <div class="row-actions">
         {% if can_edit %}
           <button type="submit">{% if mode == "new" %}作成{% else %}保存{% endif %}</button>
