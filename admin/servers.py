@@ -207,6 +207,68 @@ DISPLAY_FEATURES.extend(
     ]
 )
 
+FEATURE_GROUP_ORDER = (
+    ("talk", "反応"),
+    ("schedule", "投稿・予定"),
+    ("effect", "効果"),
+    ("voice", "音声"),
+    ("other", "その他"),
+)
+
+FEATURE_GROUPS = {
+    "mention_random_draw": "talk",
+    "mention_search": "talk",
+    "mention_limited": "talk",
+    "reactions": "talk",
+    "ng_words": "talk",
+    "reaction_thresholds": "talk",
+    "mention_shortcuts": "talk",
+    "modes": "schedule",
+    "auto_posts": "schedule",
+    "mezamashi_horoscope": "schedule",
+    "schedule_templates": "schedule",
+    "x_updates": "schedule",
+    "special_effect_tags": "effect",
+    "voice_lines": "voice",
+    "tts_settings": "voice",
+    "audio_assets": "voice",
+    "youtube_n_pull": "voice",
+    "games": "other",
+}
+
+
+def feature_nav_groups() -> List[Dict[str, Any]]:
+    buckets = {key: [] for key, _label in FEATURE_GROUP_ORDER}
+    for feature in DISPLAY_FEATURES:
+        group = FEATURE_GROUPS.get(feature["key"], "other")
+        buckets.setdefault(group, []).append(
+            {
+                "key": feature["key"],
+                "label": feature["label"],
+                "path": feature["edit_path"],
+            }
+        )
+    return [
+        {"key": key, "label": label, "items": buckets.get(key, [])}
+        for key, label in FEATURE_GROUP_ORDER
+        if buckets.get(key)
+    ]
+
+
+FEATURE_NAV_GROUPS = feature_nav_groups()
+
+
+def group_feature_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    buckets = {key: [] for key, _label in FEATURE_GROUP_ORDER}
+    for row in rows:
+        group = row.get("group") or "other"
+        buckets.setdefault(group, []).append(row)
+    return [
+        {"key": key, "label": label, "features": buckets.get(key, [])}
+        for key, label in FEATURE_GROUP_ORDER
+        if buckets.get(key)
+    ]
+
 
 def register_server_routes(templates: Jinja2Templates) -> None:
     @router.get("/servers")
@@ -250,6 +312,7 @@ def register_server_routes(templates: Jinja2Templates) -> None:
                 "server": server,
                 "guild_id": guild_id,
                 "features": features,
+                "feature_groups": group_feature_rows(features),
                 "bot_id": bot_id,
                 "can_edit_any": role_allows(server["role"], "editor"),
             },
@@ -365,6 +428,7 @@ def build_feature_rows(
     rows = []
     for feature in DISPLAY_FEATURES:
         row = dict(feature)
+        row["group"] = FEATURE_GROUPS.get(feature["key"], "other")
         if feature["key"] == "voice_lines":
             with get_connection() as connection:
                 voice_line = VoiceLineRepository(connection).get(bot_id, guild_id)

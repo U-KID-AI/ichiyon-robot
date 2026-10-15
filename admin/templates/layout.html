@@ -4,41 +4,105 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Bot管理画面{% endblock %}</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}?v=20260622">
+    <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}?v=20261015b">
   </head>
-  <body>
+  <body class="app-body">
+    {% set nav = namespace(path="", kind="", guild_id="") %}
+    {% if request is defined and request.url is defined %}
+      {% set nav.path = request.url.path %}
+    {% endif %}
+    {% if request is defined and request.query_params is defined %}
+      {% set nav.kind = request.query_params.get("kind", "") %}
+    {% endif %}
+    {% if nav.path.startswith("/guilds/") %}
+      {% set nav.guild_id = nav.path.split("/")[2] %}
+    {% endif %}
+    {% set request_state = request|attr("state") %}
+    {% set selected_bot = request_state.selected_bot_instance if request_state is defined and request_state.selected_bot_instance is defined else current_bot_instance %}
+    {% set layout_user = request.session.get("discord_user") if request is defined and request.session is defined else none %}
     <header class="topbar">
-      <div>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-expanded="false" aria-controls="app-nav">メニュー</button>
+      <div class="topbar-title">
         <p class="eyebrow">Bot管理画面</p>
         <h1>{% block heading %}管理画面{% endblock %}</h1>
         <p class="topbar-server">
-          {% set request_state = request|attr("state") %}
-          {% set selected_bot = request_state.selected_bot_instance if request_state is defined and request_state.selected_bot_instance is defined else current_bot_instance %}
           選択中Bot: {{ selected_bot.display_name }} / {{ selected_bot.bot_id }}
           {% if server is defined and server %}
             ・ {{ server.name }}
           {% endif %}
         </p>
       </div>
-      <nav>
-        <a href="/admin">管理</a>
-        <a href="/bots">Bot選択</a>
-        <a href="/servers">サーバー選択</a>
-        <a href="/minecraft/cosmetics">マイクラ素材</a>
-        {% if server is defined and server %}
-          <a href="/guilds/{{ server.guild_id }}">機能一覧</a>
-        {% endif %}
-        {% set layout_user = request.session.get("discord_user") %}
+      <div class="topbar-account">
         {% if layout_user %}
           <span class="nav-user">{{ layout_user.get("username") or layout_user.get("global_name") or layout_user.get("user_id") }}</span>
           <a href="/logout">ログアウト</a>
         {% else %}
           <a href="/login">ログイン</a>
         {% endif %}
-      </nav>
+      </div>
     </header>
-    <main>
-      {% block content %}{% endblock %}
-    </main>
+    <button class="nav-backdrop" type="button" data-nav-close aria-label="メニューを閉じる"></button>
+    <div class="app-shell">
+      <nav id="app-nav" class="app-nav" aria-label="管理メニュー">
+        <p class="nav-group-label">移動</p>
+        <a href="/admin" {% if nav.path == "/admin" %}aria-current="page"{% endif %}>管理メニュー</a>
+        <a href="/bots" {% if nav.path == "/bots" or nav.path.startswith("/bots/") %}aria-current="page"{% endif %}>Bot選択</a>
+        <a href="/servers" {% if nav.path == "/servers" %}aria-current="page"{% endif %}>サーバー選択</a>
+        {% if nav.guild_id %}
+          <a href="/guilds/{{ nav.guild_id }}" {% if nav.path == "/guilds/" ~ nav.guild_id %}aria-current="page"{% endif %}>機能一覧</a>
+        {% endif %}
+        <a href="/minecraft/cosmetics" {% if nav.path.startswith("/minecraft/cosmetics") %}aria-current="page"{% endif %}>マイクラ素材</a>
+        {% if layout_user %}
+          <a href="/me" {% if nav.path == "/me" %}aria-current="page"{% endif %}>ログイン状態</a>
+        {% endif %}
+        {% if nav.guild_id and feature_nav_groups is defined %}
+          {% for group in feature_nav_groups %}
+            <p class="nav-group-label">{{ group.label }}</p>
+            {% for item in group["items"] %}
+              {% set item_base = item.path.split("?")[0] %}
+              {% set suffix = nav.path.split("/guilds/" ~ nav.guild_id ~ "/", 1)[-1] %}
+              {% set link = namespace(current=false) %}
+              {% if "?" in item.path %}
+                {% set link.current = suffix == item_base and nav.kind and ("kind=" ~ nav.kind) in item.path %}
+              {% elif suffix == item.path or suffix.startswith(item.path ~ "/") %}
+                {% set link.current = true %}
+              {% endif %}
+              <a href="/guilds/{{ nav.guild_id }}/{{ item.path }}" {% if link.current %}aria-current="page"{% endif %}>{{ item.label }}</a>
+            {% endfor %}
+          {% endfor %}
+        {% endif %}
+      </nav>
+      <main>
+        {% if nav.guild_id %}
+          {% set crumb = namespace(label="") %}
+          {% set crumb_suffix = nav.path.split("/guilds/" ~ nav.guild_id ~ "/", 1)[-1] %}
+          {% if feature_nav_groups is defined %}
+            {% for group in feature_nav_groups %}
+              {% for item in group["items"] %}
+                {% set item_base = item.path.split("?")[0] %}
+                {% if "?" in item.path %}
+                  {% if crumb_suffix == item_base and nav.kind and ("kind=" ~ nav.kind) in item.path %}
+                    {% set crumb.label = item.label %}
+                  {% endif %}
+                {% elif crumb_suffix == item.path or crumb_suffix.startswith(item.path ~ "/") %}
+                  {% set crumb.label = item.label %}
+                {% endif %}
+              {% endfor %}
+            {% endfor %}
+          {% endif %}
+          <nav class="breadcrumb" aria-label="現在位置">
+            <a href="/servers">サーバー</a>
+            <span aria-hidden="true">/</span>
+            <a href="/guilds/{{ nav.guild_id }}">機能一覧</a>
+            {% if crumb.label %}
+              <span aria-hidden="true">/</span>
+              <span>{{ crumb.label }}</span>
+            {% endif %}
+          </nav>
+        {% endif %}
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+    <script src="{{ url_for('static', path='admin.js') }}?v=20261015b"></script>
   </body>
 </html>

@@ -33,12 +33,27 @@
 
     <section class="panel">
       <h2>日別本文</h2>
-      <p class="empty">1Wでは1〜7日目、2Wでは1〜14日目を使います。テンプレート利用時は必要日数分を入力してください。</p>
-      <div class="form-grid">
-        {% for day_index, value in day_values.items() %}
-          <label>{{ day_index }}日目<input name="day_{{ day_index }}" value="{{ value }}" placeholder="21:30~随時:花NM" {% if not can_edit %}disabled{% endif %}></label>
-        {% endfor %}
-      </div>
+      <p class="empty">1週間は1〜7日目、2週間は8〜14日目も入力します。空の日は使いません。</p>
+      <details class="form-section" open>
+        <summary>1〜7日目</summary>
+        <div class="form-grid">
+          {% for day_index, value in day_values.items() %}
+            {% if day_index|int <= 7 %}
+              <label>{{ day_index }}日目<input name="day_{{ day_index }}" value="{{ value }}" placeholder="21:30~随時:花NM" {% if not can_edit %}disabled{% endif %}></label>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </details>
+      <details class="form-section">
+        <summary>8〜14日目</summary>
+        <div class="form-grid">
+          {% for day_index, value in day_values.items() %}
+            {% if day_index|int >= 8 %}
+              <label>{{ day_index }}日目<input name="day_{{ day_index }}" value="{{ value }}" placeholder="21:30~随時:花NM" {% if not can_edit %}disabled{% endif %}></label>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </details>
     </section>
 
     <section class="panel actions-row">

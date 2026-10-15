@@ -105,6 +105,10 @@ def check_display_definitions() -> int:
     results.append(check("mention_reactions" not in all_keys, "old mention parent is not displayed", all_keys))
     results.append(check(servers.get_feature_definition("mention_reactions") is None, "old mention parent is not toggle target"))
     results.append(check(all(path != "mention-reactions" for path in all_edit_paths), "old mention parent edit path is absent", all_edit_paths))
+    missing_groups = [feature["key"] for feature in servers.DISPLAY_FEATURES if feature["key"] not in servers.FEATURE_GROUPS]
+    known_groups = {key for key, _label in servers.FEATURE_GROUP_ORDER}
+    results.append(check(not missing_groups, "every feature has a navigation group", missing_groups))
+    results.append(check(all(group in known_groups for group in servers.FEATURE_GROUPS.values()), "feature groups are known", servers.FEATURE_GROUPS))
     return sum(1 for result in results if result)
 
 
@@ -479,12 +483,20 @@ def check_layout_bot_context() -> int:
             "eyebrow text-transform",
         )
     )
+    results.append(check("app-nav" in layout_source and "data-nav-toggle" in layout_source, "layout has responsive navigation"))
+    results.append(check("admin.js" in layout_source, "layout loads admin behavior script"))
+    results.append(
+        check(
+            "[hidden] {\n  display: none !important;" in style_source,
+            "hidden fields stay hidden when display is set",
+        )
+    )
     return sum(1 for result in results if result)
 
 
 def main() -> int:
     template_count = len(list((ROOT_DIR / "admin" / "templates").glob("*.html")))
-    total = 9 + 9 + 6 + 6 + 3 + 4 + 4 + 3 + template_count + 2 + 4
+    total = 11 + 9 + 6 + 6 + 3 + 4 + 4 + 3 + template_count + 2 + 7
     passed = (
         check_display_definitions()
         + check_build_feature_rows()

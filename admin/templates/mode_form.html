@@ -74,7 +74,8 @@
         <label class="check-row"><input type="checkbox" name="is_deletable" {% if mode_data.is_deletable %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>削除可能</label>
       </div>
 
-      <h3>通知</h3>
+      <details class="form-section">
+        <summary>通知</summary>
       <div class="form-grid">
         <label>突入時メッセージ<textarea name="enter_message" {% if not can_edit %}disabled{% endif %}>{{ mode_data.enter_message }}</textarea></label>
         <label>終了時メッセージ<textarea name="exit_message" {% if not can_edit %}disabled{% endif %}>{{ mode_data.exit_message }}</textarea></label>
@@ -89,16 +90,20 @@
           <label>終了時GIFを選ぶ<input type="file" name="exit_gif_upload" accept="image/*" {% if not can_edit %}disabled{% endif %}></label>
         </div>
       </div>
+      </details>
 
-      <h3>チャンネル</h3>
+      <details class="form-section">
+        <summary>チャンネル</summary>
       <div class="form-grid">
         <label>突入通知チャンネル<input type="text" name="enter_notify_channel_id" value="{{ mode_data.enter_notify_channel_id }}" {% if not can_edit %}disabled{% endif %}></label>
         <label>終了通知チャンネル<input type="text" name="exit_notify_channel_id" value="{{ mode_data.exit_notify_channel_id }}" {% if not can_edit %}disabled{% endif %}></label>
         <label>反応チャンネル（カンマ区切り）<input type="text" name="reaction_channel_ids" value="{{ mode_data.reaction_channel_ids }}" {% if not can_edit %}disabled{% endif %}></label>
         <label>非反応チャンネル（カンマ区切り）<input type="text" name="ignore_channel_ids" value="{{ mode_data.ignore_channel_ids }}" {% if not can_edit %}disabled{% endif %}></label>
       </div>
+      </details>
 
-      <h3>クールタイム</h3>
+      <details class="form-section">
+        <summary>クールタイム</summary>
       <div class="form-grid">
         <label>
           方式
@@ -129,6 +134,7 @@
       </div>
       <p class="empty">例: はゆすは「期間内1回 / 月ごと / 月初」。成田は「期間内1回 / 月ごと / 22日」。</p>
       <p class="empty">しこっち復帰メッセージは「入室時・復活時セリフ」でBot別・サーバー別に編集できます。未設定のいちよんロボは既存文言を使います。</p>
+      </details>
 
       {% if can_edit %}
         <button type="submit">{% if mode == "new" %}作成{% else %}保存{% endif %}</button>
