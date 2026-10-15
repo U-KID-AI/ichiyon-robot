@@ -15,7 +15,7 @@
           "movement_type": "none"
         },
         "minecraft:underwater_movement": {
-          "value": 0.04
+          "value": 0.4
         }
       },
       "ichiyon:normal_water": {

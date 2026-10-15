@@ -61,7 +61,7 @@ def compile_float_ring(read, put, files, atlas):
         # the original engine default explicitly, including on unequipped spawns.
         groups[normal] = {"minecraft:behavior.float": normal_float,
                           "minecraft:underwater_movement": {"value": .02}}
-        groups[floating] = {"minecraft:underwater_movement": {"value": .04}, "minecraft:buoyant": {
+        groups[floating] = {"minecraft:underwater_movement": {"value": .4}, "minecraft:buoyant": {
             "apply_gravity": False, "base_buoyancy": 0.55,
             "movement_type": "none", "can_auto_step_from_liquid": True,
             "drag_down_on_buoyancy_removed": 0,

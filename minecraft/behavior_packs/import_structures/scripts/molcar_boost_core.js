@@ -1,8 +1,8 @@
 export const MOLCAR_TYPES = ["ichiyon:molcar", "ichiyon:molcar2", "ichiyon:molcar3"];
 export const BASE_SPEED = 0.4;
 export const BOOST_SPEED = 0.65;
-export const WATER_BASE_SPEED = 0.04;
-export const WATER_BOOST_SPEED = 0.065;
+export const WATER_BASE_SPEED = BASE_SPEED;
+export const WATER_BOOST_SPEED = BOOST_SPEED;
 export const BOOST_TICKS = 100;
 export const BOOST_MARKER = "molcar:carrot_boost";
 const TYPES = new Set(MOLCAR_TYPES);
