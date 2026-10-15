@@ -27,8 +27,8 @@
 - `ichiyon:float_ring` は専用の永続・client sync property（0/1）。
   頭・顔・首・背中の4枠とDB素材IDは変更しない。molcar/molcar2/molcar3だけが対象で、
   ゴミ収集モルカーへは適用しない。
-- native buoyancy（base 0.55、波なし、追加重力なし）と水中速度0.04を使用し、
-  既存のnative騎乗入力・旋回を維持。ニンジンは陸上0.4→0.65、水中0.04→0.065を
+- native buoyancy（base 0.55、波なし、追加重力なし）と水中速度0.4を使用し、
+  既存のnative騎乗入力・旋回を維持。ニンジンは陸上・水中ともに0.4→0.65を
   同じ100tickタイマーで管理。着脱・降車・期限・load/restartで古い速度を復旧する。
   通常float AIと浮力は排他のcomponent group。native environment sensorが
   保存propertyから復元し、外すと元のfloat AIと水中挙動へ戻す。
@@ -59,6 +59,9 @@ pushableとaddrider.entity_typeも同等の新形式に変換し、押され方�
 - 既存Minecraft CIへ新checkerを登録。JSON、JS、Python構文とversion policyも確認。
 - ローカルのMinecraft検査30コマンド中、DB接続検査以外は成功。
   DB検査はローカルに専用PostgreSQLがないためCIの隔離PostgreSQLで実行する。
+
+2026-10-15に水中速度の設定値を陸上と同じ0.4 / 0.65へ変更。
+以下の実測は変更前の0.04 / 0.065での記録であり、新設定の実速度比較は行っていない。
 
 2026-10-13の隔離BDS 1.26.51.1（server 2.11.0-beta、server-ui 2.0.0、
 テストのみGameTest 1.0.0-beta）で、水上・落下35項目と再起動・陸上13項目が成功。

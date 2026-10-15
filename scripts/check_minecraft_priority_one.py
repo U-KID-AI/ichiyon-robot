@@ -46,7 +46,7 @@ class PriorityOneChecks(unittest.TestCase):
             buoyant = entity["component_groups"]["ichiyon:float_ring"]["minecraft:buoyant"]
             self.assertEqual(buoyant["movement_type"], "none")
             self.assertEqual(buoyant["base_buoyancy"], .55)
-            self.assertEqual(entity["component_groups"]["ichiyon:float_ring"]["minecraft:underwater_movement"], {"value": .04})
+            self.assertEqual(entity["component_groups"]["ichiyon:float_ring"]["minecraft:underwater_movement"], {"value": .4})
             self.assertFalse(buoyant["apply_gravity"])
             self.assertEqual(entity["component_groups"]["ichiyon:normal_water"]["minecraft:underwater_movement"], {"value": .02})
             self.assertEqual(buoyant["drag_down_on_buoyancy_removed"], 0)
