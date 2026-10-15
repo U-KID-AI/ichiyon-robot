@@ -9,7 +9,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from admin.bots import parse_permission_value
 from admin.role_labels import role_description, role_label
-from bot.repositories.permissions import enabled_value, role_allows
+from bot.repositories.permissions import PermissionRepository, enabled_value, role_allows
 
 
 AUTH_PATH = PROJECT_ROOT / "admin" / "auth.py"
@@ -22,6 +22,116 @@ PERMISSIONS_PATH = PROJECT_ROOT / "bot" / "repositories" / "permissions.py"
 def record(results: List[Tuple[str, bool, Any]], name: str, ok: bool, detail: Any = "") -> None:
     results.append((name, ok, detail))
     print("[{0}] {1} - {2}".format("OK" if ok else "NG", name, detail))
+
+
+class _Column:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+
+class _Cursor:
+    def __init__(self, connection: "_Connection") -> None:
+        self.connection = connection
+        self.description: List[_Column] = []
+        self.rows: List[tuple] = []
+
+    def execute(self, sql: str, params: Any = None) -> None:
+        self.connection.executed.append(sql)
+        self.description, self.rows = self.connection.respond(sql, params or ())
+
+    def fetchall(self) -> List[tuple]:
+        return list(self.rows)
+
+    def fetchone(self) -> Any:
+        return self.rows[0] if self.rows else None
+
+    def __enter__(self) -> "_Cursor":
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> bool:
+        return False
+
+
+class _Connection:
+    def __init__(self, columns: dict) -> None:
+        self.columns = columns
+        self.executed: List[str] = []
+
+    def cursor(self) -> _Cursor:
+        return _Cursor(self)
+
+    def respond(self, sql: str, params: Any) -> tuple:
+        if "information_schema.columns" in sql:
+            names = self.columns.get(params[0], [])
+            return ([_Column("column_name")], [(name,) for name in names])
+        if "COUNT(*)" in sql and "admin_users" in sql:
+            return ([_Column("count")], [(1,)])
+        if "FROM admin_users" in sql:
+            if "au.enabled" in sql:
+                return (
+                    [_Column("discord_user_id"), _Column("role"), _Column("enabled"), _Column("bot_permission_count")],
+                    [("9001", "global_admin", False, 0)],
+                )
+            if "au.discord_user_id" in sql:
+                return (
+                    [_Column("discord_user_id"), _Column("role"), _Column("bot_permission_count")],
+                    [("9001", "global_admin", 0)],
+                )
+            return (
+                [_Column("discord_user_id"), _Column("role"), _Column("created_at"), _Column("updated_at")],
+                [("9001", "global_admin", None, None)],
+            )
+        if "FROM guilds" in sql:
+            return (
+                [_Column("guild_id"), _Column("name"), _Column("icon_url"), _Column("enabled"), _Column("role")],
+                [("1", "lab", None, True, "global_admin")],
+            )
+        return ([_Column("ok")], [])
+
+
+def check_legacy_admin_schema(results: List[Tuple[str, bool, Any]]) -> None:
+    legacy = _Connection(
+        {
+            "admin_users": ["discord_user_id", "role", "created_at", "updated_at"],
+        }
+    )
+    repository = PermissionRepository(legacy)
+    status_map = repository.get_admin_login_status("9001")
+    login_sql = "\n".join(sql for sql in legacy.executed if "FROM admin_users au" in sql)
+    record(
+        results,
+        "pre-027 admin login does not require enabled column",
+        status_map.get("can_login") is True
+        and status_map.get("enabled") is True
+        and "au.enabled" not in login_sql
+        and "bot_permissions" not in login_sql,
+        status_map.get("reason"),
+    )
+    record(
+        results,
+        "pre-027 global admin can list guilds without bot_permissions",
+        repository.list_manageable_guilds_for_bot("ichiyon", "9001")[0]["guild_id"] == "1"
+        and not any("FROM bot_permissions" in sql for sql in legacy.executed),
+        "legacy guild list",
+    )
+
+    current = _Connection(
+        {
+            "admin_users": ["discord_user_id", "role", "display_name", "enabled", "can_manage_users", "last_login_at"],
+            "bot_permissions": ["id", "bot_id", "discord_user_id", "guild_id", "role"],
+            "bot_instances": ["bot_id"],
+            "bot_guilds": ["bot_id", "guild_id"],
+        }
+    )
+    current_repository = PermissionRepository(current)
+    disabled = current_repository.get_admin_login_status("9001")
+    current_sql = "\n".join(sql for sql in current.executed if "FROM admin_users au" in sql)
+    record(
+        results,
+        "current schema still honors disabled admin users",
+        disabled.get("can_login") is False and "au.enabled" in current_sql and "bot_permissions" in current_sql,
+        disabled.get("reason"),
+    )
 
 
 def main() -> int:
@@ -200,6 +310,7 @@ def main() -> int:
         and permission_source.split("def can_access_bot_guild", 1)[1].split("def list_admin_users", 1)[0].count("has_global_admin") == 0,
         "bot/guild settings use bot_permissions",
     )
+    check_legacy_admin_schema(results)
 
     ok_count = sum(1 for _, ok, _ in results if ok)
     print("{0}/{1} OK".format(ok_count, len(results)))
