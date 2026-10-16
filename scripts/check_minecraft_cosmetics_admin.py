@@ -24,19 +24,42 @@ with patch("dotenv.load_dotenv", return_value=False):
     from admin import minecraft_cosmetics as admin
 
 from check_minecraft_cosmetics import png, geometry
-from bot.services.minecraft_cosmetics import asset, json_bytes, MAX_UPLOAD, MAX_ID
+from bot.services.minecraft_cosmetics import asset, json_bytes, MAX_UPLOAD, MAX_ID, validate_category
 
 
 class FakeRepository:
     added = []
     deleted = set()
+    category_rows = {}
+    assignments = {}
     def __init__(self, connection): pass
     def assets(self): return list(self.added)
     def deleted_assets(self): return set(self.deleted)
     def servers(self): return []
     def revision(self): return 1
+    def categories(self): return [{"category_id": key, "name": name} for key, name in self.category_rows.items()]
+    def skin_categories(self):
+        return {key: {"category_id": value, "category": self.category_rows[value]} for key, value in self.assignments.items()}
+    def save_category(self, name, *, category_id=None):
+        category_id = category_id or "cat_" + uuid.uuid4().hex
+        name = validate_category(category_id, name)
+        if any(key != category_id and value == name for key, value in self.category_rows.items()):
+            raise ValueError("同じ名前のカテゴリが既にあります。")
+        self.category_rows[category_id] = name
+        return category_id
+    def set_skin_category(self, skin_id, category_id, updated_by):
+        if category_id not in self.category_rows:
+            raise ValueError("指定されたカテゴリがありません。")
+        if ("skin", skin_id) in self.deleted or not (skin_id in range(1, 5) or any(a["kind"] == "skin" and a["id"] == skin_id for a in self.added)):
+            raise ValueError("変更できるスキンがありません。")
+        self.assignments[skin_id] = category_id
     def add(self, **kwargs):
         kind = kwargs.pop("kind"); kwargs.pop("created_by")
+        if kind == "skin":
+            category_id = kwargs.get("category_id", "uncategorized")
+            if category_id not in self.category_rows:
+                raise ValueError("指定されたカテゴリがありません。")
+            kwargs["category"] = self.category_rows[category_id]
         entry = asset(kind, 5 if kind == "skin" else 1, "test_asset", **kwargs)
         self.added.append(entry)
         return entry
@@ -93,6 +116,8 @@ app.mount("/static", StaticFiles(directory=str(ROOT / "admin/static")), name="st
 class AdminChecks(unittest.TestCase):
     def setUp(self):
         FakeRepository.added = []; FakeRepository.deleted = set()
+        FakeRepository.category_rows = {"uncategorized": "その他・未分類", "honkai3rd": "崩壊3rd", "arknights": "アークナイツ"}
+        FakeRepository.assignments = {1: "honkai3rd", 2: "honkai3rd", 3: "honkai3rd", 4: "uncategorized"}
         self.patches = [patch.object(admin, "get_connection", fake_connection),
                         patch.object(admin, "MinecraftCosmeticsRepository", FakeRepository), patch.object(admin, "require_login", require_login)]
         for item in self.patches: item.start(); self.addCleanup(item.stop)
@@ -111,12 +136,41 @@ class AdminChecks(unittest.TestCase):
 
     def test_csrf_required_for_every_mutation(self):
         self.sign_in()
-        for path in ("/assets", "/export", "/assets/skin/1/delete", "/assets/poster/1/delete", "/apply"):
+        for path in ("/assets", "/export", "/assets/skin/1/delete", "/assets/poster/1/delete", "/apply", "/categories", "/categories/honkai3rd/rename", "/assets/skin/1/category"):
             for token in ("", "wrong"):
                 response = self.client.post("/minecraft/cosmetics" + path, data={"csrf": token})
                 self.assertEqual(response.status_code, 403)
         self.assertFalse(FakeRepository.added)
         self.assertFalse(FakeRepository.deleted)
+
+    def test_category_mutations_use_real_session_revalidation_before_writing(self):
+        from admin import auth
+        from unittest.mock import Mock
+        permission = Mock()
+        permission.can_login_admin.return_value = False
+        paths = ("/categories", "/categories/honkai3rd/rename", "/assets/skin/1/category")
+        with patch.object(admin, "require_login", auth.require_login), \
+                patch.object(auth, "get_connection", fake_connection), \
+                patch.object(auth, "PermissionRepository", return_value=permission), \
+                patch.object(FakeRepository, "save_category") as save, \
+                patch.object(FakeRepository, "set_skin_category") as assign:
+            for path in paths:
+                self.sign_in()
+                response = self.client.post("/minecraft/cosmetics" + path,
+                    data={"csrf": "test-csrf", "name": "Work", "category_id": "arknights"})
+                self.assertEqual(response.status_code, 401)
+                permission.can_login_admin.assert_called_with("admin")
+            save.assert_not_called(); assign.assert_not_called()
+
+    def test_category_mutations_reject_non_ascii_and_file_csrf_before_writing(self):
+        self.sign_in()
+        with patch.object(FakeRepository, "save_category") as save, \
+                patch.object(FakeRepository, "set_skin_category") as assign:
+            for path in ("/categories", "/categories/honkai3rd/rename", "/assets/skin/1/category"):
+                for fields in ({"data": {"csrf": "不正なトークン"}},
+                               {"files": {"csrf": ("token.txt", b"test-csrf")}}):
+                    self.assertEqual(self.client.post("/minecraft/cosmetics" + path, **fields).status_code, 403)
+            save.assert_not_called(); assign.assert_not_called()
 
     def test_registration_skin_and_preview(self):
         self.sign_in()

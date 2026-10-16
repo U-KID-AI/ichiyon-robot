@@ -35,7 +35,7 @@ class DatabaseChecks(unittest.TestCase):
             conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(cls.schema)))
             conn.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(cls.schema)))
             for name in ("065_add_minecraft_cosmetics.sql", "066_delete_minecraft_cosmetic_skins.sql",
-                         "069_add_minecraft_managed_posters.sql"):
+                         "069_add_minecraft_managed_posters.sql", "071_add_minecraft_skin_categories.sql"):
                 migration = (ROOT / "migrations" / name).read_text(encoding="utf-8")
                 conn.execute(migration)
                 conn.execute(migration)  # Migration is additive/idempotent.
@@ -53,7 +53,8 @@ class DatabaseChecks(unittest.TestCase):
 
     def setUp(self):
         with self.connect() as conn:
-            conn.execute("TRUNCATE minecraft_cosmetic_assets,minecraft_cosmetic_servers,minecraft_cosmetic_deleted_assets")
+            conn.execute("TRUNCATE minecraft_cosmetic_assets,minecraft_cosmetic_servers,minecraft_cosmetic_deleted_assets,minecraft_skin_category_assignments,minecraft_skin_categories")
+            conn.execute((ROOT / "migrations/071_add_minecraft_skin_categories.sql").read_text(encoding="utf-8"))
 
     def test_registration_is_durable_and_ids_do_not_race(self):
         def add(i):
@@ -194,6 +195,7 @@ class DatabaseChecks(unittest.TestCase):
             for _ in range(2):
                 conn.execute((ROOT / "migrations/069_add_minecraft_managed_posters.sql").read_text(encoding="utf-8"))
             self.assertEqual(before, conn.execute("SELECT kind,asset_id,asset_key,texture,geometry,icon,deleted_at FROM minecraft_cosmetic_assets ORDER BY kind").fetchall())
+            conn.execute((ROOT / "migrations/071_add_minecraft_skin_categories.sql").read_text(encoding="utf-8"))
             repo = MinecraftCosmeticsRepository(conn)
             self.assertEqual(repo.deleted_assets(), {("skin", 5)})
             self.assertEqual([record["kind"] for record in repo.assets()], ["accessory"])
@@ -205,6 +207,128 @@ class DatabaseChecks(unittest.TestCase):
                 MinecraftCosmeticsRepository(conn).add(kind="skin", name="bad", texture=b"invalid", created_by="tester")
         with self.connect() as conn:
             self.assertEqual(MinecraftCosmeticsRepository(conn).add(kind="skin", name="valid", texture=png(), created_by="tester")["id"], 5)
+
+    def test_category_updates_preserve_images_ids_and_survive_migration_replay(self):
+        from admin.minecraft_cosmetics import records
+        from bot.services.minecraft_cosmetics_pack import catalog_digest, compile_files
+        import json
+        migration = (ROOT / "migrations/071_add_minecraft_skin_categories.sql").read_text(encoding="utf-8")
+        with self.connect() as conn:
+            repo = MinecraftCosmeticsRepository(conn)
+            initial = records(repo)
+            self.assertEqual([a["category_id"] for a in initial], ["honkai3rd"] * 3 + ["uncategorized"])
+            skin = repo.add(kind="skin", name="Unknown", texture=png(), created_by="tester")
+            self.assertEqual(skin["category_id"], "uncategorized")
+            stored_before = conn.execute("SELECT * FROM minecraft_cosmetic_assets ORDER BY kind,asset_id").fetchall()
+            before = catalog_digest(records(repo))
+            category_id = repo.save_category("新しい作品")
+            repo.set_skin_category(skin["id"], category_id, "editor")
+            repo.set_skin_category(1, "arknights", "editor")
+            repo.save_category("新しい作品・改", category_id=category_id)
+            repo.save_category("崩壊3rd・改", category_id="honkai3rd")
+            conn.execute(migration); conn.execute(migration)
+            self.assertEqual(stored_before, conn.execute("SELECT * FROM minecraft_cosmetic_assets ORDER BY kind,asset_id").fetchall())
+        with self.connect() as conn:
+            repo = MinecraftCosmeticsRepository(conn)
+            current = records(repo)
+            self.assertNotEqual(before, catalog_digest(current))
+            self.assertEqual(current[0]["category_id"], "arknights")
+            self.assertEqual(current[1]["category"], "崩壊3rd・改")
+            self.assertEqual(current[-1]["category"], "新しい作品・改")
+            self.assertEqual([(a["id"], a["key"], a["texture"], a["model"]) for a in initial + [skin]],
+                             [(a["id"], a["key"], a["texture"], a["model"]) for a in current])
+            files = compile_files(ROOT / "minecraft", current)
+            catalog = json.loads(files["cosmetics/catalog.lock.json"])
+            self.assertEqual(catalog["digest"], catalog_digest(current))
+            self.assertEqual([(a["id"], a["category_id"], a["category"]) for a in catalog["skins"]],
+                             [(a["id"], a["category_id"], a["category"]) for a in current])
+            js = files["behavior_packs/import_structures/scripts/cosmetics_catalog.js"].decode()
+            self.assertEqual(json.loads(js.split("export const catalog = ", 1)[1].rstrip(";\n")), catalog)
+            self.assertEqual(conn.execute("SELECT updated_by FROM minecraft_skin_category_assignments WHERE skin_id=5").fetchone()[0], "editor")
+
+    def test_category_upgrade_backfills_unknown_skins_without_changing_legacy_data(self):
+        schema = self.schema + "_categories_upgrade"
+        with connection() as conn:
+            conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+            conn.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+            for name in ("065_add_minecraft_cosmetics.sql", "066_delete_minecraft_cosmetic_skins.sql", "069_add_minecraft_managed_posters.sql"):
+                conn.execute((ROOT / "migrations" / name).read_text(encoding="utf-8"))
+            # Character names alone must never infer an uploaded skin's work/category.
+            conn.execute("""INSERT INTO minecraft_cosmetic_assets
+                (kind,asset_id,asset_key,name,texture,model,created_by)
+                VALUES ('skin',5,'legacy','キアナ',%s,'slim','legacy')""", (png(),))
+            before = conn.execute("SELECT * FROM minecraft_cosmetic_assets").fetchall()
+            for _ in range(2):
+                conn.execute((ROOT / "migrations/071_add_minecraft_skin_categories.sql").read_text(encoding="utf-8"))
+            self.assertEqual(before, conn.execute("SELECT * FROM minecraft_cosmetic_assets").fetchall())
+            self.assertEqual(MinecraftCosmeticsRepository(conn).assets()[0]["category_id"], "uncategorized")
+            conn.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+
+    def test_category_validation_and_deleted_skin_guards(self):
+        with self.connect() as conn:
+            repo = MinecraftCosmeticsRepository(conn)
+            for name in (None, "", " ", "x" * 49, "bad\nname", "bad\x7fname", "bad\x85name", "§cRed", "すべてのキャラクター", "アークナイツ"):
+                with self.subTest(name=name), self.assertRaises(ValueError): repo.save_category(name)
+            for key, name in (("missing", "New"), ("uncategorized", "Rename"), ("honkai3rd", "その他・未分類")):
+                with self.assertRaises(ValueError): repo.save_category(name, category_id=key)
+            for skin_id in (0, -1, True, "1", 128, 50):
+                with self.assertRaises(ValueError): repo.set_skin_category(skin_id, "arknights", "tester")
+            with self.assertRaises(ValueError): repo.set_skin_category(1, "missing", "tester")
+            with self.assertRaises(ValueError): repo.add(kind="skin", name="Invalid", texture=png(), created_by="tester", category_id="missing")
+            skin = repo.add(kind="skin", name="Amiya", texture=png(), created_by="tester", category_id="arknights")
+            self.assertEqual(skin["id"], 5)
+            self.assertEqual(repo.assets()[0]["category"], "アークナイツ")
+            repo.delete_skin(1, "tester"); repo.delete_skin(5, "tester")
+            for skin_id in (1, 5):
+                with self.assertRaises(ValueError): repo.set_skin_category(skin_id, "honkai3rd", "tester")
+            self.assertEqual(repo.assets(), [])
+
+    def test_concurrent_category_names_are_unique(self):
+        def add(_):
+            try:
+                with self.connect() as conn:
+                    return MinecraftCosmeticsRepository(conn).save_category("Shared work")
+            except ValueError:
+                return None
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            results = list(pool.map(add, range(4)))
+        self.assertEqual(sum(result is not None for result in results), 1)
+
+    def test_web_category_edit_roundtrip_uses_real_database_and_export(self):
+        from check_minecraft_cosmetics_admin import app, admin, require_login
+        from io import BytesIO
+        from zipfile import ZipFile
+        import json
+        with patch.object(admin, "get_connection", self.connect), patch.object(admin, "require_login", require_login), TestClient(app) as client:
+            for path in ("/categories", "/categories/honkai3rd/rename", "/assets/skin/1/category"):
+                self.assertEqual(client.post("/minecraft/cosmetics" + path, data={"csrf": "test-csrf"}).status_code, 401)
+            client.get("/test-login/editor")
+            fields = {"csrf": "test-csrf"}
+            self.assertEqual(client.post("/minecraft/cosmetics/categories", data=fields | {"name": "新作 <&>"}, follow_redirects=False).status_code, 303)
+            with self.connect() as conn:
+                category_id = next(c["category_id"] for c in MinecraftCosmeticsRepository(conn).categories() if c["name"] == "新作 <&>")
+            response = client.post("/minecraft/cosmetics/assets", data=fields | {"kind": "skin", "name": "New skin", "category_id": category_id},
+                                   files={"texture": ("skin.png", png(), "image/png")}, follow_redirects=False)
+            self.assertEqual(response.status_code, 303)
+            before = client.get("/minecraft/cosmetics/preview/skin/5").content
+            self.assertEqual(client.post("/minecraft/cosmetics/assets/skin/5/category", data=fields | {"category_id": "arknights"}, follow_redirects=False).status_code, 303)
+            self.assertEqual(client.post("/minecraft/cosmetics/assets/skin/1/category", data=fields | {"category_id": category_id}, follow_redirects=False).status_code, 303)
+            self.assertEqual(client.post(f"/minecraft/cosmetics/categories/{category_id}/rename", data=fields | {"name": "改名 <&>"}, follow_redirects=False).status_code, 303)
+            page = client.get("/minecraft/cosmetics").text
+            self.assertIn("改名 &lt;&amp;&gt;", page)
+            self.assertIn(f'value="{category_id}" selected', page)
+            self.assertEqual(client.get("/minecraft/cosmetics/preview/skin/5").content, before)
+            exported = client.post("/minecraft/cosmetics/export", data=fields)
+            self.assertEqual(exported.status_code, 200)
+            with ZipFile(BytesIO(exported.content)) as archive:
+                catalog = json.loads(archive.read("cosmetics/catalog.lock.json"))
+                self.assertEqual(catalog["skins"][0]["category"], "改名 <&>")
+                self.assertEqual(catalog["skins"][-1]["category_id"], "arknights")
+            for path, data in (("/categories", {"name": "アークナイツ"}),
+                               ("/assets/skin/99/category", {"category_id": "arknights"}),
+                               ("/assets/skin/5/category", {"category_id": "unknown"}),
+                               ("/categories/unknown/rename", {"name": "Missing"})):
+                self.assertEqual(client.post("/minecraft/cosmetics" + path, data=fields | data).status_code, 400)
 
     def test_export_revision_increases_across_connections(self):
         with self.connect() as conn: first = MinecraftCosmeticsRepository(conn).revision()
