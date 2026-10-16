@@ -47,7 +47,7 @@ test("ring contention, failed property write, full inventory and creative use pr
   assert.equal(mob.properties["ichiyon:float_ring"], 0); assert.equal(a.items[0].typeId, "minecraft:stone");
 });
 
-function setup() {
+function setup(skinEntries) {
   let tick = 0;
   const tasks = [];
   const system = { run: fn => tasks.push({ at: tick + 1, fn }), runTimeout: (fn, delay) => tasks.push({ at: tick + delay, fn }) };
@@ -90,7 +90,7 @@ function setup() {
     async show() { forms.push(this); const answer = answers.shift(); return typeof answer === "function" ? answer() : answer || { canceled: true }; }
   }
   const catalog = {
-    digest: "a".repeat(64), skins: Array.from({ length: 20 }, (_, i) => ({ id: i + 1, name: `Skin ${i + 1}` })),
+    digest: "a".repeat(64), skins: skinEntries ?? Array.from({ length: 20 }, (_, i) => ({ id: i + 1, name: `Skin ${i + 1}`, category_id: i < 4 ? "honkai3rd" : "uncategorized", category: i < 4 ? "崩壊3rd" : "その他・未分類" })),
     accessories: [{ id: 1, item: "ichiyon:accessory_1", slot: "hat", name: "帽子" }, { id: 2, item: "ichiyon:accessory_2", slot: "face", name: "眼鏡" }, { id: 3, item: "ichiyon:accessory_3", slot: "hat", name: "王冠" }],
   };
   const subscriptions = {};
@@ -134,7 +134,7 @@ test("picker pages reach skins beyond first page", async () => {
 });
 test("common egg spawns selected variant only once under repeated events", async () => {
   const { core, makePlayer, answers, advance, spawned } = setup(); const player = makePlayer(); player.mode = "creative";
-  player.items[0] = { typeId: "ichiyon:avatar_selector", amount: 1 }; answers.push({ selection: 2 });
+  player.items[0] = { typeId: "ichiyon:avatar_selector", amount: 1 }; answers.push({ selection: 0 }, { selection: 2 });
   const event = { player, itemStack: player.items[0], block: { location: { x: 0, y: 63, z: 2 } }, isFirstEvent: true };
   core.useEgg(event); core.useEgg(event); assert.equal(event.cancel, true); assert.equal(spawned.length, 0);
   await advance(); assert.equal(spawned.length, 1); assert.equal(spawned[0].variant, 2);
@@ -143,9 +143,183 @@ test("common egg denies survival, cancellation, changed held item, and blocked p
   for (const mode of ["survival", "cancel", "switch", "blocked"]) {
     const { core, makePlayer, answers, spawned, dimension } = setup(); const player = makePlayer(); player.mode = mode === "survival" ? "survival" : "creative";
     player.items[0] = { typeId: "ichiyon:avatar_selector", amount: 1 };
-    answers.push(() => { if (mode === "switch") player.items[0] = undefined; return mode === "cancel" ? { canceled: true } : { selection: 0 }; });
+    answers.push({ selection: 0 }, () => { if (mode === "switch") player.items[0] = undefined; return mode === "cancel" ? { canceled: true } : { selection: 0 }; });
     if (mode === "blocked") dimension.getBlock = () => ({ isAir: false });
     await core.selectSkin(player, undefined, { x: 0, y: 64, z: 2 }).catch(() => {}); assert.equal(spawned.length, 0);
+  }
+});
+
+test("category picker shows counts and only the selected category's skins", async () => {
+  const f = setup(), player = f.makePlayer(), target = f.makeEntity("ichiyon:avatar"); player.mode = "creative";
+  f.answers.push({ selection: 1 }, { selection: 0 });
+  await f.core.selectSkin(player, target);
+  assert.deepEqual(f.forms[0].buttons, ["崩壊3rd（4件）", "その他・未分類（16件）", "すべてのキャラクター（20件）"]);
+  assert.deepEqual(f.forms[1].buttons, [...Array.from({ length: 12 }, (_, i) => `Skin ${i + 5}`), "次のページ", "カテゴリに戻る"]);
+  assert.match(f.forms[1].titleText, /その他・未分類.*1\/2/);
+  assert.equal(target.variant, 4); assert.equal(target.nameTag, "Skin 5");
+});
+
+test("category pagination reaches the last skin and can return to the previous page", async () => {
+  for (const previous of [false, true]) {
+    const f = setup(), player = f.makePlayer(), target = f.makeEntity("ichiyon:avatar"); player.mode = "creative";
+    f.answers.push({ selection: 1 }, { selection: 12 });
+    if (previous) f.answers.push({ selection: 4 }, { selection: 0 });
+    else f.answers.push({ selection: 3 });
+    await f.core.selectSkin(player, target);
+    assert.deepEqual(f.forms[2].buttons, ["Skin 17", "Skin 18", "Skin 19", "Skin 20", "前のページ", "カテゴリに戻る"]);
+    assert.equal(target.variant, previous ? 4 : 19);
+  }
+});
+
+test("back is available on every skin page and permits choosing another category", async () => {
+  for (const secondPage of [false, true]) {
+    const f = setup(), player = f.makePlayer(), target = f.makeEntity("ichiyon:avatar"); player.mode = "creative";
+    f.answers.push({ selection: 1 });
+    if (secondPage) f.answers.push({ selection: 12 });
+    f.answers.push({ selection: secondPage ? 5 : 13 }, { selection: 0 }, { selection: 3 });
+    await f.core.selectSkin(player, target);
+    assert.equal(target.variant, 3); assert.equal(target.nameTag, "Skin 4");
+    assert.deepEqual(f.forms.at(-1).buttons, ["Skin 1", "Skin 2", "Skin 3", "Skin 4", "カテゴリに戻る"]);
+  }
+});
+
+test("sparse permanent IDs, duplicate labels and empty categories remain selectable", async () => {
+  for (const skinEntries of [
+    [{ id: 3, name: "same" }, { id: 4, name: "same" }],
+    [{ id: 8, name: "same" }, { id: 127, name: "same" }],
+  ]) {
+    const f = setup(skinEntries), player = f.makePlayer(), target = f.makeEntity("ichiyon:avatar"); player.mode = "creative";
+    f.answers.push({ selection: 0 }, { selection: 1 });
+    await f.core.selectSkin(player, target);
+    assert.deepEqual(f.forms[0].buttons, ["その他・未分類（2件）", "すべてのキャラクター（2件）"]);
+    assert.deepEqual(f.forms[1].buttons, ["same", "same", "カテゴリに戻る"]);
+    assert.equal(target.variant, skinEntries[1].id - 1);
+  }
+  const f = setup([]), player = f.makePlayer(); player.mode = "creative";
+  await f.core.selectSkin(player, undefined, { x: 0, y: 64, z: 2 });
+  assert.equal(f.forms.length, 0); assert.equal(f.spawned.length, 0);
+  assert.match(player.messages[0], /スキンが登録されていません/);
+});
+
+test("cancel or invalid selection at either level or after back never mutates a mannequin", async () => {
+  for (const response of [{ canceled: true }, { selection: 99 }, { selection: -1 }, { selection: 0.5 }, {}]) {
+    for (const prefix of [[], [{ selection: 0 }], [{ selection: 1 }, { selection: 13 }]]) {
+      const f = setup(), player = f.makePlayer(), target = f.makeEntity("ichiyon:avatar"); player.mode = "creative";
+      target.variant = 7; target.nameTag = "unchanged";
+      f.answers.push(...prefix, response);
+      await f.core.selectSkin(player, target);
+      assert.equal(target.variant, 7); assert.equal(target.nameTag, "unchanged"); assert.equal(f.spawned.length, 0);
+    }
+  }
+});
+
+test("creative sneaking edit uses categories and preserves the player's worn skin", async () => {
+  const f = setup(), player = f.makePlayer(), target = f.makeEntity("ichiyon:avatar");
+  player.mode = "creative"; player.isSneaking = true; f.core.changeSkin(player, 2); await f.advance();
+  f.answers.push({ selection: 2 }, { selection: 1 }, { selection: 1 });
+  await f.core.mannequinMenu(player, target);
+  assert.equal(target.variant, 5); assert.equal(target.nameTag, "Skin 6");
+  assert.equal(player.getProperty("ichiyon:skin_id"), 2); assert.equal(f.spawned.length, 0);
+});
+
+test("stale players and targets abort category, skin, next-page and back navigation", async () => {
+  const mutations = [
+    (p, t) => p.mode = "survival", (p, t) => p.dimension = { id: "nether" },
+    (p, t) => p.isValid = false, (p, t) => t.isValid = false, (p, t) => p.location.x = 100,
+  ];
+  for (const mutate of mutations) {
+    for (const [prefix, selection] of [[[], 1], [[{ selection: 1 }], 0], [[{ selection: 1 }], 12], [[{ selection: 1 }], 13]]) {
+      const f = setup(), player = f.makePlayer(), target = f.makeEntity("ichiyon:avatar"); player.mode = "creative";
+      f.answers.push(...prefix, () => { mutate(player, target); return { selection }; });
+      await f.core.selectSkin(player, target);
+      assert.equal(target.variant, 0); assert.equal(f.forms.length, prefix.length + 1);
+    }
+  }
+});
+
+test("egg placement rechecks state after both levels", async () => {
+  for (const mutate of [p => p.items[0] = undefined, p => p.mode = "survival", p => p.isValid = false, p => p.dimension = { id: "nether" }]) {
+    for (const categoryStage of [true, false]) {
+      const f = setup(), player = f.makePlayer(); player.mode = "creative";
+      player.items[0] = { typeId: "ichiyon:avatar_selector", amount: 1 };
+      const changed = () => { mutate(player); return { selection: 0 }; };
+      f.answers.push(...(categoryStage ? [changed, { selection: 0 }] : [{ selection: 0 }, changed]));
+      await f.core.selectSkin(player, undefined, { x: 0, y: 64, z: 2 });
+      assert.equal(f.spawned.length, 0);
+    }
+  }
+});
+
+test("category page boundaries preserve all IDs through the maximum catalog size", async () => {
+  for (const count of [1, 12, 13, 24, 123]) {
+    const entries = Array.from({ length: count }, (_, i) => ({ id: i + 5, name: `Uploaded ${i + 5}` }));
+    const f = setup(entries), player = f.makePlayer(), target = f.makeEntity("ichiyon:avatar"); player.mode = "creative";
+    const pages = Math.ceil(count / 12);
+    f.answers.push({ selection: 0 });
+    for (let page = 0; page < pages - 1; page++) f.answers.push({ selection: page === 0 ? 12 : 13 });
+    f.answers.push({ selection: (count - 1) % 12 });
+    await f.core.selectSkin(player, target);
+    assert.equal(target.variant, count + 3);
+    assert.equal(f.forms.length, pages + 1);
+    assert.deepEqual(f.forms.slice(1).flatMap(form => form.buttons.filter(text => text.startsWith("Uploaded "))), entries.map(skin => skin.name));
+    assert.ok(f.forms.slice(1).every(form => form.buttons.at(-1) === "カテゴリに戻る"));
+    assert.ok(!f.forms.at(-1).buttons.includes("次のページ"));
+  }
+});
+
+test("generated built-ins use work categories and all characters without ID inference", async () => {
+  const generated = await readFile(new URL("../minecraft/cosmetics/catalog.lock.json", import.meta.url), "utf8");
+  const entries = JSON.parse(generated).skins;
+  assert.deepEqual(entries.map(skin => skin.category_id), ["honkai3rd", "honkai3rd", "honkai3rd", "uncategorized"]);
+  for (const [category, skinIndex, expectedId] of [[0, 2, 3], [1, 0, 4], [2, 3, 4]]) {
+    const f = setup(entries), player = f.makePlayer(), target = f.makeEntity("ichiyon:avatar"); player.mode = "creative";
+    f.answers.push({ selection: category }, { selection: skinIndex });
+    await f.core.selectSkin(player, target);
+    assert.deepEqual(f.forms[0].buttons, ["崩壊3rd（3件）", "その他・未分類（1件）", "すべてのキャラクター（4件）"]);
+    assert.equal(target.variant, expectedId - 1);
+  }
+});
+
+test("new and renamed works, reassigned built-ins, and all characters follow catalog metadata", async () => {
+  const entries = [
+    { id: 1, name: "キアナ", category_id: "custom", category: "管理画面で変更した作品名" },
+    { id: 5, name: "追加キャラ", category_id: "arknights", category: "アークナイツ" },
+    { id: 9, name: "不明なキャラ", category_id: "uncategorized", category: "その他・未分類" },
+  ];
+  for (const [category, expectedId] of [[0, 1], [1, 5], [2, 9], [3, 1]]) {
+    const f = setup(entries), player = f.makePlayer(), target = f.makeEntity("ichiyon:avatar"); player.mode = "creative";
+    f.answers.push({ selection: category }, { selection: 0 });
+    await f.core.selectSkin(player, target);
+    assert.deepEqual(f.forms[0].buttons, ["管理画面で変更した作品名（1件）", "アークナイツ（1件）", "その他・未分類（1件）", "すべてのキャラクター（3件）"]);
+    assert.equal(target.variant, expectedId - 1);
+    if (category === 3) assert.deepEqual(f.forms[1].buttons, [...entries.map(skin => skin.name), "カテゴリに戻る"]);
+  }
+});
+
+test("categories themselves paginate as works are added without code changes", async () => {
+  const entries = Array.from({ length: 13 }, (_, i) => ({ id: i + 1, name: `Skin ${i + 1}`, category_id: `work_${i}`, category: `Work ${i}` }));
+  const f = setup(entries), player = f.makePlayer(), target = f.makeEntity("ichiyon:avatar"); player.mode = "creative";
+  f.answers.push({ selection: 12 }, { selection: 0 }, { selection: 1 }, { selection: 1 }, { selection: 12 }, { selection: 0 });
+  await f.core.selectSkin(player, target);
+  assert.deepEqual(f.forms[1].buttons, ["Work 12（1件）", "すべてのキャラクター（13件）", "前のページ"]);
+  assert.deepEqual(f.forms[2].buttons, ["Skin 13", "カテゴリに戻る"]);
+  assert.deepEqual(f.forms[3].buttons, f.forms[1].buttons);
+  assert.equal(f.forms[3].titleText, f.forms[1].titleText);
+  assert.equal(target.variant, 12);
+  assert.match(f.forms.at(-1).titleText, /すべてのキャラクター.*2\/2/);
+});
+
+test("returning to a later category page permits previous-page navigation and cancellation", async () => {
+  const entries = Array.from({ length: 25 }, (_, i) => ({ id: i + 1, name: `Skin ${i + 1}`, category_id: `work_${i}`, category: `Work ${i}` }));
+  for (const cancel of [false, true]) {
+    const f = setup(entries), player = f.makePlayer(), target = f.makeEntity("ichiyon:avatar"); player.mode = "creative";
+    target.variant = 7;
+    f.answers.push({ selection: 12 }, { selection: 13 }, { selection: 0 }, { selection: 1 });
+    if (cancel) f.answers.push({ canceled: true });
+    else f.answers.push({ selection: 2 }, { selection: 0 }, { selection: 0 });
+    await f.core.selectSkin(player, target);
+    assert.match(f.forms[4].titleText, /3\/3/);
+    assert.equal(target.variant, cancel ? 7 : 12);
   }
 });
 test("equip combines slots and returns replaced item in survival", async () => {
