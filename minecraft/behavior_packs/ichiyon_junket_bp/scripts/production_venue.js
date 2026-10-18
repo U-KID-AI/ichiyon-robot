@@ -186,14 +186,6 @@ export function createProductionVenues({ world, system }) {
       };
       const finish = () => {
         applySpecialConfig(id);
-        if (venue.special_runtime) {
-          const runtimeVenue = specialVenues[id];
-          if (!runtimeVenue) throw new Error(`JUNKET special runtime missing: ${id}`);
-          if (id === "sparrow") runtimeVenue.provision(config(id), "hall");
-          else runtimeVenue.ensure();
-        } else {
-          ensure(id);
-        }
         world.setDynamicProperty(originName(id), 1);
         cleanup();
         resolve();
@@ -252,6 +244,7 @@ export function createProductionVenues({ world, system }) {
         }
       };
       system.runTimeout(() => place(20), 20);
+      void specialVenues;
     });
   }
 

@@ -2,7 +2,7 @@
 // Original block structures and original model textures only.
 export const VENUE_CONFIG = Object.freeze({
   "VENUE_SCHEMA": 1,
-  "VENUE_INSTALL_KEY": "junket:original_world_v3",
+  "VENUE_INSTALL_KEY": "junket:original_world_v4",
   "VENUES": [
     {
       "id": "sparrow",
