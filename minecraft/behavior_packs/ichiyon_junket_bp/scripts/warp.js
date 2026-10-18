@@ -88,7 +88,7 @@ export function createWarpSystem({ world, system, manager, destinations = {}, ca
     for (const game of catalog.WARP_CONTROLS) {
       const expected = [
         [game.command_block, "minecraft:command_block"],
-        [game.sign, "minecraft:wall_sign"],
+        [game.sign, "minecraft:oak_sign"],
         [game.button, "minecraft:wooden_button"],
       ];
       for (const [location, typeId] of expected) {
@@ -119,7 +119,7 @@ export function createWarpSystem({ world, system, manager, destinations = {}, ca
       for (const location of targetCells(game)) {
         const expectedType = location === game.command_block
           ? "minecraft:command_block"
-          : location === game.sign ? "minecraft:wall_sign" : "minecraft:wooden_button";
+          : location === game.sign ? "minecraft:oak_sign" : "minecraft:wooden_button";
         const position = key(catalog.WARP_DIMENSION, { x: location[0], y: location[1], z: location[2] });
         if (cells.has(position)) throw new Error(`JUNKET操作位置が重複しています: ${position}`);
         cells.add(position);
@@ -168,13 +168,13 @@ export function createWarpSystem({ world, system, manager, destinations = {}, ca
         const [x, y, z] = game.command_block;
         const [sx, sy, sz] = game.sign;
         const [bx, by, bz] = game.button;
-        runChecked(d, `setblock ${x} ${y} ${z} minecraft:command_block ["facing_direction"=2,"conditional_bit"=false]`);
+        runChecked(d, `setblock ${x} ${y} ${z} minecraft:command_block`);
         placed.push(game.command_block);
         runChecked(d, `blockdata ${x} ${y} ${z} ${commandBlockData(game)}`);
-        runChecked(d, `setblock ${sx} ${sy} ${sz} minecraft:wall_sign ["facing_direction"=2]`);
+        runChecked(d, `setblock ${sx} ${sy} ${sz} minecraft:oak_sign`);
         placed.push(game.sign);
         runChecked(d, `blockdata ${sx} ${sy} ${sz} ${signData(game)}`);
-        runChecked(d, `setblock ${bx} ${by} ${bz} minecraft:wooden_button ["facing_direction"=1,"button_pressed_bit"=false]`);
+        runChecked(d, `setblock ${bx} ${by} ${bz} minecraft:wooden_button`);
         placed.push(game.button);
       }
       tell(player, "17ゲーム分のワープ操作設備を増設しました。既存の拠点行き設備は変更していません。");
