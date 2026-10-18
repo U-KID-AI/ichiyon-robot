@@ -21,7 +21,7 @@ const fixtureCatalog = (readiness = "verified") => ({
 });
 
 function fixture({ readiness = "verified", occupied = false, playerInside = false, route = null, failedCommand = null, unloadedControls = false, partialInstalled = false } = {}) {
-  const events = {}, commands = [], messages = [];
+  const events = {}, commands = [], messages = [], signTexts = [];
   const catalog = fixtureCatalog(readiness);
   if (occupied) catalog.WARP_CONTROLS[0].sign = [3, 65, 2];
   const anchor = catalog.PROTECTED_ANCHOR;
@@ -42,6 +42,9 @@ function fixture({ readiness = "verified", occupied = false, playerInside = fals
       return {
         typeId, isAir: typeId === "minecraft:air", dimension, location: { x, y, z },
         setType(next) { fixed.set(position, next); this.typeId = next; this.isAir = next === "minecraft:air"; },
+        getComponent(component) {
+          return component === "minecraft:sign" ? { setText: text => signTexts.push(text) } : undefined;
+        },
       };
     },
     runCommand(command) {
@@ -87,7 +90,7 @@ function fixture({ readiness = "verified", occupied = false, playerInside = fals
     world, system, manager, catalog,
     destinations: { fixture: () => route ?? ({ location: { x: 40, y: 70, z: 50 }, dimension: "minecraft:overworld", rotation: 90 }) },
   });
-  return { catalog, events, commands, messages, player, warp, dimension, fixed };
+  return { catalog, events, commands, messages, player, warp, dimension, fixed, signTexts };
 }
 
 assert.equal(WARP_CONFIG.WARP_CONTROLS.length, 17);
@@ -176,6 +179,7 @@ assert.deepEqual(WARP_CONFIG.WARP_RETURN_POINT, sourceCatalog.controls.return_po
   assert.equal(f.fixed.get("4,65,3"), "minecraft:command_block");
   assert.equal(f.fixed.get("4,65,2"), "minecraft:oak_sign");
   assert.equal(f.fixed.get("4,65,4"), "minecraft:wooden_button");
+  assert.deepEqual(f.signTexts, ["検証ゲーム"]);
   assert.ok(f.commands.includes("tickingarea add circle 10053 65 10077 4 junket_install"));
   assert.equal(f.commands.at(-1), "tickingarea remove junket_install");
   assert.ok(f.commands.every(command => !command.includes("1 65 3") && !command.includes("1 66 3")));

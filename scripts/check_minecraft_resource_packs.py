@@ -92,7 +92,7 @@ class SplitChecks(unittest.TestCase):
             self.assertEqual(sum(name.startswith(JUNKET + "entities/") for name in junket), 44)
             self.assertEqual(sum(name.startswith(JUNKET + "structures/junket/") for name in junket), 31)
             junket_manifest = json.loads(junket[JUNKET + "manifest.json"])
-            self.assertEqual(junket_manifest["header"]["version"], [0, 9, 3])
+            self.assertEqual(junket_manifest["header"]["version"], [0, 9, 4])
             self.assertEqual(junket_manifest["modules"][1]["entry"], "scripts/main.js")
             junket_rp = {name for name in archive.namelist() if name.startswith(JUNKET_RP)}
             self.assertEqual(len(junket_rp), 67)

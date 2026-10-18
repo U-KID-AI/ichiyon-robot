@@ -256,6 +256,11 @@ export function createWarpSystem({ world, system, manager, destinations = {}, ca
               const block = d.getBlock({ x: location[0], y: location[1], z: location[2] });
               if (!block) throw new Error(`JUNKET control target unavailable: ${typeId}`);
               if (block.typeId !== typeId) throw new Error(`JUNKET control placement mismatch: ${typeId}`);
+              if (typeId === "minecraft:oak_sign") {
+                const sign = block.getComponent("minecraft:sign");
+                if (!sign) throw new Error(`JUNKET sign component unavailable: ${game.id}`);
+                sign.setText(game.title);
+              }
               placed.push(location);
             }
           }
