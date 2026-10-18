@@ -392,6 +392,7 @@ def venue_plan(games):
             "structure": f"junket:{game_id}_hall",
             "origin": origin,
             "runtime_origin": runtime_origin,
+            "origin_block": f"minecraft:{STYLES[game_id][1]}",
             "size": list(size),
             "destination": destination,
             "control": {

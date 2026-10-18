@@ -18,6 +18,7 @@ export const VENUE_CONFIG = Object.freeze({
         65,
         20000
       ],
+      "origin_block": "minecraft:crimson_planks",
       "size": [
         27,
         13,
@@ -67,6 +68,7 @@ export const VENUE_CONFIG = Object.freeze({
         65,
         20000
       ],
+      "origin_block": "minecraft:polished_diorite",
       "size": [
         29,
         33,
@@ -116,6 +118,7 @@ export const VENUE_CONFIG = Object.freeze({
         66,
         20000
       ],
+      "origin_block": "minecraft:polished_blackstone",
       "size": [
         15,
         11,
@@ -165,6 +168,7 @@ export const VENUE_CONFIG = Object.freeze({
         66,
         20000
       ],
+      "origin_block": "minecraft:deepslate_tiles",
       "size": [
         31,
         13,
@@ -214,6 +218,7 @@ export const VENUE_CONFIG = Object.freeze({
         52,
         20000
       ],
+      "origin_block": "minecraft:cut_sandstone",
       "size": [
         28,
         38,
@@ -263,6 +268,7 @@ export const VENUE_CONFIG = Object.freeze({
         65,
         20000
       ],
+      "origin_block": "minecraft:polished_deepslate",
       "size": [
         31,
         14,
@@ -322,6 +328,7 @@ export const VENUE_CONFIG = Object.freeze({
         65,
         20000
       ],
+      "origin_block": "minecraft:quartz_bricks",
       "size": [
         29,
         14,
@@ -371,6 +378,7 @@ export const VENUE_CONFIG = Object.freeze({
         65,
         20000
       ],
+      "origin_block": "minecraft:polished_tuff",
       "size": [
         23,
         14,
@@ -490,6 +498,7 @@ export const VENUE_CONFIG = Object.freeze({
         65,
         20000
       ],
+      "origin_block": "minecraft:stone_bricks",
       "size": [
         29,
         14,
@@ -549,6 +558,7 @@ export const VENUE_CONFIG = Object.freeze({
         65,
         20000
       ],
+      "origin_block": "minecraft:gilded_blackstone",
       "size": [
         37,
         14,
@@ -598,6 +608,7 @@ export const VENUE_CONFIG = Object.freeze({
         65,
         20000
       ],
+      "origin_block": "minecraft:packed_mud",
       "size": [
         31,
         14,
@@ -657,6 +668,7 @@ export const VENUE_CONFIG = Object.freeze({
         65,
         20000
       ],
+      "origin_block": "minecraft:blackstone",
       "size": [
         29,
         14,
@@ -706,6 +718,7 @@ export const VENUE_CONFIG = Object.freeze({
         65,
         20000
       ],
+      "origin_block": "minecraft:red_nether_bricks",
       "size": [
         37,
         16,
@@ -755,6 +768,7 @@ export const VENUE_CONFIG = Object.freeze({
         65,
         20000
       ],
+      "origin_block": "minecraft:deepslate_tiles",
       "size": [
         31,
         14,
@@ -804,6 +818,7 @@ export const VENUE_CONFIG = Object.freeze({
         65,
         20000
       ],
+      "origin_block": "minecraft:cracked_stone_bricks",
       "size": [
         31,
         14,
@@ -853,6 +868,7 @@ export const VENUE_CONFIG = Object.freeze({
         65,
         20000
       ],
+      "origin_block": "minecraft:moss_block",
       "size": [
         33,
         14,
@@ -902,6 +918,7 @@ export const VENUE_CONFIG = Object.freeze({
         65,
         20000
       ],
+      "origin_block": "minecraft:polished_granite",
       "size": [
         33,
         14,
