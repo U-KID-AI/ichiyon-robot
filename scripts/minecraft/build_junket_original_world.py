@@ -415,7 +415,7 @@ def venue_plan(games):
 def runtime_source(plan):
     body = json.dumps({
         "VENUE_SCHEMA": 1,
-        "VENUE_INSTALL_KEY": "junket:original_world_v3",
+        "VENUE_INSTALL_KEY": "junket:original_world_v4",
         "VENUES": plan,
     }, ensure_ascii=False, indent=2)
     return (
