@@ -156,10 +156,14 @@ export function createWarpSystem({ world, system, manager, destinations = {}, ca
     }
     installing = true;
     const placed = [];
+    let ticking = false;
     try {
       const state = installedControlState();
       if (state.complete) return true;
       const d = preflight();
+      try { d.runCommand("tickingarea remove junket_install"); } catch { /* No prior temporary area. */ }
+      runChecked(d, "tickingarea add circle 10053 65 10077 4 junket_install");
+      ticking = true;
       for (const game of catalog.WARP_CONTROLS) {
         const [x, y, z] = game.command_block;
         const [sx, sy, sz] = game.sign;
@@ -183,6 +187,9 @@ export function createWarpSystem({ world, system, manager, destinations = {}, ca
       tell(player, `設置を中止しました: ${error.message}`);
       return false;
     } finally {
+      if (ticking) {
+        try { dimension(catalog.WARP_DIMENSION).runCommand("tickingarea remove junket_install"); } catch { /* Best effort cleanup. */ }
+      }
       installing = false;
     }
   }
