@@ -35,6 +35,8 @@ const key = value => `${value.x},${value.y},${value.z}`;
 const dimension = {
   id: "minecraft:overworld",
   getBlock(location) {
+    if (location.x === 20000 && location.y === 65 && location.z === 20000 &&
+        !blocks.has(key(location))) return undefined;
     const typeId = blocks.get(key(location)) ?? "minecraft:air";
     return { typeId, isAir: typeId === "minecraft:air" };
   },

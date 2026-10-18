@@ -108,7 +108,9 @@ export function createProductionVenues({ world, system }) {
         d.getBlock({ x: x + venue.size[0] - 1, y: y + venue.size[1] - 1, z: z + venue.size[2] - 1 }),
         d.getBlock({ x: x + Math.floor(venue.size[0] / 2), y: y + 1, z: z + Math.floor(venue.size[2] / 2) }),
       ];
-      return samples.every(block => block?.isAir || block?.typeId === "minecraft:air");
+      return samples.every(block =>
+        block === undefined || block === null ||
+        block.isAir || block.typeId === "minecraft:air");
     } catch {
       // A never-generated remote chunk is safe; the release snapshot also
       // verifies these fixed coordinates before the first production run.
