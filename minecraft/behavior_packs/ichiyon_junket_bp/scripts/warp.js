@@ -109,7 +109,7 @@ export function createWarpSystem({ world, system, manager, destinations = {}, ca
     ];
     for (const [location, typeId] of expected) {
       const block = d.getBlock({ x: location[0], y: location[1], z: location[2] });
-      if (block === undefined) continue;
+      if (block === undefined || block.typeId === typeId) continue;
       if (block?.typeId !== typeId) {
         throw new Error(`${anchor.label}の既存設備が想定と異なるため中止しました: (${location.join(",")})`);
       }
@@ -117,11 +117,14 @@ export function createWarpSystem({ world, system, manager, destinations = {}, ca
     const cells = new Set();
     for (const game of catalog.WARP_CONTROLS) {
       for (const location of targetCells(game)) {
+        const expectedType = location === game.command_block
+          ? "minecraft:command_block"
+          : location === game.sign ? "minecraft:wall_sign" : "minecraft:wooden_button";
         const position = key(catalog.WARP_DIMENSION, { x: location[0], y: location[1], z: location[2] });
         if (cells.has(position)) throw new Error(`JUNKET操作位置が重複しています: ${position}`);
         cells.add(position);
         const block = d.getBlock({ x: location[0], y: location[1], z: location[2] });
-        if (block === undefined) continue;
+        if (block === undefined || block.typeId === expectedType) continue;
         if (!block?.isAir) throw new Error(`増設予定位置が空ではありません: (${location.join(",")})`);
       }
     }
@@ -173,6 +176,7 @@ export function createWarpSystem({ world, system, manager, destinations = {}, ca
       tell(player, "17ゲーム分のワープ操作設備を増設しました。既存の拠点行き設備は変更していません。");
       return true;
     } catch (error) {
+      console.warn(`[JUNKET WARP] ${error.message}`);
       for (const [x, y, z] of placed.reverse()) {
         try { dimension(catalog.WARP_DIMENSION).runCommand(`setblock ${x} ${y} ${z} minecraft:air`); } catch { /* Best-effort rollback. */ }
       }
