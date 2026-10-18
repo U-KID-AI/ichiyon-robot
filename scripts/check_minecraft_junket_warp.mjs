@@ -30,18 +30,23 @@ function fixture({ readiness = "verified", occupied = false, playerInside = fals
     [`${anchor.sign}`, "minecraft:wall_sign"],
     [`${anchor.button}`, "minecraft:wooden_button"],
   ]);
+  let tickingLoaded = false;
   if (occupied) fixed.set(`${catalog.WARP_CONTROLS[0].sign}`, "minecraft:stone");
   if (partialInstalled) fixed.set(`${catalog.WARP_CONTROLS[0].command_block}`, "minecraft:command_block");
   const dimension = {
     id: "minecraft:overworld",
     getBlock({ x, y, z }) {
       const position = `${[x, y, z]}`;
-      if (unloadedControls && !fixed.has(position)) return undefined;
+      if (unloadedControls && !tickingLoaded && !fixed.has(position)) return undefined;
       const typeId = fixed.get(position) ?? "minecraft:air";
-      return { typeId, isAir: typeId === "minecraft:air", dimension, location: { x, y, z } };
+      return {
+        typeId, isAir: typeId === "minecraft:air", dimension, location: { x, y, z },
+        setType(next) { fixed.set(position, next); this.typeId = next; this.isAir = next === "minecraft:air"; },
+      };
     },
     runCommand(command) {
       commands.push(command);
+      if (command.startsWith("tickingarea add ")) tickingLoaded = true;
       return { successCount: failedCommand && command.includes(failedCommand) ? 0 : 1 };
     },
   };
@@ -69,7 +74,7 @@ function fixture({ readiness = "verified", occupied = false, playerInside = fals
     world, system, manager, catalog,
     destinations: { fixture: () => route ?? ({ location: { x: 40, y: 70, z: 50 }, dimension: "minecraft:overworld", rotation: 90 }) },
   });
-  return { catalog, events, commands, messages, player, warp, dimension };
+  return { catalog, events, commands, messages, player, warp, dimension, fixed };
 }
 
 assert.equal(WARP_CONFIG.WARP_CONTROLS.length, 17);
@@ -155,7 +160,9 @@ assert.deepEqual(WARP_CONFIG.WARP_RETURN_POINT, sourceCatalog.controls.return_po
 {
   const f = fixture();
   assert.equal(f.warp.installControls(f.player), true);
-  assert.equal(f.commands.filter(command => command.startsWith("setblock ")).length, 3);
+  assert.equal(f.fixed.get("4,65,3"), "minecraft:command_block");
+  assert.equal(f.fixed.get("4,65,2"), "minecraft:oak_sign");
+  assert.equal(f.fixed.get("4,66,3"), "minecraft:wooden_button");
   assert.ok(f.commands.includes("tickingarea add circle 10053 65 10077 4 junket_install"));
   assert.equal(f.commands.at(-1), "tickingarea remove junket_install");
   assert.ok(f.commands.every(command => !command.includes("1 65 3") && !command.includes("1 66 3")));
@@ -164,13 +171,13 @@ assert.deepEqual(WARP_CONFIG.WARP_RETURN_POINT, sourceCatalog.controls.return_po
 {
   const f = fixture({ unloadedControls: true });
   assert.equal(f.warp.installControls(), true);
-  assert.equal(f.commands.filter(command => command.startsWith("setblock ")).length, 3);
+  assert.equal(f.fixed.get("4,65,3"), "minecraft:command_block");
 }
 
 {
   const f = fixture({ partialInstalled: true });
   assert.equal(f.warp.installControls(), true);
-  assert.equal(f.commands.filter(command => command.startsWith("setblock ")).length, 3);
+  assert.equal(f.fixed.get("4,65,2"), "minecraft:oak_sign");
 }
 
 {
