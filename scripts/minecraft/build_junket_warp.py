@@ -6,9 +6,12 @@ world-control plan are generated from it. This script never writes a live world.
 from __future__ import annotations
 
 import argparse
+from io import BytesIO
 import json
 from pathlib import Path
 from typing import Any
+
+import nbtlib as n
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -17,6 +20,7 @@ RUNTIME = ROOT / 'minecraft/behavior_packs/ichiyon_junket_bp/scripts/junket_warp
 PRIVATE = ROOT / 'data/junket-private/world-controls'
 PLAN = PRIVATE / 'junket-warp-plan.json'
 FUNCTION = PRIVATE / 'junket-warp-install.mcfunction'
+STRUCTURE = ROOT / 'minecraft/behavior_packs/ichiyon_junket_bp/structures/junket/warp_row.mcstructure'
 EXPECTED_IDS = [
     'sparrow', 'temperance', 'lucy', 'silence', 'jinn', 'ace', 'grail',
     'hope', 'auction', 'fire', 'pig', 'light', 'mine', 'clock', 'walker',
@@ -147,12 +151,78 @@ def function_source(plan: dict[str, Any]) -> str:
     return '\n'.join(lines) + '\n'
 
 
-def expected_outputs(catalog: dict[str, Any] | None = None) -> dict[Path, str]:
+def structure_bytes(plan: dict[str, Any]) -> bytes:
+    size = [34, 2, 2]
+    blocks = {}
+    entities = {}
+    for index, item in enumerate(plan['placements']):
+        x = index * 2
+        blocks[(x, 0, 1)] = 'minecraft:command_block'
+        blocks[(x, 0, 0)] = 'minecraft:oak_sign'
+        blocks[(x, 1, 1)] = 'minecraft:wooden_button'
+        command_index = x * size[1] * size[2] + 1
+        sign_index = x * size[1] * size[2]
+        entities[str(command_index)] = n.Compound({
+            'block_entity_data': n.Compound({
+                'id': n.String('CommandBlock'),
+                'x': n.Int(x), 'y': n.Int(0), 'z': n.Int(1),
+                'Command': n.String(item['command']),
+                'CustomName': n.String(f"JUNKET {item['title']}"),
+                'auto': n.Byte(0),
+                'powered': n.Byte(0),
+                'conditionMet': n.Byte(1),
+            }),
+        })
+        entities[str(sign_index)] = n.Compound({
+            'block_entity_data': n.Compound({
+                'id': n.String('Sign'),
+                'x': n.Int(x), 'y': n.Int(0), 'z': n.Int(0),
+                'IsWaxed': n.Byte(1),
+                'FrontText': n.Compound({
+                    'Text': n.String(item['title']),
+                    'TextOwner': n.String('JUNKET'),
+                    'Hidden': n.Byte(0),
+                }),
+            }),
+        })
+    names = ['minecraft:air', 'minecraft:command_block', 'minecraft:oak_sign', 'minecraft:wooden_button']
+    values = []
+    for x in range(size[0]):
+        for y in range(size[1]):
+            for z in range(size[2]):
+                values.append(names.index(blocks.get((x, y, z), 'minecraft:air')))
+    palette = [
+        n.Compound({'name': n.String(name), 'states': n.Compound(), 'version': n.Int(18186752)})
+        for name in names
+    ]
+    root = n.File({
+        'format_version': n.Int(1),
+        'size': n.List[n.Int]([n.Int(value) for value in size]),
+        'structure_world_origin': n.List[n.Int]([n.Int(0), n.Int(0), n.Int(0)]),
+        'structure': n.Compound({
+            'block_indices': n.List[n.List[n.Int]]([
+                n.List[n.Int]([n.Int(value) for value in values]),
+                n.List[n.Int]([n.Int(-1) for _ in values]),
+            ]),
+            'entities': n.List[n.Compound]([]),
+            'palette': n.Compound({'default': n.Compound({
+                'block_palette': n.List[n.Compound](palette),
+                'block_position_data': n.Compound(entities),
+            })}),
+        }),
+    })
+    output = BytesIO()
+    root.write(output, byteorder='little')
+    return output.getvalue()
+
+
+def expected_outputs(catalog: dict[str, Any] | None = None) -> dict[Path, str | bytes]:
     plan = build_plan(catalog or load())
     return {
         RUNTIME: runtime_source(plan),
         PLAN: json.dumps(plan, ensure_ascii=False, indent=2) + '\n',
         FUNCTION: function_source(plan),
+        STRUCTURE: structure_bytes(plan),
     }
 
 
@@ -162,7 +232,9 @@ def check(outputs: dict[Path, str], include_private: bool = False) -> None:
         # Private world plans are absent or read-only in many CI/local sandboxes.
         if path.is_relative_to(PRIVATE) and not include_private:
             continue
-        if not path.exists() or path.read_text(encoding='utf-8') != text:
+        current = path.read_bytes() if path.exists() else None
+        expected = text.encode(encoding='utf-8') if isinstance(text, str) else text
+        if current != expected:
             changed.append(path)
     if changed:
         raise SystemExit('generated JUNKET warp files are stale: ' + ', '.join(str(path.relative_to(ROOT)) for path in changed))
@@ -172,7 +244,10 @@ def write(outputs: dict[Path, str]) -> None:
     for path, text in outputs.items():
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            path.write_text(text, encoding='utf-8', newline='\n')
+            if isinstance(text, str):
+                path.write_text(text, encoding='utf-8', newline='\n')
+            else:
+                path.write_bytes(text)
         except PermissionError:
             if not path.is_relative_to(PRIVATE):
                 raise

@@ -242,14 +242,22 @@ export function createWarpSystem({ world, system, manager, destinations = {}, ca
             }
             throw new Error("JUNKET control chunk did not become ready");
           }
+          world.structureManager.place(
+            "junket:warp_row", d, { x: 10053, y: 65, z: 10076 },
+            { includeEntities: false },
+          );
           for (const game of catalog.WARP_CONTROLS) {
-            const [x, y, z] = game.command_block;
-            const [sx, sy, sz] = game.sign;
-            placeChecked(d, game.command_block, "minecraft:command_block", placed);
-            runChecked(d, `blockdata ${x} ${y} ${z} ${commandBlockData(game)}`);
-            placeChecked(d, game.sign, "minecraft:oak_sign", placed);
-            runChecked(d, `blockdata ${sx} ${sy} ${sz} ${signData(game)}`);
-            placeChecked(d, game.button, "minecraft:wooden_button", placed);
+            const expected = [
+              [game.command_block, "minecraft:command_block"],
+              [game.sign, "minecraft:oak_sign"],
+              [game.button, "minecraft:wooden_button"],
+            ];
+            for (const [location, typeId] of expected) {
+              const block = d.getBlock({ x: location[0], y: location[1], z: location[2] });
+              if (!block) throw new Error(`JUNKET control target unavailable: ${typeId}`);
+              if (block.typeId !== typeId) throw new Error(`JUNKET control placement mismatch: ${typeId}`);
+              placed.push(location);
+            }
           }
           tell(player, "17ゲーム分のワープ設備を設置しました。");
           /*

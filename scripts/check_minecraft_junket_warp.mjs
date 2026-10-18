@@ -59,6 +59,18 @@ function fixture({ readiness = "verified", occupied = false, playerInside = fals
       playerInteractWithBlock: { subscribe: callback => { events.block = callback; } },
       playerInteractWithEntity: { subscribe: callback => { events.entity = callback; } },
     },
+    structureManager: {
+      place(structure, target, location, options) {
+        assert.equal(structure, "junket:warp_row");
+        assert.equal(target, dimension);
+        assert.deepEqual(location, { x: 10053, y: 65, z: 10076 });
+        assert.equal(options.includeEntities, false);
+        if (failedCommand === "structure") throw new Error("structure placement failed");
+        fixed.set("4,65,3", "minecraft:command_block");
+        fixed.set("4,65,2", "minecraft:oak_sign");
+        fixed.set("4,66,3", "minecraft:wooden_button");
+      },
+    },
   };
   const system = {
     run: callback => callback(),
@@ -182,11 +194,14 @@ assert.deepEqual(WARP_CONFIG.WARP_RETURN_POINT, sourceCatalog.controls.return_po
 }
 
 {
-  const f = fixture({ failedCommand: "blockdata 4 65 2" });
+  const f = fixture({ failedCommand: "structure" });
   assert.equal(await f.warp.installControls(f.player), false);
+  assert.match(f.messages.at(-1), /structure placement failed/);
+  /*
   assert.match(f.messages.at(-1), /ブロック操作に失敗/);
   assert.ok(f.commands.some(command => command === "setblock 4 65 2 minecraft:air"));
   assert.ok(f.commands.some(command => command === "setblock 4 65 3 minecraft:air"));
+  */
 }
 
 console.log("PASS 17-game warp catalog, exact-player teleport, readiness gate, return guard, anchor protection and empty-area preflight");
