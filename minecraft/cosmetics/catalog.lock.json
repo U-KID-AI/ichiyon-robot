@@ -1,10 +1,12 @@
 {
   "accessories": [],
-  "digest": "ce1cf3f31ed38b2a89f5ad42f25f65b22bd446b2b2dc8840b5b6ebe1a840b9bb",
+  "digest": "909dcfaa51f32722da8421a5df52c4cf71befc5cb5958f91aed51949e12bb79a",
   "posters": [],
   "skins": [
     {
-      "digest": "d44337eafa2c886fd5f19288dee656fc226d7d17cca8873528005a908365d047",
+      "category": "崩壊3rd",
+      "category_id": "honkai3rd",
+      "digest": "3ce3e54f1b081988cb3b54177fc3ee9009921b7ff0b92fc1d34f19107cb10cd1",
       "id": 1,
       "key": "kiana",
       "kind": "skin",
@@ -12,7 +14,9 @@
       "name": "キアナ"
     },
     {
-      "digest": "582ee623bd2873f17a6ce0452d66b4c9dd7decfe0640c7d6abb05fe181503265",
+      "category": "崩壊3rd",
+      "category_id": "honkai3rd",
+      "digest": "849f0522027050e7e5e2acb705919dda13332e66b400702cbd74285ecbd30b6f",
       "id": 2,
       "key": "mei",
       "kind": "skin",
@@ -20,7 +24,9 @@
       "name": "芽衣"
     },
     {
-      "digest": "5026fb9cab6728a73c5b6a813ba47a9108cf9101de80d50782d45eaac373cd33",
+      "category": "崩壊3rd",
+      "category_id": "honkai3rd",
+      "digest": "50cdc82b4ba6ecdc3da281d7d92d5e4bafc4e02299d4e8136ff3e3a7570457fe",
       "id": 3,
       "key": "bronya",
       "kind": "skin",
@@ -28,7 +34,9 @@
       "name": "ブローニャ"
     },
     {
-      "digest": "073d8d841495ec960feba00caa116a7e826a30cfd4f318ce09ff81bf310a86c2",
+      "category": "その他・未分類",
+      "category_id": "uncategorized",
+      "digest": "78bbdf93e7c6bb49dcf878d9bcc4f8685561daf34a81543676c7bd6702754a1b",
       "id": 4,
       "key": "albert",
       "kind": "skin",

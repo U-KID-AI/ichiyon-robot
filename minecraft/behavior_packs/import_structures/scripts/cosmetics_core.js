@@ -31,21 +31,23 @@ export function createCosmetics({ catalog, world, system, ItemStack, ActionFormD
     });
   }
 
-  async function choose(player, title, entries, description = "") {
-    let page = 0;
+  async function choose(player, title, entries, description = "", navigation = {}) {
+    let page = navigation.page ?? 0;
     const pageSize = 12;
-    while (valid(player)) {
+    while (valid(player) && (!navigation.available || navigation.available())) {
       const visible = entries.slice(page * pageSize, (page + 1) * pageSize);
       const choices = visible.map(entry => ({ value: entry.value, text: entry.text }));
       if (page > 0) choices.push({ page: page - 1, text: "前のページ" });
       if ((page + 1) * pageSize < entries.length) choices.push({ page: page + 1, text: "次のページ" });
+      if (navigation.back) choices.push(navigation.back);
       const form = new ActionFormData().title(`${title} (${page + 1}/${Math.max(1, Math.ceil(entries.length / pageSize))})`).body(description);
       choices.forEach(choice => form.button(choice.text));
       const result = await form.show(player);
+      if (!valid(player) || (navigation.available && !navigation.available())) return undefined;
       if (result.canceled || !Number.isInteger(result.selection)) return undefined;
       const choice = choices[result.selection];
       if (!choice) return undefined;
-      if (choice.page !== undefined) { page = choice.page; continue; }
+      if (choice.page !== undefined) { page = choice.page; navigation.page = page; continue; }
       return choice.value;
     }
     return undefined;
@@ -95,10 +97,32 @@ export function createCosmetics({ catalog, world, system, ItemStack, ActionFormD
   }
 
   async function selectSkin(player, target, location) {
+    if (!valid(player)) return;
     if (!creative(player)) { say(player, "マネキンの配置・変更はクリエイティブで行ってください。"); return; }
     const dimension = player.dimension.id;
     if (!catalog.skins.length) { say(player, "配置できるスキンが登録されていません。"); return; }
-    const id = await choose(player, "マネキンを選択", catalog.skins.map(skin => ({ value: skin.id, text: skin.name })), "配置するキャラクターを選んでください。");
+    // Categories come from the generated DB snapshot, never character names or IDs.
+    const groups = new Map();
+    for (const skin of catalog.skins) {
+      const key = skin.category_id || "uncategorized";
+      if (!groups.has(key)) groups.set(key, { key, name: skin.category || "その他・未分類", skins: [] });
+      groups.get(key).skins.push(skin);
+    }
+    const categories = [...groups.values()].sort((a, b) => Number(a.key === "uncategorized") - Number(b.key === "uncategorized"));
+    categories.push({ name: "すべてのキャラクター", skins: catalog.skins });
+    const available = () => creative(player) && player.dimension.id === dimension && (!target || nearby(player, target));
+    const back = { value: "categories", text: "カテゴリに戻る" };
+    const categoryNavigation = { available, page: 0 };
+    let id;
+    while (valid(player) && available()) {
+      const category = await choose(player, "スキンのカテゴリ", categories.map(category => ({
+        value: category, text: `${category.name}（${category.skins.length}件）`,
+      })), "カテゴリを選んでください。", categoryNavigation);
+      if (category === undefined) return;
+      id = await choose(player, `マネキンを選択：${category.name}`, category.skins.map(skin => ({ value: skin.id, text: skin.name })),
+        `${target ? "変更する" : "配置する"}キャラクターを選んでください。`, { back, available });
+      if (id !== back.value) break;
+    }
     if (id === undefined || !valid(player) || !creative(player) || player.dimension.id !== dimension) return;
     if (target) {
       if (!nearby(player, target)) { say(player, "マネキンから離れたため中止しました。"); return; }

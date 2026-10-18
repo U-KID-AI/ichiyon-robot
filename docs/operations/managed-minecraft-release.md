@@ -45,6 +45,19 @@ BDS. App/source/API/health failure yields no completion proof. A superseding Web
 application is a conflict, never another task's success. Interrupted operations
 remain with the existing Control API recovery mechanism and retain backups.
 
+## Efficient Invocation And Observation
+
+Codexや人間が本番リリースを明示的に実行するときは、**標準helperを一度起動して、その処理の終了結果を待つ**。バックアップ・アプリ切替・migration・BDSパック反映の進行管理は既存helperとControl APIに任せる。
+
+- 起動前にPR/merge SHA/CIと必要な既存設定を最小限確認する。CI通過済みで本番投入が承認されている場合、追加の隔離BDS試験や別の事前レビューを必須化しない。
+- 起動したhelperの完了待ちを優先し、待ち時間を埋めるためだけに新しいSSH接続や別の状態取得コマンドを連発しない。特に `ps`、`docker ps`、ファイルの存在、同じoperationのstatus、同じSHAを何度も読み直さない。
+- **標準helperが返す最終proofを一次資料とする。** そこに含まれるmigration・SHA・catalog digest・operation ID・installed・BDS healthは別経路で重複照合しない。必要な項目がproofにない場合だけ、欠落情報を対象に一度問い合わせる。
+- 明確なエラー、helperのtimeout、状態の不整合、停止などが発生した場合だけ追加診断する。正常なバックアップやビルドに時間がかかること自体を障害として扱わない。
+- Codexの残り利用枠が少ない、または外部処理が長期継続する場合は、重複起動・処理の強制停止をせず、merge SHA、既知のoperation ID、進捗と次の確認先を報告して終了する。未完了を成功として扱わない。
+- 完了報告は成功/失敗、SHA、migration、digest、BDS稼働の要点のみとし、同内容の進捗実況を繰り返さない。
+
+**この指針は既存helper内部のpoll・heartbeat・backup・rollback・health・digest検証を減らすものではない。** エージェント側の無駄な重複監視だけを減らす。
+
 ## Parent Deployment Invocation
 
 Run only after merge, from the merged trusted installation and its existing

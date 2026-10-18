@@ -52,7 +52,7 @@ def local_catalog(path):
         return target.read_bytes()
     output = []
     for row in json.loads(path.read_text(encoding="utf-8")):
-        options = {key: row[key] for key in ("model", "slot", "width", "height") if key in row}
+        options = {key: row[key] for key in ("model", "slot", "width", "height", "category_id", "category") if key in row}
         options.update({key: read(row[key]) for key in ("geometry", "icon") if key in row})
         output.append(asset(row["kind"], row["id"], row["key"], row["name"], read(row["texture"]), **options))
     return output

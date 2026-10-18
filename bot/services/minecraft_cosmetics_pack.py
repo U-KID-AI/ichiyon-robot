@@ -59,7 +59,9 @@ def _creative_accessory_catalog(existing, accessories):
 
 
 def builtin_assets(root):
-    return [asset("skin", i + 1, key, name, (root / RP / f"textures/entity/avatar/{key}.png").read_bytes())
+    return [asset("skin", i + 1, key, name, (root / RP / f"textures/entity/avatar/{key}.png").read_bytes(),
+                  category_id="honkai3rd" if i < 3 else "uncategorized",
+                  category="崩壊3rd" if i < 3 else "その他・未分類")
             for i, (key, name) in enumerate(BUILTINS)]
 
 
@@ -99,9 +101,17 @@ def compile_files(root, records, *, revision=None):
         if len(entries) > MAX_ID or len({r["id"] for r in entries}) != len(entries) or len({r["key"] for r in entries}) != len(entries):
             raise ValueError("素材IDまたは名前キーが重複しています。")
     for record in records:
-        if asset(record["kind"], record["id"], record["key"], record["name"], record["texture"], **{k: record[k] for k in ("model", "slot", "geometry", "icon", "width", "height") if k in record}) != record:
+        if asset(record["kind"], record["id"], record["key"], record["name"], record["texture"], **{k: record[k] for k in ("model", "slot", "geometry", "icon", "width", "height", "category_id", "category") if k in record}) != record:
             raise ValueError("未検証の素材です。")
     skins = {a["id"]: a for a in records if a["kind"] == "skin"}
+    categories = {}
+    for skin in skins.values():
+        category_id, label = skin["category_id"], skin["category"]
+        if category_id in categories and categories[category_id] != label:
+            raise ValueError("同じカテゴリIDに異なる名前が指定されています。")
+        if any(key != category_id and name == label for key, name in categories.items()):
+            raise ValueError("カテゴリ名が重複しています。")
+        categories[category_id] = label
     files = {}
     files[RP + "COPYING-Mojang.txt"] = (root / "cosmetics/vendor/LICENSE.md").read_bytes().replace(b"\r\n", b"\n")
 
@@ -270,7 +280,7 @@ def compile_files(root, records, *, revision=None):
         files[path] = ("\n".join(lines) + "\n").encode("utf-8")
     put(RP + "render_controllers/cosmetics_accessories.render_controllers.json", {"format_version": "1.8.0", "render_controllers": accessory_controllers})
     compile_posters(root, [a for a in records if a["kind"] == "poster"], files)
-    for pack, patch in ((BP, 44), (RP, 49), (BRIDGE, 42)):
+    for pack, patch in ((BP, 44), (RP, 49), (BRIDGE, 43)):
         manifest = read(pack + "manifest.json")
         version = [1, 0, patch] if revision is None else [1, 1, revision]
         manifest["header"]["version"] = version

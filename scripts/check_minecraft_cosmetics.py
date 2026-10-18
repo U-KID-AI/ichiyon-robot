@@ -36,6 +36,13 @@ def fixture_assets():
 
 
 class AssetChecks(unittest.TestCase):
+    def test_category_metadata_validation(self):
+        for kwargs in ({"category_id": "../escape"}, {"category_id": None},
+                       {"category": "Changed reserved"}, {"category_id": "work", "category": "すべてのキャラクター"},
+                       {"category_id": "work", "category": "bad\nname"}, {"category_id": "work", "category": "§cRed"}):
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                asset("skin", 5, "test", "Test", png(), **kwargs)
+
     def test_png_dimensions_and_type(self):
         self.assertEqual(png_bytes(png(), skin=True), png_bytes(png_bytes(png(), skin=True), skin=True))
         for data in (png((64, 32)), png((128, 128)), b"not-png", b"x" * (MAX_UPLOAD + 1), "filename"):
@@ -68,6 +75,20 @@ class PackChecks(unittest.TestCase):
 
     def decoded(self, path):
         return json.loads(self.files[path])
+
+    def test_category_metadata_changes_digest_but_not_textures_or_variant_ids(self):
+        changed = deepcopy(self.records)
+        changed[0].update(category_id="new_work", category="新作品")
+        files = compile_files(self.minecraft, changed)
+        self.assertNotEqual(catalog_digest(changed), catalog_digest(self.records))
+        differing = {name for name in files if files[name] != self.files[name]}
+        self.assertEqual(differing, {"cosmetics/catalog.lock.json", BRIDGE + "scripts/cosmetics_catalog.js"})
+        renamed = deepcopy(changed); renamed[0]["category"] = "改名した作品"
+        self.assertNotEqual(catalog_digest(renamed), catalog_digest(changed))
+        inconsistent = deepcopy(changed); inconsistent[1].update(category_id="new_work", category="別名")
+        with self.assertRaises(ValueError): compile_files(self.minecraft, inconsistent)
+        inconsistent[1].update(category_id="another_work", category="新作品")
+        with self.assertRaises(ValueError): compile_files(self.minecraft, inconsistent)
 
     def test_stable_ids_duplicate_rejection_and_digest(self):
         with self.assertRaises(ValueError): compile_files(self.minecraft, self.records + [self.records[-1]])

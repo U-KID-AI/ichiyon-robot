@@ -43,7 +43,7 @@
 `minecraft_molcar_float.py` を既存 `compile_files` から呼び、DB素材の処理後に追加。
 登録済み素材の置換やDB migrationは不要。ring素材はmanaged releaseの
 アクセサリーRPへ振り分け、元のスキン・ポスター・動画は既存経路で保持する。
-authoring manifestはBP 1.0.44 / RP 1.0.49 / Bridge 1.0.42。
+authoring manifestはBP 1.0.44 / RP 1.0.49 / Bridge 1.0.43。
 本番は固定Gitパックで上書きせず、現行の
 [managed release](operations/managed-minecraft-release.md)でDB素材と単調増加版を生成する。
 

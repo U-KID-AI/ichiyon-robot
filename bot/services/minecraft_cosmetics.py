@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import re
+import unicodedata
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -26,6 +27,17 @@ def validate_name(value):
     if any(ord(c) < 32 or c == "§" for c in value):
         raise ValueError("名前に制御文字・装飾コードは使えません。")
     return value.strip()
+
+
+def validate_category(category_id, name):
+    if not isinstance(category_id, str) or not KEY.fullmatch(category_id):
+        raise ValueError("カテゴリIDが不正です。")
+    name = validate_name(name)
+    if any(unicodedata.category(c) == "Cc" for c in name):
+        raise ValueError("カテゴリ名に制御文字は使えません。")
+    if name == "すべてのキャラクター" or ((category_id == "uncategorized") != (name == "その他・未分類")):
+        raise ValueError("このカテゴリ名は予約されています。")
+    return name
 
 
 def png_bytes(data, *, skin=False):
@@ -181,7 +193,7 @@ def poster_texture(data, width, height):
 
 
 def asset(kind, asset_id, key, name, texture, *, model="classic", slot="hat", geometry=None, icon=None,
-          width=None, height=None):
+          width=None, height=None, category_id="uncategorized", category="その他・未分類"):
     if type(asset_id) is not int or not 1 <= asset_id <= MAX_ID or not isinstance(key, str) or not KEY.fullmatch(key):
         raise ValueError("素材IDが不正です。")
     if kind not in ("skin", "accessory", "poster"):
@@ -192,6 +204,7 @@ def asset(kind, asset_id, key, name, texture, *, model="classic", slot="hat", ge
         if model not in ("classic", "slim"):
             raise ValueError("腕の種類を選んでください。")
         record["model"] = model
+        record.update(category_id=category_id, category=validate_category(category_id, category))
     elif kind == "poster":
         record.update(width=width, height=height)
     else:

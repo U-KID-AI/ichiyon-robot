@@ -48,7 +48,10 @@ async def bounded_form(request):
 def records(repository):
     deleted = repository.deleted_assets()
     builtins = [entry for entry in builtin_assets(ROOT) if (entry["kind"], entry["id"]) not in deleted]
-    return builtins + repository.assets()
+    assets = builtins + repository.assets()
+    # One metadata snapshot for both pack-owned built-ins and uploaded skins.
+    categories = repository.skin_categories()
+    return [entry | categories.get(entry["id"], {}) if entry["kind"] == "skin" else entry for entry in assets]
 
 
 def register_minecraft_cosmetics_routes(templates):
@@ -56,11 +59,13 @@ def register_minecraft_cosmetics_routes(templates):
         with get_connection() as connection:
             repository = MinecraftCosmeticsRepository(connection)
             assets = records(repository)
+            categories = repository.categories()
             connection.commit()
         csrf = request.session.setdefault("cosmetics_csrf", secrets.token_urlsafe(32))
         return templates.TemplateResponse(request, "minecraft_cosmetics.html", {
             "assets": [public_asset(a) for a in assets], "digest": catalog_digest(assets),
             "csrf": csrf, "error": error, "operation_id": str(uuid.uuid4()),
+            "categories": categories,
             "current_bot_instance": {"display_name": "Minecraft", "bot_id": "共有素材"},
         }, status_code=code, headers={"Cache-Control": "no-store"})
 
@@ -86,7 +91,44 @@ def register_minecraft_cosmetics_routes(templates):
             with get_connection() as connection:
                 repository = MinecraftCosmeticsRepository(connection)
                 repository.add(kind=form.get("kind"), name=form.get("name"), texture=form.get("texture", b""),
-                               model=form.get("model", "classic"), created_by=str(user["user_id"]), **dimensions)
+                               model=form.get("model", "classic"), category_id=form.get("category_id", "uncategorized"),
+                               created_by=str(user["user_id"]), **dimensions)
+                connection.commit()
+        except ValueError as exc:
+            return page(request, error=str(exc), code=400)
+        return RedirectResponse("/minecraft/cosmetics", status_code=303)
+
+    @router.post("/categories")
+    async def create_category(request: Request):
+        require_login(request)
+        try:
+            form = await bounded_form(request)
+            with get_connection() as connection:
+                MinecraftCosmeticsRepository(connection).save_category(form.get("name"))
+                connection.commit()
+        except ValueError as exc:
+            return page(request, error=str(exc), code=400)
+        return RedirectResponse("/minecraft/cosmetics", status_code=303)
+
+    @router.post("/categories/{category_id}/rename")
+    async def rename_category(request: Request, category_id: str):
+        require_login(request)
+        try:
+            form = await bounded_form(request)
+            with get_connection() as connection:
+                MinecraftCosmeticsRepository(connection).save_category(form.get("name"), category_id=category_id)
+                connection.commit()
+        except ValueError as exc:
+            return page(request, error=str(exc), code=400)
+        return RedirectResponse("/minecraft/cosmetics", status_code=303)
+
+    @router.post("/assets/skin/{asset_id}/category")
+    async def update_skin_category(request: Request, asset_id: int):
+        user = require_login(request)
+        try:
+            form = await bounded_form(request)
+            with get_connection() as connection:
+                MinecraftCosmeticsRepository(connection).set_skin_category(asset_id, form.get("category_id"), str(user["user_id"]))
                 connection.commit()
         except ValueError as exc:
             return page(request, error=str(exc), code=400)

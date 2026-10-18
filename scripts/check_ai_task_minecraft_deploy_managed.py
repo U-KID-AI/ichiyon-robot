@@ -333,6 +333,7 @@ class PreservationChecks(unittest.TestCase):
                                            png((192, 128)), width=3, height=2)]
         repository = Mock()
         repository.assets.return_value = stored
+        repository.skin_categories.return_value = {}
         repository.deleted_assets.return_value = {("skin", 1)}
         repository.revision.return_value = 22
         connection = Mock()

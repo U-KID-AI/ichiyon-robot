@@ -22,6 +22,7 @@
       <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="skin">
       <label>名前 <input name="name" maxlength="48" required></label>
       <label>腕の種類 <select name="model"><option value="classic">通常（4ピクセル）</option><option value="slim">スリム（3ピクセル）</option></select></label>
+      <label>作品・カテゴリ <select name="category_id" required>{% for category in categories %}<option value="{{ category.category_id }}">{{ category.name }}</option>{% endfor %}</select></label>
       <label>スキン画像 <input type="file" name="texture" accept="image/png,.png" required></label>
       <button type="submit">スキンを登録</button>
     </form>
@@ -47,10 +48,33 @@
     <p>アクセサリーを持ってモルカーを使うと装着、空の手でしゃがんで使うと取り外せます。違う部位は同時に装着できます。</p>
   </section>
 </div>
+<section class="cosmetic-card">
+  <h2>作品カテゴリの管理</h2>
+  <p>カテゴリを追加・名称変更できます。所属作品が不明なスキンは「その他・未分類」を選んでください。保存後に「ゲームに反映」を押すとゲーム内の一覧も更新されます。</p>
+  <form action="/minecraft/cosmetics/categories" method="post">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>新しいカテゴリ名 <input name="name" maxlength="48" required placeholder="作品名"></label>
+    <button type="submit">カテゴリを追加</button>
+  </form>
+  {% for category in categories %}{% if category.category_id != 'uncategorized' %}
+  <form action="/minecraft/cosmetics/categories/{{ category.category_id }}/rename" method="post">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>{{ category.name }} の名称 <input name="name" maxlength="48" required value="{{ category.name }}"></label>
+    <button type="submit">カテゴリ名を保存</button>
+  </form>
+  {% endif %}{% endfor %}
+</section>
 <h2>登録済みの素材</h2>
 <div class="cosmetic-grid">{% for asset in assets %}<article class="cosmetic-card">
   <img src="/minecraft/cosmetics/preview/{{ asset.kind }}/{{ asset.id }}" alt="{{ asset.name }}の画像">
   <h3>{{ asset.name }}</h3><p>{{ {'skin':'スキン','accessory':'アクセサリー','poster':'ポスター'}[asset.kind] }} #{{ asset.id }}{% if asset.model is defined %} ・ {{ 'スリム' if asset.model == 'slim' else '通常' }}{% endif %}{% if asset.slot is defined %} ・ {{ {'hat':'頭','face':'顔','neck':'首','back':'背中'}[asset.slot] }}{% endif %}{% if asset.kind == 'poster' %} ・ {{ asset.width }}×{{ asset.height }}ブロック{% endif %}</p>
+  {% if asset.kind == 'skin' %}
+    <form action="/minecraft/cosmetics/assets/skin/{{ asset.id }}/category" method="post">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label>{{ asset.name }} の作品・カテゴリ <select name="category_id" required>{% for category in categories %}<option value="{{ category.category_id }}"{% if category.category_id == asset.category_id %} selected{% endif %}>{{ category.name }}</option>{% endfor %}</select></label>
+      <button type="submit">所属カテゴリを保存</button>
+    </form>
+  {% endif %}
   {% if asset.kind in ('skin', 'poster') %}
     <form action="/minecraft/cosmetics/assets/{{ asset.kind }}/{{ asset.id }}/delete" method="post" data-confirm="{{ asset.name }} を削除します。このIDは再利用されず、ゲーム反映後は一覧から消えます。よろしいですか？" onsubmit="return confirm(this.dataset.confirm);">
       <input type="hidden" name="csrf" value="{{ csrf }}">
