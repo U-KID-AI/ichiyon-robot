@@ -109,6 +109,7 @@ export function createWarpSystem({ world, system, manager, destinations = {}, ca
     ];
     for (const [location, typeId] of expected) {
       const block = d.getBlock({ x: location[0], y: location[1], z: location[2] });
+      if (block === undefined) continue;
       if (block?.typeId !== typeId) {
         throw new Error(`${anchor.label}の既存設備が想定と異なるため中止しました: (${location.join(",")})`);
       }
@@ -120,6 +121,7 @@ export function createWarpSystem({ world, system, manager, destinations = {}, ca
         if (cells.has(position)) throw new Error(`JUNKET操作位置が重複しています: ${position}`);
         cells.add(position);
         const block = d.getBlock({ x: location[0], y: location[1], z: location[2] });
+        if (block === undefined) continue;
         if (!block?.isAir) throw new Error(`増設予定位置が空ではありません: (${location.join(",")})`);
       }
     }
