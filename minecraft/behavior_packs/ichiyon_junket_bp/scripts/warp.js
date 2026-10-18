@@ -149,6 +149,19 @@ export function createWarpSystem({ world, system, manager, destinations = {}, ca
     const result = blockDimension.runCommand(command);
     if ((result?.successCount ?? 0) < 1) throw new Error(`ブロック操作に失敗しました: ${command}`);
   }
+  function placeChecked(blockDimension, location, typeId, placed) {
+    const at = { x: location[0], y: location[1], z: location[2] };
+    let block;
+    try { block = blockDimension.getBlock(at); } catch (error) {
+      throw new Error(`JUNKET control chunk unavailable: ${typeId}: ${error.message}`);
+    }
+    if (!block) throw new Error(`JUNKET control target unavailable: ${typeId}`);
+    block.setType(typeId);
+    placed.push(location);
+    if (blockDimension.getBlock(at)?.typeId !== typeId) {
+      throw new Error(`JUNKET control placement mismatch: ${typeId}`);
+    }
+  }
   function installControls(player = null) {
     if (installing) {
       tell(player, "ワープ設備の設置処理中です。");
@@ -168,14 +181,11 @@ export function createWarpSystem({ world, system, manager, destinations = {}, ca
         const [x, y, z] = game.command_block;
         const [sx, sy, sz] = game.sign;
         const [bx, by, bz] = game.button;
-        runChecked(d, `setblock ${x} ${y} ${z} minecraft:command_block`);
-        placed.push(game.command_block);
+        placeChecked(d, game.command_block, "minecraft:command_block", placed);
         runChecked(d, `blockdata ${x} ${y} ${z} ${commandBlockData(game)}`);
-        runChecked(d, `setblock ${sx} ${sy} ${sz} minecraft:oak_sign`);
-        placed.push(game.sign);
+        placeChecked(d, game.sign, "minecraft:oak_sign", placed);
         runChecked(d, `blockdata ${sx} ${sy} ${sz} ${signData(game)}`);
-        runChecked(d, `setblock ${bx} ${by} ${bz} minecraft:wooden_button`);
-        placed.push(game.button);
+        placeChecked(d, game.button, "minecraft:wooden_button", placed);
       }
       tell(player, "17ゲーム分のワープ操作設備を増設しました。既存の拠点行き設備は変更していません。");
       return true;
