@@ -40,6 +40,7 @@ const dimension = {
     const typeId = blocks.get(key(location)) ?? "minecraft:air";
     return { typeId, isAir: typeId === "minecraft:air" };
   },
+  runCommand() { return { successCount: 1 }; },
   getEntities({ tags, location, maxDistance }) {
     return entities.filter(entity => !entity.removed &&
       tags.every(tag => entity.tags.has(tag)) &&
@@ -89,7 +90,18 @@ let warpInstalls = 0;
 const warp = { installControls() { warpInstalls++; return true; } };
 const venues = createProductionVenues({ world, system });
 assert.equal(venues.installAll(warp, specialVenues), true);
-while (timers.length) timers.shift()();
+async function drainTimers() {
+  for (let cycle = 0; cycle < 1000; cycle++) {
+    while (timers.length) timers.shift()();
+    await new Promise(resolve => setImmediate(resolve));
+    if (!timers.length) {
+      await new Promise(resolve => setImmediate(resolve));
+      if (!timers.length) return;
+    }
+  }
+  throw new Error("venue install timer loop did not settle");
+}
+await drainTimers();
 
 assert.equal(placements.length, 17);
 assert.deepEqual(placements.map(entry => entry.structure),
@@ -130,7 +142,7 @@ placements.length = 0;
 specialCalls.length = 0;
 const resumed = createProductionVenues({ world, system });
 assert.equal(resumed.installAll(warp, specialVenues), true);
-while (timers.length) timers.shift()();
+await drainTimers();
 assert.equal(placements.length, 0, "a partially placed venue must be recovered without overwriting its blocks");
 assert.equal(properties.get(`${VENUE_CONFIG.VENUE_INSTALL_KEY}:sparrow`), 1);
 assert.equal(specialCalls.length, 0);

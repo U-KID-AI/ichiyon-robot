@@ -160,6 +160,93 @@ export function createProductionVenues({ world, system }) {
     void specialVenues;
   }
 
+  function runFixed(blockDimension, command) {
+    const result = blockDimension.runCommand(command);
+    if ((result?.successCount ?? 0) < 1) {
+      throw new Error(`JUNKET command failed: ${command}`);
+    }
+  }
+
+  function installOneScheduled(id) {
+    return new Promise((resolve, reject) => {
+      const venue = entry(id);
+      if (installed(id)) {
+        applySpecialConfig(id);
+        resolve();
+        return;
+      }
+      const d = dimension();
+      const tickingName = `junket_venue_${id}`;
+      let ticking = false;
+      const cleanup = () => {
+        if (ticking) {
+          try { d.runCommand(`tickingarea remove ${tickingName}`); } catch { /* Best effort cleanup. */ }
+          ticking = false;
+        }
+      };
+      const finish = () => {
+        applySpecialConfig(id);
+        world.setDynamicProperty(originName(id), 1);
+        cleanup();
+        resolve();
+      };
+      const fail = error => {
+        cleanup();
+        reject(error);
+      };
+      try {
+        try { d.runCommand(`tickingarea remove ${tickingName}`); } catch { /* No prior temporary area. */ }
+        runFixed(d, `tickingarea add circle ${venue.origin[0]} ${venue.origin[1]} ${venue.origin[2]} 4 ${tickingName}`);
+        ticking = true;
+      } catch (error) {
+        fail(error);
+        return;
+      }
+      const verify = remaining => {
+        try {
+          const origin = d.getBlock({
+            x: venue.origin[0], y: venue.origin[1], z: venue.origin[2],
+          });
+          if (!origin && remaining > 0) {
+            system.runTimeout(() => verify(remaining - 1), 20);
+            return;
+          }
+          if (origin?.typeId !== venue.origin_block) {
+            throw new Error(`JUNKET venue placement mismatch: ${id}`);
+          }
+          finish();
+        } catch (error) {
+          fail(error);
+        }
+      };
+      const place = remaining => {
+        try {
+          const origin = d.getBlock({
+            x: venue.origin[0], y: venue.origin[1], z: venue.origin[2],
+          });
+          if (!origin && remaining > 0) {
+            system.runTimeout(() => place(remaining - 1), 20);
+            return;
+          }
+          if (origin?.typeId === venue.origin_block) {
+            finish();
+            return;
+          }
+          if (!siteCanBeCreated(venue)) {
+            throw new Error(`JUNKET venue target is not empty: ${id} ${venue.origin.join(",")}`);
+          }
+          world.structureManager.place(venue.structure, d, point({
+            x: venue.origin[0], y: venue.origin[1], z: venue.origin[2],
+          }), { includeEntities: false });
+          system.runTimeout(() => verify(20), 20);
+        } catch (error) {
+          fail(error);
+        }
+      };
+      system.runTimeout(() => place(20), 20);
+    });
+  }
+
   function finish(warp) {
     const complete = () => world.setDynamicProperty(INSTALL_KEY, 1);
     const result = warp.installControls();
@@ -197,9 +284,30 @@ export function createProductionVenues({ world, system }) {
     system.runTimeout(() => installNext(warp, specialVenues, index + 1), 2);
   }
 
+  function installNextScheduled(warp, specialVenues, index = 0) {
+    const venues = VENUE_CONFIG.VENUES;
+    if (world.getDynamicProperty(INSTALL_KEY) === 1) return;
+    if (index >= venues.length) {
+      finish(warp);
+      installing = false;
+      return;
+    }
+    if (installing) return;
+    installing = true;
+    installOneScheduled(venues[index].id).then(() => {
+      installing = false;
+      system.runTimeout(() => installNextScheduled(warp, specialVenues, index + 1), 2);
+    }).catch(error => {
+      installing = false;
+      const players = world.getAllPlayers?.() ?? [];
+      players.forEach(player => tell(player, `本番会場導入を停止しました: ${error.message}`));
+      console.warn(`[JUNKET] venue installation failed: ${error.message}`);
+    });
+  }
+
   function installAll(warp, specialVenues = {}) {
     if (world.getDynamicProperty(INSTALL_KEY) === 1 || installing) return false;
-    installNext(warp, specialVenues, 0);
+    installNextScheduled(warp, specialVenues, 0);
     return true;
   }
 
