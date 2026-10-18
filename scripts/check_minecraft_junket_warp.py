@@ -65,7 +65,7 @@ class WarpCatalogChecks(unittest.TestCase):
     def test_control_structure_contains_all_signed_commands(self):
         with STRUCTURE.open('rb') as stream:
             root = n.File.parse(stream, byteorder='little')
-        self.assertEqual([int(value) for value in root['size']], [34, 2, 2])
+        self.assertEqual([int(value) for value in root['size']], [34, 1, 3])
         positions = root['structure']['palette']['default']['block_position_data']
         self.assertEqual(len(positions), 34)
         commands = sorted(

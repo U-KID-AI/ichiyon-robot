@@ -152,14 +152,14 @@ def function_source(plan: dict[str, Any]) -> str:
 
 
 def structure_bytes(plan: dict[str, Any]) -> bytes:
-    size = [34, 2, 2]
+    size = [34, 1, 3]
     blocks = {}
     entities = {}
     for index, item in enumerate(plan['placements']):
         x = index * 2
         blocks[(x, 0, 1)] = 'minecraft:command_block'
         blocks[(x, 0, 0)] = 'minecraft:oak_sign'
-        blocks[(x, 1, 1)] = 'minecraft:wooden_button'
+        blocks[(x, 0, 2)] = 'minecraft:wooden_button'
         command_index = x * size[1] * size[2] + 1
         sign_index = x * size[1] * size[2]
         entities[str(command_index)] = n.Compound({
@@ -192,7 +192,14 @@ def structure_bytes(plan: dict[str, Any]) -> bytes:
             for z in range(size[2]):
                 values.append(names.index(blocks.get((x, y, z), 'minecraft:air')))
     palette = [
-        n.Compound({'name': n.String(name), 'states': n.Compound(), 'version': n.Int(18186752)})
+        n.Compound({
+            'name': n.String(name),
+            'states': n.Compound({
+                'facing_direction': n.Int(2),
+                'button_pressed_bit': n.Byte(0),
+            }) if name == 'minecraft:wooden_button' else n.Compound(),
+            'version': n.Int(18186752),
+        })
         for name in names
     ]
     root = n.File({

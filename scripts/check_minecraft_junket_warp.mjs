@@ -15,7 +15,7 @@ const fixtureCatalog = (readiness = "verified") => ({
   WARP_CONTROLS: [{
     id: "fixture", title: "検証ゲーム", readiness,
     enabled: readiness === "verified" || readiness === "implemented",
-    command_block: [4, 65, 3], sign: [4, 65, 2], button: [4, 66, 3],
+    command_block: [4, 65, 3], sign: [4, 65, 2], button: [4, 65, 4],
     command: "scriptevent junket:warp fixture",
   }],
 });
@@ -68,7 +68,7 @@ function fixture({ readiness = "verified", occupied = false, playerInside = fals
         if (failedCommand === "structure") throw new Error("structure placement failed");
         fixed.set("4,65,3", "minecraft:command_block");
         fixed.set("4,65,2", "minecraft:oak_sign");
-        fixed.set("4,66,3", "minecraft:wooden_button");
+        fixed.set("4,65,4", "minecraft:wooden_button");
       },
     },
   };
@@ -99,7 +99,7 @@ assert.deepEqual(WARP_CONFIG.WARP_RETURN_POINT, sourceCatalog.controls.return_po
 
 {
   const f = fixture({ readiness: "venue-review" });
-  const target = { dimension: f.dimension, location: { x: 4, y: 66, z: 3 } };
+  const target = { dimension: f.dimension, location: { x: 4, y: 65, z: 4 } };
   const event = { player: f.player, block: target, cancel: false };
   f.events.block(event);
   assert.equal(event.cancel, true);
@@ -112,7 +112,7 @@ assert.deepEqual(WARP_CONFIG.WARP_RETURN_POINT, sourceCatalog.controls.return_po
   const f = fixture({ readiness: "implemented", route: { open: () => { opened = true; } } });
   f.events.block({
     player: f.player,
-    block: { dimension: f.dimension, location: { x: 4, y: 66, z: 3 } },
+    block: { dimension: f.dimension, location: { x: 4, y: 65, z: 4 } },
     cancel: false,
   });
   assert.equal(opened, true);
@@ -121,7 +121,7 @@ assert.deepEqual(WARP_CONFIG.WARP_RETURN_POINT, sourceCatalog.controls.return_po
 
 {
   const f = fixture();
-  const target = { dimension: f.dimension, location: { x: 4, y: 66, z: 3 } };
+  const target = { dimension: f.dimension, location: { x: 4, y: 65, z: 4 } };
   f.events.block({ player: f.player, block: target, cancel: false });
   assert.deepEqual(f.player.teleports, [{
     location: { x: 40, y: 70, z: 50 },
@@ -141,7 +141,7 @@ assert.deepEqual(WARP_CONFIG.WARP_RETURN_POINT, sourceCatalog.controls.return_po
   });
   f.events.block({
     player: f.player,
-    block: { dimension: f.dimension, location: { x: 4, y: 66, z: 3 } },
+    block: { dimension: f.dimension, location: { x: 4, y: 65, z: 4 } },
     cancel: false,
   });
   assert.equal(prepared, true, "venue entities are prepared only after teleport");
@@ -175,7 +175,7 @@ assert.deepEqual(WARP_CONFIG.WARP_RETURN_POINT, sourceCatalog.controls.return_po
   assert.equal(await f.warp.installControls(f.player), true);
   assert.equal(f.fixed.get("4,65,3"), "minecraft:command_block");
   assert.equal(f.fixed.get("4,65,2"), "minecraft:oak_sign");
-  assert.equal(f.fixed.get("4,66,3"), "minecraft:wooden_button");
+  assert.equal(f.fixed.get("4,65,4"), "minecraft:wooden_button");
   assert.ok(f.commands.includes("tickingarea add circle 10053 65 10077 4 junket_install"));
   assert.equal(f.commands.at(-1), "tickingarea remove junket_install");
   assert.ok(f.commands.every(command => !command.includes("1 65 3") && !command.includes("1 66 3")));

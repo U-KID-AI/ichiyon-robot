@@ -45,8 +45,8 @@ export const WARP_CONFIG = Object.freeze({
       ],
       "button": [
         10053,
-        66,
-        10077
+        65,
+        10078
       ],
       "command": "scriptevent junket:warp sparrow"
     },
@@ -67,8 +67,8 @@ export const WARP_CONFIG = Object.freeze({
       ],
       "button": [
         10055,
-        66,
-        10077
+        65,
+        10078
       ],
       "command": "scriptevent junket:warp temperance"
     },
@@ -89,8 +89,8 @@ export const WARP_CONFIG = Object.freeze({
       ],
       "button": [
         10057,
-        66,
-        10077
+        65,
+        10078
       ],
       "command": "scriptevent junket:warp lucy"
     },
@@ -111,8 +111,8 @@ export const WARP_CONFIG = Object.freeze({
       ],
       "button": [
         10059,
-        66,
-        10077
+        65,
+        10078
       ],
       "command": "scriptevent junket:warp silence"
     },
@@ -133,8 +133,8 @@ export const WARP_CONFIG = Object.freeze({
       ],
       "button": [
         10061,
-        66,
-        10077
+        65,
+        10078
       ],
       "command": "scriptevent junket:warp jinn"
     },
@@ -155,8 +155,8 @@ export const WARP_CONFIG = Object.freeze({
       ],
       "button": [
         10063,
-        66,
-        10077
+        65,
+        10078
       ],
       "command": "scriptevent junket:warp ace"
     },
@@ -177,8 +177,8 @@ export const WARP_CONFIG = Object.freeze({
       ],
       "button": [
         10065,
-        66,
-        10077
+        65,
+        10078
       ],
       "command": "scriptevent junket:warp grail"
     },
@@ -199,8 +199,8 @@ export const WARP_CONFIG = Object.freeze({
       ],
       "button": [
         10067,
-        66,
-        10077
+        65,
+        10078
       ],
       "command": "scriptevent junket:warp hope"
     },
@@ -221,8 +221,8 @@ export const WARP_CONFIG = Object.freeze({
       ],
       "button": [
         10069,
-        66,
-        10077
+        65,
+        10078
       ],
       "command": "scriptevent junket:warp auction"
     },
@@ -243,8 +243,8 @@ export const WARP_CONFIG = Object.freeze({
       ],
       "button": [
         10071,
-        66,
-        10077
+        65,
+        10078
       ],
       "command": "scriptevent junket:warp fire"
     },
@@ -265,8 +265,8 @@ export const WARP_CONFIG = Object.freeze({
       ],
       "button": [
         10073,
-        66,
-        10077
+        65,
+        10078
       ],
       "command": "scriptevent junket:warp pig"
     },
@@ -287,8 +287,8 @@ export const WARP_CONFIG = Object.freeze({
       ],
       "button": [
         10075,
-        66,
-        10077
+        65,
+        10078
       ],
       "command": "scriptevent junket:warp light"
     },
@@ -309,8 +309,8 @@ export const WARP_CONFIG = Object.freeze({
       ],
       "button": [
         10077,
-        66,
-        10077
+        65,
+        10078
       ],
       "command": "scriptevent junket:warp mine"
     },
@@ -331,8 +331,8 @@ export const WARP_CONFIG = Object.freeze({
       ],
       "button": [
         10079,
-        66,
-        10077
+        65,
+        10078
       ],
       "command": "scriptevent junket:warp clock"
     },
@@ -353,8 +353,8 @@ export const WARP_CONFIG = Object.freeze({
       ],
       "button": [
         10081,
-        66,
-        10077
+        65,
+        10078
       ],
       "command": "scriptevent junket:warp walker"
     },
@@ -375,8 +375,8 @@ export const WARP_CONFIG = Object.freeze({
       ],
       "button": [
         10083,
-        66,
-        10077
+        65,
+        10078
       ],
       "command": "scriptevent junket:warp garden"
     },
@@ -397,8 +397,8 @@ export const WARP_CONFIG = Object.freeze({
       ],
       "button": [
         10085,
-        66,
-        10077
+        65,
+        10078
       ],
       "command": "scriptevent junket:warp rabbit"
     }

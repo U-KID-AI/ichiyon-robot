@@ -19,7 +19,7 @@
       "axis": "x",
       "stride": 2,
       "sign_offset": [0, 0, -1],
-      "button_offset": [0, 1, 0]
+      "button_offset": [0, 0, 1]
     },
     "return_point": {
       "location": [10052, 65, 10078],
