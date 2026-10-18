@@ -108,8 +108,8 @@ assert.deepEqual(placements.map(entry => entry.structure),
   VENUE_CONFIG.VENUES.map(entry => entry.structure));
 assert.equal(warpInstalls, 1);
 assert.equal(properties.get(VENUE_CONFIG.VENUE_INSTALL_KEY), 1);
-assert.equal(entities.length, 0, "installation must not spawn entities in unloaded venue chunks");
-assert.equal(specialCalls.length, 0, "venue installation must not spawn entities in unloaded chunks");
+assert.equal(entities.length, 24, "each new venue gets a control and return NPC");
+assert.equal(specialCalls.length, 5, "special venues are provisioned only after their chunks load");
 for (const key of [
   "junket:venue_v1", "junket:temperance_venue_v1", "junket:lucy_venue_v1",
   "junket:silence_venue_v1", "junket:jinn_venue_v1",
@@ -133,8 +133,8 @@ world.getAllPlayers = () => players;
 venues.start("ace", { players: players.map(player => player.id), state: { phase: "betting" } });
 assert.ok(players.every(player => player.teleports.length === 1));
 assert.ok(players.every(player => player.teleports[0].options.dimension === dimension));
-assert.equal(entities.filter(entity => entity.typeId === "minecraft:npc").length, 1);
-assert.equal(entities.filter(entity => entity.typeId.endsWith("_prop")).length, 1);
+assert.equal(entities.filter(entity => entity.typeId === "minecraft:npc").length, 12);
+assert.equal(entities.filter(entity => entity.typeId.endsWith("_prop")).length, 12);
 
 properties.delete(VENUE_CONFIG.VENUE_INSTALL_KEY);
 properties.delete(`${VENUE_CONFIG.VENUE_INSTALL_KEY}:sparrow`);
@@ -145,6 +145,6 @@ assert.equal(resumed.installAll(warp, specialVenues), true);
 await drainTimers();
 assert.equal(placements.length, 0, "a partially placed venue must be recovered without overwriting its blocks");
 assert.equal(properties.get(`${VENUE_CONFIG.VENUE_INSTALL_KEY}:sparrow`), 1);
-assert.equal(specialCalls.length, 0);
+assert.equal(specialCalls.length, 1);
 
 console.log("PASS original 17 venues: non-overlap, remote placement, resumable install, model kiosks, seats and protected warp hook");

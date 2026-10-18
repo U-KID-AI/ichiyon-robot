@@ -167,7 +167,7 @@ export function createProductionVenues({ world, system }) {
     }
   }
 
-  function installOneScheduled(id) {
+  function installOneScheduled(id, specialVenues = {}) {
     return new Promise((resolve, reject) => {
       const venue = entry(id);
       if (installed(id)) {
@@ -186,6 +186,14 @@ export function createProductionVenues({ world, system }) {
       };
       const finish = () => {
         applySpecialConfig(id);
+        if (venue.special_runtime) {
+          const runtimeVenue = specialVenues[id];
+          if (!runtimeVenue) throw new Error(`JUNKET special runtime missing: ${id}`);
+          if (id === "sparrow") runtimeVenue.provision(config(id), "hall");
+          else runtimeVenue.ensure();
+        } else {
+          ensure(id);
+        }
         world.setDynamicProperty(originName(id), 1);
         cleanup();
         resolve();
@@ -294,7 +302,7 @@ export function createProductionVenues({ world, system }) {
     }
     if (installing) return;
     installing = true;
-    installOneScheduled(venues[index].id).then(() => {
+    installOneScheduled(venues[index].id, specialVenues).then(() => {
       installing = false;
       system.runTimeout(() => installNextScheduled(warp, specialVenues, index + 1), 2);
     }).catch(error => {
