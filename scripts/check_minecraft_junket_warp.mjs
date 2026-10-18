@@ -20,7 +20,7 @@ const fixtureCatalog = (readiness = "verified") => ({
   }],
 });
 
-function fixture({ readiness = "verified", occupied = false, playerInside = false, route = null, failedCommand = null } = {}) {
+function fixture({ readiness = "verified", occupied = false, playerInside = false, route = null, failedCommand = null, unloadedControls = false } = {}) {
   const events = {}, commands = [], messages = [];
   const catalog = fixtureCatalog(readiness);
   if (occupied) catalog.WARP_CONTROLS[0].sign = [3, 65, 2];
@@ -34,7 +34,9 @@ function fixture({ readiness = "verified", occupied = false, playerInside = fals
   const dimension = {
     id: "minecraft:overworld",
     getBlock({ x, y, z }) {
-      const typeId = fixed.get(`${[x, y, z]}`) ?? "minecraft:air";
+      const position = `${[x, y, z]}`;
+      if (unloadedControls && !fixed.has(position)) return undefined;
+      const typeId = fixed.get(position) ?? "minecraft:air";
       return { typeId, isAir: typeId === "minecraft:air", dimension, location: { x, y, z } };
     },
     runCommand(command) {
@@ -154,6 +156,12 @@ assert.deepEqual(WARP_CONFIG.WARP_RETURN_POINT, sourceCatalog.controls.return_po
   assert.equal(f.warp.installControls(f.player), true);
   assert.equal(f.commands.filter(command => command.startsWith("setblock ")).length, 3);
   assert.ok(f.commands.every(command => !command.includes("1 65 3") && !command.includes("1 66 3")));
+}
+
+{
+  const f = fixture({ unloadedControls: true });
+  assert.equal(f.warp.installControls(), true);
+  assert.equal(f.commands.filter(command => command.startsWith("setblock ")).length, 3);
 }
 
 {
