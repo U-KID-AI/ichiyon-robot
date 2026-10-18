@@ -148,9 +148,9 @@ await test("independent pack manifest uses stable modules and unique UUIDs", () 
   const manifest = JSON.parse(readFileSync(new URL("../minecraft/behavior_packs/ichiyon_junket_bp/manifest.json", import.meta.url)));
   const uuids = [manifest.header.uuid, ...manifest.modules.map(m => m.uuid)];
   assert.equal(new Set(uuids).size, uuids.length);
-  assert.deepEqual(manifest.header.version, [0, 9, 2]);
+  assert.deepEqual(manifest.header.version, [0, 9, 3]);
   assert.deepEqual(manifest.header.min_engine_version, [1, 26, 44]);
-  assert.deepEqual(manifest.modules.map(module => module.version), [[0, 9, 2], [0, 9, 2]]);
+  assert.deepEqual(manifest.modules.map(module => module.version), [[0, 9, 3], [0, 9, 3]]);
   assert.equal(manifest.modules.find(module => module.type === "script").entry, "scripts/main.js");
   assert.deepEqual(manifest.dependencies.map(d => d.module_name), ["@minecraft/server", "@minecraft/server-ui"]);
   assert.ok(manifest.dependencies.every(d => !d.version.includes("beta")));

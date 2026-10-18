@@ -181,7 +181,20 @@ def structure_bytes(plan: dict[str, Any]) -> bytes:
                 'FrontText': n.Compound({
                     'Text': n.String(item['title']),
                     'TextOwner': n.String('JUNKET'),
-                    'Hidden': n.Byte(0),
+                    'FilteredText': n.String(''),
+                    'HideGlowOutline': n.Byte(0),
+                    'IgnoreLighting': n.Byte(0),
+                    'PersistFormatting': n.Byte(1),
+                    'SignTextColor': n.Int(-16777216),
+                }),
+                'BackText': n.Compound({
+                    'Text': n.String(''),
+                    'TextOwner': n.String(''),
+                    'FilteredText': n.String(''),
+                    'HideGlowOutline': n.Byte(0),
+                    'IgnoreLighting': n.Byte(0),
+                    'PersistFormatting': n.Byte(1),
+                    'SignTextColor': n.Int(-16777216),
                 }),
             }),
         })
