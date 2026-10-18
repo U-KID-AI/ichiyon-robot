@@ -195,9 +195,13 @@ def structure_bytes(plan: dict[str, Any]) -> bytes:
         n.Compound({
             'name': n.String(name),
             'states': n.Compound({
-                'facing_direction': n.Int(2),
-                'button_pressed_bit': n.Byte(0),
-            }) if name == 'minecraft:wooden_button' else n.Compound(),
+                'ground_sign_direction': n.Int(8),
+            }) if name == 'minecraft:oak_sign' else (
+                n.Compound({
+                    'facing_direction': n.Int(2),
+                    'button_pressed_bit': n.Byte(0),
+                }) if name == 'minecraft:wooden_button' else n.Compound()
+            ),
             'version': n.Int(18186752),
         })
         for name in names
