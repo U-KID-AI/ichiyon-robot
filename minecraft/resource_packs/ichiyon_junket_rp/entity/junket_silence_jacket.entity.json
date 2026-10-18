@@ -1,0 +1,20 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "junket:silence_jacket",
+      "materials": {
+        "default": "entity_alphatest"
+      },
+      "textures": {
+        "default": "textures/entity/junket/silence"
+      },
+      "geometry": {
+        "default": "geometry.junket.silence"
+      },
+      "render_controllers": [
+        "controller.render.junket"
+      ]
+    }
+  }
+}

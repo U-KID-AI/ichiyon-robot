@@ -1,0 +1,20 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "junket:temperance_balance",
+      "materials": {
+        "default": "entity_alphatest"
+      },
+      "textures": {
+        "default": "textures/entity/junket/temperance"
+      },
+      "geometry": {
+        "default": "geometry.junket.temperance"
+      },
+      "render_controllers": [
+        "controller.render.junket"
+      ]
+    }
+  }
+}

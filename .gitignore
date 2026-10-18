@@ -17,3 +17,10 @@ vpn/
 *.cookies.txt
 youtube-cookies.txt
 OpenVPN-Config.ovpn
+
+# Restricted JUNKET source assets and locally converted buildings (never publish).
+/data/junket-private/
+/minecraft/behavior_packs/ichiyon_junket_assets_bp/
+/minecraft/resource_packs/ichiyon_junket_assets_rp/
+*JUNKET*.zip
+*junket_craft_worlddata*/

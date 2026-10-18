@@ -1,0 +1,29 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "Ichiyon JUNKET Original Models",
+    "description": "Independently authored models for the 17 JUNKET games",
+    "uuid": "d48f4748-5b7b-4ad5-857a-3491b6fa2b16",
+    "version": [
+      0,
+      8,
+      0
+    ],
+    "min_engine_version": [
+      1,
+      26,
+      44
+    ]
+  },
+  "modules": [
+    {
+      "type": "resources",
+      "uuid": "403506cb-95a6-4dbc-8f2a-afddc2a2cd57",
+      "version": [
+        0,
+        8,
+        0
+      ]
+    }
+  ]
+}
