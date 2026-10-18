@@ -62,6 +62,7 @@ function fixture({ readiness = "verified", occupied = false, playerInside = fals
   };
   const system = {
     run: callback => callback(),
+    runTimeout: callback => callback(),
     afterEvents: { scriptEventReceive: { subscribe: callback => { events.script = callback; } } },
   };
   const player = {
@@ -152,14 +153,14 @@ assert.deepEqual(WARP_CONFIG.WARP_RETURN_POINT, sourceCatalog.controls.return_po
 
 {
   const f = fixture({ occupied: true });
-  assert.equal(f.warp.installControls(f.player), false);
+  assert.equal(await f.warp.installControls(f.player), false);
   assert.equal(f.commands.length, 0);
   assert.match(f.messages.at(-1), /空ではありません/);
 }
 
 {
   const f = fixture();
-  assert.equal(f.warp.installControls(f.player), true);
+  assert.equal(await f.warp.installControls(f.player), true);
   assert.equal(f.fixed.get("4,65,3"), "minecraft:command_block");
   assert.equal(f.fixed.get("4,65,2"), "minecraft:oak_sign");
   assert.equal(f.fixed.get("4,66,3"), "minecraft:wooden_button");
@@ -170,19 +171,19 @@ assert.deepEqual(WARP_CONFIG.WARP_RETURN_POINT, sourceCatalog.controls.return_po
 
 {
   const f = fixture({ unloadedControls: true });
-  assert.equal(f.warp.installControls(), true);
+  assert.equal(await f.warp.installControls(), true);
   assert.equal(f.fixed.get("4,65,3"), "minecraft:command_block");
 }
 
 {
   const f = fixture({ partialInstalled: true });
-  assert.equal(f.warp.installControls(), true);
+  assert.equal(await f.warp.installControls(), true);
   assert.equal(f.fixed.get("4,65,2"), "minecraft:oak_sign");
 }
 
 {
   const f = fixture({ failedCommand: "blockdata 4 65 2" });
-  assert.equal(f.warp.installControls(f.player), false);
+  assert.equal(await f.warp.installControls(f.player), false);
   assert.match(f.messages.at(-1), /ブロック操作に失敗/);
   assert.ok(f.commands.some(command => command === "setblock 4 65 2 minecraft:air"));
   assert.ok(f.commands.some(command => command === "setblock 4 65 3 minecraft:air"));

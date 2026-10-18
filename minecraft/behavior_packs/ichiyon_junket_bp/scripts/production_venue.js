@@ -161,8 +161,17 @@ export function createProductionVenues({ world, system }) {
   }
 
   function finish(warp) {
-    if (!warp.installControls()) throw new Error("JUNKET warp controls failed verification");
-    world.setDynamicProperty(INSTALL_KEY, 1);
+    const complete = () => world.setDynamicProperty(INSTALL_KEY, 1);
+    const result = warp.installControls();
+    if (result && typeof result.then === "function") {
+      result.then(ok => {
+        if (ok) complete();
+        else console.warn("[JUNKET] warp control installation did not complete");
+      }).catch(error => console.warn(`[JUNKET] warp control installation failed: ${error.message}`));
+      return;
+    }
+    if (!result) throw new Error("JUNKET warp controls failed verification");
+    complete();
   }
 
   function installNext(warp, specialVenues, index = 0) {

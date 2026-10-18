@@ -203,6 +203,85 @@ export function createWarpSystem({ world, system, manager, destinations = {}, ca
       installing = false;
     }
   }
+  function installControlsScheduled(player = null) {
+    return new Promise(resolve => {
+      if (installing) {
+        tell(player, "ワープ設備の設置処理中です。");
+        /*
+        tell(player, "繝ｯ繝ｼ繝苓ｨｭ蛯吶・險ｭ鄂ｮ蜃ｦ逅・ｸｭ縺ｧ縺吶・);
+        */
+        resolve(false);
+        return;
+      }
+      installing = true;
+      const placed = [];
+      let ticking = false;
+      const cleanup = () => {
+        if (ticking) {
+          try { dimension(catalog.WARP_DIMENSION).runCommand("tickingarea remove junket_install"); } catch { /* Best effort cleanup. */ }
+          ticking = false;
+        }
+        installing = false;
+      };
+      const fail = error => {
+        console.warn(`[JUNKET WARP] ${error.message}`);
+        for (const [x, y, z] of placed.reverse()) {
+          try { dimension(catalog.WARP_DIMENSION).runCommand(`setblock ${x} ${y} ${z} minecraft:air`); } catch { /* Best-effort rollback. */ }
+        }
+        tell(player, `險ｭ鄂ｮ繧剃ｸｭ豁｢縺励∪縺励◆: ${error.message}`);
+        cleanup();
+        resolve(false);
+      };
+      const run = (attempts, d) => {
+        try {
+          const first = d.getBlock({ x: 10053, y: 65, z: 10077 });
+          if (!first) {
+            if (attempts > 0) {
+              system.runTimeout(() => run(attempts - 1, d), 20);
+              return;
+            }
+            throw new Error("JUNKET control chunk did not become ready");
+          }
+          for (const game of catalog.WARP_CONTROLS) {
+            const [x, y, z] = game.command_block;
+            const [sx, sy, sz] = game.sign;
+            placeChecked(d, game.command_block, "minecraft:command_block", placed);
+            runChecked(d, `blockdata ${x} ${y} ${z} ${commandBlockData(game)}`);
+            placeChecked(d, game.sign, "minecraft:oak_sign", placed);
+            runChecked(d, `blockdata ${sx} ${sy} ${sz} ${signData(game)}`);
+            placeChecked(d, game.button, "minecraft:wooden_button", placed);
+          }
+          tell(player, "17ゲーム分のワープ設備を設置しました。");
+          /*
+          tell(player, "17繧ｲ繝ｼ繝蛻・・繝ｯ繝ｼ繝玲桃菴懆ｨｽ蛯吶ｒ蠅苓ｨｭ縺励∪縺励◆縲・);
+          */
+          cleanup();
+          resolve(true);
+        } catch (error) {
+          const retryable = /unavailable|not become ready/.test(error.message);
+          if (retryable && attempts > 0) {
+            system.runTimeout(() => run(attempts - 1, d), 20);
+          } else {
+            fail(error);
+          }
+        }
+      };
+      try {
+        if (installedControlState().complete) {
+          cleanup();
+          resolve(true);
+          return;
+        }
+        const d = preflight();
+        try { d.runCommand("tickingarea remove junket_install"); } catch { /* No prior temporary area. */ }
+        runChecked(d, "tickingarea add circle 10053 65 10077 4 junket_install");
+        ticking = true;
+        system.runTimeout(() => run(6, d), 20);
+      } catch (error) {
+        fail(error);
+      }
+    });
+  }
 
   world.beforeEvents.playerInteractWithBlock.subscribe(event => {
     const game = buttons.get(key(event.block.dimension.id, event.block.location));
@@ -219,7 +298,7 @@ export function createWarpSystem({ world, system, manager, destinations = {}, ca
     const player = event.sourceEntity;
     if (player?.typeId !== "minecraft:player") return;
     if (event.id === "junket:warpadmin") {
-      if (event.message.trim() === "install") installControls(player);
+      if (event.message.trim() === "install") void installControlsScheduled(player);
       else tell(player, "/scriptevent junket:warpadmin install");
       return;
     }
@@ -229,5 +308,5 @@ export function createWarpSystem({ world, system, manager, destinations = {}, ca
     }
     if (event.id === "junket:warpreturn") returnToEntry(player);
   });
-  return { warp, returnToEntry, installControls, destination, controls: catalog.WARP_CONTROLS, tag: CONTROL_TAG };
+  return { warp, returnToEntry, installControls: installControlsScheduled, destination, controls: catalog.WARP_CONTROLS, tag: CONTROL_TAG };
 }
