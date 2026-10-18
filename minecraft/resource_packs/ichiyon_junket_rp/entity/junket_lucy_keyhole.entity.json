@@ -1,0 +1,20 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "junket:lucy_keyhole",
+      "materials": {
+        "default": "entity_alphatest"
+      },
+      "textures": {
+        "default": "textures/entity/junket/lucy"
+      },
+      "geometry": {
+        "default": "geometry.junket.lucy"
+      },
+      "render_controllers": [
+        "controller.render.junket"
+      ]
+    }
+  }
+}

@@ -22,7 +22,9 @@ from bot.services.minecraft_resource_packs import (
 BP = "behavior_packs/ichiyon_avatar_bp/"
 RP = "resource_packs/ichiyon_avatar_rp/"
 BRIDGE = "behavior_packs/import_structures/"
-PACKS = (BP, RP, BRIDGE)
+JUNKET = "behavior_packs/ichiyon_junket_bp/"
+JUNKET_RP = "resource_packs/ichiyon_junket_rp/"
+PACKS = (BP, RP, BRIDGE, JUNKET, JUNKET_RP)
 BUILTINS = (("kiana", "キアナ"), ("mei", "芽衣"), ("bronya", "ブローニャ"), ("albert", "アルベール"))
 _DELETED_SKIN_TEXTURE = None
 ACCESSORY_GROUPS = {slot: f"ichiyon:itemGroup.molcar_{slot}" for slot in SLOTS}
@@ -308,7 +310,7 @@ def pack_zip(root, records, revision):
     files.update({p.relative_to(root).as_posix(): p
                   for pack in DIRECT_RESOURCE_PACKS for p in (root / pack).rglob("*") if p.is_file()})
     proof = {"revision": revision, "catalog_digest": catalog_digest(records),
-             "packs": [p.rstrip("/") for p in (BP, BRIDGE, *RESOURCE_PACKS)],
+             "packs": [p.rstrip("/") for p in (BP, BRIDGE, JUNKET, JUNKET_RP, *RESOURCE_PACKS)],
              "retired_packs": [{"path": path, "uuid": identity}
                                for path, identity in RETIRED_RESOURCE_PACKS.items()]}
     files["cosmetics-build.json"] = json_bytes(proof)

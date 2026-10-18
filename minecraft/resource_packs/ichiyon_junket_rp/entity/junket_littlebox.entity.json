@@ -1,0 +1,20 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "junket:littlebox",
+      "materials": {
+        "default": "entity_alphatest"
+      },
+      "textures": {
+        "default": "textures/entity/junket/sparrow"
+      },
+      "geometry": {
+        "default": "geometry.junket.sparrow"
+      },
+      "render_controllers": [
+        "controller.render.junket"
+      ]
+    }
+  }
+}

@@ -24,12 +24,15 @@ MAX_FILE = 8 * 1024 * 1024
 MAX_FILES = 16384
 PACKS = ('behavior_packs/import_structures', 'behavior_packs/ichiyon_avatar_bp', 'resource_packs/ichiyon_avatar_rp')
 BEHAVIOR_PACKS = PACKS[:2]
+# Optional for backward compatibility with already staged/recoverable archives.
+OPTIONAL_BEHAVIOR_PACKS = ('behavior_packs/ichiyon_junket_bp',)
 RETIRED_PACKS = {
     PACKS[2]: '3e1bcf76-b5e3-465a-a184-d2d90cfa0d74',
     'resource_packs/ichiyon_video_big_rp': 'a9689c00-b236-53ec-b952-a5fa64cb0cbc',
 }
 CATALOG = BEHAVIOR_PACKS[0] + '/scripts/cosmetics_catalog.js'
 PERMISSIONS = 'config/2fbc1c02-0c4d-4e98-a851-c1e41337c7a8/permissions.json'
+JUNKET_PERMISSIONS = 'config/6d8b87c7-5190-433a-bb59-05f72c6f3302/permissions.json'
 TERMINAL = ('succeeded', 'failed', 'recovery_failed')
 
 
@@ -68,7 +71,7 @@ def pack_path(value):
     if not isinstance(value, str):
         raise ValueError('invalid pack path')
     value = value.rstrip('/')
-    if value not in BEHAVIOR_PACKS and not re.fullmatch(r'resource_packs/ichiyon_[a-z0-9_]+_rp', value):
+    if value not in (*BEHAVIOR_PACKS, *OPTIONAL_BEHAVIOR_PACKS) and not re.fullmatch(r'resource_packs/ichiyon_[a-z0-9_]+_rp', value):
         raise ValueError('untrusted pack root')
     return value
 
@@ -127,7 +130,7 @@ def pack_layout(stage):
     if not isinstance(entries, list):
         raise ValueError('invalid packs')
     packs = [pack_path(entry['path'] if isinstance(entry, dict) else entry) for entry in entries]
-    if len(set(packs)) != len(packs) or set(packs) != discovered or not set(BEHAVIOR_PACKS) <= discovered or not discovered - set(BEHAVIOR_PACKS):
+    if len(set(packs)) != len(packs) or set(packs) != discovered or not set(BEHAVIOR_PACKS) <= discovered or not any(p.startswith('resource_packs/') for p in discovered):
         raise ValueError('pack list mismatch')
     for entry, pack in zip(entries, packs):
         if isinstance(entry, dict) and 'uuid' in entry and entry['uuid'] != read_json(stage / pack / 'manifest.json')['header']['uuid']:
@@ -350,7 +353,8 @@ class PackApplications:
 
     def _paths(self, directory):
         _, packs, retired = pack_layout(directory / 'stage')
-        return (*packs, *(pack_path(entry['path']) for entry in retired), *self._reference_paths())
+        extra = (JUNKET_PERMISSIONS,) if OPTIONAL_BEHAVIOR_PACKS[0] in packs else ()
+        return (*packs, *(pack_path(entry['path']) for entry in retired), *self._reference_paths(), *extra)
 
     def _backup(self, directory):
         backup = directory / 'original'
@@ -382,7 +386,7 @@ class PackApplications:
         state = read_json(backup / 'state.json') if (backup / 'state.json').exists() else None
         # Recovery uses the committed backup inventory, even if staging is lost.
         paths = state['paths'] if state else self._paths(directory)
-        fixed = self._reference_paths()
+        fixed = (*self._reference_paths(), JUNKET_PERMISSIONS)
         if not isinstance(paths, (list, tuple)) or len(set(paths)) != len(paths) or not set(missing) <= set(paths):
             raise ValueError('invalid backup inventory')
         for relative in paths:
@@ -445,6 +449,15 @@ class PackApplications:
         if '@minecraft/server-ui' not in permission.setdefault('allowed_modules', []):
             permission['allowed_modules'].append('@minecraft/server-ui')
         atomic_json(permission_path, permission)
+        if OPTIONAL_BEHAVIOR_PACKS[0] in packs:
+            # Scope stable UI access to this module, leaving default permissions alone.
+            permission_path = safe_path(self.api.DATA_DIR, JUNKET_PERMISSIONS)
+            permission = read_json(permission_path) if permission_path.exists() else {}
+            allowed = permission.setdefault('allowed_modules', [])
+            for module in ('@minecraft/server', '@minecraft/server-ui'):
+                if module not in allowed:
+                    allowed.append(module)
+            atomic_json(permission_path, permission)
 
     def _verify(self, stage, packs):
         for pack in packs:

@@ -1,0 +1,20 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "junket:auction_prop",
+      "materials": {
+        "default": "entity_alphatest"
+      },
+      "textures": {
+        "default": "textures/entity/junket/auction"
+      },
+      "geometry": {
+        "default": "geometry.junket.auction"
+      },
+      "render_controllers": [
+        "controller.render.junket"
+      ]
+    }
+  }
+}

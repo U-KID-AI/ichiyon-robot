@@ -82,13 +82,16 @@ class ApplyChecks(unittest.TestCase):
         self.assertTrue(status['installed']); self.assertTrue(self.manager.managed())
         self.assertEqual(len(self.api.commands), 2)
         refs = json.loads((self.api.DATA_DIR / 'worlds/test-world/world_behavior_packs.json').read_text(encoding='utf-8'))
-        self.assertEqual(refs[0]['pack_id'], 'keep-other-pack'); self.assertEqual(len(refs), 3)
+        self.assertEqual(refs[0]['pack_id'], 'keep-other-pack'); self.assertEqual(len(refs), 4)
+        self.assertIn('74d3d36b-630a-4cff-926c-141ec361d0b8', [ref['pack_id'] for ref in refs])
         resources = json.loads((self.api.DATA_DIR / 'worlds/test-world/world_resource_packs.json').read_text(encoding='utf-8'))
         self.assertIn({'pack_id': 'c2de9f3f-7956-4c7a-b6a1-63b264a9a059', 'version': [1, 0, 1]}, resources)
         active = json.loads((self.manager.root / 'active.json').read_text(encoding='utf-8'))
         self.assertIn('resource_packs/ichiyon_video_akki_rp', [p['path'] for p in active['packs']])
         permission = json.loads((self.api.DATA_DIR / deploy.PERMISSIONS).read_text(encoding='utf-8'))
         self.assertTrue(permission['module_permissions']['preserve']); self.assertIn('@minecraft/server-ui', permission['allowed_modules'])
+        self.assertEqual(deploy.read_json(self.api.DATA_DIR / deploy.JUNKET_PERMISSIONS)['allowed_modules'],
+                         ['@minecraft/server', '@minecraft/server-ui'])
 
     def test_duplicate_submit_does_not_start_second_restart_and_other_id_is_busy(self):
         self.submit()
@@ -507,6 +510,39 @@ class SplitApplyChecks(unittest.TestCase):
         self.files[pack + '/content.txt'] = b'future pack'
         self.apply()
         self.assertEqual(self.refs()[-1]['pack_id'], self.pack_id(pack))
+
+    def test_optional_junket_install_then_legacy_archive_preserves_pack_and_world(self):
+        old_files = deepcopy(self.files)
+        pack = deploy.OPTIONAL_BEHAVIOR_PACKS[0]
+        self.packs.append(pack)
+        self.files[pack + '/manifest.json'] = self.manifest(pack)
+        self.files[pack + '/content.txt'] = b'independent game code'
+        world = self.api.DATA_DIR / 'worlds/test-world'
+        (world / 'db').mkdir()
+        sentinel = world / 'db/fixture.ldb'
+        sentinel.write_bytes(b'pre-existing-world-fixture')
+        deploy.atomic_json(self.api.DATA_DIR / deploy.JUNKET_PERMISSIONS,
+                           {'allowed_modules': [], 'module_permissions': {'keep': True}})
+        self.apply()
+        self.assertTrue(deploy.read_json(self.api.DATA_DIR / deploy.JUNKET_PERMISSIONS)['module_permissions']['keep'])
+        installed = (self.api.DATA_DIR / pack / 'content.txt').read_bytes()
+        self.apply(old_files)
+        refs = deploy.read_json(world / 'world_behavior_packs.json')
+        self.assertIn(self.pack_id(pack), [ref['pack_id'] for ref in refs])
+        self.assertEqual((self.api.DATA_DIR / pack / 'content.txt').read_bytes(), installed)
+        self.assertEqual(sentinel.read_bytes(), b'pre-existing-world-fixture')
+
+    def test_optional_junket_new_permission_is_removed_on_rollback(self):
+        pack = deploy.OPTIONAL_BEHAVIOR_PACKS[0]
+        self.packs.append(pack)
+        self.files[pack + '/manifest.json'] = self.manifest(pack)
+        self.files[pack + '/content.txt'] = b'independent game code'
+        job = self.submit()
+        self.api.health_failures = 1
+        self.manager._run(job)
+        self.assert_restored()
+        self.assertFalse((self.api.DATA_DIR / pack).exists())
+        self.assertFalse((self.api.DATA_DIR / deploy.JUNKET_PERMISSIONS).exists())
 
     def test_object_pack_metadata_also_supported(self):
         self.files['cosmetics-build.json']['packs'] = [{'path': p, 'uuid': self.pack_id(p)} for p in self.packs]

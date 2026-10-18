@@ -14,7 +14,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from bot.services.minecraft_cosmetics import asset
 from bot.services import minecraft_cosmetics_pack as compiler
-from bot.services.minecraft_cosmetics_pack import BP, BRIDGE, PACKS, builtin_assets, compile_files, pack_zip
+from bot.services.minecraft_cosmetics_pack import (
+    BP, BRIDGE, JUNKET, JUNKET_RP, PACKS, builtin_assets, compile_files, pack_zip,
+)
 from bot.services.minecraft_resource_packs import (
     LEGACY, LEGACY_UUID, RESOURCE_PACKS, SPLIT_RESOURCE_PACKS, DIRECT_RESOURCE_PACKS,
     RETIRED_RESOURCE_PACKS, BIG_VIDEO_ENABLED, VIDEO_BIG_UUID,
@@ -77,11 +79,28 @@ class SplitChecks(unittest.TestCase):
                 self.assertEqual(section["version"], [1, 2, 1] if pack == AQUARIUM_GLASS else [1, 0, 2] if pack == VIDEO_BIG else [1, 0, 1])
         with ZipFile(BytesIO(pack_zip(self.root, self.records, 12))) as archive:
             proof = json.loads(archive.read("cosmetics-build.json"))
-            self.assertEqual(proof["packs"], [p.rstrip("/") for p in (BP, BRIDGE, *RESOURCE_PACKS)])
+            self.assertEqual(proof["packs"], [
+                p.rstrip("/") for p in (BP, BRIDGE, JUNKET, JUNKET_RP, *RESOURCE_PACKS)
+            ])
             self.assertEqual(len(RESOURCE_PACKS), 9)
             self.assertEqual(proof["retired_packs"], [
                 {"path": LEGACY.rstrip("/"), "uuid": LEGACY_UUID},
             ])
+            junket = {name: archive.read(name) for name in archive.namelist() if name.startswith(JUNKET)}
+            self.assertEqual(len(junket), 102)
+            self.assertEqual(sum(name.endswith(".js") for name in junket), 26)
+            self.assertEqual(sum(name.startswith(JUNKET + "entities/") for name in junket), 44)
+            self.assertEqual(sum(name.startswith(JUNKET + "structures/junket/") for name in junket), 30)
+            junket_manifest = json.loads(junket[JUNKET + "manifest.json"])
+            self.assertEqual(junket_manifest["header"]["version"], [0, 8, 0])
+            self.assertEqual(junket_manifest["modules"][1]["entry"], "scripts/main.js")
+            junket_rp = {name for name in archive.namelist() if name.startswith(JUNKET_RP)}
+            self.assertEqual(len(junket_rp), 67)
+            self.assertTrue(JUNKET_RP + "manifest.json" in junket_rp)
+            self.assertTrue(all(f"{JUNKET_RP}textures/entity/junket/{game}.png" in junket_rp
+                                for game in ("sparrow", "temperance", "lucy", "silence", "jinn",
+                                             "ace", "grail", "hope", "auction", "fire", "pig",
+                                             "light", "mine", "clock", "walker", "garden", "rabbit")))
             self.assertEqual(sum(name.startswith(VIDEO_BIG + "textures/entity/video_screen_big/atlas_") for name in archive.namelist()), 6)
             self.assertFalse(any("/subpacks/" in name for name in archive.namelist()))
             direct = {p.relative_to(self.root).as_posix(): p for pack in DIRECT_RESOURCE_PACKS

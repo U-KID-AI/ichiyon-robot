@@ -36,7 +36,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Install isolated cosmetics test dependencies
-        run: python -m pip install Pillow fastapi jinja2 python-multipart "psycopg[binary]" httpx itsdangerous python-dotenv
+        run: python -m pip install Pillow nbtlib fastapi jinja2 python-multipart "psycopg[binary]" httpx itsdangerous python-dotenv
       - name: Validate catalog, UI and durable placement queue
         run: |
           python scripts/build_minecraft_cosmetics.py --check
@@ -45,6 +45,23 @@ jobs:
           python scripts/check_minecraft_resource_packs.py
           python scripts/check_minecraft_cosmetics_admin.py
           python scripts/check_minecraft_cosmetics_apply.py
+          node scripts/check_minecraft_junket.mjs
+          python scripts/check_minecraft_junket_analysis.py
+          python scripts/check_minecraft_junket_warp.py
+          python scripts/minecraft/build_junket_warp.py --check
+          python scripts/minecraft/build_junket_original_world.py --check
+          node scripts/check_minecraft_junket_warp.mjs
+          node scripts/check_minecraft_junket_production.mjs
+          node scripts/check_minecraft_junket_temperance.mjs
+          node scripts/check_minecraft_junket_lucy.mjs
+          node scripts/check_minecraft_junket_silence.mjs
+          node scripts/check_minecraft_junket_jinn.mjs
+          node scripts/check_minecraft_junket_ace.mjs
+          node scripts/check_minecraft_junket_complete.mjs
+          node scripts/check_minecraft_junket_ui.mjs
+          node scripts/check_minecraft_junket_playthrough.mjs
+          node scripts/check_minecraft_junket_reception.mjs
+          node scripts/check_minecraft_junket_venue.mjs
           python scripts/check_minecraft_cosmetics_db.py
           node scripts/check_minecraft_cosmetics.mjs
           python scripts/check_minecraft_avatars.py
