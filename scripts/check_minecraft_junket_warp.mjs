@@ -156,6 +156,8 @@ assert.deepEqual(WARP_CONFIG.WARP_RETURN_POINT, sourceCatalog.controls.return_po
   const f = fixture();
   assert.equal(f.warp.installControls(f.player), true);
   assert.equal(f.commands.filter(command => command.startsWith("setblock ")).length, 3);
+  assert.ok(f.commands.includes("tickingarea add circle 10053 65 10077 4 junket_install"));
+  assert.equal(f.commands.at(-1), "tickingarea remove junket_install");
   assert.ok(f.commands.every(command => !command.includes("1 65 3") && !command.includes("1 66 3")));
 }
 
