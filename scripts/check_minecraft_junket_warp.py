@@ -7,7 +7,8 @@ import unittest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'scripts/minecraft'))
 from build_junket_warp import EXPECTED_IDS, build_plan, load
-from build_junket_warp import runtime_source
+from build_junket_warp import STRUCTURE, runtime_source
+import nbtlib as n
 
 
 class WarpCatalogChecks(unittest.TestCase):
@@ -60,6 +61,21 @@ class WarpCatalogChecks(unittest.TestCase):
         hope = next(game for game in self.catalog['games'] if game['id'] == 'hope')
         self.assertEqual(hope['player_mode'], 'registration')
         self.assertEqual(hope['max_players'], 16)
+
+    def test_control_structure_contains_all_signed_commands(self):
+        with STRUCTURE.open('rb') as stream:
+            root = n.File.parse(stream, byteorder='little')
+        self.assertEqual([int(value) for value in root['size']], [34, 2, 2])
+        positions = root['structure']['palette']['default']['block_position_data']
+        self.assertEqual(len(positions), 34)
+        commands = sorted(
+            str(value['block_entity_data']['Command'])
+            for value in positions.values()
+            if 'Command' in value['block_entity_data']
+        )
+        self.assertEqual(len(commands), 17)
+        self.assertEqual(commands, sorted(
+            f"scriptevent junket:warp {game['id']}" for game in self.catalog['games']))
 
 
 if __name__ == '__main__':
