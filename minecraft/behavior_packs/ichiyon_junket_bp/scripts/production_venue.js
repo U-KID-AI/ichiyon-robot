@@ -211,6 +211,10 @@ export function createProductionVenues({ world, system }) {
             system.runTimeout(() => verify(remaining - 1), 20);
             return;
           }
+          if (origin?.typeId !== venue.origin_block && remaining > 0) {
+            system.runTimeout(() => verify(remaining - 1), 20);
+            return;
+          }
           if (origin?.typeId !== venue.origin_block) {
             throw new Error(`JUNKET venue placement mismatch: ${id}`);
           }
