@@ -20,7 +20,7 @@ const fixtureCatalog = (readiness = "verified") => ({
   }],
 });
 
-function fixture({ readiness = "verified", occupied = false, playerInside = false, route = null, failedCommand = null, unloadedControls = false } = {}) {
+function fixture({ readiness = "verified", occupied = false, playerInside = false, route = null, failedCommand = null, unloadedControls = false, partialInstalled = false } = {}) {
   const events = {}, commands = [], messages = [];
   const catalog = fixtureCatalog(readiness);
   if (occupied) catalog.WARP_CONTROLS[0].sign = [3, 65, 2];
@@ -31,6 +31,7 @@ function fixture({ readiness = "verified", occupied = false, playerInside = fals
     [`${anchor.button}`, "minecraft:wooden_button"],
   ]);
   if (occupied) fixed.set(`${catalog.WARP_CONTROLS[0].sign}`, "minecraft:stone");
+  if (partialInstalled) fixed.set(`${catalog.WARP_CONTROLS[0].command_block}`, "minecraft:command_block");
   const dimension = {
     id: "minecraft:overworld",
     getBlock({ x, y, z }) {
@@ -160,6 +161,12 @@ assert.deepEqual(WARP_CONFIG.WARP_RETURN_POINT, sourceCatalog.controls.return_po
 
 {
   const f = fixture({ unloadedControls: true });
+  assert.equal(f.warp.installControls(), true);
+  assert.equal(f.commands.filter(command => command.startsWith("setblock ")).length, 3);
+}
+
+{
+  const f = fixture({ partialInstalled: true });
   assert.equal(f.warp.installControls(), true);
   assert.equal(f.commands.filter(command => command.startsWith("setblock ")).length, 3);
 }
