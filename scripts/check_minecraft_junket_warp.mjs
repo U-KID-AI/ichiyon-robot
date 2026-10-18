@@ -109,6 +109,24 @@ assert.deepEqual(WARP_CONFIG.WARP_RETURN_POINT, sourceCatalog.controls.return_po
 }
 
 {
+  let prepared = false;
+  const f = fixture({
+    route: {
+      location: { x: 40, y: 70, z: 50 },
+      dimension: "minecraft:overworld",
+      rotation: 0,
+      afterTeleport: player => { prepared = player.id === "p1"; },
+    },
+  });
+  f.events.block({
+    player: f.player,
+    block: { dimension: f.dimension, location: { x: 4, y: 66, z: 3 } },
+    cancel: false,
+  });
+  assert.equal(prepared, true, "venue entities are prepared only after teleport");
+}
+
+{
   const f = fixture({ playerInside: true });
   assert.equal(f.warp.returnToEntry(f.player), false);
   assert.equal(f.player.teleports.length, 0);
