@@ -35,11 +35,26 @@ const completeRuntimes = new Map([
 const warp = createWarpSystem({
   ...context,
   destinations: {
-    sparrow: () => sparrow.venue.destination("hall"),
-    temperance: () => temperance.venue.destination(),
-    lucy: () => lucy.venue.destination(),
-    silence: () => silence.venue.destination(),
-    jinn: () => jinn.venue.destination(),
+    sparrow: () => {
+      const target = sparrow.venue.destination("hall");
+      return target && { ...target, afterTeleport: () => sparrow.venue.repair() };
+    },
+    temperance: () => {
+      const target = temperance.venue.destination();
+      return target && { ...target, afterTeleport: () => temperance.venue.ensure() };
+    },
+    lucy: () => {
+      const target = lucy.venue.destination();
+      return target && { ...target, afterTeleport: () => lucy.venue.ensure() };
+    },
+    silence: () => {
+      const target = silence.venue.destination();
+      return target && { ...target, afterTeleport: () => silence.venue.ensure() };
+    },
+    jinn: () => {
+      const target = jinn.venue.destination();
+      return target && { ...target, afterTeleport: () => jinn.venue.ensure() };
+    },
     ...Object.fromEntries([...completeRuntimes].map(([id]) => [
       id,
       () => productionVenues.destination(id),

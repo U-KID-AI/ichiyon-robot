@@ -64,6 +64,7 @@ export function createWarpSystem({ world, system, manager, destinations = {}, ca
       dimension: teleportDimension(route.dimension),
       rotation: route.rotation ? { x: 0, y: route.rotation } : undefined,
     });
+    if (route.afterTeleport) system.run(() => route.afterTeleport(player));
     return true;
   }
   function returnToEntry(player) {

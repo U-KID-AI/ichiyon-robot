@@ -66,7 +66,12 @@ export function createProductionVenues({ world, system }) {
 
   function destination(id) {
     const venue = entry(id);
-    return { location: point(venue.destination), dimension: dimension(), rotation: 0 };
+    return {
+      location: point(venue.destination),
+      dimension: dimension(),
+      rotation: 0,
+      afterTeleport: () => ensure(id),
+    };
   }
 
   function goto(id, player) {
@@ -127,8 +132,6 @@ export function createProductionVenues({ world, system }) {
     const venue = entry(id);
     if (installed(id)) {
       applySpecialConfig(id);
-      if (venue.special_runtime) specialVenues[id]?.ensure?.();
-      else ensure(id);
       return;
     }
     const d = dimension();
@@ -142,14 +145,6 @@ export function createProductionVenues({ world, system }) {
     }
     if (existing?.typeId === venue.origin_block) {
       applySpecialConfig(id);
-      if (venue.special_runtime) {
-        const runtimeVenue = specialVenues[id];
-        if (!runtimeVenue) throw new Error(`JUNKET special runtime missing: ${id}`);
-        if (id === "sparrow") runtimeVenue.provision(config(id), "hall");
-        else runtimeVenue.ensure();
-      } else {
-        ensure(id);
-      }
       world.setDynamicProperty(originName(id), 1);
       return;
     }
@@ -160,16 +155,9 @@ export function createProductionVenues({ world, system }) {
       x: venue.origin[0], y: venue.origin[1], z: venue.origin[2],
     }), { includeEntities: false });
     applySpecialConfig(id);
-    if (venue.special_runtime) {
-      const runtimeVenue = specialVenues[id];
-      if (!runtimeVenue) throw new Error(`JUNKET special runtime missing: ${id}`);
-      if (id === "sparrow") runtimeVenue.provision(config(id), "hall");
-      else runtimeVenue.ensure();
-    } else {
-      ensure(id);
-    }
     world.setDynamicProperty(originName(id), 1);
     void warp;
+    void specialVenues;
   }
 
   function finish(warp) {
