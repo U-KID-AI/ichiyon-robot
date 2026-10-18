@@ -131,16 +131,34 @@ export function createProductionVenues({ world, system }) {
       else ensure(id);
       return;
     }
+    const d = dimension();
+    let existing;
+    try {
+      existing = d.getBlock({
+        x: venue.origin[0], y: venue.origin[1], z: venue.origin[2],
+      });
+    } catch {
+      existing = undefined;
+    }
+    if (existing?.typeId === venue.origin_block) {
+      applySpecialConfig(id);
+      if (venue.special_runtime) {
+        const runtimeVenue = specialVenues[id];
+        if (!runtimeVenue) throw new Error(`JUNKET special runtime missing: ${id}`);
+        if (id === "sparrow") runtimeVenue.provision(config(id), "hall");
+        else runtimeVenue.ensure();
+      } else {
+        ensure(id);
+      }
+      world.setDynamicProperty(originName(id), 1);
+      return;
+    }
     if (!siteCanBeCreated(venue)) {
       throw new Error(`JUNKET venue target is not empty: ${id} ${venue.origin.join(",")}`);
     }
     world.structureManager.place(venue.structure, dimension(), point({
       x: venue.origin[0], y: venue.origin[1], z: venue.origin[2],
     }), { includeEntities: false });
-    const base = dimension().getBlock({
-      x: venue.origin[0], y: venue.origin[1], z: venue.origin[2],
-    });
-    if (!base || base.isAir) throw new Error(`JUNKET venue placement verification failed: ${id}`);
     applySpecialConfig(id);
     if (venue.special_runtime) {
       const runtimeVenue = specialVenues[id];

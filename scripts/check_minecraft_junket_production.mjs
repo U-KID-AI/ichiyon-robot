@@ -68,7 +68,8 @@ const world = {
       assert.equal(target, dimension);
       assert.equal(options.includeEntities, false);
       placements.push({ structure, location: { ...location } });
-      blocks.set(key(location), "minecraft:polished_deepslate");
+      const venue = VENUE_CONFIG.VENUES.find(candidate => candidate.structure === structure);
+      blocks.set(key(location), venue.origin_block);
     },
   },
 };
@@ -120,5 +121,16 @@ world.getAllPlayers = () => players;
 venues.start("ace", { players: players.map(player => player.id), state: { phase: "betting" } });
 assert.ok(players.every(player => player.teleports.length === 1));
 assert.ok(players.every(player => player.teleports[0].options.dimension === dimension));
+
+properties.delete(VENUE_CONFIG.VENUE_INSTALL_KEY);
+properties.delete(`${VENUE_CONFIG.VENUE_INSTALL_KEY}:sparrow`);
+placements.length = 0;
+specialCalls.length = 0;
+const resumed = createProductionVenues({ world, system });
+assert.equal(resumed.installAll(warp, specialVenues), true);
+while (timers.length) timers.shift()();
+assert.equal(placements.length, 0, "a partially placed venue must be recovered without overwriting its blocks");
+assert.equal(properties.get(`${VENUE_CONFIG.VENUE_INSTALL_KEY}:sparrow`), 1);
+assert.ok(specialCalls.includes("sparrow:provision"));
 
 console.log("PASS original 17 venues: non-overlap, remote placement, resumable install, model kiosks, seats and protected warp hook");
