@@ -76,6 +76,13 @@ class WarpCatalogChecks(unittest.TestCase):
         self.assertEqual(len(commands), 17)
         self.assertEqual(commands, sorted(
             f"scriptevent junket:warp {game['id']}" for game in self.catalog['games']))
+        sign_entities = [
+            value['block_entity_data'] for value in positions.values()
+            if str(value['block_entity_data'].get('id', '')) == 'Sign'
+        ]
+        self.assertEqual(len(sign_entities), 17)
+        self.assertTrue(all(str(value['FrontText'].get('TextOwner', '')) == 'JUNKET'
+                            for value in sign_entities))
 
 
 if __name__ == '__main__':
