@@ -24,6 +24,9 @@ MANAGED_AUDIO_ROOT = Path(os.getenv("AUDIO_ASSETS_DIR") or PROJECT_ROOT / "data"
 SUPPORTED_AUDIO_EXTENSIONS = {".mp3", ".wav", ".ogg", ".m4a"}
 DEFAULT_AUDIO_ASSET_MAX_BYTES = 20 * 1024 * 1024
 DEFAULT_AUDIO_ASSET_MAX_DURATION_SECONDS = 300
+# Uploaded audio must be a standalone supported container, not a playlist that
+# makes FFmpeg fetch network URLs or unrelated local files.
+LOCAL_AUDIO_BEFORE_OPTIONS = "-protocol_whitelist file -format_whitelist mp3,wav,ogg,mov,mp4,m4a,3gp,3g2,mj2"
 _FOREGROUND_QUEUES: Dict[str, Deque[Dict[str, Any]]] = {}
 _FOREGROUND_ACTIVE: Dict[str, bool] = {}
 
@@ -127,6 +130,10 @@ def probe_audio_duration_ms(path: Path) -> int:
         "ffprobe",
         "-v",
         "error",
+        "-protocol_whitelist",
+        "file",
+        "-format_whitelist",
+        "mp3,wav,ogg,mov,mp4,m4a,3gp,3g2,mj2",
         "-show_entries",
         "format=duration",
         "-of",
@@ -357,7 +364,7 @@ def play_audio_on_voice_client(
         )
 
     try:
-        raw_source = discord.FFmpegPCMAudio(str(audio_path))
+        raw_source = discord.FFmpegPCMAudio(str(audio_path), before_options=LOCAL_AUDIO_BEFORE_OPTIONS)
         source = discord.PCMVolumeTransformer(raw_source, volume=DEFAULT_FOREGROUND_VOLUME_PERCENT / 100.0)
         voice_client.play(source, after=after_playback)
         log_voice_audio(
@@ -439,7 +446,7 @@ def _start_next_foreground_audio(voice_client: discord.VoiceClient, guild_id: st
         _start_next_foreground_audio(voice_client, guild_id)
 
     try:
-        source = discord.FFmpegPCMAudio(str(audio_path))
+        source = discord.FFmpegPCMAudio(str(audio_path), before_options=LOCAL_AUDIO_BEFORE_OPTIONS)
         mixer = get_mixer(guild_id)
         mixer.set_tts_volume(max(0.0, min(1.0, int(item.get("volume_percent") or DEFAULT_FOREGROUND_VOLUME_PERCENT) / 100.0)))
         mixer.set_tts_source(source, after_playback)

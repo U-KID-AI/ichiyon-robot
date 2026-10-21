@@ -23,7 +23,7 @@ def require_minecraft_bridge_secret(secret: Optional[str]) -> None:
     expected = config.MINECRAFT_BRIDGE_SECRET
     if not expected:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="minecraft bridge disabled")
-    if secret is None or not hmac.compare_digest(secret, expected):
+    if secret is None or not hmac.compare_digest(secret.encode("utf-8"), expected.encode("utf-8")):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
 
 

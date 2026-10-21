@@ -4,6 +4,14 @@
 __pycache__
 *.pyc
 .env
+.env.*
+!.env.example
+*.ovpn
+*.p12
+*.pfx
+*.cookies.txt
+youtube-cookies.txt
+vpn/
 data/backups
 *.key
 *.pem

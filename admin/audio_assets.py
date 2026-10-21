@@ -1,4 +1,3 @@
-import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -16,6 +15,7 @@ from bot.services.voice_audio import (
     build_audio_asset_storage_path,
     resolve_audio_asset_storage_path,
     validate_audio_asset_file,
+    audio_asset_max_bytes,
 )
 
 
@@ -233,9 +233,14 @@ def save_uploaded_audio(guild_id: str, upload: UploadFile):
     if destination is None:
         raise ValueError("保存先を作成できません。")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with destination.open("wb") as output:
-        shutil.copyfileobj(upload.file, output)
     try:
+        size = 0
+        with destination.open("wb") as output:
+            while chunk := upload.file.read(64 * 1024):
+                size += len(chunk)
+                if size > audio_asset_max_bytes():
+                    raise ValueError("音声ファイルのサイズが上限を超えています。")
+                output.write(chunk)
         duration_ms, mime_type = validate_audio_asset_file(destination)
     except Exception as exc:
         try:

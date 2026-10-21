@@ -177,7 +177,7 @@ async def save_uploaded_image(
     if suffix not in ALLOWED_IMAGE_EXTENSIONS:
         return None, "対応外の画像形式。png, jpg, jpeg, gif, webp のみ。"
 
-    content = await upload.read()
+    content = await upload.read(MAX_IMAGE_SIZE + 1)
     if not content:
         return None, "画像ファイルが空。"
     if len(content) > MAX_IMAGE_SIZE:

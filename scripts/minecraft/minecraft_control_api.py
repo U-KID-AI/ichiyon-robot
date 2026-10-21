@@ -108,7 +108,7 @@ async def apply_cosmetics(operation_id: str, request: Request, x_minecraft_contr
 def require_secret(x_minecraft_control_secret: Optional[str]) -> None:
     if not CONTROL_SECRET:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="control disabled")
-    if x_minecraft_control_secret is None or not hmac.compare_digest(x_minecraft_control_secret, CONTROL_SECRET):
+    if x_minecraft_control_secret is None or not hmac.compare_digest(x_minecraft_control_secret.encode("utf-8"), CONTROL_SECRET.encode("utf-8")):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
 
 
@@ -477,7 +477,7 @@ def get_status(x_minecraft_control_secret: Optional[str] = Header(default=None))
 async def get_diagnostics(x_minecraft_diagnostics_secret: Optional[str] = Header(default=None)) -> Dict[str, Any]:
     if not DIAGNOSTICS_SECRET or DIAGNOSTICS_SECRET == CONTROL_SECRET:
         raise HTTPException(status_code=503, detail="diagnostics disabled")
-    if x_minecraft_diagnostics_secret is None or not hmac.compare_digest(x_minecraft_diagnostics_secret, DIAGNOSTICS_SECRET):
+    if x_minecraft_diagnostics_secret is None or not hmac.compare_digest(x_minecraft_diagnostics_secret.encode("utf-8"), DIAGNOSTICS_SECRET.encode("utf-8")):
         raise HTTPException(status_code=401, detail="unauthorized")
     try:
         collector = Diagnostics(CONTAINER_NAME, DIAGNOSTICS_BROADCAST_CONTAINER, BEDROCK_PORT)
