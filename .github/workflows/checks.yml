@@ -199,6 +199,7 @@ jobs:
           python scripts/check_guild_repository.py
           python scripts/check_message_router_db.py
           python scripts/check_runtime_db_role.py
+          python scripts/check_migration_compatibility.py
 
       - name: Run message routing regression checks
         run: |
