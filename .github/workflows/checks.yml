@@ -93,7 +93,8 @@ jobs:
           python scripts/check_taketumi_ai.py
 
   python-and-compose:
-    runs-on: ubuntu-latest
+    # PG16 restore tools are available in Noble; ubuntu-latest can move majors.
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16.15

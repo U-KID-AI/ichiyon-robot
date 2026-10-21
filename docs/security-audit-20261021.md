@@ -54,6 +54,16 @@ production DBの検証済みbackup: `/home/ubuntu/ichiyon-backups/security-db-20
 DBのrole分離手順は[security-runtime-db.md](operations/security-runtime-db.md)。
 本番アプリのPR/SHA/CI/配備結果はRunner完了時の証拠で追記・報告する。
 
+### 公開CI初回失敗の修正
+
+PR #157 の run `39655717814` は `python-and-compose` のツール導入で停止した。
+`ubuntu-latest` が Ubuntu 26.04（resolute）を選択し、APT が
+`Unable to locate package postgresql-16` を返したため、このジョブを
+事前検証と同じ Ubuntu 24.04 に固定した。PG16 の復元試験、DB role 検査を含む
+全検査コマンドは維持している。ローカルで workflow YAML の読込、実行環境指定以外の
+ジョブ定義が不変であること、`git diff --check` を確認。修正後の GitHub CI 完走と
+公開・本番反映の確認は Runner が実施する。
+
 ---
 
 ## A. 総合評価
