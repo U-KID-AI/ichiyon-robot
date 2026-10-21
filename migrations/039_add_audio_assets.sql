@@ -14,6 +14,9 @@ ALTER TABLE special_effect_tags
             'shikocchi_lottery',
             'custom',
             'probability_message',
+            -- Some installations already use the effect introduced by 043
+            -- while their migration ledger predates 039. Preserve those rows.
+            'probability_user_message',
             'message',
             'reaction',
             'audio_asset',

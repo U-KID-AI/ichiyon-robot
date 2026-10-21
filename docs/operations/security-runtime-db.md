@@ -35,3 +35,20 @@ Container-to-container `db:5432` access and existing database volumes are kept.
 The PostgreSQL minor upgrade and port-binding change require a separate
 backed-up Compose maintenance operation; the app helper deliberately preserves
 infrastructure. Never infer that changing Compose updated an already-running DB.
+
+## Application process identity
+
+The app Compose services accept APP_UID/APP_GID. The compatibility default is
+the existing root identity; provisioned production/staging use their verified
+persistent-data owner, 1001:1001. Check the actual host UID/GID rather than
+assuming 1000, and verify data/images writes and read-only secret access before
+setting these non-secret environment entries. Do not recursively chown user
+data or change credential permissions to make startup pass. Image build and
+the one-shot migration helper retain their existing operator execution path.
+
+The application image was exercised as UID/GID 1001 with auth, uploads/TLS,
+SSRF, voice crypto/playback, Minecraft media generation and notification tests.
+The numeric storage notification state is atomically replaced in its writable
+parent, so its historical root-owned file does not need an ownership change.
+Use the normal Runner release for activation and its previous-release rollback
+if health fails; retain the original APP_UID/APP_GID settings for rollback.
