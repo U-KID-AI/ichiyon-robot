@@ -66,6 +66,29 @@ PR #157 の run `39655717814` は `python-and-compose` のツール導入で停�
 
 ---
 
+### 公開再試行時の照合と引き継ぎ
+
+Runner の attempt 3 は `No changes to publish` で停止した。再試行開始時の
+worktree は clean で、HEAD `c183353` に PR #157 の `cf392aa` と
+CI 環境修正 `6a89d78` が統合済みだった。修正の消失ではなく、統合後に
+新規差分がない状態で公開処理へ進もうとしたことによる停止である。
+
+指定された `publication.patch` の SHA256 は
+`a378f19ac1b92d38e4a1179bcfb49a5e4332b68b20aa2a8da09b11767e111337`
+と一致した。独立した一時 Git index に基準 `d8055ce` と patch を適用し、
+現 HEAD と照合した。38 ファイル中 36 ファイルは完全一致し、残る差分は
+workflow の Ubuntu 24.04 固定と上記 CI 失敗修正の報告のみだった。
+実 worktree への二重適用・既存変更の巻き戻しは行っていない。
+
+今回の追加変更はこの引き継ぎ記録のみ。既存の Linux 118 command、実 build、
+DB 復元等の検証は重複実行していない。Runner は公開候補 SHA の CI 成功を
+確認したうえで、承認済みの通常 app release を既存入口から継続する。
+保護 env の `RUNTIME_DATABASE_URL` を Compose のアプリ接続へ反映し、
+migration helper の元の `DATABASE_URL` を維持する。DB/VPN/BDS の再作成は
+この再試行に含めない。実装作業側では CI 完走・本番切替の完了証拠を
+取得しておらず、完了扱いにはしない。HTTPS OAuth 登録・EOL ホスト等の
+残件は親 operator の並行対応として引き続き追跡する。
+
 ## A. 総合評価
 
 **安全なソース修正とローカル検証を実施したが、本番の安全性を確認済みとは判定しない。** 本番・Minecraft/staging の SSH 読み取り専用調査で、平文 HTTP の管理画面、DB の全インターフェース公開、アプリ接続ロールの superuser、未適用のセキュリティ更新、サポート切れ OS を確認した。音楽 URL の SSRF も追加対策が必要。本番デプロイ、秘密値変更、DB 変更、サービス停止、ワールド操作は実施していない。
