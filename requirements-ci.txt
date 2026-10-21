@@ -1,0 +1,4 @@
+# Minecraft analysis tools; numpy is already hash-locked in requirements.txt.
+nbtlib==2.0.4 \
+    --hash=sha256:38d571fbf2f7ebd640639461b47fc79919a8ea8e74633ffcc8aa6b2acfc9c889 \
+    --hash=sha256:d4b861047fb9beb546a2e3f3b776dc61b0fb5831375752a39961882e2f76cc93

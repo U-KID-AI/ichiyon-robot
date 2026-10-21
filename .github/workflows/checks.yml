@@ -1,5 +1,8 @@
 name: checks
 
+permissions:
+  contents: read
+
 on:
   pull_request:
   push:
@@ -11,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16.15
         env:
           POSTGRES_DB: cosmetics_test
           POSTGRES_USER: cosmetics_test
@@ -24,19 +27,21 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: "3.11"
-      - uses: actions/setup-node@v4
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          node-version: "22"
+          python-version: "3.11.17"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22.23.4"
       - name: Install media test tools
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Install isolated cosmetics test dependencies
-        run: python -m pip install Pillow nbtlib fastapi jinja2 python-multipart "psycopg[binary]" httpx itsdangerous python-dotenv
+        run: python -m pip install --require-hashes -r requirements.txt -r requirements-ci.txt
       - name: Validate catalog, UI and durable placement queue
         run: |
           python scripts/build_minecraft_cosmetics.py --check
@@ -91,7 +96,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16.15
         env:
           POSTGRES_DB: routing_test
           POSTGRES_USER: routing_test
@@ -104,18 +109,28 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.11.17"
 
       - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          python -m pip install --upgrade pip==26.2.2
+          python -m pip install --require-hashes -r requirements.txt
+
+      - name: Check security regressions and locked dependencies
+        run: |
+          python scripts/check_admin_security.py
+          python scripts/check_voice_crypto.py
+          python scripts/check_media_egress.py
+          python -m venv "$RUNNER_TEMP/pip-audit"
+          "$RUNNER_TEMP/pip-audit/bin/python" -m pip install pip-audit==2.10.1
+          "$RUNNER_TEMP/pip-audit/bin/python" -m pip_audit --no-deps --disable-pip -r requirements.txt
 
       - name: Install media and isolated backup restore test tools
         run: |
@@ -123,7 +138,9 @@ jobs:
           sudo apt-get install -y --no-install-recommends ffmpeg postgresql-16
 
       - name: Compile Python
-        run: python -m compileall admin bot scripts
+        run: |
+          python -m compileall admin bot scripts
+          python scripts/check_media_security.py
 
       - name: Run AI task execution checks
         run: |
@@ -180,6 +197,7 @@ jobs:
           python scripts/migrate.py
           python scripts/check_guild_repository.py
           python scripts/check_message_router_db.py
+          python scripts/check_runtime_db_role.py
 
       - name: Run message routing regression checks
         run: |

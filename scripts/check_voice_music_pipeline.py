@@ -42,22 +42,24 @@ class RouteTests(unittest.TestCase):
     def test_options_and_quoted_headers(self):
         with patch.dict(os.environ, {"HTTP_PROXY": "http://wrong:8888"}, clear=True):
             direct = music.build_ytdl_options(use_cookies=False)
-            self.assertEqual(direct["proxy"], "")
+            self.assertEqual(direct["proxy"], music.media_proxy_url())
             self.assertGreater(direct["socket_timeout"], 0)
             home = music.build_ytdl_options(use_cookies=False, proxy_url="http://youtube-vpn-proxy:8888", socket_timeout=7)
             self.assertEqual(home["socket_timeout"], 7)
             self.assertNotIn("cookiefile", home)
         item = track(ffmpeg_headers={"User-Agent": "A 'quoted' agent", "Referer": "https://example.org/a b"}, ffmpeg_cookies="sid=hidden")
         args = shlex.split(music.build_ffmpeg_before_options(item))
+        self.assertEqual(args[args.index("-tls_verify") + 1], "1")
+        self.assertNotIn("file", args[args.index("-protocol_whitelist") + 1].split(","))
         self.assertEqual(args[args.index("-headers") + 1], "User-Agent: A 'quoted' agent\r\nReferer: https://example.org/a b\r\nCookie: sid=hidden\r\n")
-        self.assertNotIn("-http_proxy", args)
+        self.assertEqual(args[args.index("-http_proxy") + 1], music.media_proxy_url())
         item.youtube_route = music.YOUTUBE_ROUTE_HOME_VPN
         item.ffmpeg_proxy_url = "http://youtube-vpn-proxy:8888"
         item.ffmpeg_headers["Cookie"] = "sid=hidden"
         args = shlex.split(music.build_ffmpeg_before_options(item))
         self.assertNotIn("-cookies", args)
         self.assertNotIn("Cookie:", args[args.index("-headers") + 1])
-        self.assertEqual(args[args.index("-http_proxy") + 1], item.ffmpeg_proxy_url)
+        self.assertEqual(args[args.index("-http_proxy") + 1], music.media_proxy_url(item.ffmpeg_proxy_url))
 
     def test_header_injection_rejected(self):
         for headers in ({"User-Agent": "ok\r\nCookie: stolen"}, {"Bad\nName": "value"}, {"X-Test": "bad\x00value"}):
@@ -178,6 +180,10 @@ class FFmpegTests(unittest.TestCase):
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *args):
                 pass
+            def do_CONNECT(self):
+                self.send_response(200)
+                self.end_headers()
+                self.handle_one_request()
             def do_GET(self):
                 requests.append((self.path, dict(self.headers)))
                 self.send_response(status)
@@ -190,7 +196,15 @@ class FFmpegTests(unittest.TestCase):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            yield "http://127.0.0.1:{0}".format(server.server_port), requests
+            from check_media_egress import allow_fixture, answer
+            from bot.services import media_egress
+            original = media_egress.public_addresses
+            def fixture_dns(host, port):
+                if host == 'unresolvable.invalid':
+                    return [answer('93.184.216.34', port)]
+                return original(host, port)
+            with patch.object(media_egress, 'public_addresses', side_effect=fixture_dns), allow_fixture('127.0.0.1', server.server_port):
+                yield "http://127.0.0.1:{0}".format(server.server_port), requests
         finally:
             server.shutdown()
             server.server_close()
@@ -243,7 +257,7 @@ class FFmpegTests(unittest.TestCase):
                     pass
             finally:
                 source.cleanup()
-            self.assertEqual(urlsplit(requests[0][0]).hostname, "unresolvable.invalid")
+            self.assertEqual(requests[0][1]["Host"], "unresolvable.invalid")
             self.assertEqual(urlsplit(requests[0][0]).path, "/audio")
             self.assertEqual(requests[0][1]["User-Agent"], "vpn-agent")
             self.assertNotIn("Cookie", requests[0][1])

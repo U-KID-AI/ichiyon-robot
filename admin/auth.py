@@ -1,16 +1,18 @@
 import os
 import secrets
+import time
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode
 
 import httpx
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from bot.db import get_connection
 from bot.repositories import PermissionRepository
+from scripts.ai_task_diagnostics import redact_secrets
 
 
 load_dotenv()
@@ -20,6 +22,7 @@ DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token"
 DISCORD_USER_URL = "https://discord.com/api/users/@me"
 SESSION_USER_KEY = "discord_user"
 SESSION_STATE_KEY = "discord_oauth_state"
+SESSION_STATE_TIME_KEY = "discord_oauth_state_time"
 DEV_SESSION_SECRET = "development-only-admin-session-secret"
 
 router = APIRouter()
@@ -38,10 +41,16 @@ def get_oauth_redirect_uri() -> str:
 
 def get_session_secret() -> str:
     value = os.getenv("ADMIN_SESSION_SECRET")
+    app_env = os.getenv("APP_ENV", "development").strip().lower()
     if value:
+        if app_env == "production" and (
+            len(value.strip()) < 32 or value == DEV_SESSION_SECRET
+            or value.strip().lower().startswith(("replace_", "your_"))
+            or value.strip().lower() in {"change_me", "changeme", "development-only-admin-session-secret"}
+        ):
+            raise RuntimeError("ADMIN_SESSION_SECRET must be a non-placeholder secret of at least 32 characters")
         return value
 
-    app_env = os.getenv("APP_ENV", "development").strip().lower()
     message = "ADMIN_SESSION_SECRET is not set"
     if app_env == "production":
         raise RuntimeError(message)
@@ -89,7 +98,7 @@ def get_current_user(request: Request) -> Optional[Dict[str, Any]]:
             if PermissionRepository(connection).can_login_admin(user_id):
                 return user
     except Exception as exc:
-        print("[WARN] Failed to validate admin session: {0}".format(exc))
+        print("[WARN] Failed to validate admin session: {0}".format(redact_secrets(exc, secrets=(os.getenv("DATABASE_URL"),))))
     request.session.pop(SESSION_USER_KEY, None)
     return None
 
@@ -98,6 +107,15 @@ def require_login(request: Request) -> Dict[str, Any]:
     user = get_current_user(request)
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="login required")
+    return user
+
+
+def require_legacy_admin(request: Request) -> Dict[str, Any]:
+    """Legacy JSON is global data, not scoped to a user's guild permissions."""
+    user = require_login(request)
+    with get_connection() as connection:
+        if not PermissionRepository(connection).has_global_admin(user["user_id"]):
+            raise HTTPException(status_code=403, detail="global admin required")
     return user
 
 
@@ -138,6 +156,7 @@ def register_auth_routes(templates: Jinja2Templates) -> None:
 
         state = secrets.token_urlsafe(32)
         request.session[SESSION_STATE_KEY] = state
+        request.session[SESSION_STATE_TIME_KEY] = time.time()
         params = {
             "client_id": os.getenv("DISCORD_OAUTH_CLIENT_ID"),
             "redirect_uri": get_oauth_redirect_uri(),
@@ -154,13 +173,16 @@ def register_auth_routes(templates: Jinja2Templates) -> None:
     @router.get("/auth/discord/callback")
     async def discord_callback(request: Request, code: Optional[str] = None, state: Optional[str] = None):
         expected_state = request.session.pop(SESSION_STATE_KEY, None)
-        if not code or not state or not expected_state or state != expected_state:
+        issued_at = request.session.pop(SESSION_STATE_TIME_KEY, None)
+        if (not code or not state or not isinstance(expected_state, str)
+                or not state.isascii() or not secrets.compare_digest(state, expected_state)
+                or not isinstance(issued_at, (int, float)) or not 0 <= time.time() - issued_at <= 600):
             return RedirectResponse(url="/login?error=invalid_state", status_code=303)
 
         try:
             user_data = await fetch_discord_user(code)
         except Exception as exc:
-            print("[WARN] Discord OAuth failed: {0}".format(exc))
+            print("[WARN] Discord OAuth failed: {0}".format(redact_secrets(exc)))
             return RedirectResponse(url="/login?error=oauth_failed", status_code=303)
 
         user_id = str(user_data.get("id", ""))
@@ -186,19 +208,24 @@ def register_auth_routes(templates: Jinja2Templates) -> None:
                 if not login_status.get("can_login"):
                     return RedirectResponse(url="/login?error=access_denied", status_code=303)
         except Exception as exc:
-            print("[WARN] Failed to validate admin login: {0}".format(exc))
+            print("[WARN] Failed to validate admin login: {0}".format(redact_secrets(exc, secrets=(os.getenv("DATABASE_URL"),))))
             return RedirectResponse(url="/login?error=access_denied", status_code=303)
 
+        request.session.clear()
         request.session[SESSION_USER_KEY] = session_user
         try:
             with get_connection() as connection:
                 PermissionRepository(connection).set_last_login(user_id)
                 connection.commit()
         except Exception as exc:
-            print("[WARN] Failed to update admin last_login_at: {0}".format(exc))
+            print("[WARN] Failed to update admin last_login_at: {0}".format(redact_secrets(exc, secrets=(os.getenv("DATABASE_URL"),))))
         return RedirectResponse(url="/me", status_code=303)
 
-    @router.api_route("/logout", methods=["GET", "POST"])
+    @router.get("/logout", response_class=HTMLResponse)
+    async def logout_confirmation():
+        return '<!doctype html><html lang="ja"><meta charset="utf-8"><title>ログアウト</title><form method="post" action="/logout"><button type="submit">ログアウト</button></form></html>'
+
+    @router.post("/logout")
     async def logout(request: Request):
         request.session.clear()
         return RedirectResponse(url="/login", status_code=303)

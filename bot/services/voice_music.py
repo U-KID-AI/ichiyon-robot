@@ -52,6 +52,7 @@ from bot.services.voice_audio import (
     is_voice_client_connected,
 )
 from bot.services.voice.models import MusicState, MusicTrack
+from bot.services.media_egress import media_proxy_url
 from bot.services.voice.ffmpeg import MusicFFmpegPCMAudio
 from bot.services.voice.mixer import ensure_mixer_playing, get_mixer
 from bot.services.voice.session import (
@@ -98,7 +99,11 @@ MUSIC_LINK_TRAILING_CHARS = ".,!?、。)]）＞>"
 HTTP_URL_PATTERN = re.compile(r"https?://[^\s<>()]+", re.IGNORECASE)
 SPOTIFY_URI_PATTERN = re.compile(r"spotify:(?:track|album|playlist|episode|show|artist):[A-Za-z0-9]+", re.IGNORECASE)
 DISCORD_CONNECTION_CLOSED = getattr(discord, "ConnectionClosed", discord.ClientException)
-STREAM_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+STREAM_BEFORE_OPTIONS = (
+    "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 "
+    "-protocol_whitelist http,https,tcp,tls,crypto,data,httpproxy"
+    " -format_whitelist aac,ac3,aiff,ape,asf,avi,dash,eac3,flac,flv,hls,matroska,mov,mp3,mpeg,mpegts,ogg,wav,wv"
+)
 STREAM_OPTIONS = "-vn"
 SIGNED_MEDIA_URL_PATTERN = re.compile(r"https?://[^\s'\"<>]*(?:googlevideo|videoplayback)[^\s'\"<>]*", re.IGNORECASE)
 HTTP_URL_LOG_PATTERN = re.compile(r"https?://[^\s'\"<>]+", re.IGNORECASE)
@@ -658,11 +663,10 @@ def build_ytdl_options(
         raise ValueError("unsupported yt-dlp JS runtime: {0}".format(runtime))
     options["js_runtimes"] = {runtime: {}}
     options["logger"] = stage_recorder or YoutubeExtractStageRecorder()
-    # An empty proxy explicitly disables yt-dlp's environment proxy discovery.
-    options["proxy"] = ""
+    # Every destination/redirect is checked at connect time, also over the VPN.
+    options["proxy"] = media_proxy_url(str(proxy_url or "").strip())
     options["socket_timeout"] = int(socket_timeout or youtube_home_vpn_extract_timeout_seconds())
     if proxy_url:
-        options["proxy"] = str(proxy_url).strip()
         connect_timeout = youtube_home_vpn_connect_timeout_seconds()
         options["socket_timeout"] = int(socket_timeout or connect_timeout)
         options["http_headers"] = {
@@ -985,10 +989,16 @@ def make_loop_track(track: MusicTrack) -> MusicTrack:
 def build_ffmpeg_before_options(track: Optional[MusicTrack]) -> str:
     if track is None:
         return STREAM_BEFORE_OPTIONS
+    stream = urlparse(track.stream_url)
+    if stream.scheme.lower() not in {"http", "https"} or not stream.hostname or stream.username or stream.password:
+        raise ValueError("Unsupported media stream URL")
     args = shlex.split(STREAM_BEFORE_OPTIONS)
+    # FFmpeg rejects an unused TLS option on a plain HTTP input. HTTPS media
+    # must explicitly verify certificates (the Debian 7.1 default is off).
+    if urlparse(track.stream_url).scheme.lower() == "https":
+        args.extend(["-tls_verify", "1"])
     args.extend(["-rw_timeout", str(max(1, track.ffmpeg_socket_timeout) * 1_000_000)])
-    if track.ffmpeg_proxy_url:
-        args.extend(["-http_proxy", track.ffmpeg_proxy_url])
+    args.extend(["-http_proxy", media_proxy_url(track.ffmpeg_proxy_url)])
     headers = []
     request_headers = dict(track.ffmpeg_headers)
     if track.ffmpeg_cookies and track.youtube_route != YOUTUBE_ROUTE_HOME_VPN:

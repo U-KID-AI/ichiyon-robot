@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -20,7 +20,8 @@ from admin.auto_reactions import (
 )
 from admin.auto_posts import register_auto_post_routes, router as auto_post_router
 from admin.audio_assets import register_audio_asset_routes, router as audio_asset_router
-from admin.auth import get_session_secret, register_auth_routes, router as auth_router
+from admin.auth import get_admin_base_url, get_session_secret, require_legacy_admin, register_auth_routes, router as auth_router
+from admin.security import AdminSecurityMiddleware, admin_max_body_bytes
 from admin.minecraft_cosmetics import register_minecraft_cosmetics_routes, router as minecraft_cosmetics_router
 from admin.bots import register_bot_routes, router as bot_router
 from admin.bot_context import bot_id_from_path, current_bot_instance_for_request
@@ -80,7 +81,8 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=get_session_secret(),
     same_site="lax",
-    https_only=False,
+    https_only=get_admin_base_url().startswith("https://"),
+    max_age=8 * 60 * 60,
 )
 app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent / "static"), name="static")
 app.mount("/assets", StaticFiles(directory=BASE_DIR / "assets"), name="assets")
@@ -181,6 +183,9 @@ async def inject_selected_bot_instance(request: Request, call_next):
     return await call_next(request)
 
 
+app.add_middleware(AdminSecurityMiddleware, base_url=get_admin_base_url(), max_body_bytes=admin_max_body_bytes())
+
+
 def load_json_file(path: Path, default):
     try:
         with path.open("r", encoding="utf-8") as f:
@@ -252,7 +257,7 @@ async def save_uploaded_image(
     if suffix not in ALLOWED_IMAGE_EXTENSIONS:
         return None, "対応外の画像形式。"
 
-    content = await upload.read()
+    content = await upload.read(MAX_IMAGE_SIZE + 1)
     if len(content) > MAX_IMAGE_SIZE:
         return None, "画像サイズは8MB以下。"
     if not content:
@@ -619,7 +624,7 @@ async def index(request: Request):
     return RedirectResponse(url="/login", status_code=303)
 
 
-@app.get("/quotes")
+@app.get("/quotes", dependencies=[Depends(require_legacy_admin)])
 async def quotes_page(request: Request):
     data = load_quotes_data()
     return templates.TemplateResponse(
@@ -629,7 +634,7 @@ async def quotes_page(request: Request):
     )
 
 
-@app.post("/quotes")
+@app.post("/quotes", dependencies=[Depends(require_legacy_admin)])
 async def create_quote(
     request: Request,
     text: str = Form(""),
@@ -659,7 +664,7 @@ async def create_quote(
     return RedirectResponse(url="/quotes", status_code=303)
 
 
-@app.post("/quotes/{quote_id}/edit")
+@app.post("/quotes/{quote_id}/edit", dependencies=[Depends(require_legacy_admin)])
 async def update_quote(
     request: Request,
     quote_id: str,
@@ -693,7 +698,7 @@ async def update_quote(
     return RedirectResponse(url="/quotes", status_code=303)
 
 
-@app.post("/quotes/{quote_id}/delete")
+@app.post("/quotes/{quote_id}/delete", dependencies=[Depends(require_legacy_admin)])
 async def delete_quote(quote_id: str):
     data = load_quotes_data()
     old_image_path = ""
@@ -709,7 +714,7 @@ async def delete_quote(quote_id: str):
     return RedirectResponse(url="/quotes", status_code=303)
 
 
-@app.get("/reactions")
+@app.get("/reactions", dependencies=[Depends(require_legacy_admin)])
 async def reactions_page(request: Request):
     data = load_reactions_data()
     return templates.TemplateResponse(
@@ -719,7 +724,7 @@ async def reactions_page(request: Request):
     )
 
 
-@app.post("/reactions")
+@app.post("/reactions", dependencies=[Depends(require_legacy_admin)])
 async def create_reaction(
     request: Request,
     trigger: str = Form(...),
@@ -757,7 +762,7 @@ async def create_reaction(
     return RedirectResponse(url="/reactions", status_code=303)
 
 
-@app.post("/reactions/{reaction_id}/edit")
+@app.post("/reactions/{reaction_id}/edit", dependencies=[Depends(require_legacy_admin)])
 async def update_reaction(
     request: Request,
     reaction_id: str,
@@ -802,7 +807,7 @@ async def update_reaction(
     return RedirectResponse(url="/reactions", status_code=303)
 
 
-@app.post("/reactions/{reaction_id}/delete")
+@app.post("/reactions/{reaction_id}/delete", dependencies=[Depends(require_legacy_admin)])
 async def delete_reaction(reaction_id: str):
     data = load_reactions_data()
     old_image_path = ""
@@ -820,7 +825,7 @@ async def delete_reaction(reaction_id: str):
     return RedirectResponse(url="/reactions", status_code=303)
 
 
-@app.get("/ng-words")
+@app.get("/ng-words", dependencies=[Depends(require_legacy_admin)])
 async def ng_words_page(request: Request):
     data = load_ng_words_data()
     return templates.TemplateResponse(
@@ -830,7 +835,7 @@ async def ng_words_page(request: Request):
     )
 
 
-@app.post("/ng-words")
+@app.post("/ng-words", dependencies=[Depends(require_legacy_admin)])
 async def create_ng_word(word: str = Form(...), enabled: Optional[str] = Form(None)):
     data = load_ng_words_data()
     word = word.strip()
@@ -846,7 +851,7 @@ async def create_ng_word(word: str = Form(...), enabled: Optional[str] = Form(No
     return RedirectResponse(url="/ng-words", status_code=303)
 
 
-@app.post("/ng-words/{word_id}/edit")
+@app.post("/ng-words/{word_id}/edit", dependencies=[Depends(require_legacy_admin)])
 async def update_ng_word(
     word_id: str,
     word: str = Form(...),
@@ -862,7 +867,7 @@ async def update_ng_word(
     return RedirectResponse(url="/ng-words", status_code=303)
 
 
-@app.post("/ng-words/{word_id}/delete")
+@app.post("/ng-words/{word_id}/delete", dependencies=[Depends(require_legacy_admin)])
 async def delete_ng_word(word_id: str):
     data = load_ng_words_data()
     next_words = [word_item for word_item in data["words"] if word_item["id"] != word_id]
@@ -872,7 +877,7 @@ async def delete_ng_word(word_id: str):
     return RedirectResponse(url="/ng-words", status_code=303)
 
 
-@app.get("/kuji")
+@app.get("/kuji", dependencies=[Depends(require_legacy_admin)])
 async def kuji_page(request: Request):
     data = load_kuji_data()
     return templates.TemplateResponse(
@@ -882,7 +887,7 @@ async def kuji_page(request: Request):
     )
 
 
-@app.post("/kuji")
+@app.post("/kuji", dependencies=[Depends(require_legacy_admin)])
 async def create_kuji_result(
     request: Request,
     name: str = Form(""),
@@ -918,7 +923,7 @@ async def create_kuji_result(
     return RedirectResponse(url="/kuji", status_code=303)
 
 
-@app.post("/kuji/{result_id}/edit")
+@app.post("/kuji/{result_id}/edit", dependencies=[Depends(require_legacy_admin)])
 async def update_kuji_result(
     request: Request,
     result_id: str,
@@ -957,7 +962,7 @@ async def update_kuji_result(
     return RedirectResponse(url="/kuji", status_code=303)
 
 
-@app.post("/kuji/{result_id}/delete")
+@app.post("/kuji/{result_id}/delete", dependencies=[Depends(require_legacy_admin)])
 async def delete_kuji_result(result_id: str):
     data = load_kuji_data()
     old_image_path = ""
