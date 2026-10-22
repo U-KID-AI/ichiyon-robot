@@ -179,6 +179,62 @@ class SecurityChecks(unittest.TestCase):
             with patch("admin.security.time.monotonic", return_value=time.monotonic() + 61):
                 self.assertEqual(client.post("/public/submit", headers=headers).status_code, 200)
 
+    def test_aggregate_budget_blocks_rotating_client_addresses(self):
+        with patch.dict(os.environ, {"ADMIN_PUBLIC_WRITE_TOTAL_PER_MINUTE": "2"}):
+            middleware = AdminSecurityMiddleware(FastAPI(), "http://testserver", 32)
+        def scope(ip): return {"path": "/public/submit", "method": "POST", "client": (ip, 1)}
+        self.assertFalse(middleware.rate_limited(scope("192.0.2.1")))
+        self.assertFalse(middleware.rate_limited(scope("192.0.2.2")))
+        self.assertTrue(middleware.rate_limited(scope("192.0.2.3")))
+        with patch("admin.security.time.monotonic", return_value=time.monotonic() + 61):
+            self.assertFalse(middleware.rate_limited(scope("192.0.2.3")))
+
+    def test_slow_body_idle_and_total_timeouts_release_capacity(self):
+        async def scenario(idle, total, interval, continuous):
+            reached = []
+            async def downstream(scope, receive, send): reached.append(True)
+            middleware = AdminSecurityMiddleware(downstream, "http://testserver", 32)
+            middleware.body_idle_timeout, middleware.body_total_timeout = idle, total
+            sent = []
+            async def receive():
+                await asyncio.sleep(interval)
+                return {"type": "http.request", "body": b"", "more_body": continuous}
+            async def send(message): sent.append(message)
+            scope = {"type": "http", "method": "POST", "path": "/upload", "headers": [(b"origin", b"http://testserver")]}
+            await middleware(scope, receive, send)
+            self.assertEqual(sent[0]["status"], 408)
+            self.assertEqual(middleware.inflight_writes, 0)
+            self.assertFalse(reached)
+        asyncio.run(scenario(0.01, 1, 0.1, False))
+        asyncio.run(scenario(1, 0.03, 0.005, True))
+
+    def test_inflight_capacity_recovers_after_disconnect(self):
+        async def scenario():
+            middleware = AdminSecurityMiddleware(FastAPI(), "http://testserver", 32)
+            middleware.max_inflight_writes = 1
+            entered, release = asyncio.Event(), asyncio.Event()
+            async def receive():
+                entered.set()
+                await release.wait()
+                return {"type": "http.disconnect"}
+            sent = []
+            async def send(message): sent.append(message)
+            scope = {"type": "http", "method": "POST", "path": "/upload", "headers": [(b"origin", b"http://testserver")]}
+            first = asyncio.create_task(middleware(scope, receive, send))
+            await entered.wait()
+            await middleware(scope, receive, send)
+            self.assertEqual(sent[0]["status"], 503)
+            release.set()
+            await first
+            self.assertEqual(middleware.inflight_writes, 0)
+        asyncio.run(scenario())
+
+    def test_nonfinite_timeout_configuration_is_rejected(self):
+        for value in ("nan", "inf", "0", "-1"):
+            with patch.dict(os.environ, {"ADMIN_BODY_IDLE_TIMEOUT_SECONDS": value}):
+                with self.assertRaises(RuntimeError):
+                    AdminSecurityMiddleware(FastAPI(), "http://testserver", 32)
+
 
 if __name__ == "__main__":
     unittest.main()

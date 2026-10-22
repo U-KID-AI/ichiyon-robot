@@ -17,3 +17,7 @@ data/backups
 *.pem
 *.log
 secrets/
+docs/security-internal/
+docs/security-audit-*/
+docs/security-release-*/
+docs/security-release-*.md
