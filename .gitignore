@@ -18,6 +18,12 @@ vpn/
 youtube-cookies.txt
 OpenVPN-Config.ovpn
 
+# Deployment-specific security evidence belongs in restricted storage.
+/docs/security-internal/
+/docs/security-audit-*/
+/docs/security-release-*/
+/docs/security-release-*.md
+
 # Restricted JUNKET source assets and locally converted buildings (never publish).
 /data/junket-private/
 /minecraft/behavior_packs/ichiyon_junket_assets_bp/

@@ -127,6 +127,7 @@ jobs:
       - name: Check security regressions and locked dependencies
         run: |
           python scripts/check_admin_security.py
+          python scripts/check_database_credential_rotation.py
           python scripts/check_voice_crypto.py
           python scripts/check_media_egress.py
           python -m venv "$RUNNER_TEMP/pip-audit"

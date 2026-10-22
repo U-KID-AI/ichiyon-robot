@@ -1,4 +1,6 @@
 """Browser request protections. Internal APIs authenticate with their own secrets."""
+import asyncio
+import math
 import os
 import time
 from collections import OrderedDict
@@ -33,6 +35,19 @@ class AdminSecurityMiddleware:
         self.public_rate = max(1, int(os.getenv("ADMIN_PUBLIC_WRITE_RATE_PER_MINUTE", "20")))
         self.oauth_rate = max(1, int(os.getenv("ADMIN_OAUTH_RATE_PER_MINUTE", "30")))
         self.rate_windows = OrderedDict()
+        self.aggregate_limits = {
+            "public-write": max(1, int(os.getenv("ADMIN_PUBLIC_WRITE_TOTAL_PER_MINUTE", "200"))),
+            "oauth-start": max(1, int(os.getenv("ADMIN_OAUTH_TOTAL_PER_MINUTE", "300"))),
+        }
+        self.aggregate_windows = {}
+        self.body_idle_timeout = float(os.getenv("ADMIN_BODY_IDLE_TIMEOUT_SECONDS", "15"))
+        self.body_total_timeout = float(os.getenv("ADMIN_BODY_TOTAL_TIMEOUT_SECONDS", "120"))
+        if any(not math.isfinite(v) or not 0 < v <= 3600 for v in (self.body_idle_timeout, self.body_total_timeout)):
+            raise RuntimeError("Admin body timeouts must be finite positive seconds, at most 3600")
+        self.max_inflight_writes = int(os.getenv("ADMIN_MAX_INFLIGHT_WRITES", "8"))
+        if not 1 <= self.max_inflight_writes <= 128:
+            raise RuntimeError("ADMIN_MAX_INFLIGHT_WRITES must be between 1 and 128")
+        self.inflight_writes = 0
 
     def rate_limited(self, scope):
         path, method = scope["path"], scope["method"]
@@ -50,6 +65,12 @@ class AdminSecurityMiddleware:
         started, count = self.rate_windows.get(key, (now, 0))
         if count >= limit:
             return True
+        aggregate_started, aggregate_count = self.aggregate_windows.get(category, (now, 0))
+        if now - aggregate_started >= 60:
+            aggregate_started, aggregate_count = now, 0
+        if aggregate_count >= self.aggregate_limits[category]:
+            return True
+        self.aggregate_windows[category] = (aggregate_started, aggregate_count + 1)
         if key not in self.rate_windows and len(self.rate_windows) >= 4096:
             self.rate_windows.popitem(last=False)
         self.rate_windows[key] = (started, count + 1)
@@ -97,26 +118,39 @@ class AdminSecurityMiddleware:
         # Buffer at most the configured limit. Replaying the bounded body avoids
         # multipart parsers swallowing a receive exception as a generic 400.
         if scope["method"] not in ("GET", "HEAD", "OPTIONS"):
-            body = bytearray()
-            while True:
-                message = await receive()
-                if message["type"] == "http.disconnect":
-                    return
-                body.extend(message.get("body", b""))
-                if len(body) > self.max_body_bytes:
-                    return await PlainTextResponse("Request body too large", status_code=413)(scope, receive, secured_send)
-                if not message.get("more_body", False):
-                    break
-            delivered = False
+            if self.inflight_writes >= self.max_inflight_writes:
+                return await PlainTextResponse("Server busy", status_code=503, headers={"Retry-After": "1"})(scope, receive, secured_send)
+            self.inflight_writes += 1
+            try:
+                body = bytearray()
+                deadline = asyncio.get_running_loop().time() + self.body_total_timeout
+                while True:
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    try:
+                        if remaining <= 0:
+                            raise asyncio.TimeoutError
+                        message = await asyncio.wait_for(receive(), timeout=min(self.body_idle_timeout, remaining))
+                    except asyncio.TimeoutError:
+                        return await PlainTextResponse("Request body timed out", status_code=408)(scope, receive, secured_send)
+                    if message["type"] == "http.disconnect":
+                        return
+                    body.extend(message.get("body", b""))
+                    if len(body) > self.max_body_bytes:
+                        return await PlainTextResponse("Request body too large", status_code=413)(scope, receive, secured_send)
+                    if not message.get("more_body", False):
+                        break
+                delivered = False
 
-            async def replay():
-                nonlocal delivered
-                if not delivered:
-                    delivered = True
-                    return {"type": "http.request", "body": bytes(body), "more_body": False}
-                return await receive()
+                async def replay():
+                    nonlocal delivered
+                    if not delivered:
+                        delivered = True
+                        return {"type": "http.request", "body": bytes(body), "more_body": False}
+                    return await receive()
 
-            return await self.app(scope, replay, secured_send)
+                return await self.app(scope, replay, secured_send)
+            finally:
+                self.inflight_writes -= 1
         return await self.app(scope, receive, secured_send)
 
 
