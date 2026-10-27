@@ -4,7 +4,8 @@
     "description": {
       "identifier": "ichiyon:record_lets_cooking_molcar",
       "menu_category": {
-        "category": "items"
+        "category": "items",
+        "group": "minecraft:itemGroup.name.record"
       }
     },
     "components": {
