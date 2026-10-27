@@ -1,6 +1,8 @@
 import { system, world } from "@minecraft/server";
 
 const TAKETUMI_TYPE = "ichiyon:taketumi";
+// Tumaini deliberately shares the complete production Taketumi home/combat implementation.
+const HOME_MOB_TYPES = [TAKETUMI_TYPE, "ichiyon:tumaini"];
 const HOME_TAG_PREFIX = "taketumi_home_";
 const LEASHED_TAG = "taketumi_leashed";
 const RETURNING_HOME_TAG = "taketumi_returning_home";
@@ -16,7 +18,7 @@ const combatUntilByEntityId = new Map();
 let currentTick = 0;
 
 function isTaketumi(entity) {
-  if (entity?.typeId !== TAKETUMI_TYPE) return false;
+  if (!HOME_MOB_TYPES.includes(entity?.typeId)) return false;
 
   try {
     if (typeof entity.isValid === "function") {
@@ -320,7 +322,7 @@ system.runInterval(() => {
   for (const dimensionId of ["overworld", "nether", "the_end"]) {
     let entities = [];
     try {
-      entities = world.getDimension(dimensionId).getEntities({ type: TAKETUMI_TYPE });
+      entities = HOME_MOB_TYPES.flatMap((type) => world.getDimension(dimensionId).getEntities({ type }));
     } catch {
       continue;
     }
