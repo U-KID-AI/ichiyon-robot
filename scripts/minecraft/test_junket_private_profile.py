@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import sys
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
@@ -30,14 +31,18 @@ class PrivateProfileTests(unittest.TestCase):
                     private_value("absent")
 
     def test_bank_converter_uses_explicit_synthetic_bounds_without_private_input(self):
-        from build_junket_bank_source import inside, needed_chunks
         box = [[0, 64, 0], [17, 66, 17]]
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, {}, clear=True), patch.dict(sys.modules, {"leveldb": None}):
+            from build_junket_bank_source import inside, needed_chunks
+            from junket_structure import ConvertedWorld
             self.assertTrue(inside([1, 65, 1], box))
             self.assertFalse(inside([18, 65, 1], box))
             self.assertEqual(needed_chunks(box), {(0, 0), (0, 1), (1, 0), (1, 1)})
             with self.assertRaisesRegex(ValueError, "JUNKET_PRIVATE_PROFILE"):
                 needed_chunks()
+            # Missing native support must still fail before any world access.
+            with self.assertRaises(ModuleNotFoundError):
+                ConvertedWorld(Path("unused-world-must-not-open"))
 
     def test_private_runtime_input_is_required_before_bundle_directory_creation(self):
         from build_junket_all17_bundle import build
