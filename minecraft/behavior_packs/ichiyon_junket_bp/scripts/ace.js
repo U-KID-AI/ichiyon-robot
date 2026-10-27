@@ -1,9 +1,10 @@
-// Independent implementation of ver1.09 Tumbling Ace: five-card dice poker,
+// Independent implementation of ver1.09 Tumbling Ace: five-card dice poker.
 // five games, four-player fixed betting and two-player team totals.
 export const ACE_SEATS = 4;
 export const ACE_GAMES = 5;
 export const ACE_INITIAL_COINS = 100;
 export const ACE_MIN_TABLE_BET = 10;
+export const ACE_MAX_TABLE_BET = 399;
 export const ACE_RAISE_LIMIT = 200;
 export const ACE_INPUT_TICKS = 6000;
 const FACE_ORDER = ['9', '10', 'J', 'Q', 'K', 'A'];
@@ -31,7 +32,11 @@ export function aceHand(dice) {
     return { name: 'four', key: [5, byCount[0].face, kicker] };
   }
   if (byCount[0].count === 3 && byCount[1]?.count === 2) {
-    return { name: 'full_house', key: [4, byCount[0].face, byCount[1].face] };
+    // ver1.09 fullhouse.mcfunction explicitly ranks 10-10-10-J-J above
+    // 10-10-10-Q-Q (166000 vs 165000). Preserve that source ordering.
+    let pair = byCount[1].face;
+    if (byCount[0].face === 1 && (pair === 2 || pair === 3)) pair = 5 - pair;
+    return { name: 'full_house', key: [4, byCount[0].face, pair] };
   }
   if (byCount[0].count === 3) {
     const kickers = groups.filter(group => group.count === 1).map(group => group.face).sort((a, b) => b - a);
@@ -43,7 +48,10 @@ export function aceHand(dice) {
     const kickers = exact(1).sort((a, b) => b - a);
     return { name: 'one_pair', key: [1, pairs[0], ...kickers] };
   }
-  return { name: 'high', key: [0, ...exact(1).sort((a, b) => b - a)] };
+  // The ver1.09 0pair function scores an unpaired hand solely from the
+  // face that is absent (A=10 ... 9=60), and the higher score wins.
+  const missing = counts.indexOf(0);
+  return { name: 'high', key: [0, (FACE_ORDER.length - missing) * 10] };
 }
 export function compareAceDice(first, second) {
   return compareArrays(aceHand(first).key, aceHand(second).key);
@@ -64,11 +72,13 @@ function newGame(state) {
     currentBet: 0,
     committed: [0, 0, 0, 0],
     folded: [false, false, false, false],
+    acted: [false, false, false, false],
     dice: [null, null, null, null],
     rolled: [false, false, false, false],
     hands: [null, null, null, null],
     rollOrder: Array.from({ length: 4 }, (_, index) => (parent + index) % ACE_SEATS),
     rollIndex: 0,
+    raiseLimit: ACE_RAISE_LIMIT,
     last: null,
   };
 }
@@ -84,15 +94,39 @@ export function createAce() {
     currentBet: 0,
     committed: [0, 0, 0, 0],
     folded: [false, false, false, false],
+    acted: [false, false, false, false],
     dice: [null, null, null, null],
     hands: [null, null, null, null],
     rolled: [false, false, false, false],
     rollOrder: [0, 1, 2, 3],
     rollIndex: 0,
+    raiseLimit: ACE_RAISE_LIMIT,
     last: null,
     winnerTeam: null,
     reason: null,
   };
+}
+
+const activeSeats = state => state.folded
+  .map((folded, seat) => folded ? -1 : seat)
+  .filter(seat => seat >= 0);
+
+function nextSeat(state, after, predicate) {
+  for (let step = 1; step <= ACE_SEATS; step++) {
+    const candidate = (after + step) % ACE_SEATS;
+    if (predicate(candidate)) return candidate;
+  }
+  return null;
+}
+
+function finishBettingRound(state) {
+  // Source roll/tonext completes the whole parent-to-last call order.
+  // The last player still chooses even when everyone before them dropped.
+  const pending = nextSeat(state, state.actor ?? 0, seat => !state.acted[seat]);
+  if (pending !== null) {
+    return { ...state, phase: 'betting', actor: pending };
+  }
+  return showdown(state, null);
 }
 
 export function advanceAce(state, seat, action, value) {
@@ -101,7 +135,9 @@ export function advanceAce(state, seat, action, value) {
   if (action === 'table_bet') {
     if (state.phase !== 'table_bet' || seat !== state.parent) throw new Error("場代を決める手番ではありません。");
     if (!Number.isInteger(value) || value < ACE_MIN_TABLE_BET) throw new Error("場代は10枚以上です。");
-    if (value > state.coins[seat]) throw new Error("所持コインを超える場代です。");
+    // Source input has a 0..3 hundreds digit, and 0..9 tens/ones.
+    // It has no wallet restriction: negative final coins are legal.
+    if (value > ACE_MAX_TABLE_BET) throw new Error("場代は399枚以下です。");
     return {
       ...state,
       phase: 'roll',
@@ -136,74 +172,132 @@ export function advanceAce(state, seat, action, value) {
     if (!value || !['call', 'raise', 'fold'].includes(value.type)) throw new Error("行動が不正です。");
     const committed = [...state.committed];
     const folded = [...state.folded];
+    const acted = [...state.acted];
     let currentBet = state.currentBet;
     if (value.type === 'fold') {
       folded[seat] = true;
     } else if (value.type === 'call') {
-      if (currentBet - committed[seat] > state.coins[seat]) {
-        throw new Error("コールに必要なコインがありません。");
-      }
       committed[seat] = currentBet;
     } else {
-      if (!Number.isInteger(value.amount) || value.amount < 1 || value.amount > ACE_RAISE_LIMIT) {
-        throw new Error("レイズは1〜200枚です。");
-      }
-      if (currentBet + value.amount - committed[seat] > state.coins[seat]) {
-        throw new Error("レイズに必要なコインがありません。");
+      if (!Number.isInteger(value.amount) || value.amount < 1 || value.amount > state.raiseLimit) {
+        throw new Error(`レイズは1〜${state.raiseLimit}枚です。`);
       }
       currentBet += value.amount;
       committed[seat] = currentBet;
     }
-    const active = folded.map((didFold, index) => didFold ? -1 : index).filter(index => index >= 0);
-    if (active.length === 1) return showdown({ ...state, committed, folded, currentBet }, active[0]);
-    let next = seat;
-    for (let step = 1; step <= ACE_SEATS; step++) {
-      const candidate = (seat + step) % ACE_SEATS;
-      if (!folded[candidate]) { next = candidate; break; }
+    acted[seat] = true;
+    if (value.type === 'raise') {
+      // The source reopens everyone from the parent up to the seat before the
+      // raiser. Seats after the raiser still take their normal turn later.
+      const responders = [];
+      for (let cursor = state.parent; cursor !== seat; cursor = (cursor + 1) % ACE_SEATS) {
+        if (!folded[cursor]) responders.push(cursor);
+      }
+      const withRaise = {
+        ...state, committed, folded, acted, currentBet,
+        raiseLimit: state.raiseLimit - value.amount,
+        lastAction: seat,
+      };
+      if (!responders.length) {
+        return { ...withRaise, phase: 'reroll_choice', actor: seat, raiseSeat: seat };
+      }
+      return {
+        ...withRaise, phase: 'raise_response', actor: responders[0],
+        responders, responderIndex: 0, raiseSeat: seat,
+      };
     }
-    const settled = active.every(index => committed[index] === currentBet);
-    if (value.type === 'call' && settled) return showdown({ ...state, committed, folded, currentBet }, null);
+    if (value.type === 'fold') {
+      return finishBettingRound({ ...state, committed, folded, acted, currentBet });
+    }
     return {
       ...state,
-      committed, folded, currentBet, actor: next,
-      lastAction: seat,
+      phase: 'reroll_choice', committed, folded, acted, currentBet,
+      actor: seat, lastAction: seat,
     };
   }
+  if (action === 'respond') {
+    if (state.phase !== 'raise_response' || seat !== state.actor) {
+      throw new Error("レイズへの応答手番ではありません。");
+    }
+    if (!value || !['call', 'fold'].includes(value.type)) throw new Error("応答が不正です。");
+    const committed = [...state.committed];
+    const folded = [...state.folded];
+    const acted = [...state.acted];
+    if (value.type === 'fold') {
+      folded[seat] = true;
+    } else {
+      committed[seat] = state.currentBet;
+    }
+    acted[seat] = true;
+    const responderIndex = state.responderIndex + 1;
+    const next = {
+      ...state, committed, folded, acted,
+      responderIndex,
+      lastAction: seat,
+    };
+    if (responderIndex < state.responders.length) {
+      return { ...next, actor: state.responders[responderIndex] };
+    }
+    return {
+      ...next, phase: 'reroll_choice', actor: state.raiseSeat,
+      responders: undefined, responderIndex: undefined,
+    };
+  }
+  if (action === 'reroll_selected') {
+    if (state.phase !== 'reroll_choice' || seat !== state.actor) {
+      throw new Error("振り直すダイスを選ぶ手番ではありません。");
+    }
+    if (!value || !Array.isArray(value.indices) || !Array.isArray(value.dice) ||
+        value.dice.length !== 5 || value.indices.length > 5 ||
+        value.indices.some((index, position) => !Number.isInteger(index) ||
+          index < 0 || index >= 5 || value.indices.indexOf(index) !== position)) {
+      throw new Error("振り直すダイスの選択が不正です。");
+    }
+    const indices = new Set(value.indices);
+    for (let index = 0; index < 5; index++) {
+      if (!indices.has(index) && value.dice[index] !== state.dice[seat][index]) {
+        throw new Error("選択していないダイスは変更できません。");
+      }
+    }
+    const dice = state.dice.map((entry, index) => index === seat ? [...value.dice] : entry);
+    const hands = state.hands.map((entry, index) => index === seat ? aceHand(value.dice) : entry);
+    return finishBettingRound({ ...state, dice, hands, lastAction: seat });
+  }
   if (action === 'reroll') {
-    if (state.phase !== 'reroll' || !state.tied.includes(seat)) throw new Error("振り直しの対象ではありません。");
+    if (state.phase !== 'reroll' || seat !== state.actor || !state.tied.includes(seat) || state.tiedRolled[seat]) throw new Error("振り直しの対象ではありません。");
     if (!Array.isArray(value) || value.length !== 5) throw new Error("5個のダイスを振ってください。");
     const dice = state.dice.map((entry, index) => index === seat ? [...value] : entry);
     const hands = state.hands.map((entry, index) => index === seat ? aceHand(value) : entry);
-    const pending = state.tied.filter(index => !hands[index] || index === seat && false);
     const remaining = state.tied.filter(index => index !== seat && !state.tiedRolled[index]);
     const tiedRolled = [...state.tiedRolled]; tiedRolled[seat] = true;
     if (remaining.length) {
       return { ...state, dice, hands, tiedRolled, actor: remaining[0] };
     }
-    return showdown({ ...state, dice, hands, tiedRolled }, null, true);
+    return showdown({ ...state, dice, hands, tiedRolled });
   }
   throw new Error("不正な操作です。");
 }
 
-function showdown(state, forcedWinner = null, afterTieReroll = false) {
-  const eligible = state.folded.map((folded, index) => folded ? -1 : index).filter(index => index >= 0);
+function showdown(state, forcedWinner = null) {
+  const eligible = state.phase === "reroll" ? [...state.tied]
+    : state.folded.map((folded, index) => folded ? -1 : index).filter(index => index >= 0);
   if (forcedWinner !== null) {
     return payout(state, forcedWinner);
   }
   const ordered = [...eligible].sort((a, b) => compareAceDice(state.dice[b], state.dice[a]));
   const best = state.dice[ordered[0]];
-  const tied = ordered.filter(index => compareAceDice(state.dice[index], best) === 0);
+  // All four drops leave four zero hand scores in the Java judge.
+  const tied = ordered.length ? ordered.filter(index => compareAceDice(state.dice[index], best) === 0) : [0, 1, 2, 3];
   if (tied.length > 1) {
-    if (afterTieReroll) {
-      // Repeated ties are resolved by stable seat order after the one reroll pass.
-      return payout(state, tied[0]);
-    }
     return {
       ...state,
       phase: 'reroll',
-      tied,
+      // result/tonext resets every player's bet even on the tie path.
+      committed: [0, 0, 0, 0],
+      tied: [...tied].sort((a, b) => a - b),
+      tieRound: (state.tieRound ?? 0) + 1,
       tiedRolled: Array(ACE_SEATS).fill(false),
-      actor: tied[0],
+      actor: Math.min(...tied),
     };
   }
   return payout(state, ordered[0]);
@@ -228,7 +322,8 @@ function payout(state, winner) {
 
 export function aceSystem(state, action) {
   if (state.phase === 'finished') return state;
-  if (action === 'timeout') return finish(state, null, 'timeout');
+  // No timeup handler exists in the ver1.09 multiplayer Ace functions.
+  if (action === 'timeout') return state;
   if (action === 'next_game') {
     if (state.phase !== 'between') throw new Error("次のゲームへ進めません。");
     return newGame(state);
@@ -245,6 +340,8 @@ export function aceView(state) {
     coins: [...state.coins],
     tableBet: state.tableBet,
     currentBet: state.currentBet,
+    raiseLimit: state.raiseLimit,
+    tieRound: state.tieRound ?? 0,
     committed: [...state.committed],
     folded: [...state.folded],
     hands: state.hands.map(hand => hand && { name: hand.name }),

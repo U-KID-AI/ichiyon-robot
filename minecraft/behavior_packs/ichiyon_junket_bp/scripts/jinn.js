@@ -7,6 +7,7 @@ export const JINN_INPUT_TICKS = 6000;
 export const JINN_PAY_PER_TICK = 175;
 export const JINN_HUNGER_TICKS = 3600;
 export const JINN_STARVE_DAMAGE = 200;
+export const JINN_DAMAGE_PERIOD = 5;
 export const JINN_MAX_HP = 60000;
 
 const hand = () => ({ ...JINN_INITIAL_HAND });
@@ -60,7 +61,10 @@ function settlement(state) {
     payment: [...state.coins],
     lever: [false, false],
     settlementTicks: 0,
-    hungerClock: state.game === 2 ? JINN_HUNGER_TICKS : 0,
+    // Source starts the 180s global hunger schedule at game 2 settlement.
+    hungerClock: state.game === 3 ? 0 : state.hungerClock ?? 0,
+    food: state.game === 2 && !state.hungerStarted ? state.food.map(n => Math.max(0, n - 1)) : [...state.food],
+    hungerStarted: state.hungerStarted || state.game >= 2,
   };
 }
 
@@ -77,6 +81,8 @@ export function createJinn() {
     lever: [false, false],
     settlementTicks: 0,
     hungerClock: 0,
+    hungerStarted: false,
+    damageClock: 0,
   };
 }
 
@@ -117,7 +123,7 @@ export function advanceJinn(state, seat, action, value) {
     return { ...state, lever };
   }
   if (action === 'surrender') {
-    if (state.phase !== 'settlement') throw new Error("降参は精算中のみ可能です。");
+    if (state.phase !== 'settlement' || state.game !== 3) throw new Error("降参は第3ゲームの精算中のみ可能です。");
     return finish(state, 1 - seat, 'surrender');
   }
   throw new Error("不正な操作です。");
@@ -141,35 +147,34 @@ export function jinnSystem(state, action) {
     if (state.lever[0] && state.lever[1]) return state;
     return finish(state, state.lever[0] === state.lever[1] ? null : state.lever[0] ? 0 : 1, 'timeout');
   }
-  if (action === 'tick') {
-    if (state.phase !== 'settlement') throw new Error("不正な内部操作です。");
-    const payment = state.payment.map((value, seat) => state.lever[seat]
-      ? Math.max(0, value - JINN_PAY_PER_TICK) : value);
+  if (action === 'tick' || action === 'clock') {
+    if (action === 'tick' && state.phase !== 'settlement') throw new Error("不正な内部操作です。");
+    if (action === 'clock' && !['cards', 'reveal'].includes(state.phase)) throw new Error("不正な内部操作です。");
+    const settling = state.phase === 'settlement';
+    const payment = settling ? state.payment.map((value, seat) => state.lever[seat]
+      ? Math.max(0, value - JINN_PAY_PER_TICK) : value) : [...state.payment];
     const hp = [...state.hp];
     const food = [...state.food];
-    let hungerClock = state.game >= 2 ? state.hungerClock + 1 : 0;
-    if (state.game >= 2 && hungerClock >= JINN_HUNGER_TICKS) {
+    const hungerStarted = state.hungerStarted || (settling && state.game >= 2);
+    let hungerClock = hungerStarted ? state.hungerClock + 1 : 0;
+    if (hungerStarted && hungerClock >= JINN_HUNGER_TICKS) {
       hungerClock -= JINN_HUNGER_TICKS;
       for (let seat = 0; seat < 2; seat++) food[seat] = Math.max(0, food[seat] - 1);
     }
-    if (food.some(value => value === 0)) {
+    const damageClock = ((state.damageClock ?? 0) + 1) % JINN_DAMAGE_PERIOD;
+    if (damageClock === 0) {
       for (let seat = 0; seat < 2; seat++) if (food[seat] === 0) hp[seat] -= JINN_STARVE_DAMAGE;
     }
-    const next = {
-      ...state,
-      payment,
-      hp,
-      food,
-      hungerClock,
-      settlementTicks: state.settlementTicks + 1,
-    };
+    const next = { ...state, payment, hp, food, hungerClock, hungerStarted, damageClock,
+      settlementTicks: state.settlementTicks + (settling ? 1 : 0) };
     const ended = terminal(next);
     if (ended.phase === 'finished') return ended;
-    if (state.lever[0] && state.lever[1] && payment[0] === 0 && payment[1] === 0) {
+    if (settling && state.lever[0] && state.lever[1] && payment[0] === 0 && payment[1] === 0) {
       return nextBatchOrFinish(next);
     }
     return next;
   }
+
   throw new Error("不正な内部操作です。");
 }
 
@@ -179,7 +184,12 @@ export function jinnView(state) {
     game: state.game,
     round: state.round,
     coins: [...state.coins],
-    hands: state.hands.map(cards => ({ ...cards })),
+    // A pending card cannot be inferred by comparing public hand counts.
+    hands: state.hands.map((cards, seat) => {
+      const visible = { ...cards };
+      if (state.phase === "cards" && state.choices[seat] !== null) visible[state.choices[seat]]++;
+      return visible;
+    }),
     chosen: state.choices.map(choice => choice !== null),
     hp: [...state.hp],
     food: [...state.food],
@@ -191,6 +201,12 @@ export function jinnView(state) {
   };
 }
 
+export function jinnViewForPlayer(state, seat) {
+  const view = jinnView(state);
+  if (seat === 0 || seat === 1) view.hands[seat] = { ...state.hands[seat] };
+  return view;
+}
+
 export const jinnGame = Object.freeze({
   id: 'jinn',
   title: 'ジャックポット・ジニー',
@@ -198,5 +214,6 @@ export const jinnGame = Object.freeze({
   create: createJinn,
   advance: advanceJinn,
   view: jinnView,
+  viewForPlayer: jinnViewForPlayer,
   systemAdvance: jinnSystem,
 });
