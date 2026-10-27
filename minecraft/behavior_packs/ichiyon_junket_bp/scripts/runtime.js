@@ -1,7 +1,10 @@
+import { isServiceGuide } from "./service_controls.js";
 import { GameManager } from "./game_manager.js";
 import { sparrowGame } from "./sparrow.js";
 import { RECEPTION_TAG, setupReception } from "./reception.js";
 import { createVenue } from "./venue.js";
+import { createRuntimeForms, requestCatalogReturn, showReceptionNavigation } from "./venue_presentation.js";
+import { createDecisionPrompts } from "./decision_prompts.js";
 
 const TABLE = "sparrow";
 const LABEL = { bet: "賭け金決定", hide: "宝石を隠す", choose: "箱を選ぶ", finished: "終了" };
@@ -9,9 +12,18 @@ const BOX = { big: "大箱", small: "小箱" };
 const RULES = "2人対戦 / 各5,000万円 / 全6ラウンド\n賭け金を決めた側が宝石を隠し、相手が箱を選びます。的中なら選んだ側、外れなら隠した側が獲得。大箱は全額、小箱は半額（端数切捨て）。手番は交互です。\n所持金100万円未満で終了。金額は試合内だけの仮想スコアです。";
 
 export function createRuntime({ world, system, ActionFormData, ModalFormData, manager = new GameManager([sparrowGame]) }) {
+  const runtimeForms = createRuntimeForms({ ActionFormData, ModalFormData, world, system });
+  ({ ActionFormData, ModalFormData } = runtimeForms);
   const venue = createVenue({ world, system });
   const busy = new Map();
+  const disconnectTimers = new Map();
   const players = () => new Map(world.getAllPlayers().map(p => [p.id, p]));
+  const allMembersOnline = table => Boolean(table?.state) &&
+    table.players.every(playerId => players().has(playerId));
+  const prompts = createDecisionPrompts({ world, system, read: () => manager.view(TABLE),
+    eligible: current => allMembersOnline(current) ? current.decisionSeats : [],
+    key: (current, seat) => `${current.sessionToken}:${current.decisionSerials[seat]}:${manager.forPlayer(current.players[seat])?.decisionKey}`,
+    busy: id => busy.has(id) || venue.locked(), open: player => open(player), notify: tell });
   function tell(player, message) {
     try { player?.sendMessage(`[JUNKET] ${message}`); } catch { /* Player disconnected. */ }
   }
@@ -33,37 +45,32 @@ export function createRuntime({ world, system, ActionFormData, ModalFormData, ma
     if (manager.forPlayer(id)?.gameId !== "sparrow") return;
     const table = manager.leave(id);
     if (table) {
+      prompts.clear(); runtimeForms.invalidate();
+      for (const member of table.players) {
+        const pending = disconnectTimers.get(member);
+        if (pending !== undefined) system.clearRun?.(pending);
+        disconnectTimers.delete(member);
+      }
       notify(table, reason);
       try { venue.end(table); } catch (error) { notify(table, `会場の後片付け: ${error.message}`); }
     }
   }
   function scheduleTurn(table) {
-    if (!table.state || table.state.phase === "finished") return;
-    if (venue.enabled() && table.state.phase !== "bet") {
-      tell(players().get(table.players[table.state.actor]), table.state.phase === "hide"
-        ? "宝石を隠す箱を直接操作してください。選択内容は相手に表示されません。受付からフォームも使えます。"
-        : "宝石があると思う箱を直接操作してください。受付からフォームも使えます。");
-      return;
-    }
-    system.runTimeout(() => {
-      if (manager.view(table.id)?.token !== table.token) return;
-      const player = players().get(table.players[table.state.actor]);
-      if (player) void open(player);
-    }, 10);
+    prompts.schedule(table);
   }
   async function actionForm(player, table) {
     const s = table.state;
     let value, response;
     if (s.phase === "bet") {
       response = await new ModalFormData().title("ウラギリスズメ：賭け金")
-        .textField(`1000000〜${s.money[s.actor]}円（整数）`, "半角数字", { defaultValue: "1000000" }).show(player);
+        .textField(`${summary(table)}\n1000000〜${s.money[s.actor]}円（整数）`, "半角数字", { defaultValue: "1000000" }).show(player);
       if (response.canceled) return;
       const raw = String(response.formValues?.[0] ?? "").trim();
       if (!/^\d{1,9}$/.test(raw)) throw new Error("賭け金を半角数字の整数で入力してください。");
       value = Number(raw);
     } else {
       response = await new ActionFormData().title(`ウラギリスズメ：${LABEL[s.phase]}`)
-        .body(s.phase === "hide" ? "宝石を入れる箱を選んでください。選択は公開まで相手に表示されません。" : `賭け金 ${s.bet}円。宝石のある箱を選んでください。`)
+        .body(`${summary(table)}\n` + (s.phase === "hide" ? "宝石を入れる箱を選んでください。選択は公開まで相手に表示されません。" : `賭け金 ${s.bet}円。宝石のある箱を選んでください。`))
         .button("大箱（全額）").button("小箱（半額）").show(player);
       if (response.canceled) return;
       if (response.selection !== 0 && response.selection !== 1) throw new Error("選択が不正です。");
@@ -73,6 +80,10 @@ export function createRuntime({ world, system, ActionFormData, ModalFormData, ma
   }
   async function act(player, table, value) {
     if (venue.locked()) throw new Error("開封演出中です。少しお待ちください。");
+    if (manager.forPlayer(player.id)?.token !== table.token) {
+      throw new Error("画面が古くなりました。受付から開き直してください。");
+    }
+    if (!allMembersOnline(table)) throw new Error("対戦相手の再接続を待っています。操作は再接続後に行ってください。");
     const next = manager.act(player.id, table.token, table.state.phase, value);
     notify(next, summary(next));
     try { await venue.transition(table, next); }
@@ -80,12 +91,13 @@ export function createRuntime({ world, system, ActionFormData, ModalFormData, ma
     if (manager.view(next.id)?.token !== next.token) return;
     if (next.state.phase === "finished") {
       manager.close(next.id);
-      notify(next, "試合終了。再戦する場合は、2人とも受付を操作して「参加する」を選んでください。");
+      notify(next, "試合終了。再戦する場合は、2人とも参加受付で「再戦」を選んでください。");
       try { venue.end(next, true); } catch (error) { notify(next, `会場の終了処理: ${error.message}`); }
     }
     else scheduleTurn(next);
   }
-  async function open(player) {
+  async function open(player, navigation = false) {
+    if (manager.maintenance) { tell(player, "会場を確認中です。完了後に再操作してください。"); return; }
     if (venue.installing()) { tell(player, "会場の設置中です。完了してから参加してください。"); return; }
     if (busy.has(player.id)) return;
     const request = {};
@@ -97,28 +109,28 @@ export function createRuntime({ world, system, ActionFormData, ModalFormData, ma
         tell(player, "開封演出中です。演出終了後に操作してください。");
         return;
       }
-      if (mine?.state && mine.players[mine.state.actor] === player.id) {
-        const response = await new ActionFormData().title("ウラギリスズメ")
-          .body(summary(mine)).button(LABEL[mine.state.phase]).button("退出して試合を中止").show(player);
-        if (response.canceled) return;
-        if (manager.forPlayer(player.id)?.token !== mine.token) throw new Error("画面が古くなりました。開き直してください。");
-        if (response.selection === 0) await actionForm(player, mine);
-        else if (response.selection === 1) abort(player.id, "参加者が退出したため中止しました。");
+      if (!navigation && mine?.state && mine.players[mine.state.actor] === player.id) {
+        await actionForm(player, mine);
       } else {
         const table = mine ?? manager.view(TABLE);
-        const form = new ActionFormData().title("JUNKET：ウラギリスズメ")
-          .body(`${RULES}\n\n${table ? summary(table) : "参加者募集中。2人揃うと開始します。"}`);
         const canJoin = !mine && (!table || table.players.length < 2);
-        form.button(mine ? "退出して試合を中止" : canJoin ? "参加する" : "閉じる");
-        const response = await form.show(player);
-        if (response.canceled || response.selection !== 0) return;
+        const action = await showReceptionNavigation({ ActionFormData, player, gameId: TABLE,
+          title: "ウラギリスズメ", body: table ? summary(table) : "参加者募集中。2人揃うと開始します。",
+          rules: RULES, joined: !!mine, canJoin,
+          canAct: !!mine?.state && mine.players[mine.state.actor] === player.id });
+        if (!action) return;
+        if (!players().has(player.id)) return;
         // A menu may remain open across disconnects, joins, or a new match.
         if ((manager.forPlayer(player.id)?.token ?? null) !== (mine?.token ?? null) ||
             (manager.view(TABLE)?.token ?? null) !== (table?.token ?? null)) {
           throw new Error("受付の状態が変わりました。開き直してください。");
         }
-        if (mine) abort(player.id, "参加者が退出したため中止しました。");
-        else if (canJoin) {
+        if (action === "catalog") {
+          if (mine) tell(player, "退出を選んでからカタログへ戻ってください。");
+          else await requestCatalogReturn(player, world);
+        } else if (action === "leave" && mine) abort(player.id, "参加者が退出したため中止しました。");
+        else if (action === "act" && mine) await actionForm(player, mine);
+        else if (canJoin && ["join", "rematch"].includes(action)) {
           const joined = manager.join(TABLE, "sparrow", player.id);
           if (joined.state) {
             try { venue.start(joined); }
@@ -135,9 +147,14 @@ export function createRuntime({ world, system, ActionFormData, ModalFormData, ma
       tell(player, error.message ?? "操作に失敗しました。受付から再試行してください。");
     } finally {
       if (busy.get(player.id) === request) busy.delete(player.id);
+      prompts.schedule(manager.view(TABLE));
     }
   }
   world.beforeEvents.playerInteractWithEntity.subscribe(event => {
+    if (isServiceGuide(world, event.target)) return;
+    // The shared warp handler owns catalog-return fixtures. In particular this
+    // must not also abort the match and teleport back into the Sparrow venue.
+    if (event.target.hasTag("junket:return")) return;
     const box = venue.boxValue(event.target);
     if (box) {
       event.cancel = true;
@@ -151,6 +168,26 @@ export function createRuntime({ world, system, ActionFormData, ModalFormData, ma
       });
       return;
     }
+    const control = venue.control(event.target);
+    if (control) {
+      event.cancel = true;
+      const player = event.player;
+      system.run(() => {
+        if (control === "return") {
+          if (manager.forPlayer(player.id)) {
+            tell(player, "退出を選んでからカタログへ戻ってください。");
+            return;
+          }
+          void Promise.resolve().then(() => requestCatalogReturn(player, world)).catch(error => tell(player, error.message));
+        } else {
+          // The monitor opens the current status/turn, and the public jewel
+          // offers the same private hide form as reception. Neither encodes
+          // a secret in its appearance or world-visible properties.
+          void open(player);
+        }
+      });
+      return;
+    }
     if (event.target.hasTag("junket:hotel_route")) {
       event.cancel = true;
       system.run(() => { try { venue.go(event.player); } catch (error) { tell(event.player, error.message); } });
@@ -160,17 +197,62 @@ export function createRuntime({ world, system, ActionFormData, ModalFormData, ma
     // Suppress the NPC's own editor/dialogue; defer forms out of read-only mode.
     event.cancel = true;
     const player = event.player;
-    system.run(() => { void open(player); });
+    system.run(() => { void open(player, true); });
   });
+  function waitForReconnect(playerId, mine) {
+    if (disconnectTimers.has(playerId)) return;
+    // Tokens change on every action and when a second player joins. The table
+    // identity remains stable for this match, so a reconnect timeout cannot
+    // accidentally spare a disconnected player or cancel a later rematch.
+    const session = manager.tables.get(mine.id);
+    const timer = system.runTimeout(() => {
+      disconnectTimers.delete(playerId);
+      const live = manager.forPlayer(playerId);
+      if (live?.id !== mine.id || manager.tables.get(mine.id) !== session) return;
+      if (players().has(playerId)) return;
+      abort(playerId, "参加者が再接続しなかったため中止しました。");
+    }, 200);
+    disconnectTimers.set(playerId, timer);
+  }
   world.afterEvents.playerLeave.subscribe(event => {
-    abort(event.playerId, "参加者が切断したため中止しました。");
+    runtimeForms.invalidate([event.playerId]);
+    prompts.forget(event.playerId);
     busy.delete(event.playerId);
+    const mine = manager.forPlayer(event.playerId);
+    if (mine?.gameId !== "sparrow") return;
+    waitForReconnect(event.playerId, mine);
   });
+
+  function resume(playerId = null) {
+    if (playerId) {
+      const pending = disconnectTimers.get(playerId);
+      if (pending !== undefined) system.clearRun?.(pending);
+      disconnectTimers.delete(playerId);
+    }
+    const current = manager.view(TABLE);
+    if (!current) return;
+    if (playerId && !current.players.includes(playerId)) return;
+    if (current.state?.phase === "finished") {
+      manager.close(TABLE);
+      venue.end(current, true);
+      return;
+    }
+    // Restored sessions may contain offline players for whom this process
+    // never saw playerLeave. Apply the same bounded reconnect grace period.
+    const online = players();
+    for (const member of current.players) {
+      if (!online.has(member)) waitForReconnect(member, current);
+    }
+    if (current.state) venue.resume(current, playerId);
+    if (current.state && allMembersOnline(current)) {
+      scheduleTurn(current);
+    }
+  }
   system.afterEvents.scriptEventReceive.subscribe(event => {
     if (!event.id.startsWith("junket:")) return;
     const player = event.sourceEntity;
     if (player?.typeId !== "minecraft:player") return;
-    if (event.id === "junket:menu") void open(player);
+    if (event.id === "junket:menu") void open(player, true);
     if (event.id === "junket:leave") abort(player.id, "参加者が退出したため中止しました。");
     if (event.id === "junket:setup") {
       try { tell(player, setupReception(player)); }
@@ -191,5 +273,24 @@ export function createRuntime({ world, system, ActionFormData, ModalFormData, ma
       }
     }
   });
-  return { manager, open, venue };
+  async function openReception(player) {
+    if (busy.has(player.id)) {
+      tell(player, "別の操作画面を処理中です。画面やチャットを閉じて、受付ボタンを再操作してください。");
+      return false;
+    }
+    await open(player, true);
+    return true;
+  }
+  async function resetSession(current, reason = "会場をリセットしました。", { evacuated = false } = {}) {
+    runtimeForms.invalidate();
+    prompts.clear();
+
+    for (const timerId of disconnectTimers.values()) system.clearRun?.(timerId);
+    disconnectTimers.clear();
+    busy.clear();
+    const resetTable = current ? { ...current, players: evacuated ? [] : [...current.players] } : { players: [], state: null };
+    await venue.end(resetTable);
+    if (current) notify(current, reason);
+  }
+  return { manager, open, openReception, resetSession, venue, resume };
 }
