@@ -166,7 +166,10 @@ Use the templates:
 - `scripts/minecraft/minecraft-control-api.env.example`
 - `scripts/minecraft/minecraft-control-api.service.example`
 
-Install `minecraft_control_api.py`, `minecraft_cosmetics_apply.py` and `minecraft_diagnostics.py` together.
+Install `minecraft_control_api.py`, `minecraft_cosmetics_apply.py`, `minecraft_diagnostics.py`,
+`minecraft_storage.py`, `minecraft_junket_overlay.py` and `junket_static_overlay.py` from the same revision.
+The storage reader must remain available while CAS recovery points exist; the overlay helpers preserve
+explicitly pinned private packs during managed catalog updates. See [storage management](operations/minecraft-storage-management.md).
 The diagnostics module is an import dependency even while its optional endpoint is disabled. A deployed
 host's settings and installed SHA must be checked separately from this source implementation.
 

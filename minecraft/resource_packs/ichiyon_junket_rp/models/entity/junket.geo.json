@@ -547,6 +547,392 @@
     },
     {
       "description": {
+        "identifier": "geometry.junket.hope.tv",
+        "texture_width": 64,
+        "texture_height": 64,
+        "visible_bounds_width": 6,
+        "visible_bounds_height": 4,
+        "visible_bounds_offset": [
+          0,
+          2.0,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "body",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -20.0,
+                0,
+                -1.5
+              ],
+              "size": [
+                40,
+                32,
+                3
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    64,
+                    64
+                  ]
+                },
+                "south": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    64,
+                    64
+                  ]
+                },
+                "east": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    4,
+                    64
+                  ]
+                },
+                "west": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    4,
+                    64
+                  ]
+                },
+                "up": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    64,
+                    4
+                  ]
+                },
+                "down": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    64,
+                    4
+                  ]
+                }
+              }
+            },
+            {
+              "origin": [
+                -21,
+                -4,
+                -4
+              ],
+              "size": [
+                42,
+                4,
+                8
+              ],
+              "uv": [
+                0,
+                56
+              ]
+            },
+            {
+              "origin": [
+                -18,
+                -6,
+                -5
+              ],
+              "size": [
+                6,
+                2,
+                10
+              ],
+              "uv": [
+                12,
+                56
+              ]
+            },
+            {
+              "origin": [
+                12,
+                -6,
+                -5
+              ],
+              "size": [
+                6,
+                2,
+                10
+              ],
+              "uv": [
+                12,
+                56
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.junket.hope.code_display",
+        "texture_width": 64,
+        "texture_height": 64,
+        "visible_bounds_width": 7,
+        "visible_bounds_height": 4,
+        "visible_bounds_offset": [
+          0,
+          2.0,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "body",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -22.0,
+                0,
+                -1.5
+              ],
+              "size": [
+                44,
+                36,
+                3
+              ],
+              "uv": {
+                "north": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    64,
+                    64
+                  ]
+                },
+                "south": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    64,
+                    64
+                  ]
+                },
+                "east": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    4,
+                    64
+                  ]
+                },
+                "west": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    4,
+                    64
+                  ]
+                },
+                "up": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    64,
+                    4
+                  ]
+                },
+                "down": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    64,
+                    4
+                  ]
+                }
+              }
+            },
+            {
+              "origin": [
+                -23,
+                36,
+                -5
+              ],
+              "size": [
+                46,
+                3,
+                10
+              ],
+              "uv": [
+                0,
+                52
+              ]
+            },
+            {
+              "origin": [
+                -23,
+                -3,
+                -5
+              ],
+              "size": [
+                46,
+                3,
+                10
+              ],
+              "uv": [
+                0,
+                52
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.junket.hope.code",
+        "texture_width": 64,
+        "texture_height": 64,
+        "visible_bounds_width": 4,
+        "visible_bounds_height": 5,
+        "visible_bounds_offset": [
+          0,
+          2,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "body",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -13,
+                0,
+                -13
+              ],
+              "size": [
+                26,
+                6,
+                26
+              ],
+              "uv": [
+                0,
+                52
+              ]
+            },
+            {
+              "origin": [
+                -7,
+                6,
+                -7
+              ],
+              "size": [
+                14,
+                22,
+                14
+              ],
+              "uv": [
+                0,
+                24
+              ]
+            },
+            {
+              "origin": [
+                -10,
+                28,
+                -9
+              ],
+              "size": [
+                20,
+                12,
+                18
+              ],
+              "uv": [
+                0,
+                0
+              ]
+            },
+            {
+              "origin": [
+                -1.5,
+                40,
+                -1.5
+              ],
+              "size": [
+                3,
+                9,
+                3
+              ],
+              "uv": [
+                42,
+                6
+              ]
+            },
+            {
+              "origin": [
+                -4,
+                49,
+                -4
+              ],
+              "size": [
+                8,
+                8,
+                8
+              ],
+              "uv": [
+                40,
+                40
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
         "identifier": "geometry.junket.auction",
         "texture_width": 64,
         "texture_height": 64,
@@ -675,6 +1061,196 @@
               "uv": [
                 32,
                 32
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.junket.fire.card",
+        "texture_width": 64,
+        "texture_height": 64,
+        "visible_bounds_width": 3,
+        "visible_bounds_height": 4,
+        "visible_bounds_offset": [
+          0,
+          2,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "body",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -2,
+                0,
+                -0.12
+              ],
+              "size": [
+                4,
+                4.8,
+                0.24
+              ],
+              "uv": [
+                0,
+                0
+              ]
+            },
+            {
+              "origin": [
+                -2,
+                4.8,
+                -0.1
+              ],
+              "size": [
+                4,
+                0.5,
+                0.2
+              ],
+              "uv": [
+                0,
+                40
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.junket.fire.tv",
+        "texture_width": 64,
+        "texture_height": 64,
+        "visible_bounds_width": 9,
+        "visible_bounds_height": 7,
+        "visible_bounds_offset": [
+          0,
+          3,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "body",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -3.5,
+                0,
+                -0.18
+              ],
+              "size": [
+                7,
+                4,
+                0.36
+              ],
+              "uv": [
+                0,
+                0
+              ]
+            },
+            {
+              "origin": [
+                -3.1,
+                0.4,
+                -0.24
+              ],
+              "size": [
+                6.2,
+                3.2,
+                0.08
+              ],
+              "uv": [
+                0,
+                24
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.junket.fire.glass",
+        "texture_width": 64,
+        "texture_height": 64,
+        "visible_bounds_width": 7,
+        "visible_bounds_height": 8,
+        "visible_bounds_offset": [
+          0,
+          3,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "body",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -2.6,
+                0,
+                -0.08
+              ],
+              "size": [
+                5.2,
+                5.6,
+                0.16
+              ],
+              "uv": [
+                0,
+                0
+              ]
+            },
+            {
+              "origin": [
+                -2.8,
+                -0.1,
+                -0.12
+              ],
+              "size": [
+                5.6,
+                0.35,
+                0.24
+              ],
+              "uv": [
+                0,
+                44
+              ]
+            },
+            {
+              "origin": [
+                -2.8,
+                5.45,
+                -0.12
+              ],
+              "size": [
+                5.6,
+                0.35,
+                0.24
+              ],
+              "uv": [
+                0,
+                48
               ]
             }
           ]
@@ -1023,6 +1599,206 @@
     },
     {
       "description": {
+        "identifier": "geometry.junket.walker.label",
+        "texture_width": 64,
+        "texture_height": 64,
+        "visible_bounds_width": 5,
+        "visible_bounds_height": 1,
+        "visible_bounds_offset": [
+          0,
+          0.15,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "body",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -2.2,
+                0,
+                -2.2
+              ],
+              "size": [
+                4.4,
+                0.03,
+                4.4
+              ],
+              "uv": {
+                "up": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    64,
+                    64
+                  ]
+                },
+                "down": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    64,
+                    64
+                  ]
+                },
+                "north": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    64,
+                    1
+                  ]
+                },
+                "south": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    64,
+                    1
+                  ]
+                },
+                "east": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    1,
+                    64
+                  ]
+                },
+                "west": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    1,
+                    64
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.junket.walker.bomb",
+        "texture_width": 64,
+        "texture_height": 64,
+        "visible_bounds_width": 3,
+        "visible_bounds_height": 3,
+        "visible_bounds_offset": [
+          0,
+          1.5,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "body",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -1,
+                0,
+                -1
+              ],
+              "size": [
+                2,
+                2,
+                2
+              ],
+              "uv": {
+                "up": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    64,
+                    64
+                  ]
+                },
+                "down": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    64,
+                    64
+                  ]
+                },
+                "north": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    64,
+                    64
+                  ]
+                },
+                "south": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    64,
+                    64
+                  ]
+                },
+                "east": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    64,
+                    64
+                  ]
+                },
+                "west": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    64,
+                    64
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
         "identifier": "geometry.junket.garden",
         "texture_width": 64,
         "texture_height": 64,
@@ -1152,6 +1928,106 @@
                 32,
                 32
               ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "description": {
+        "identifier": "geometry.junket.rabbit.floor",
+        "texture_width": 48,
+        "texture_height": 48,
+        "visible_bounds_width": 4,
+        "visible_bounds_height": 1,
+        "visible_bounds_offset": [
+          0,
+          0.25,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "body",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -24,
+                0,
+                -24
+              ],
+              "size": [
+                48,
+                0.75,
+                48
+              ],
+              "uv": {
+                "up": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    48,
+                    48
+                  ]
+                },
+                "down": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    48,
+                    48
+                  ]
+                },
+                "north": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    48,
+                    1
+                  ]
+                },
+                "south": {
+                  "uv": [
+                    0,
+                    47
+                  ],
+                  "uv_size": [
+                    48,
+                    1
+                  ]
+                },
+                "east": {
+                  "uv": [
+                    47,
+                    0
+                  ],
+                  "uv_size": [
+                    1,
+                    48
+                  ]
+                },
+                "west": {
+                  "uv": [
+                    0,
+                    0
+                  ],
+                  "uv_size": [
+                    1,
+                    48
+                  ]
+                }
+              }
             }
           ]
         }

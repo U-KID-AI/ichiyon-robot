@@ -1,0 +1,52 @@
+{
+  "format_version": "1.26.30",
+  "minecraft:entity": {
+    "description": {
+      "identifier": "ichiyon:ikarun", "is_spawnable": true, "is_summonable": true, "is_experimental": false,
+      "properties": {"ichiyon:healing": {"type": "bool", "default": false, "client_sync": true}}
+    },
+    "component_groups": {
+      "ichiyon:ikarun_owned": {"minecraft:tameable": {"probability": 0, "tame_items": []}, "minecraft:is_tamed": {}},
+      "ichiyon:ikarun_following": {"minecraft:behavior.follow_owner": {
+        "priority": 2, "speed_multiplier": 1.25, "start_distance": 3, "stop_distance": 2, "can_teleport": false
+      }},
+      "ichiyon:ikarun_home": {
+        "minecraft:home": {"restriction_radius": 4, "restriction_type": "random_movement"}
+      }
+    },
+    "components": {
+      "minecraft:type_family": {"family": ["ikarun", "mob"]},
+      "minecraft:health": {"value": 30, "max": 30},
+      "minecraft:damage_sensor": {"triggers": [{"cause": "fall", "deals_damage": "no"}]},
+      "minecraft:collision_box": {"width": 0.6, "height": 0.8},
+      "minecraft:physics": {"has_gravity": false, "has_collision": true},
+      "minecraft:movement": {"value": 0.1},
+      "minecraft:flying_speed": {"value": 0.1},
+      "minecraft:movement.hover": {},
+      "minecraft:navigation.hover": {"can_path_from_air": true, "can_sink": false, "avoid_water": true, "avoid_damage_blocks": true, "can_pass_doors": true, "can_open_doors": false},
+      "minecraft:can_fly": {},
+      "minecraft:behavior.random_hover": {"priority": 6, "speed_multiplier": 0.65, "interval": 80, "xz_dist": 2, "y_dist": 1, "y_offset": 0, "hover_height": {"min": 1, "max": 1}},
+      "minecraft:behavior.random_look_around": {"priority": 8, "probability": 0.08, "look_time": {"min": 2, "max": 4}},
+      "minecraft:persistent": {}, "minecraft:nameable": {}, "minecraft:leashable": {},
+      "minecraft:pushable_by_entity": {}, "minecraft:pushable_by_block": {},
+      "minecraft:interact": {"interactions": [{"interact_text": "action.interact.ichiyon_ikarun", "on_interact": {"filters": {"test": "is_family", "subject": "other", "value": "player"}}}]}
+    },
+    "events": {
+      "minecraft:entity_spawned": {"add": {"component_groups": ["ichiyon:ikarun_home"]}},
+      "ichiyon:ikarun_home_bind": {"add": {"component_groups": ["ichiyon:ikarun_home"]}},
+      "ichiyon:ikarun_start": {
+        "add": {"component_groups": ["ichiyon:ikarun_owned", "ichiyon:ikarun_following"]},
+        "remove": {"component_groups": ["ichiyon:ikarun_home"]}
+      },
+      "ichiyon:ikarun_pause": {"remove": {"component_groups": ["ichiyon:ikarun_following"]}},
+      "ichiyon:ikarun_resume": {
+        "add": {"component_groups": ["ichiyon:ikarun_following"]},
+        "remove": {"component_groups": ["ichiyon:ikarun_home"]}
+      },
+      "ichiyon:ikarun_stop": {
+        "remove": {"component_groups": ["ichiyon:ikarun_owned", "ichiyon:ikarun_following"]},
+        "add": {"component_groups": ["ichiyon:ikarun_home"]}
+      }
+    }
+  }
+}

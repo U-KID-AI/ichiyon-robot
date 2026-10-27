@@ -30,3 +30,23 @@ OpenVPN-Config.ovpn
 /minecraft/resource_packs/ichiyon_junket_assets_rp/
 *JUNKET*.zip
 *junket_craft_worlddata*/
+
+# Private runtime, recovery, and locally generated Minecraft output.
+/.minecraft-storage/
+/cosmetics-applications/
+/junket-world-applications/
+/junket-isolated-resilience/
+/minecraft-retention-pins.json
+/.codex-tmp/
+/data/minecraft-private/
+/minecraft/behavior_packs/ichiyon_junket_bp/scripts/all17_original_generated.js
+/worlds/
+*.mcworld
+*.mcpack
+*.mcaddon
+
+# Structure-derived companion artwork remains local.
+/minecraft/resource_packs/ichiyon_avatar_rp/models/entity/ikarun.geo.json
+/minecraft/resource_packs/ichiyon_avatar_rp/models/entity/tumaini.geo.json
+/minecraft/resource_packs/ichiyon_avatar_rp/textures/entity/ikarun.png
+/minecraft/resource_packs/ichiyon_avatar_rp/textures/entity/tumaini.png

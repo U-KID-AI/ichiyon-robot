@@ -4,16 +4,29 @@
     "description": {
       "identifier": "junket:fire_prop",
       "materials": {
-        "default": "entity_alphatest"
+        "default": "entity_alphablend"
       },
       "textures": {
-        "default": "textures/entity/junket/fire"
+        "default": "textures/entity/junket/fire_card",
+        "used": "textures/entity/junket/fire_card_used",
+        "hot": "textures/entity/junket/fire_card_hot",
+        "ice": "textures/entity/junket/fire_card_ice",
+        "active": "textures/entity/junket/fire_card_active",
+        "television": "textures/entity/junket/fire_tv",
+        "glass0": "textures/entity/junket/fire_glass_0",
+        "glass1": "textures/entity/junket/fire_glass_1",
+        "glass2": "textures/entity/junket/fire_glass_2",
+        "glass3": "textures/entity/junket/fire_glass_3",
+        "glass4": "textures/entity/junket/fire_glass_4",
+        "glass5": "textures/entity/junket/fire_glass_broken"
       },
       "geometry": {
-        "default": "geometry.junket.fire"
+        "default": "geometry.junket.fire.card",
+        "television": "geometry.junket.fire.tv",
+        "glass": "geometry.junket.fire.glass"
       },
       "render_controllers": [
-        "controller.render.junket"
+        "controller.render.junket.fire"
       ]
     }
   }

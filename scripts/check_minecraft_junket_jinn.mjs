@@ -3,12 +3,24 @@ import {
   JINN_HUNGER_TICKS, JINN_INPUT_TICKS, JINN_PAY_PER_TICK, JINN_ROUNDS_PER_GAME,
   advanceJinn, createJinn, jinnGame, jinnSystem, jinnView,
 } from "../minecraft/behavior_packs/ichiyon_junket_bp/scripts/jinn.js";
+import { jinnCardChoice } from "../minecraft/behavior_packs/ichiyon_junket_bp/scripts/jinn_runtime.js";
 
 assert.equal(JINN_INPUT_TICKS, 6000);
 assert.equal(JINN_ROUNDS_PER_GAME, 6);
 assert.equal(JINN_PAY_PER_TICK, 175);
 assert.equal(JINN_HUNGER_TICKS, 3600);
 assert.equal(jinnGame.seats, 2);
+
+{
+  const state = createJinn();
+  assert.deepEqual(jinnCardChoice(state, 0, "gold"), { action: "choose", value: "gold" });
+  assert.throws(() => jinnCardChoice(state, 0, "unknown"), /残っていません/);
+  assert.throws(() => jinnCardChoice({ ...state, phase: "reveal" }, 0, "gold"), /選択中/);
+  assert.throws(() => jinnCardChoice({ ...state, choices: ["gold", null] }, 0, "thief"), /選択済み/);
+  assert.throws(() => jinnCardChoice({ ...state, hands: [{ ...state.hands[0], thief: 0 }, state.hands[1]] },
+    0, "thief"), /残っていません/);
+  assert.throws(() => jinnCardChoice(state, 2, "gold"), /参加者/);
+}
 
 const play = (state, first, second) => {
   state = advanceJinn(state, 0, 'choose', first);
@@ -146,7 +158,7 @@ const play = (state, first, second) => {
   };
   state = jinnSystem(state, 'tick');
   assert.deepEqual(state.food, [19, 19]);
-  state = jinnSystem({ ...state, food: [0, 1], hp: [1000, 1000] }, 'tick');
+  state = jinnSystem({ ...state, food: [0, 1], hp: [1000, 1000], damageClock: 4 }, 'tick');
   assert.deepEqual(state.hp, [800, 1000]);
 }
 
@@ -171,7 +183,7 @@ const play = (state, first, second) => {
   assert.equal(state.winner, 0);
   assert.equal(state.reason, 'timeout');
   const surrendered = advanceJinn({
-    ...createJinn(), phase: 'settlement',
+    ...createJinn(), phase: 'settlement', game: 3,
   }, 1, 'surrender', undefined);
   assert.equal(surrendered.phase, 'finished');
   assert.equal(surrendered.winner, 0);
