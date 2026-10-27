@@ -59,10 +59,15 @@ function setup(skinEntries) {
     const properties = { "ichiyon:skin_id": 0, "ichiyon:hat": 0, "ichiyon:face": 0, "ichiyon:neck": 0, "ichiyon:back": 0, "ichiyon:float_ring": 0 };
     const dynamic = {};
     const entity = {
-      id: `entity${entityIndex++}`, typeId, isValid: true, dimension, location: { x: 0, y: 64, z: 0 }, variant: 0,
+      id: `entity${entityIndex++}`, typeId, isValid: true, dimension, location: { x: 0, y: 64, z: 0 }, variant: 0, events: [],
       getProperty: key => properties[key], setProperty: (key, value) => { if (entity.failSet) throw new Error("set failed"); system.run(() => properties[key] = value); },
       getDynamicProperty: key => dynamic[key], setDynamicProperty: (key, value) => dynamic[key] = value,
-      triggerEvent: event => { if (entity.failTrigger) throw new Error("trigger failed"); entity.variant = Number(event.split("_").at(-1)) - 1; },
+      triggerEvent: event => {
+        entity.events.push(event);
+        if (entity.failTrigger) throw new Error("trigger failed");
+        const cosmetic = /^ichiyon:cosmetic_(\d+)$/.exec(event);
+        if (cosmetic) entity.variant = Number(cosmetic[1]) - 1;
+      },
       setRotation: () => {}, getComponent: () => ({ value: entity.variant }), remove: () => entity.isValid = false,
       properties, dynamic,
     };
@@ -85,7 +90,7 @@ function setup(skinEntries) {
   class ActionFormData {
     constructor() { this.buttons = []; }
     title(value) { this.titleText = value; return this; }
-    body() { return this; }
+    body(value) { this.bodyText = value; return this; }
     button(value) { this.buttons.push(value); return this; }
     async show() { forms.push(this); const answer = answers.shift(); return typeof answer === "function" ? answer() : answer || { canceled: true }; }
   }
@@ -138,6 +143,46 @@ test("common egg spawns selected variant only once under repeated events", async
   const event = { player, itemStack: player.items[0], block: { location: { x: 0, y: 63, z: 2 } }, isFirstEvent: true };
   core.useEgg(event); core.useEgg(event); assert.equal(event.cancel, true); assert.equal(spawned.length, 0);
   await advance(); assert.equal(spawned.length, 1); assert.equal(spawned[0].variant, 2);
+});
+test("venue light blocks are standing room and a light floor is not", async () => {
+  const { core, makePlayer, answers, spawned, dimension } = setup();
+  const player = makePlayer();
+  player.mode = "creative";
+  player.location = { x: 20205, y: 67, z: 20012 };
+  player.items[0] = { typeId: "ichiyon:avatar_selector", amount: 1 };
+  const place = { x: 20205.5, y: 67, z: 20012.5 };
+  answers.push({ selection: 0 }, { selection: 2 });
+  dimension.getBlock = (loc) => loc.y < place.y
+    ? { isAir: false, isLiquid: false, typeId: "minecraft:smooth_quartz" }
+    : { isAir: false, isLiquid: false, typeId: "minecraft:light_block_12" };
+  await core.selectSkin(player, undefined, place);
+  assert.equal(spawned.length, 1);
+  assert.equal(spawned[0].variant, 2);
+  dimension.getBlock = () => ({ isAir: false, isLiquid: false, typeId: "minecraft:light_block_12" });
+  answers.push({ selection: 0 }, { selection: 0 });
+  await core.selectSkin(player, undefined, place).catch(() => {});
+  assert.equal(spawned.length, 1);
+});
+test("UserBusy retries without a second spawn and a closed form does not retry", async () => {
+  const busy = setup();
+  const player = busy.makePlayer();
+  player.mode = "creative";
+  player.items[0] = { typeId: "ichiyon:avatar_selector", amount: 1 };
+  busy.answers.push({ canceled: true, cancelationReason: "UserBusy" }, { selection: 0 }, { selection: 2 });
+  const pending = busy.core.selectSkin(player, undefined, { x: 0, y: 64, z: 2 });
+  await busy.advance(40);
+  await pending;
+  assert.equal(busy.spawned.length, 1);
+  assert.equal(busy.spawned[0].variant, 2);
+  assert.equal(busy.forms.length, 3);
+  const closed = setup();
+  const other = closed.makePlayer();
+  other.mode = "creative";
+  other.items[0] = { typeId: "ichiyon:avatar_selector", amount: 1 };
+  closed.answers.push({ canceled: true, cancelationReason: "UserClosed" }, { selection: 0 });
+  await closed.core.selectSkin(other, undefined, { x: 0, y: 64, z: 2 });
+  assert.equal(closed.forms.length, 1);
+  assert.equal(closed.spawned.length, 0);
 });
 test("common egg denies survival, cancellation, changed held item, and blocked placement", async () => {
   for (const mode of ["survival", "cancel", "switch", "blocked"]) {
@@ -380,4 +425,84 @@ test("startup registers reconnect and death-respawn restoration", async () => {
   const { core, subscriptions, makePlayer, advance } = setup(); core.start(); const player = makePlayer(); player.dynamic["ichiyon:selected_skin"] = 3;
   subscriptions.spawn({ player, initialSpawn: false }); await advance(); assert.equal(player.getProperty("ichiyon:skin_id"), 3);
   assert.equal(typeof subscriptions.leave, "function");
+});
+test("mannequin menu switches free roam per entity and keeps the other actions", async () => {
+  const f = setup(), player = f.makePlayer(), first = f.makeEntity("ichiyon:avatar"), second = f.makeEntity("ichiyon:avatar");
+  player.mode = "creative"; player.isSneaking = true;
+  f.answers.push({ selection: 4 });
+  await f.core.mannequinMenu(player, first);
+  const form = f.forms.at(-1);
+  assert.equal(form.buttons[0], "Skin 1に着替える");
+  assert.equal(form.buttons[1], "元のスキンに戻す");
+  assert.equal(form.buttons[2], "このマネキンを変更");
+  assert.equal(form.buttons[3], "このマネキンを撤去");
+  assert.equal(form.buttons[4], "自由行動に切り替える");
+  assert.match(form.bodyText, /現在の行動：通常行動/);
+  assert.equal(first.dynamic["ichiyon:avatar_roam"], 1);
+  assert.equal(first.events.at(-1), "ichiyon:avatar_roam");
+  assert.equal(second.dynamic["ichiyon:avatar_roam"], undefined);
+  assert.equal(second.events.length, 0);
+  f.answers.push({ selection: 4 });
+  await f.core.mannequinMenu(player, first);
+  assert.equal(f.forms.at(-1).buttons[4], "通常行動に戻す");
+  assert.match(f.forms.at(-1).bodyText, /現在の行動：自由行動/);
+  assert.equal(first.dynamic["ichiyon:avatar_roam"], 0);
+  assert.equal(first.events.at(-1), "ichiyon:avatar_calm");
+  assert.equal(second.events.length, 0);
+});
+test("free roam survives reload and walks back before calm movement returns", async () => {
+  const { core, makeEntity } = setup();
+  const entity = makeEntity("ichiyon:avatar");
+  entity.dynamic["ichiyon:avatar_roam"] = 1;
+  entity.dynamic["ichiyon:avatar_anchor_x"] = 0;
+  entity.dynamic["ichiyon:avatar_anchor_y"] = 64;
+  entity.dynamic["ichiyon:avatar_anchor_z"] = 0;
+  entity.location = { x: 10, y: 64, z: 0 };
+  core.restoreRoam(entity);
+  assert.equal(entity.events.at(-1), "ichiyon:avatar_roam");
+  assert.equal(entity.dynamic["ichiyon:avatar_anchor_x"], 0);
+  const other = makeEntity("ichiyon:avatar");
+  other.dynamic["ichiyon:avatar_roam"] = 0;
+  core.restoreRoam(other);
+  assert.equal(other.events.at(-1), "ichiyon:avatar_calm");
+  assert.equal(entity.dynamic["ichiyon:avatar_roam"], 1);
+});
+test("leaving free roam outside the calm radius walks home before restoring it", async () => {
+  const { core, makePlayer, makeEntity, answers, forms } = setup();
+  const player = makePlayer(), entity = makeEntity("ichiyon:avatar");
+  player.location = { x: 10, y: 64, z: 0 };
+  entity.dynamic["ichiyon:avatar_roam"] = 1;
+  entity.dynamic["ichiyon:avatar_anchor_x"] = 0;
+  entity.dynamic["ichiyon:avatar_anchor_y"] = 64;
+  entity.dynamic["ichiyon:avatar_anchor_z"] = 0;
+  entity.location = { x: 10, y: 64, z: 0 };
+  answers.push({ selection: 2 });
+  await core.mannequinMenu(player, entity);
+  assert.equal(forms.at(-1).buttons.at(-1), "通常行動に戻す");
+  assert.equal(entity.dynamic["ichiyon:avatar_roam"], 0);
+  assert.equal(entity.dynamic["ichiyon:avatar_returning"], 1);
+  assert.equal(entity.events.at(-1), "ichiyon:avatar_return");
+  core.maintainRoam(entity);
+  assert.equal(entity.dynamic["ichiyon:avatar_returning"], 1);
+  entity.location = { x: 1, y: 64, z: 1 };
+  core.maintainRoam(entity);
+  assert.equal(entity.dynamic["ichiyon:avatar_returning"], 0);
+  assert.equal(entity.events.at(-1), "ichiyon:avatar_calm");
+});
+test("free roam attempts movement more often and cannot leave its home radius", async () => {
+  const avatar = JSON.parse(await readFile(new URL("../minecraft/behavior_packs/ichiyon_avatar_bp/entities/avatar.json", import.meta.url), "utf8"));
+  const entity = avatar["minecraft:entity"];
+  const calm = entity.components["minecraft:behavior.random_stroll"];
+  const free = entity.component_groups["ichiyon:avatar_free"]["minecraft:behavior.random_stroll"];
+  const calmRadius = entity.components["minecraft:home"].restriction_radius;
+  const freeRadius = entity.component_groups["ichiyon:avatar_free"]["minecraft:home"].restriction_radius;
+  const attempts = interval => Math.floor(4000 / interval);
+  assert.equal(attempts(calm.interval), 50);
+  assert.equal(attempts(free.interval), 200);
+  let calmReach = 0, freeReach = 0;
+  for (let i = 0; i < attempts(calm.interval); i++) calmReach = Math.min(calmRadius, calmReach + calm.xz_dist);
+  for (let i = 0; i < attempts(free.interval); i++) freeReach = Math.min(freeRadius, freeReach + free.xz_dist);
+  assert.equal(calmReach, 2);
+  assert.equal(freeReach, 16);
+  assert.equal(entity.components["minecraft:movement"].value, 0.12);
 });

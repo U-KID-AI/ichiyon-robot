@@ -1,6 +1,11 @@
 // Injected engine APIs keep state transitions testable without a live world.
 export function createCosmetics({ catalog, world, system, ItemStack, ActionFormData, GameMode }) {
   const egg = "ichiyon:avatar_selector";
+  const ROAM = "ichiyon:avatar_roam";
+  const RETURNING = "ichiyon:avatar_returning";
+  const ANCHOR_X = "ichiyon:avatar_anchor_x";
+  const ANCHOR_Y = "ichiyon:avatar_anchor_y";
+  const ANCHOR_Z = "ichiyon:avatar_anchor_z";
   const slots = ["hat", "face", "neck", "back", "float_ring"];
   const slotLabels = { hat: "頭", face: "顔", neck: "首", back: "背中", float_ring: "浮き輪" };
   // Functional equipment uses its own property/ID space; never reserve a DB ID.
@@ -42,7 +47,7 @@ export function createCosmetics({ catalog, world, system, ItemStack, ActionFormD
       if (navigation.back) choices.push(navigation.back);
       const form = new ActionFormData().title(`${title} (${page + 1}/${Math.max(1, Math.ceil(entries.length / pageSize))})`).body(description);
       choices.forEach(choice => form.button(choice.text));
-      const result = await form.show(player);
+      const result = await showWhenFree(player, form);
       if (!valid(player) || (navigation.available && !navigation.available())) return undefined;
       if (result.canceled || !Number.isInteger(result.selection)) return undefined;
       const choice = choices[result.selection];
@@ -78,7 +83,9 @@ export function createCosmetics({ catalog, world, system, ItemStack, ActionFormD
     const feet = dimension.getBlock(location);
     const head = dimension.getBlock({ ...location, y: location.y + 1 });
     const floor = dimension.getBlock({ ...location, y: location.y - 1 });
-    if (!feet?.isAir || !head?.isAir || !floor || floor.isAir || floor.isLiquid) throw new Error("no room");
+    // Venue interiors are filled with light blocks. They have no collision, so a
+    // standing cell there is room. A light block is not a floor.
+    if (!passable(feet) || !passable(head) || !floor || passable(floor) || floor.isLiquid) throw new Error("no room");
   }
 
   function spawn(player, id, location) {
@@ -140,9 +147,11 @@ export function createCosmetics({ catalog, world, system, ItemStack, ActionFormD
     const skin = skins.get((target.getComponent("minecraft:variant")?.value ?? -1) + 1);
     if (!skin) { say(player, "このマネキンの素材を読み込めません。管理者に連絡してください。"); return; }
     const editing = creative(player) && player.isSneaking;
+    const mode = roaming(target) ? "自由行動" : "通常行動";
     const options = [{ value: "wear", text: `${skin.name}に着替える` }, { value: "restore", text: "元のスキンに戻す" }];
     if (editing) options.push({ value: "edit", text: "このマネキンを変更" }, { value: "remove", text: "このマネキンを撤去" });
-    const choice = await choose(player, skin.name, options, "着替えはこのサーバー内で保存され、ほかのプレイヤーにも表示されます。");
+    options.push({ value: "roam", text: roaming(target) ? "通常行動に戻す" : "自由行動に切り替える" });
+    const choice = await choose(player, skin.name, options, `着替えはこのサーバー内で保存され、ほかのプレイヤーにも表示されます。\n現在の行動：${mode}`);
     if (!nearby(player, target)) return;
     if (choice === "wear") {
       // Another creative player may have changed the mannequin while this form was open.
@@ -157,6 +166,9 @@ export function createCosmetics({ catalog, world, system, ItemStack, ActionFormD
     } else if (editing && creative(player) && choice === "remove") {
       const confirmed = await choose(player, "マネキンの撤去", [{ value: true, text: "撤去する" }, { value: false, text: "戻る" }]);
       if (confirmed === true && nearby(player, target) && creative(player)) target.remove();
+    } else if (choice === "roam") {
+      setRoam(target, !roaming(target));
+      say(player, roaming(target) ? "自由行動に切り替えました。" : "通常行動に戻しました。");
     }
   }
 
@@ -246,10 +258,121 @@ export function createCosmetics({ catalog, world, system, ItemStack, ActionFormD
       try { if (valid(player)) restoreSkin(player); } catch { say(player, "着替えを復元できません。パックの読み込みを確認してください。"); }
     }));
     world.afterEvents.playerLeave.subscribe(({ playerId }) => playersBusy.delete(playerId));
+    world.afterEvents.entitySpawn?.subscribe(event => {
+      if (event.entity?.typeId !== "ichiyon:avatar") return;
+      system.run(() => { try { restoreRoam(event.entity); } catch { /* A dying spawn has no mode to restore. */ } });
+    });
+    world.afterEvents.entityLoad?.subscribe(event => {
+      if (event.entity?.typeId !== "ichiyon:avatar") return;
+      system.run(() => { try { restoreRoam(event.entity); } catch { /* An unloaded mannequin is restored on the next load. */ } });
+    });
+    if (system.runInterval) system.runInterval(() => {
+      for (const entity of loadedAvatars()) { try { maintainRoam(entity); } catch { /* Skip one mannequin that is already invalid. */ } }
+    }, 20);
     // Also handles a script reload with players already online.
-    system.run(() => { for (const player of world.getAllPlayers()) { try { restoreSkin(player); } catch {} } });
+    system.run(() => {
+      for (const player of world.getAllPlayers()) { try { restoreSkin(player); } catch {} }
+      for (const entity of loadedAvatars()) { try { restoreRoam(entity); } catch {} }
+    });
   }
-  return { start, interact, useEgg, changeSkin, restoreSkin, mutateAccessory, mannequinMenu, accessoryMenu, selectSkin, choose, spawn, handleCommand };
+  return { start, interact, useEgg, changeSkin, restoreSkin, mutateAccessory, mannequinMenu, accessoryMenu, selectSkin, choose, spawn, handleCommand, restoreRoam, maintainRoam };
+
+  function roaming(entity) {
+    return entity.getDynamicProperty(ROAM) === 1;
+  }
+
+  function ensureAnchor(entity) {
+    const x = entity.getDynamicProperty(ANCHOR_X);
+    const y = entity.getDynamicProperty(ANCHOR_Y);
+    const z = entity.getDynamicProperty(ANCHOR_Z);
+    if (typeof x === "number" && typeof y === "number" && typeof z === "number") return { x, y, z };
+    const location = entity.location;
+    entity.setDynamicProperty(ANCHOR_X, location.x);
+    entity.setDynamicProperty(ANCHOR_Y, location.y);
+    entity.setDynamicProperty(ANCHOR_Z, location.z);
+    return { x: location.x, y: location.y, z: location.z };
+  }
+
+  function awayFromAnchor(entity, anchor) {
+    return (entity.location.x - anchor.x) ** 2 + (entity.location.z - anchor.z) ** 2 > 4;
+  }
+
+  function setRoam(entity, next) {
+    const previous = entity.getDynamicProperty(ROAM);
+    const previousReturn = entity.getDynamicProperty(RETURNING);
+    const anchor = ensureAnchor(entity);
+    entity.setDynamicProperty(ROAM, next ? 1 : 0);
+    try {
+      if (next) {
+        entity.setDynamicProperty(RETURNING, 0);
+        entity.triggerEvent("ichiyon:avatar_roam");
+      } else if (awayFromAnchor(entity, anchor)) {
+        entity.setDynamicProperty(RETURNING, 1);
+        entity.triggerEvent("ichiyon:avatar_return");
+      } else {
+        entity.setDynamicProperty(RETURNING, 0);
+        entity.triggerEvent("ichiyon:avatar_calm");
+      }
+    } catch (error) {
+      entity.setDynamicProperty(ROAM, previous);
+      entity.setDynamicProperty(RETURNING, previousReturn);
+      throw error;
+    }
+  }
+
+  function restoreRoam(entity) {
+    if (!valid(entity) || entity.typeId !== "ichiyon:avatar") return;
+    ensureAnchor(entity);
+    const returning = entity.getDynamicProperty(RETURNING) === 1;
+    entity.triggerEvent(roaming(entity) ? "ichiyon:avatar_roam" : (returning ? "ichiyon:avatar_return" : "ichiyon:avatar_calm"));
+  }
+
+  function maintainRoam(entity) {
+    if (!valid(entity) || entity.typeId !== "ichiyon:avatar" || roaming(entity)) return;
+    if (entity.getDynamicProperty(RETURNING) !== 1) return;
+    if (awayFromAnchor(entity, ensureAnchor(entity))) return;
+    entity.setDynamicProperty(RETURNING, 0);
+    entity.triggerEvent("ichiyon:avatar_calm");
+  }
+
+  function loadedAvatars() {
+    if (typeof world.getDimension !== "function") return [];
+    const found = [];
+    for (const id of ["overworld", "nether", "the_end"]) {
+      try { found.push(...world.getDimension(id).getEntities({ type: "ichiyon:avatar" })); }
+      catch { /* This dimension is not loaded. */ }
+    }
+    return found;
+  }
+
+  function passable(block) {
+    return !!block && (block.isAir === true || /^minecraft:light_block(?:_\d+)?$/.test(block.typeId ?? ""));
+  }
+
+  function userBusy(value) {
+    const reason = value?.cancelationReason ?? value?.cancellationReason ?? value?.message ?? value;
+    return /userbusy/i.test(String(reason ?? ""));
+  }
+
+  // Another form, including a JUNKET panel, stays open. Wait for it to finish
+  // and try this form a few times. Never dismiss the other form or spawn early.
+  async function showWhenFree(player, form) {
+    let result;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { result = await form.show(player); }
+      catch (error) {
+        if (attempt < 2 && userBusy(error)) { await waitTicks(10); continue; }
+        throw error;
+      }
+      if (!(result?.canceled && userBusy(result) && attempt < 2)) return result;
+      await waitTicks(10);
+    }
+    return result;
+  }
+
+  function waitTicks(ticks) {
+    return new Promise(resolve => system.runTimeout(resolve, ticks));
+  }
 }
 
 function distance(a, b) {

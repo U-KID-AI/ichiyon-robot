@@ -214,6 +214,31 @@ class AvatarChecks(unittest.TestCase):
             (BP / "spawn_rules/avatar.json").exists()
         )
 
+    def test_free_roam_reuses_stroll_and_restores_the_calm_parameters(self):
+        calm = self.entity["components"]["minecraft:behavior.random_stroll"]
+        free = self.entity["component_groups"]["ichiyon:avatar_free"]
+        returning = self.entity["component_groups"]["ichiyon:avatar_return"]
+        self.assertEqual(calm["interval"], 80)
+        self.assertEqual(calm["xz_dist"], 2)
+        self.assertEqual(calm["speed_multiplier"], 0.65)
+        self.assertEqual(self.entity["components"]["minecraft:home"]["restriction_radius"], 2)
+        self.assertGreater(calm["interval"], free["minecraft:behavior.random_stroll"]["interval"])
+        self.assertGreater(free["minecraft:behavior.random_stroll"]["xz_dist"], calm["xz_dist"])
+        self.assertLessEqual(free["minecraft:behavior.random_stroll"]["speed_multiplier"], 1)
+        self.assertEqual(free["minecraft:home"], {
+            "restriction_radius": 16, "restriction_type": "random_movement",
+        })
+        self.assertNotIn("minecraft:teleport", free)
+        self.assertNotIn("minecraft:behavior.random_teleport", free)
+        self.assertEqual(self.entity["components"]["minecraft:movement"], {"value": 0.12})
+        self.assertEqual(returning["minecraft:behavior.go_home"]["speed_multiplier"], 1)
+        self.assertEqual(self.entity["events"]["ichiyon:avatar_roam"]["add"]["component_groups"], ["ichiyon:avatar_free"])
+        self.assertEqual(self.entity["events"]["ichiyon:avatar_calm"]["remove"]["component_groups"], [
+            "ichiyon:avatar_free", "ichiyon:avatar_return",
+        ])
+        for name in ("ichiyon:kiana", "ichiyon:cosmetic_1"):
+            self.assertNotIn("ichiyon:avatar_free", self.entity["events"][name]["remove"]["component_groups"])
+
     def test_creative_proxies_transform_to_shared_entity(self):
         for index, skin in enumerate(SKINS):
             proxy = read_json(BP / f"entities/avatar_{skin}_placer.json")
@@ -537,7 +562,7 @@ class AvatarChecks(unittest.TestCase):
                 self.assertLessEqual(v + y + z, 64)
 
     def test_pack_versions_and_localized_names(self):
-        for pack, version in ((BP, [1, 0, 44]), (RP, [1, 0, 49])):
+        for pack, version in ((BP, [1, 0, 45]), (RP, [1, 0, 49])):
             manifest = read_json(pack / "manifest.json")
             self.assertEqual(manifest["header"]["version"], version)
             self.assertTrue(all(m["version"] == version for m in manifest["modules"]))

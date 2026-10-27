@@ -12,6 +12,19 @@
           "value": 2
         }
       },
+      "ichiyon:avatar_free": {
+        "minecraft:behavior.random_stroll": {
+          "interval": 20,
+          "priority": 3,
+          "speed_multiplier": 1,
+          "xz_dist": 8,
+          "y_dist": 1
+        },
+        "minecraft:home": {
+          "restriction_radius": 16,
+          "restriction_type": "random_movement"
+        }
+      },
       "ichiyon:avatar_kiana": {
         "minecraft:variant": {
           "value": 0
@@ -24,6 +37,18 @@
       },
       "ichiyon:avatar_remove": {
         "minecraft:instant_despawn": {}
+      },
+      "ichiyon:avatar_return": {
+        "minecraft:behavior.go_home": {
+          "goal_radius": 2,
+          "interval": 20,
+          "priority": 1,
+          "speed_multiplier": 1
+        },
+        "minecraft:home": {
+          "restriction_radius": 16,
+          "restriction_type": "all_movement"
+        }
       },
       "ichiyon:cosmetic_1": {
         "minecraft:variant": {
@@ -151,6 +176,38 @@
             "ichiyon:cosmetic_2",
             "ichiyon:cosmetic_3",
             "ichiyon:cosmetic_4"
+          ]
+        }
+      },
+      "ichiyon:avatar_calm": {
+        "remove": {
+          "component_groups": [
+            "ichiyon:avatar_free",
+            "ichiyon:avatar_return"
+          ]
+        }
+      },
+      "ichiyon:avatar_return": {
+        "add": {
+          "component_groups": [
+            "ichiyon:avatar_return"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "ichiyon:avatar_free"
+          ]
+        }
+      },
+      "ichiyon:avatar_roam": {
+        "add": {
+          "component_groups": [
+            "ichiyon:avatar_free"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "ichiyon:avatar_return"
           ]
         }
       },
