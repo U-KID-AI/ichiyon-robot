@@ -92,6 +92,28 @@ jobs:
           python scripts/check_minecraft_death_prairie_dog.py
           python scripts/check_taketumi_ai.py
 
+      - name: Verify private input boundaries and Minecraft storage invariants
+        run: |
+          node scripts/check_structure_companions.mjs
+          node scripts/check_narita_glasses.mjs
+          node scripts/check_molcar_record_additions.mjs
+          node scripts/check_minecraft_junket_decisions.mjs
+          node scripts/check_minecraft_junket_safe_warp.mjs
+          node scripts/check_minecraft_junket_recovery.mjs
+          node scripts/check_junket_bank_ui.mjs
+          python scripts/test_structure_companions_overlay.py
+          python scripts/check_narita_glasses.py
+          python scripts/test_molcar_record_import.py
+          python scripts/check_minecraft_junket_bundle.py
+          python scripts/check_minecraft_junket_overlay.py
+          python scripts/check_junket_static_overlay.py StaticOverlayChecks
+          python -m unittest discover -s scripts/minecraft -p test_junket_private_profile.py
+          python scripts/minecraft/test_minecraft_storage.py
+          python scripts/minecraft/test_minecraft_storage_plan.py
+          python scripts/minecraft/test_junket_storage_reuse.py
+          python scripts/minecraft/test_junket_native_release.py
+          python scripts/test_ai_task_junket_native_release.py
+
   python-and-compose:
     # PG16 restore tools are available in Noble; ubuntu-latest can move majors.
     runs-on: ubuntu-24.04
