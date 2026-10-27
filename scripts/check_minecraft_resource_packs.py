@@ -87,15 +87,15 @@ class SplitChecks(unittest.TestCase):
                 {"path": LEGACY.rstrip("/"), "uuid": LEGACY_UUID},
             ])
             junket = {name: archive.read(name) for name in archive.namelist() if name.startswith(JUNKET)}
-            self.assertEqual(len(junket), 103)
-            self.assertEqual(sum(name.endswith(".js") for name in junket), 26)
-            self.assertEqual(sum(name.startswith(JUNKET + "entities/") for name in junket), 44)
-            self.assertEqual(sum(name.startswith(JUNKET + "structures/junket/") for name in junket), 31)
+            self.assertEqual(len(junket), 137)
+            self.assertEqual(sum(name.endswith(".js") for name in junket), 54)
+            self.assertEqual(sum(name.startswith(JUNKET + "entities/") for name in junket), 51)
+            self.assertEqual(sum(name.startswith(JUNKET + "structures/junket/") for name in junket), 30)
             junket_manifest = json.loads(junket[JUNKET + "manifest.json"])
-            self.assertEqual(junket_manifest["header"]["version"], [0, 9, 6])
+            self.assertEqual(junket_manifest["header"]["version"], [0, 9, 27])
             self.assertEqual(junket_manifest["modules"][1]["entry"], "scripts/main.js")
             junket_rp = {name for name in archive.namelist() if name.startswith(JUNKET_RP)}
-            self.assertEqual(len(junket_rp), 67)
+            self.assertEqual(len(junket_rp), 128)
             self.assertTrue(JUNKET_RP + "manifest.json" in junket_rp)
             self.assertTrue(all(f"{JUNKET_RP}textures/entity/junket/{game}.png" in junket_rp
                                 for game in ("sparrow", "temperance", "lucy", "silence", "jinn",

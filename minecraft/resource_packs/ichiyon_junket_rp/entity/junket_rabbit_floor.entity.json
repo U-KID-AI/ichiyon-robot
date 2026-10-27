@@ -1,0 +1,23 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "junket:rabbit_floor",
+      "materials": {
+        "default": "entity_alphatest"
+      },
+      "textures": {
+        "normal": "textures/entity/junket/rabbit_floor_normal",
+        "trap": "textures/entity/junket/rabbit_floor_trap",
+        "guarded": "textures/entity/junket/rabbit_floor_guarded",
+        "falling": "textures/entity/junket/rabbit_floor_falling"
+      },
+      "geometry": {
+        "default": "geometry.junket.rabbit.floor"
+      },
+      "render_controllers": [
+        "controller.render.junket.rabbit_floor"
+      ]
+    }
+  }
+}

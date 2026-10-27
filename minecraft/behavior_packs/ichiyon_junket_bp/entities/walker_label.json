@@ -1,0 +1,56 @@
+{
+  "format_version": "1.21.0",
+  "minecraft:entity": {
+    "description": {
+      "identifier": "junket:walker_label",
+      "is_spawnable": false,
+      "is_summonable": true,
+      "properties": {
+        "junket:frame": {
+          "type": "int",
+          "range": [
+            0,
+            21
+          ],
+          "default": 0,
+          "client_sync": true
+        },
+        "junket:floor": {
+          "type": "int",
+          "range": [
+            1,
+            37
+          ],
+          "default": 1,
+          "client_sync": false
+        }
+      }
+    },
+    "components": {
+      "minecraft:physics": {
+        "has_gravity": false,
+        "has_collision": false
+      },
+      "minecraft:collision_box": {
+        "width": 0.1,
+        "height": 0.1
+      },
+      "minecraft:pushable": {
+        "is_pushable": false,
+        "is_pushable_by_piston": false
+      },
+      "minecraft:damage_sensor": {
+        "triggers": [
+          {
+            "cause": "all",
+            "deals_damage": "no"
+          }
+        ]
+      },
+      "minecraft:persistent": {}
+    },
+    "events": {
+      "junket:touch": {}
+    }
+  }
+}
