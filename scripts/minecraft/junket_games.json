@@ -6,20 +6,93 @@
     "sha256": "613e58fa8ca59b2bcbacf91a100d652350f8d0e922d8aaf65f6646c8eb413ac0",
     "production_world": "ichiyon-creative-flat"
   },
+  "completion_status": {
+    "source_spec": "partial: 原作ZIPの関数・座標・描画実体を抽出済み。ゲーム固有ルールの意味監査は未完了。",
+    "venue_controls": "partial: 専用会場と独自操作物があるが原作会場との一致未検証。placeholder: 共通形状の独自会場で原作再現未完了。",
+    "playthrough": "not_verified: 実機で受付から帰還までの全経路を確認していない。",
+    "production_deployment": "not_verified: 本番反映と再起動後の永続化を確認していない。",
+    "enabled": "技術的な動作確認用の開放状態であり、完成や検証済みを意味しない。"
+  },
   "controls": {
     "dimension": "minecraft:overworld",
     "protected_anchor": {
       "label": "拠点行き",
       "command_block": [10051, 65, 10077],
       "sign": [10051, 65, 10076],
-      "button": [10051, 66, 10077]
+      "button": [10051, 66, 10077],
+      "command": "tp @p -44 75 210",
+      "command_block_type": "minecraft:command_block",
+      "command_block_states": {
+        "facing_direction": 2,
+        "conditional_bit": false
+      },
+      "sign_type": "minecraft:wall_sign",
+      "sign_states": {
+        "facing_direction": 2
+      },
+      "button_type": "minecraft:wooden_button",
+      "button_states": {
+        "facing_direction": 1,
+        "button_pressed_bit": false
+      },
+      "require_nonblank_sign": true
     },
     "row": {
-      "first_command_block": [10053, 65, 10077],
-      "axis": "x",
-      "stride": 2,
-      "sign_offset": [0, 0, -1],
-      "button_offset": [0, 0, 1]
+      "first_command_block": [10048, 65, 10102],
+      "axis": "z",
+      "stride": -2,
+      "sign_offset": [1, 0, 0],
+      "button_offset": [0, 1, 0],
+      "slot_order": "catalog_order_from_corridor_entrance_descending_z"
+    },
+    "command_block_type": "minecraft:command_block",
+    "command_block_states": {
+      "facing_direction": 5,
+      "conditional_bit": false
+    },
+    "sign_type": "minecraft:acacia_wall_sign",
+    "sign_states": {
+      "facing_direction": 5
+    },
+    "button_type": "minecraft:acacia_button",
+    "button_states": {
+      "facing_direction": 1,
+      "button_pressed_bit": false
+    },
+    "misplaced_row_cleanup": {
+      "scan_bounds": [10053, 64, 10076, 10085, 67, 10079],
+      "entity_bounds": [10046, 62, 10068, 10092, 76, 10090],
+      "rules": [
+        {
+          "x": [10053, 10055, 10057, 10059, 10061, 10063, 10065, 10067, 10069, 10071, 10073, 10075, 10077, 10079, 10081, 10083, 10085],
+          "y": 65,
+          "z": 10076,
+          "current_type": "minecraft:oak_sign",
+          "restore_type": "minecraft:air"
+        },
+        {
+          "x": [10053, 10055, 10057, 10059, 10061, 10063, 10065, 10067, 10069, 10071, 10073, 10075, 10077, 10079, 10081, 10083, 10085],
+          "y": 65,
+          "z": 10077,
+          "current_type": "minecraft:command_block",
+          "restore_type": "minecraft:air"
+        },
+        {
+          "x": [10053, 10055, 10057],
+          "y": 65,
+          "z": 10078,
+          "current_type": "minecraft:acacia_button",
+          "restore_type": "minecraft:air"
+        },
+        {
+          "x": [10053, 10055, 10057, 10059, 10061, 10063, 10067, 10069, 10071, 10073, 10075, 10077, 10079, 10081, 10083, 10085],
+          "y": 64,
+          "z": 10077,
+          "current_type": "minecraft:dirt",
+          "restore_type": "minecraft:grass_block"
+        }
+      ],
+      "entity_tags": ["junket:misplaced_warp", "junket:warp_label"]
     },
     "return_point": {
       "location": [10052, 65, 10078],
@@ -36,7 +109,14 @@
       "player_mode": "fixed",
       "source_arrival": [232, 56, 219],
       "rotation": 180,
-      "readiness": "implemented",
+      "enabled": true,
+      "completion": {
+        "source_spec": "partial",
+        "venue_controls": "partial",
+        "playthrough": "not_verified",
+        "production_deployment": "not_verified"
+      },
+      "readiness": "in-progress",
       "readiness_note": "2人対戦ロジック、受付UI、会場0.2.0、帰還NPCを実装済み。会場版の実機確認待ち。"
     },
     {
@@ -48,7 +128,14 @@
       "player_mode": "fixed",
       "source_arrival": [94, 101, 241],
       "rotation": 0,
-      "readiness": "implemented",
+      "enabled": true,
+      "completion": {
+        "source_spec": "partial",
+        "venue_controls": "partial",
+        "playthrough": "not_verified",
+        "production_deployment": "not_verified"
+      },
+      "readiness": "in-progress",
       "readiness_note": "状態機械、受付UI、会場変換、回帰試験を実装済み。2人実機完走待ち。"
     },
     {
@@ -60,7 +147,14 @@
       "player_mode": "fixed",
       "source_arrival": [206, 56, 211],
       "rotation": 90,
-      "readiness": "implemented",
+      "enabled": true,
+      "completion": {
+        "source_spec": "partial",
+        "venue_controls": "partial",
+        "playthrough": "not_verified",
+        "production_deployment": "not_verified"
+      },
+      "readiness": "in-progress",
       "readiness_note": "5面金庫ロジック、受付UI、会場・モデル変換を実装済み。2人実機完走待ち。"
     },
     {
@@ -72,7 +166,14 @@
       "player_mode": "fixed",
       "source_arrival": [91, 56, 302],
       "rotation": 180,
-      "readiness": "implemented",
+      "enabled": true,
+      "completion": {
+        "source_spec": "partial",
+        "venue_controls": "partial",
+        "playthrough": "not_verified",
+        "production_deployment": "not_verified"
+      },
+      "readiness": "in-progress",
       "readiness_note": "ジャケット配置、レコード再生、耳栓、HP・共有時間切れ、会場・モデル・UIを実装済み。2人実機完走待ち。"
     },
     {
@@ -84,7 +185,14 @@
       "player_mode": "fixed",
       "source_arrival": [94, 135, 244],
       "rotation": 0,
-      "readiness": "implemented",
+      "enabled": true,
+      "completion": {
+        "source_spec": "partial",
+        "venue_controls": "partial",
+        "playthrough": "not_verified",
+        "production_deployment": "not_verified"
+      },
+      "readiness": "in-progress",
       "readiness_note": "9通りカード行列、3セット各6ラウンド、精算・空腹・降参、会場・モデル・UIを実装済み。2人実機完走待ち。"
     },
     {
@@ -96,7 +204,14 @@
       "player_mode": "fixed",
       "source_arrival": [145, 56, 281],
       "rotation": 0,
-      "readiness": "implemented",
+      "enabled": true,
+      "completion": {
+        "source_spec": "partial",
+        "venue_controls": "placeholder",
+        "playthrough": "not_verified",
+        "production_deployment": "not_verified"
+      },
+      "readiness": "in-progress",
       "readiness_note": "4人ベット・役判定・精算ロジックと共通UI・受付・ワープ導線を実装済み。実機完走待ち。"
     },
     {
@@ -108,7 +223,14 @@
       "player_mode": "fixed",
       "source_arrival": [94, 78, 238],
       "rotation": 0,
-      "readiness": "implemented",
+      "enabled": true,
+      "completion": {
+        "source_spec": "partial",
+        "venue_controls": "placeholder",
+        "playthrough": "not_verified",
+        "production_deployment": "not_verified"
+      },
+      "readiness": "in-progress",
       "readiness_note": "10ラウンドの聖杯・ポーション秘匿配置、毒・聖水・体力判定と共通UIを実装済み。実機完走待ち。"
     },
     {
@@ -120,8 +242,15 @@
       "player_mode": "registration",
       "source_arrival": [115, 56, 295],
       "rotation": 180,
-      "readiness": "implemented",
-      "readiness_note": "原作に固定人数がないためBedrock実装上限を16人とし、先着登録、15秒開始、10ラウンドの床選択・脱落・生存判定と共通UIを実装済み。実機完走待ち。"
+      "enabled": true,
+      "completion": {
+        "source_spec": "partial",
+        "venue_controls": "partial",
+        "playthrough": "not_verified",
+        "production_deployment": "not_verified"
+      },
+      "readiness": "in-progress",
+      "readiness_note": "原作hope関数の16床・5図柄・1〜10ラウンドの危険/安全配置・先着15秒開始・立位置判定・原作tick順をローカル実装。会場は原作建築ではなく独自の3×3物理床で、実クライアント完走と本番配備は未確認。"
     },
     {
       "id": "auction",
@@ -132,7 +261,14 @@
       "player_mode": "fixed",
       "source_arrival": [94, 56, 236],
       "rotation": 0,
-      "readiness": "implemented",
+      "enabled": true,
+      "completion": {
+        "source_spec": "partial",
+        "venue_controls": "placeholder",
+        "playthrough": "not_verified",
+        "production_deployment": "not_verified"
+      },
+      "readiness": "in-progress",
       "readiness_note": "4人2チーム、札の同時公開、支払い・ダイヤ・脱落判定と共通UIを実装済み。実機完走待ち。"
     },
     {
@@ -144,8 +280,15 @@
       "player_mode": "fixed",
       "source_arrival": [156, 56, 227],
       "rotation": 0,
-      "readiness": "implemented",
-      "readiness_note": "グー・パー・チョキ、3勝制、室温・体力・時間切れ判定と共通UIを実装済み。実機完走待ち。"
+      "enabled": true,
+      "completion": {
+        "source_spec": "partial",
+        "venue_controls": "partial",
+        "playthrough": "not_verified",
+        "production_deployment": "not_verified"
+      },
+      "readiness": "in-progress",
+      "readiness_note": "原作の4シリーズ×6枚、温度・風・ガラス破損、待機・焼却、粛清・時間切れを状態機械へ反映し、12枚の物理カード、2席、受付、TV・ガラス・執行表示、帰還NPCを接続済み。会場は原作建築を複製しない独自代替で、原作の全演出との照合、実機完走、本番配備は未検証。"
     },
     {
       "id": "pig",
@@ -156,8 +299,15 @@
       "player_mode": "fixed",
       "source_arrival": [94, 158, 244],
       "rotation": 0,
-      "readiness": "implemented",
-      "readiness_note": "4人カード争奪、子豚移動、宮殿勝敗と共通UIを実装済み。実機完走待ち。"
+      "enabled": true,
+      "completion": {
+        "source_spec": "partial",
+        "venue_controls": "partial",
+        "playthrough": "not_verified",
+        "production_deployment": "not_verified"
+      },
+      "readiness": "in-progress",
+      "readiness_note": "原作の4人固定席、秘匿カード選択、手番ホストの時計回り襲撃、襲撃順・全員オオカミ時の流局、家の損傷・労働・宮殿・酸素を状態機械へ反映。16枚の物理カード、12か所の襲撃先、6つの状態表示、受付・帰還を独自会場へ接続済み。会場は原作建築の複製ではなく、原作会場・処刑・音・粒子との照合、実機完走、本番配備は未検証。"
     },
     {
       "id": "light",
@@ -168,7 +318,14 @@
       "player_mode": "fixed",
       "source_arrival": [94, 190, 244],
       "rotation": 0,
-      "readiness": "implemented",
+      "enabled": true,
+      "completion": {
+        "source_spec": "partial",
+        "venue_controls": "placeholder",
+        "playthrough": "not_verified",
+        "production_deployment": "not_verified"
+      },
+      "readiness": "in-progress",
       "readiness_note": "門番・死者の秘匿配置、ハート・松明・酸欠判定と共通UIを実装済み。実機完走待ち。"
     },
     {
@@ -180,7 +337,14 @@
       "player_mode": "fixed",
       "source_arrival": [252, 56, 260],
       "rotation": 180,
-      "readiness": "implemented",
+      "enabled": true,
+      "completion": {
+        "source_spec": "partial",
+        "venue_controls": "placeholder",
+        "playthrough": "not_verified",
+        "production_deployment": "not_verified"
+      },
+      "readiness": "in-progress",
       "readiness_note": "20ラウンドの岩配置・採掘・猛毒・インゴット判定と共通UIを実装済み。実機完走待ち。"
     },
     {
@@ -192,8 +356,15 @@
       "player_mode": "fixed",
       "source_arrival": [255, 285, 314],
       "rotation": 0,
-      "readiness": "implemented",
-      "readiness_note": "8ラウンドの時刻秘匿、短針・長針攻撃、落下判定と共通UIを実装済み。実機完走待ち。"
+      "enabled": true,
+      "completion": {
+        "source_spec": "partial",
+        "venue_controls": "partial",
+        "playthrough": "not_verified",
+        "production_deployment": "not_verified"
+      },
+      "readiness": "in-progress",
+      "readiness_note": "原作ZIPを再照合し、旧HP・8ラウンド・短針/長針直接攻撃を撤去。2人固定、時/分配置、$roundに応じた区画確定、CW/CCWカーソル、12区画の物理水床、水中落下・同時引き分け・時間切れ・再起動復元をローカル実装・回帰確認済み。針接触効果とワッホイ巡回、実機完走、本番配備は未完了。"
     },
     {
       "id": "walker",
@@ -204,8 +375,15 @@
       "player_mode": "fixed",
       "source_arrival": [328, 285, 313.5],
       "rotation": 0,
-      "readiness": "implemented",
-      "readiness_note": "36マスのウォーカー移動、ブレイカー爆弾、生存判定と共通UIを実装済み。実機完走待ち。"
+      "enabled": true,
+      "completion": {
+        "source_spec": "partial",
+        "venue_controls": "placeholder",
+        "playthrough": "not_verified",
+        "production_deployment": "not_verified"
+      },
+      "readiness": "in-progress",
+      "readiness_note": "37マスのウォーカー移動、ブレイカー爆弾、生存判定と共通UIを実装済み。原作会場・操作物との照合と実機完走待ち。"
     },
     {
       "id": "garden",
@@ -216,8 +394,15 @@
       "player_mode": "fixed",
       "source_arrival": [253, 88, 362],
       "rotation": 180,
-      "readiness": "implemented",
-      "readiness_note": "切替・宝石倍化・開放、宝石負荷・落下判定と共通UIを実装済み。実機完走待ち。"
+      "enabled": true,
+      "completion": {
+        "source_spec": "partial",
+        "venue_controls": "placeholder",
+        "playthrough": "not_verified",
+        "production_deployment": "not_verified"
+      },
+      "readiness": "in-progress",
+      "readiness_note": "原作garden関数を再照合。タイムアウト/100個成立から1秒後にdrop処理、さらに40 tick後に床開放、着地後に5秒で終了。床は本人の3x3区画だけを物理開放し、同時着地は原作の1P優先判定。開始弁2P、片面2倍/両面4倍、装置実数の放出、箱ちょうど100個の5秒保持を実装。独自会場は2つの宝石箱・装置・弁・5操作物・4表示を接続。実機完走と本番配備は未確認。"
     },
     {
       "id": "rabbit",
@@ -228,7 +413,14 @@
       "player_mode": "fixed",
       "source_arrival": [399, 285, 313.5],
       "rotation": 0,
-      "readiness": "implemented",
+      "enabled": true,
+      "completion": {
+        "source_spec": "partial",
+        "venue_controls": "placeholder",
+        "playthrough": "not_verified",
+        "production_deployment": "not_verified"
+      },
+      "readiness": "in-progress",
       "readiness_note": "オニの罠、脱出側の移動、仲間・ゴール・時間切れ判定と共通UIを実装済み。実機完走待ち。"
     }
   ]
