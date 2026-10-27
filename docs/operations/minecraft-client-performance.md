@@ -78,7 +78,8 @@ PBR remains enabled throughout; no PBR restoration is necessary.
 ## Deployment boundary and observed baseline
 
 **This PR does not deploy or restart production.** Before applying it, update the
-standalone Control API's `minecraft_cosmetics_apply.py` from this release and
+standalone Control API's `minecraft_cosmetics_apply.py` together with `minecraft_storage.py`,
+`minecraft_junket_overlay.py` and `junket_static_overlay.py` from this release and
 reload that service through its normal controlled deployment. It must recognize
 Big's exact retirement UUID. An older service rejects the archive during staging
 before stopping BDS; do not bypass that rejection or manually remove world refs.

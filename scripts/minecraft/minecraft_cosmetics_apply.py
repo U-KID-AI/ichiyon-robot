@@ -3,7 +3,7 @@
 Only the admin application's compiler sends archives here. No client selects a
 host, command, destination, world or service. Files are staged before shutdown.
 """
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path, PurePosixPath
@@ -16,6 +16,12 @@ import stat
 import threading
 import uuid
 from zipfile import ZipFile, BadZipFile
+if __package__:
+    from .minecraft_storage import (snapshot_paths, validate_snapshot, restore_snapshot, snapshot_recovery,
+                                   check_capacity, StorageReceipt, write_receipt)
+else:
+    from minecraft_storage import (snapshot_paths, validate_snapshot, restore_snapshot, snapshot_recovery,
+                                   check_capacity, StorageReceipt, write_receipt)
 
 # Authenticated managed archives only; mirrored by minecraft_resource_packs.py.
 MAX_ARCHIVE = 192 * 1024 * 1024
@@ -100,6 +106,12 @@ def read_json(path):
     return json.loads(path.read_text(encoding='utf-8-sig'))
 
 
+def snapshot_checksum(manifest):
+    """Bind a validated CAS manifest to the specific committed recovery point."""
+    return hashlib.sha256(json.dumps(manifest, sort_keys=True, ensure_ascii=False,
+                                     separators=(',', ':')).encode('utf-8')).hexdigest()
+
+
 def valid_uuid(value):
     if not isinstance(value, str) or str(uuid.UUID(value)) != value:
         raise ValueError('invalid pack UUID')
@@ -151,7 +163,9 @@ def content_hash(directory):
     """Pack versions and UUID dependency versions do not change pack content."""
     check_tree(directory)
     digest = hashlib.sha256()
-    for path in sorted(p for p in directory.rglob('*') if p.is_file()):
+    # Canonical POSIX order also on Windows (Path sorting there case-folds).
+    for path in sorted((p for p in directory.rglob('*') if p.is_file()),
+                       key=lambda p: p.relative_to(directory).as_posix()):
         relative = path.relative_to(directory).as_posix()
         data = path.read_bytes()
         if relative == 'manifest.json':
@@ -217,7 +231,25 @@ def prepare_manifests(stage, live):
     return proof, packs
 
 
-def unpack(data, destination, live):
+def pinned_native_overlay(project, stage=None):
+    """Optional fixed-target migration hook; a recorded pin must never be ignored."""
+    if project is None:
+        return None
+    marker = safe_path(project, 'junket-native-overlay.json')
+    latest = safe_path(project, 'junket-world-applications/latest.json')
+    if not marker.exists() and not latest.exists():
+        return None
+    try:
+        if __package__:
+            from .minecraft_junket_overlay import preserve_overlay
+        else:
+            from minecraft_junket_overlay import preserve_overlay
+    except ImportError as exc:
+        raise RuntimeError('Pinned JUNKET migration helper is unavailable; refusing pack replacement') from exc
+    return preserve_overlay(project, stage)
+
+
+def unpack(data, destination, live, project=None):
     """Accept bytes or a seekable upload; reject links, bombs and foreign packs."""
     if isinstance(data, bytes):
         if len(data) > MAX_ARCHIVE:
@@ -262,6 +294,7 @@ def unpack(data, destination, live):
         registry = json.loads((destination / 'cosmetics/catalog.lock.json').read_text(encoding='utf-8'))
         if registry['digest'] != digest or digest not in (destination / CATALOG).read_text(encoding='utf-8'):
             raise ValueError('catalog mismatch')
+        pinned_native_overlay(project, destination)
         prepare_manifests(destination, live)
         return digest
     except (BadZipFile, KeyError, TypeError, AttributeError, OSError, UnicodeError, json.JSONDecodeError) as exc:
@@ -274,6 +307,8 @@ class PackApplications:
         self.root = api.PROJECT_DIR / 'cosmetics-applications'
         self.guard = threading.Lock()
         self.thread = None
+        self._storage_receipts = {}
+        self._install_stats = {}
 
     def _read(self, name, default=None):
         path = self.root / name
@@ -300,14 +335,17 @@ class PackApplications:
                 return self.status()
             if previous.get('status') not in (*TERMINAL, None) or (self.thread and self.thread.is_alive()):
                 raise RuntimeError('application already active')
+            pinned_native_overlay(self.api.PROJECT_DIR)
             directory = safe_path(self.root, operation_id)
             if directory.exists():
                 raise ValueError('operation ID already used')
+            capacity = check_capacity(self.api.PROJECT_DIR, purpose='deployment')
             directory.mkdir(parents=True, mode=0o700)
+            receipt = StorageReceipt(directory, operation_id, purpose='deployment')
             stage = directory / 'stage'
             stage.mkdir()
             try:
-                digest = unpack(data, stage, self.api.DATA_DIR)
+                digest = unpack(data, stage, self.api.DATA_DIR, self.api.PROJECT_DIR)
                 for relative in self._paths(directory):
                     check_tree(safe_path(self.api.DATA_DIR, relative))
                 safe_path(self.root, 'active.json')
@@ -315,6 +353,9 @@ class PackApplications:
                 shutil.rmtree(directory)
                 raise
             job = {'operation_id': operation_id, 'catalog_digest': digest, 'status': 'queued', 'started_at': now(), 'message': '反映の準備中です。'}
+            job['storage_capacity'] = capacity
+            job['storage_before'] = receipt.before
+            self._storage_receipts[operation_id] = receipt
             self._save(job)
             self.thread = threading.Thread(target=self._run, args=(job,), daemon=True)
             self.thread.start()
@@ -361,74 +402,172 @@ class PackApplications:
         backup.mkdir()
         missing = []
         paths = self._paths(directory)
+        present = []
         for relative in paths:
             source = safe_path(self.api.DATA_DIR, relative)
             if not source.exists():
                 missing.append(relative)
                 continue
             check_tree(source)
-            target = backup / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            if source.is_dir():
-                shutil.copytree(source, target)
-            else:
-                shutil.copy2(source, target)
+            present.append(relative)
+        snapshot = snapshot_paths(self.api.DATA_DIR, present,
+                                  backup / 'storage-snapshot.json', self._storage_root())
+        # Publication of the store and manifest precedes the recovery marker.
+        # Repeated pack bytes live once in the private store, never as links to DATA_DIR.
+        manifest = validate_snapshot(backup / 'storage-snapshot.json', self._storage_root())
+        if (set(manifest['paths']) != set(present)
+                or snapshot_checksum(manifest) != snapshot['snapshot_sha256']):
+            raise ValueError('snapshot inventory differs from backup')
         active = safe_path(self.root, 'active.json')
         if active.exists():
             shutil.copy2(active, backup / 'active.json')
-        atomic_json(backup / 'state.json', {'paths': paths, 'active_exists': active.exists()})
+        atomic_json(backup / 'state.json', {'paths': paths, 'active_exists': active.exists(),
+                                          'active_sha256': hashlib.sha256((backup / 'active.json').read_bytes()).hexdigest() if active.exists() else None,
+                                          'storage_format': 'minecraft-cas-v1',
+                                          'storage_snapshot': snapshot})
         # This marker is last: an interrupted backup must never be restored.
         atomic_json(backup / 'missing.json', missing)
 
-    def _restore(self, directory):
-        backup = directory / 'original'
-        missing = json.loads((backup / 'missing.json').read_text(encoding='utf-8'))
+    def _storage_root(self):
+        return self.api.PROJECT_DIR / '.minecraft-storage'
+
+    def _backup_inventory(self, directory):
+        backup = safe_path(directory, 'original')
+        missing = read_json(backup / 'missing.json')
         state = read_json(backup / 'state.json') if (backup / 'state.json').exists() else None
-        # Recovery uses the committed backup inventory, even if staging is lost.
         paths = state['paths'] if state else self._paths(directory)
         fixed = (*self._reference_paths(), JUNKET_PERMISSIONS)
-        if not isinstance(paths, (list, tuple)) or len(set(paths)) != len(paths) or not set(missing) <= set(paths):
+        if (not isinstance(paths, (list, tuple)) or not isinstance(missing, list)
+                or any(not isinstance(p, str) for p in (*paths, *missing))
+                or len(set(paths)) != len(paths) or len(set(missing)) != len(missing)
+                or not set(missing) <= set(paths)):
             raise ValueError('invalid backup inventory')
         for relative in paths:
             if relative not in fixed and pack_path(relative) != relative:
                 raise ValueError('invalid backup path')
             safe_path(self.api.DATA_DIR, relative)
-            source = safe_path(backup, relative)
-            check_tree(source)
-            if relative not in missing and not source.exists():
-                raise ValueError('incomplete backup')
-        for relative in paths:
-            target = safe_path(self.api.DATA_DIR, relative)
-            check_tree(target)
-            if target.is_dir():
-                shutil.rmtree(target)
-            elif target.exists():
-                target.unlink()
-            if relative not in missing:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                source = backup / relative
-                if source.is_dir():
-                    shutil.copytree(source, target)
-                else:
-                    shutil.copy2(source, target)
+        snapshot = None
+        if state and state.get('storage_format'):
+            if state['storage_format'] != 'minecraft-cas-v1':
+                raise ValueError('unsupported backup storage')
+            snapshot = validate_snapshot(backup / 'storage-snapshot.json', self._storage_root())
+            saved = state.get('storage_snapshot')
+            if (not isinstance(saved, dict)
+                    or saved.get('snapshot_sha256') != snapshot_checksum(snapshot)):
+                raise ValueError('snapshot does not match the committed recovery point')
+            if set(snapshot['paths']) != set(paths) - set(missing):
+                raise ValueError('snapshot inventory differs from backup')
+        else:
+            for relative in paths:
+                source = safe_path(backup, relative)
+                check_tree(source)
+                if relative not in missing and not (source.is_file() or source.is_dir()):
+                    raise ValueError('incomplete backup')
+        # Validate the saved pointer before changing any live pack.
         if state is not None:
-            active = safe_path(self.root, 'active.json')
+            if type(state.get('active_exists')) is not bool:
+                raise ValueError('invalid saved active state')
+            active = safe_path(backup, 'active.json')
             if state['active_exists']:
-                shutil.copy2(backup / 'active.json', active)
-            elif active.exists():
-                active.unlink()
+                if not active.is_file() or not isinstance(read_json(active), dict):
+                    raise ValueError('incomplete saved active state')
+                if snapshot is not None and hashlib.sha256(active.read_bytes()).hexdigest() != state.get('active_sha256'):
+                    raise ValueError('saved active state checksum mismatch')
+        return backup, state, paths, missing, snapshot
+
+    def backup_source(self, directory, relative):
+        """Read a legacy backup or materialize one CAS subtree for rare rollback tools."""
+        backup, _, paths, missing, snapshot = self._backup_inventory(directory)
+        if relative not in paths or relative in missing:
+            raise ValueError('backup path is absent')
+        if snapshot is None:
+            return safe_path(backup, relative)
+        destination = safe_path(backup, '.restore-materialized')
+        target = safe_path(destination, relative)
+        if target.exists():
+            # Never silently overwrite a previous recovery tool's unique work.
+            expected = {entry['path']: entry for entry in snapshot['entries']
+                        if entry['path'] == relative or entry['path'].startswith(relative + '/')}
+            check_tree(target)
+            actual = {p.relative_to(destination).as_posix(): p
+                      for p in (target, *target.rglob('*'))}
+            if set(actual) != set(expected):
+                raise ValueError('materialized backup changed')
+            for name, path in actual.items():
+                entry = expected[name]
+                if stat.S_IMODE(path.stat().st_mode) != entry['mode']:
+                    raise ValueError('materialized backup changed')
+                if entry['kind'] == 'file':
+                    if (not path.is_file() or path.stat().st_size != entry['size']
+                            or hashlib.sha256(path.read_bytes()).hexdigest() != entry['sha256']):
+                        raise ValueError('materialized backup changed')
+                elif not path.is_dir():
+                    raise ValueError('materialized backup changed')
+        else:
+            restore_snapshot(backup / 'storage-snapshot.json', self._storage_root(),
+                             destination, paths=[relative], writable=False)
+        return target
+
+    def _before_restore(self, directory):
+        """Subclass recovery mutations run only after the snapshot lock is held."""
+
+    def _restore(self, directory):
+        backup, state, paths, missing, snapshot = self._backup_inventory(directory)
+        # Reacquire and revalidate before any live removal, then retain that lock.
+        # Other CAS readers/writers cannot make rollback fail halfway with busy.
+        recovery = (snapshot_recovery(backup / 'storage-snapshot.json', self._storage_root(),
+                                      expected_checksum=snapshot_checksum(snapshot))
+                    if snapshot is not None else nullcontext(None))
+        with recovery as restore:
+            # Recovery uses the committed backup inventory, even if staging is lost.
+            for relative in paths:
+                target = safe_path(self.api.DATA_DIR, relative)
+                check_tree(target)
+                if target.exists() and not (target.is_file() or target.is_dir()):
+                    raise ValueError('invalid recovery destination')
+            self._before_restore(directory)
+            for relative in paths:
+                target = safe_path(self.api.DATA_DIR, relative)
+                check_tree(target)
+                if target.is_dir():
+                    shutil.rmtree(target)
+                elif target.exists():
+                    target.unlink()
+                if relative not in missing:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    if snapshot is None:
+                        source = backup / relative
+                        if source.is_dir():
+                            shutil.copytree(source, target)
+                        else:
+                            shutil.copy2(source, target)
+            if snapshot is not None:
+                restore(self.api.DATA_DIR, paths=[p for p in paths if p not in missing], writable=False)
+            if state is not None:
+                active = safe_path(self.root, 'active.json')
+                if state['active_exists']:
+                    shutil.copy2(backup / 'active.json', active)
+                elif active.exists():
+                    active.unlink()
 
     def _install(self, directory):
         stage = directory / 'stage'
         _, packs, retired = pack_layout(stage)
+        reused = []
         for pack in packs:
             target = safe_path(self.api.DATA_DIR, pack)
             check_tree(target)
+            if self._same_pack_bytes(stage / pack, target):
+                reused.append(pack)
+                continue
             if target.exists():
                 shutil.rmtree(target)
             shutil.copytree(stage / pack, target)
-        # Reference changes (especially retirement) follow full byte verification.
-        self._verify(stage, packs)
+        self._install_stats[directory.name] = {'unchanged_live_packs': reused,
+                                              'copied_live_packs': [p for p in packs if p not in reused]}
+        # Reused packs were already byte/mode checked above. Verify new copies
+        # before reference changes without reading the unchanged assets twice.
+        self._verify(stage, [pack for pack in packs if pack not in reused])
         for kind in ('behavior', 'resource'):
             reference_path = safe_path(self.api.DATA_DIR, f'worlds/{self.api.WORLD_NAME}/world_{kind}_packs.json')
             refs = read_json(reference_path) if reference_path.exists() else []
@@ -459,6 +598,30 @@ class PackApplications:
                     allowed.append(module)
             atomic_json(permission_path, permission)
 
+    @staticmethod
+    def _same_pack_bytes(source, target):
+        """Raw bytes/modes, including manifest versions; canonical catalog IDs are insufficient."""
+        if not source.is_dir() or not target.is_dir():
+            return False
+        if stat.S_IMODE(source.stat().st_mode) != stat.S_IMODE(target.stat().st_mode):
+            return False
+        check_tree(source)
+        check_tree(target)
+        expected = {p.relative_to(source).as_posix(): p for p in source.rglob('*')}
+        actual = {p.relative_to(target).as_posix(): p for p in target.rglob('*')}
+        if set(expected) != set(actual):
+            return False
+        for name, original in expected.items():
+            installed = actual[name]
+            if original.is_dir() != installed.is_dir():
+                return False
+            if stat.S_IMODE(original.stat().st_mode) != stat.S_IMODE(installed.stat().st_mode):
+                return False
+            if original.is_file() and (original.stat().st_size != installed.stat().st_size
+                                       or original.read_bytes() != installed.read_bytes()):
+                return False
+        return True
+
     def _verify(self, stage, packs):
         for pack in packs:
             target = safe_path(self.api.DATA_DIR, pack)
@@ -473,10 +636,22 @@ class PackApplications:
 
     def _run(self, job, recovering=False):
         directory = self.root / job['operation_id']
+        receipt = self._storage_receipts.pop(job['operation_id'], None)
+        if receipt is None:
+            receipt = StorageReceipt(directory, job['operation_id'],
+                                     purpose='recovery' if recovering else 'deployment',
+                                     before=job.get('storage_before'))
         with deployment_lock():
             try:
+                self._save(job, storage_capacity=check_capacity(self.api.PROJECT_DIR,
+                           purpose='recovery' if recovering else 'deployment'))
                 if recovering:
                     raise RuntimeError('interrupted application')
+                # A native migration may have completed between submit and this
+                # deployment lock. Reapply the current pin before backup/install.
+                if (self.root == self.api.PROJECT_DIR / 'cosmetics-applications' and
+                        pinned_native_overlay(self.api.PROJECT_DIR, directory / 'stage')):
+                    prepare_manifests(directory / 'stage', self.api.DATA_DIR)
                 state = self.api.status_payload()['container']
                 if state.get('state') != 'running' or state.get('health') != 'healthy':
                     raise ValueError('server not healthy before apply')
@@ -505,3 +680,25 @@ class PackApplications:
                     self._save(job, status='failed', completed_at=now(), message='反映できなかったため元の状態を維持・復元しました。もう一度反映してください。')
                 except Exception:
                     self._save(job, status='recovery_failed', completed_at=now(), message='サーバーの復旧確認に失敗しました。バックアップは保持しています。')
+            finally:
+                # Accounting must not turn a healthy deployment into another restart.
+                try:
+                    original = directory / 'original'
+                    state = read_json(original / 'state.json') if (original / 'state.json').exists() else {}
+                    saved = state.get('storage_snapshot', {})
+                    recovery = [str(original)] if (original / 'missing.json').exists() else []
+                    if state.get('storage_format') == 'minecraft-cas-v1':
+                        recovery.append(str(self._storage_root()))
+                    report = receipt.finish(
+                        retained_environments=[str(directory)], recovery_sources=recovery,
+                        operation_status=job['status'],
+                        baseline_scope='before-stage' if job.get('storage_before') else 'run-start',
+                        new_blob_bytes=saved.get('new_blob_bytes'),
+                        new_blob_allocated_bytes=saved.get('new_blob_allocated_bytes'),
+                        reused_blob_bytes=saved.get('reused_blob_bytes'),
+                        cas_accounting='committed_snapshot_only_uncommitted_blobs_not_measured',
+                        live_pack_copy=self._install_stats.pop(directory.name, {}))
+                    write_receipt(directory / 'storage-receipt.json', report)
+                    self._save(job, storage_receipt='storage-receipt.json')
+                except Exception as error:
+                    self._save(job, storage_receipt_error=type(error).__name__)
