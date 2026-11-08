@@ -41,6 +41,7 @@ class Persona:
         self.index = collections.defaultdict(set)
         self.intents = collections.defaultdict(list)
         seen = set()
+        total_chars = len(self.guide)
         for row in rows:
             if str(row.get("author_id", PERSON_ID)) != PERSON_ID:
                 raise ValueError("example author mismatch")
@@ -50,6 +51,9 @@ class Persona:
             if (context, reply) in seen:
                 continue
             seen.add((context, reply))
+            total_chars += len(context) + len(reply)
+            if total_chars > 200000:
+                raise ValueError("persona corpus exceeds 200000 characters")
             # Commands, URL-only messages and copied quotations are poor style examples.
             if reply.startswith(("!", "/", ">")) or re.fullmatch(r"https?://\S+", reply):
                 continue

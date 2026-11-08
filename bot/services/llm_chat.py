@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import math
 import os
 import re
 import time
@@ -174,6 +175,13 @@ async def conversation(message, settings, own_id):
     return [message_record(item, own_id) for item in rows[-settings.history_size:]], referenced
 
 
+async def measure_loop_lag(samples):
+    while True:
+        started = time.monotonic()
+        await asyncio.sleep(0.25)
+        samples[0] = max(samples[0], time.monotonic() - started - 0.25)
+
+
 class Chat:
     def __init__(self):
         self.settings = Settings()
@@ -267,7 +275,13 @@ class Chat:
                 prompt = json.dumps({"guide": persona.guide, "examples": examples,
                                      "conversation": history, "referenced_message": reference,
                                      "respond_to": str(message.id), "maximum_reply_characters": settings.reply_chars}, ensure_ascii=False)
-                text, usage, elapsed = await asyncio.wait_for(generate(settings, prompt, message.id), timeout=settings.timeout * 2 + 5)
+                lag = [0.0]
+                monitor = asyncio.create_task(measure_loop_lag(lag))
+                try:
+                    text, usage, elapsed = await asyncio.wait_for(generate(settings, prompt, message.id), timeout=settings.timeout * 2 + 5)
+                finally:
+                    monitor.cancel()
+                    await asyncio.gather(monitor, return_exceptions=True)
                 current = await self.reload(force=True)
                 if not current.enabled or current.channel_id != settings.channel_id:
                     await finish(message.id, "disabled")
@@ -275,9 +289,10 @@ class Chat:
                 # A failed/ambiguous send is never retried automatically.
                 reply = await message.reply(text, mention_author=False, allowed_mentions=discord.AllowedMentions.none())
                 await finish(message.id, "sent", reply_id=reply.id, usage=usage, elapsed=elapsed)
-                LOG.info("LLM model=%s latency_ms=%s input_tokens=%s output_tokens=%s examples=%s gateway_latency_ms=%s",
+                LOG.info("LLM model=%s latency_ms=%s input_tokens=%s output_tokens=%s examples=%s gateway_latency_ms=%s loop_lag_ms=%s",
                          settings.model, int(elapsed * 1000), usage.get("promptTokenCount", 0),
-                         usage.get("candidatesTokenCount", 0), len(examples), int(bot.latency * 1000))
+                         usage.get("candidatesTokenCount", 0), len(examples),
+                         int(bot.latency * 1000) if math.isfinite(bot.latency) else None, int(lag[0] * 1000))
         except Exception:
             await finish(message.id, "failed")
             raise
