@@ -149,6 +149,9 @@ async def dispatch_message(message: discord.Message, router: MessageRouter) -> b
     if message.author.bot:
         print("[DEBUG] ignored bot message")
         return True
+    from bot.services.llm_chat import chat
+    if await chat.handle(message):
+        return True
     command_text = messages.get_mention_command_text(message)
     _action, _argument, is_ai_command = parse_ai_command(command_text)
     debug_content = "<AI command redacted>" if is_ai_command else message.content
