@@ -1,10 +1,10 @@
 name: llm-chat
 on:
   pull_request:
-    paths: ['bot/services/llm_*.py', 'bot/message_routing.py', 'scripts/check_llm_chat.py', 'migrations/071_add_llm_requests.sql', '.github/workflows/llm.yml']
+    paths: ['bot/services/llm_*.py', 'bot/message_routing.py', 'scripts/check_llm_chat.py', 'migrations/072_add_llm_requests.sql', '.github/workflows/llm.yml']
   push:
     branches: [main]
-    paths: ['bot/services/llm_*.py', 'bot/message_routing.py', 'scripts/check_llm_chat.py', 'migrations/071_add_llm_requests.sql', '.github/workflows/llm.yml']
+    paths: ['bot/services/llm_*.py', 'bot/message_routing.py', 'scripts/check_llm_chat.py', 'migrations/072_add_llm_requests.sql', '.github/workflows/llm.yml']
 jobs:
   llm:
     runs-on: ubuntu-latest

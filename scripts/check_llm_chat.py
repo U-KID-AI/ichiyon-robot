@@ -127,7 +127,7 @@ class DatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(url.endswith("/llm_test"))
         with patch.dict(os.environ, DATABASE_URL=url):
             async with await llm.database() as conn:
-                await conn.execute((Path(__file__).resolve().parent.parent / "migrations/071_add_llm_requests.sql").read_text())
+                await conn.execute((Path(__file__).resolve().parent.parent / "migrations/072_add_llm_requests.sql").read_text())
                 await conn.execute("TRUNCATE llm_requests")
             settings = llm.Settings(requests_per_minute=2, requests_per_day=2)
             claims = await asyncio.gather(*(llm.claim(1, settings) for _ in range(5)))
