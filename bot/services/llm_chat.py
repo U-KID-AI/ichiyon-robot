@@ -17,7 +17,7 @@ from bot import config
 from bot.db import require_database_url
 from bot.services.llm_persona import Persona
 
-LOG = logging.getLogger(__name__)
+LOG = logging.getLogger("discord.ichiyon.llm")
 CONFIG_PATH = Path(os.getenv("LLM_CONFIG_PATH", "/app/secrets/llm_config.json"))
 
 
@@ -78,8 +78,8 @@ async def reserve(message_id, settings):
         await conn.execute("SELECT pg_advisory_xact_lock(1568969564769747006)")
         cur = await conn.execute("""SELECT
             coalesce(sum(attempts) FILTER (WHERE last_attempt_at > now() - interval '1 minute'),0),
-            coalesce(sum(attempts),0) FROM llm_requests
-            WHERE created_at > now() - interval '24 hours'""")
+            coalesce(sum(attempts) FILTER (WHERE last_attempt_at > now() - interval '24 hours'),0)
+            FROM llm_requests WHERE created_at > now() - interval '25 hours'""")
         minute, day = await cur.fetchone()
         if minute >= settings.requests_per_minute or day >= settings.requests_per_day:
             return False
@@ -118,7 +118,9 @@ async def generate(settings, prompt, message_id):
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.85, "maxOutputTokens": settings.max_output_tokens},
     }
-    async with httpx.AsyncClient(timeout=httpx.Timeout(settings.timeout), follow_redirects=False) as client:
+    # TLS certificate loading in AsyncClient.__init__ performs synchronous disk I/O.
+    client = await asyncio.to_thread(httpx.AsyncClient, timeout=httpx.Timeout(settings.timeout), follow_redirects=False)
+    async with client:
         for attempt in range(2):
             if not await reserve(message_id, settings):
                 raise GeminiError("local_quota")
