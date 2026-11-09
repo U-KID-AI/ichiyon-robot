@@ -17,7 +17,7 @@ from bot import config
 from bot.db import require_database_url
 from bot.services.llm_persona import Persona
 
-LOG = logging.getLogger(__name__)
+LOG = logging.getLogger("discord.ichiyon.llm")
 CONFIG_PATH = Path(os.getenv("LLM_CONFIG_PATH", "/app/secrets/llm_config.json"))
 
 
@@ -118,7 +118,9 @@ async def generate(settings, prompt, message_id):
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.85, "maxOutputTokens": settings.max_output_tokens},
     }
-    async with httpx.AsyncClient(timeout=httpx.Timeout(settings.timeout), follow_redirects=False) as client:
+    # TLS certificate loading in AsyncClient.__init__ performs synchronous disk I/O.
+    client = await asyncio.to_thread(httpx.AsyncClient, timeout=httpx.Timeout(settings.timeout), follow_redirects=False)
+    async with client:
         for attempt in range(2):
             if not await reserve(message_id, settings):
                 raise GeminiError("local_quota")
