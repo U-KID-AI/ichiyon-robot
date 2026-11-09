@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from bot.services.llm_corpus import IndexedPersona, build_corpus, classify, parse_export
@@ -59,6 +60,13 @@ class CorpusTests(unittest.TestCase):
             persona = Persona.load(output)
             self.assertIsInstance(persona, IndexedPersona)
             self.assertEqual(persona.count, 7)
+            self.assertTrue(persona.fallback_examples)
+            with patch('bot.services.llm_corpus.open_index') as connect:
+                connect.return_value.execute.side_effect = sqlite3.OperationalError('interrupted')
+                fallback = persona.retrieve('今日はどう？', 4)
+                self.assertTrue(fallback)
+                self.assertTrue(all(row['message_id'] in {'100','101','102','105','106'} for row in fallback))
+                self.assertNotIn('https://example.com', [row['reply'] for row in fallback])
             self.assertEqual(persona.retrieve("原神のガチャ", 1)[0]["message_id"], "100")
             self.assertEqual(persona.retrieve("おはよう", 1)[0]["reply"], "うす")
             self.assertNotIn("うす", [r["reply"] for r in persona.retrieve("おはよう", 2, avoid=("うす",))])
