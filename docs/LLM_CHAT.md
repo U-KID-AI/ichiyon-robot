@@ -1,7 +1,7 @@
 # いちよんロボのGemini会話
 
 専用チャンネルは `1568969564769747006`、Guildは `1515983621461245972`。
-人格資料の対象IDは `748965361486921831`。本人から直接提供された資料を使用する。
+人格資料の対象IDは `748965361486921831`。提供済み資料のみを使用する。
 資料未登録時は暫定会話となる。過去ログ収集や人格資料への自動追加は実装しない。
 
 ## 本番設定
@@ -16,6 +16,7 @@
   "enabled": true,
   "channel_id": 1568969564769747006,
   "guild_id": 1515983621461245972,
+  "extra_channels": {},
   "model": "gemini-3.1-flash-lite",
   "reply_chars": 400,
   "concurrency": 1,
@@ -24,8 +25,9 @@
   "rag_count": 4,
   "timeout": 25,
   "user_interval": 5,
-  "requests_per_minute": 5,
-  "requests_per_day": 100,
+  "requests_per_minute": 14,
+  "requests_per_day": 450,
+  "tokens_per_minute": 225000,
   "max_output_tokens": 600,
   "key_path": "/app/secrets/gemini_api_key",
   "persona_path": "/app/secrets/llm_persona.json"
@@ -33,10 +35,23 @@
 ```
 
 E2.1.Microでは同時生成数の許容値を1に制限する。キューは最大5、120秒より古い待機を破棄する。
-API試行数はリトライを含めPostgreSQLで予約し、ローリング1分/24時間の上限を再起動後も維持する。
-429時は5分間休止し、5xxと通信障害のリトライは1回に制限する。
+`extra_channels` は追加のチャンネルID文字列とGuild ID数値の対応表。許可するGuildとチャンネルの組だけを登録する。
+会話履歴は要求元チャンネルに限定し、利用枠は両チャンネルで共有する。
+API試行数はリトライも含めPostgreSQLで原子的に予約し、ローリング60秒と米国太平洋時間の暦日の上限を再起動後も維持する。
+日次リセットは `America/Los_Angeles` の午前0時（夏時間対応）。日本時間では通常17時、夏時間中は16時。
+入力TPMは送信前にJSONのUTF-8バイト数+128を保守的な見積りとして予約し、応答後に実トークン数へ置換する。countTokensへの追加API呼出しは行わない。
+Googleの429/RESOURCE_EXHAUSTEDは再試行せず、QuotaFailureの分/日/トークン種別とRetryInfo/Retry-Afterを読む。
+判明したGoogle上限値があれば、その95%と設定値の小さい方を採用する。Google側の待機期限をDBに保持し、期間中はAPIを呼ばない。
+種別不明429は60秒から最大1時間まで段階的に待機し、期限後の次の会話で復帰を試みる。日次と判明した場合は次の太平洋時間0時まで待つ。
+5xxと通信障害は利用上限と区別し、既存の1回までの再試行を維持する。
+利用上限時は `ゴソゴソ\nアイスがないよ` を固定返信する。通常の30秒通知間隔・利用者間隔による省略はせず、メッセージIDで一度だけ返信する。
+会話本文は保存しない。API試行・返信メタデータは7日より古いものを生成予約時に少量ずつ失効させる。人格原本・索引は対象外。
 Geminiプロジェクト側の上限はAI Studioで確認する。上記設定はアプリ側の上限であり、無料課金区分を変更する機能ではない。
 モデルの自動切替はない。無料枠で利用するGoogleプロジェクトの課金設定は運用者が管理する。
+
+2026-11-09に運用者がAI Studioで確認したDefault Gemini Project（Free）の `gemini-3.1-flash-lite` は15 RPM / 500 RPD / 250,000入力TPM。
+この確認値に対して14 RPM / 450 RPD / 225,000入力TPMを設定する。他のAPIキー・アプリの利用量をBotから完全には観測できないため、余裕を残し、Googleの429を優先して待機する。
+公式情報: [利用上限とリセット](https://ai.google.dev/gemini-api/docs/rate-limits)、[料金](https://ai.google.dev/gemini-api/docs/pricing)。公開ページに全プロジェクト共通の実効上限値はない。
 
 ## 本人資料の登録
 
@@ -103,6 +118,6 @@ SQLiteの進捗ハンドラーとランキングの期限は500ms、非同期側
 送信結果不明時に再送しない設計のため、クラッシュ時の一部要求は未返信になる。
 再起動時に過去の要求を再生しない。
 
-検証は `python scripts/check_llm_chat.py` と既存ルーターcheckを実行する。
+検証は `python scripts/check_llm_chat.py`、`python scripts/check_llm_limits.py` と既存ルーターcheckを実行する。
 本番は既存immutable Compose adapterでmigrationを適用し、既存backupと直前releaseを復旧点とする。
 最初の切り戻し手段は `llm_config.json` の `enabled: false`。

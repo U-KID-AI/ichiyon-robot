@@ -131,7 +131,7 @@ def get_channel_guild(channel: discord.abc.Messageable) -> Optional[discord.Guil
     return None
 
 
-def get_mention_command_text(message: discord.Message) -> Optional[str]:
+def get_mention_command_text(message: discord.Message, *, log_content: bool = True) -> Optional[str]:
     bot = get_bot()
     from bot.services.ai_tasks import is_ai_task_channel, parse_ai_command
 
@@ -157,7 +157,8 @@ def get_mention_command_text(message: discord.Message) -> Optional[str]:
 
     _action, _argument, is_ai_command = parse_ai_command(command_text)
     debug_command_text = "<AI command redacted>" if is_ai_command else command_text
-    print(f"[DEBUG] command_text={debug_command_text!r}")
+    if log_content:
+        print(f"[DEBUG] command_text={debug_command_text!r}")
     return command_text
 
 
