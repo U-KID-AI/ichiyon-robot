@@ -139,6 +139,8 @@ class DatabaseTests(unittest.IsolatedAsyncioTestCase):
             async with await llm.database() as conn:
                 row = await (await conn.execute("SELECT status, attempts, reply_id, input_tokens FROM llm_requests WHERE message_id=1")).fetchone()
                 self.assertEqual(row, ("sent", 2, 2, 10))
+                await conn.execute("UPDATE llm_requests SET created_at=now()-interval '24 hours 1 minute', last_attempt_at=now()-interval '23 hours 59 minutes' WHERE message_id=1")
+            self.assertFalse(await llm.reserve(1, settings))
 
 
 if __name__ == "__main__":

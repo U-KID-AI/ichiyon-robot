@@ -78,8 +78,8 @@ async def reserve(message_id, settings):
         await conn.execute("SELECT pg_advisory_xact_lock(1568969564769747006)")
         cur = await conn.execute("""SELECT
             coalesce(sum(attempts) FILTER (WHERE last_attempt_at > now() - interval '1 minute'),0),
-            coalesce(sum(attempts),0) FROM llm_requests
-            WHERE created_at > now() - interval '24 hours'""")
+            coalesce(sum(attempts) FILTER (WHERE last_attempt_at > now() - interval '24 hours'),0)
+            FROM llm_requests WHERE created_at > now() - interval '25 hours'""")
         minute, day = await cur.fetchone()
         if minute >= settings.requests_per_minute or day >= settings.requests_per_day:
             return False
