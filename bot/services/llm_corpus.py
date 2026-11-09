@@ -206,7 +206,8 @@ def build_corpus(source, output, expected_count):
                   "author_verification": "operator_attribution_no_author_field",
                   "replacement_characters": normalized.count("\ufffd"), "lossless_reconstruction": True}
         metadata = {"version": "2", "author_id": PERSON_ID, "source": "user_supplied_export",
-                    "count": str(count), "source_sha256": report["source_sha256"], "guide": ""}
+                    "count": str(count), "source_sha256": report["source_sha256"], "guide": "",
+                    "fallback_examples": json.dumps(build_fallbacks(conn), ensure_ascii=False)}
         conn.executemany("INSERT INTO metadata VALUES (?,?)", metadata.items())
         conn.execute("INSERT INTO corpus_fts(corpus_fts) VALUES ('optimize')")
         conn.commit()
@@ -215,6 +216,26 @@ def build_corpus(source, output, expected_count):
         return report
     finally:
         conn.close()
+
+
+def build_fallbacks(conn):
+    """Offline only: retain a tiny set of real utterances for busy-host fallback."""
+    selected, seen = [], set()
+    for category in ("greeting", "chat", "reply", "emotion", "joke"):
+        rows = conn.execute("""SELECT max(id),body,category,topic FROM messages
+            WHERE category=? AND quality>=20 AND length(body)<=35
+            AND body NOT LIKE '%http%' AND body NOT LIKE '%<%'
+            GROUP BY body,category,topic
+            ORDER BY count(*) DESC,CASE WHEN topic='' THEN 0 ELSE 1 END,max(id) DESC LIMIT 50""", (category,))
+        added = 0
+        for mid, body, kind, topic in rows:
+            if body in seen:
+                continue
+            selected.append({"message_id": str(mid), "reply": body, "category": kind, "topic": topic})
+            seen.add(body);added += 1
+            if added == 3:
+                break
+    return selected
 
 
 def open_index(path, deadline):
@@ -240,7 +261,19 @@ class IndexedPersona:
         if len(self.guide) > 6000:
             raise ValueError("guide too long")
         self.count = int(meta["count"])
+        self.fallback_examples = json.loads(meta.get("fallback_examples", "[]"))[:15]
         self.last_search_ms = 0
+
+    def fallback(self, text, limit, context="", avoid=()):
+        wanted = intent(text)
+        category = "reply" if wanted == "question" else wanted
+        topic = topic_for(text) or topic_for(context)
+        rows = sorted(self.fallback_examples, key=lambda row: (
+            row["category"] != category, bool(row["topic"]) and row["topic"] != topic,
+            len(row["reply"]) > max(20, len(text))))
+        return [{"message_id": row["message_id"], "reply": row["reply"][:300],
+                 "context": "本人の予備発言例。相手の発言本文は未収録。内容を引用せず口調の参考にする。分類=" + row["category"]}
+                for row in rows if row["reply"] not in avoid][:limit]
 
     def retrieve(self, text, limit, context="", avoid=()):
         started = time.monotonic()
@@ -325,11 +358,11 @@ class IndexedPersona:
                                  "reply": body})
                 if len(selected) >= limit:
                     break
-            return selected
+            return selected or self.fallback(text, limit, context, avoid)
         except sqlite3.OperationalError as exc:
             if "interrupted" not in str(exc):
                 raise
-            return []
+            return self.fallback(text, limit, context, avoid)
         finally:
             self.last_search_ms = round((time.monotonic() - started) * 1000, 2)
             conn.close()

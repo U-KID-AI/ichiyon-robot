@@ -327,8 +327,9 @@ class Chat:
                     examples = await asyncio.wait_for(asyncio.to_thread(
                         persona.retrieve, message.content, settings.rag_count, search_context, recent_replies), .75)
                 except asyncio.TimeoutError:
-                    examples = []
-                    LOG.warning("LLM corpus search timed out; using supplied guide")
+                    fallback = getattr(persona, "fallback", None)
+                    examples = fallback(message.content, settings.rag_count, search_context, recent_replies) if fallback else []
+                    LOG.warning("LLM corpus search timed out; using supplied fallback examples")
                 history_chars = 6000
                 for row in reversed(history):
                     row["text"] = row["text"][:min(600, history_chars)]

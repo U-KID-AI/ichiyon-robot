@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import asynccontextmanager
 from dataclasses import replace
@@ -99,6 +100,26 @@ class ReplyTests(unittest.IsolatedAsyncioTestCase):
             await c.respond(m,s)
             generate.assert_awaited_once()
             self.assertEqual(m.reply.await_args.args,('ゴソゴソ\nアイスがないよ',))
+
+    async def test_slow_search_keeps_real_fallback_examples(self):
+        from bot import messages
+        c=chat.Chat();s=chat.Settings(enabled=True);m=event()
+        @asynccontextmanager
+        async def typing():
+            yield
+        m.channel.typing=typing;m.author.display_name='test';m.reference=None
+        examples=[{'message_id':'1','reply':'そうね','context':'fixture'}]
+        persona=SimpleNamespace(guide='guide',retrieve=lambda *args:time.sleep(.85),
+                                fallback=lambda *args:examples,last_search_ms=0)
+        with patch.object(c,'reload',AsyncMock(return_value=s)), \
+             patch.object(chat,'claim',AsyncMock(return_value=True)), patch.object(chat,'finish',AsyncMock()), \
+             patch.object(limits,'check',AsyncMock(return_value=limits.Decision(True))), \
+             patch.object(messages,'get_bot',return_value=SimpleNamespace(user=SimpleNamespace(id=999),latency=0)), \
+             patch.object(chat,'conversation',AsyncMock(return_value=([],None))), \
+             patch.object(chat.Persona,'load',return_value=persona), \
+             patch.object(chat,'generate',AsyncMock(return_value=('fixture response',{},.1))) as generate:
+            await c.respond(m,s)
+            self.assertEqual(json.loads(generate.await_args.args[1])['examples'],examples)
 
     async def test_exact_every_message_no_api_and_dedup(self):
         c = chat.Chat();s = chat.Settings(enabled=True)
