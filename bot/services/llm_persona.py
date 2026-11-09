@@ -15,13 +15,13 @@ def terms(text):
 
 
 def intent(text):
-    if re.search(r"[?？]|どう|なぜ|何|いつ|教えて", text):
-        return "question"
-    if re.search(r"笑|[wｗ]{2,}|草|冗談", text):
-        return "joke"
-    if re.search(r"おはよ|こんにちは|こんばんは|おやすみ", text):
+    if re.fullmatch(r"(?:おはよ[うー〜]*|こんにちは|こんばんは|おやすみ|お疲れ(?:さま)?|ただいま|おかえり|うす|おす|やあ|どうも)[!！。\s]*", text):
         return "greeting"
-    if re.search(r"嬉し|悲し|つら|やった|疲れ", text):
+    if re.search(r"[?？]|^(?:どう|なぜ|何|いつ|誰)|教えて|なんで|どっち", text):
+        return "question"
+    if re.search(r"[wｗ]{2,}|^草+$|爆笑|冗談|ツッコミ|おもろ|面白|すぎる|仕草", text):
+        return "joke"
+    if re.search(r"嬉し|悲し|つらい|辛い|やった[!！]|疲れ|悔し|しんど|楽しい", text):
         return "emotion"
     return "chat"
 
@@ -69,11 +69,14 @@ class Persona:
         path = Path(path)
         if not path.exists():
             return cls()
+        if path.suffix == ".sqlite3":
+            from bot.services.llm_corpus import IndexedPersona
+            return IndexedPersona(path)
         if path.stat().st_size > 4_000_000:
             raise ValueError("persona file exceeds 4 MB")
         return _cached_persona(str(path), path.stat().st_mtime_ns, path.stat().st_size)
 
-    def retrieve(self, text, limit):
+    def retrieve(self, text, limit, context="", avoid=()):
         tokens = terms(text)
         scores = collections.Counter()
         for token in tokens:
