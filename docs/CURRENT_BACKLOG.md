@@ -1,5 +1,7 @@
 # Current backlog — 2026-09-30
 
+> **2026-10-13 優先度①の本番反映:** `MC-B01`・`MC-M07`・`MC-M03` は[PR #130](https://github.com/U-KID-AI/ichiyon-robot/pull/130)、main SHA `e7288a2a07ab19791de4c8b6bd2b454f309e78d2` を既存Linux Runnerのmanaged releaseで反映済み。BDS healthy、素材catalog digest保持、パック参照・版整合を確認。残件は[現行台帳の実機QA](tasks/ichiyon-lab-impact-effort-2026-10-12.md)。[反映証跡と既存NetherNet設定エラー](operations/minecraft-priority-one-release-2026-10-13.md)を参照。以下の過去のMC-B01 open表記は当時の履歴であり、現在の未実装宣言ではない。
+
 > **2026-10-13 タスク分割更新:** [現行Impact / Effort一覧（35件）](tasks/ichiyon-lab-impact-effort-2026-10-12.md)。おしっこうんちマンは③通常Mob追加（MC-M18）と④放置プレイヤー牽引（MC-M16）に分離。ザスウルは②ボス版（MC-M09、水の一時凍結MC-M10を統合）と②乗り物版（MC-M17）に分離。①3件 / ②8件 / ③19件 / ④5件。旧記録は履歴とする。
 
 > **2026-10-12 優先度更新:** 神社山の名称を統一し④へ、サルファーキューブを③へ、シャドバのトークンを②へ変更。現行34件の区分は①3件/②8件/③18件/④5件。詳細は[最新のImpact / Effort表](tasks/ichiyon-lab-impact-effort-2026-10-12.md)。旧履歴は監査用として保持。
