@@ -150,9 +150,14 @@ async def dispatch_message(message: discord.Message, router: MessageRouter) -> b
         print("[DEBUG] ignored bot message")
         return True
     from bot.services.llm_chat import chat
-    if await chat.handle(message):
-        return True
-    command_text = messages.get_mention_command_text(message)
+    settings = await chat.reload()
+    command_text = messages.get_mention_command_text(message, log_content=not settings.allows(message))
+    if settings.allows(message):
+        # Existing explicit commands keep ownership in LLM-enabled channels.
+        commands = MessageRouter(route for route in router.routes if route.phase <= Phase.COMMAND)
+        if await commands.dispatch(message, command_text):
+            return True
+        return await chat.handle(message)
     _action, _argument, is_ai_command = parse_ai_command(command_text)
     debug_content = "<AI command redacted>" if is_ai_command else message.content
     if is_ai_task_channel(message):
