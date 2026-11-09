@@ -57,7 +57,8 @@ class ChatTests(unittest.IsolatedAsyncioTestCase):
         chat = llm.Chat()
         chat.worker = asyncio.create_task(asyncio.sleep(60))
         try:
-            with patch.object(chat, "reload", AsyncMock(return_value=llm.Settings(enabled=True))):
+            with patch.object(chat, "reload", AsyncMock(return_value=llm.Settings(enabled=True))), \
+                    patch.object(llm.limits, "check", AsyncMock(return_value=llm.limits.Decision(True))):
                 for i in range(10):
                     await chat.handle(message(mid=i, author=i))
                 self.assertEqual(chat.queue.qsize(), 5)
@@ -102,7 +103,8 @@ class ChatTests(unittest.IsolatedAsyncioTestCase):
                     return httpx.Response(status, json={"candidates": [{"content": {"parts": [{"text": "あ" * 80}]}}]})
                 def client(**kwargs):
                     return real_client(transport=httpx.MockTransport(handler), **kwargs)
-                with patch.object(llm.httpx, "AsyncClient", client), patch.object(llm, "reserve", AsyncMock(return_value=True)):
+                with patch.object(llm.httpx, "AsyncClient", client), patch.object(llm, "reserve", AsyncMock(return_value=True)), \
+                        patch.object(llm.limits, "remember", AsyncMock()), patch.object(llm.limits, "record_usage", AsyncMock()):
                     if status == 200:
                         result, _, _ = await llm.generate(settings, "test", 1)
                         self.assertEqual(len(result), 40)
@@ -128,19 +130,23 @@ class DatabaseTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict(os.environ, DATABASE_URL=url):
             async with await llm.database() as conn:
                 await conn.execute((Path(__file__).resolve().parent.parent / "migrations/072_add_llm_requests.sql").read_text())
-                await conn.execute("TRUNCATE llm_requests")
+                await conn.execute((Path(__file__).resolve().parent.parent / "migrations/073_add_llm_quota_windows.sql").read_text())
+                await conn.execute("TRUNCATE llm_requests CASCADE")
+                await conn.execute("TRUNCATE llm_quota_blocks")
             settings = llm.Settings(requests_per_minute=2, requests_per_day=2)
             claims = await asyncio.gather(*(llm.claim(1, settings) for _ in range(5)))
             self.assertEqual(sum(claims), 1)
-            reservations = await asyncio.gather(*(llm.reserve(1, settings) for _ in range(5)))
-            self.assertEqual(sum(reservations), 2)
-            self.assertFalse(await llm.reserve(1, settings))
+            reservations = await asyncio.gather(*(llm.reserve(1, settings) for _ in range(5)), return_exceptions=True)
+            self.assertEqual(sum(result is True for result in reservations), 2)
+            self.assertEqual(sum(isinstance(result, llm.QuotaError) for result in reservations), 3)
+            with self.assertRaises(llm.QuotaError):
+                await llm.reserve(1, settings)
             await llm.finish(1, "sent", reply_id=2, usage={"promptTokenCount": 10, "candidatesTokenCount": 5})
             async with await llm.database() as conn:
                 row = await (await conn.execute("SELECT status, attempts, reply_id, input_tokens FROM llm_requests WHERE message_id=1")).fetchone()
                 self.assertEqual(row, ("sent", 2, 2, 10))
-                await conn.execute("UPDATE llm_requests SET created_at=now()-interval '24 hours 1 minute', last_attempt_at=now()-interval '23 hours 59 minutes' WHERE message_id=1")
-            self.assertFalse(await llm.reserve(1, settings))
+                await conn.execute("UPDATE llm_api_attempts SET attempted_at=now()-interval '2 days' WHERE message_id=1")
+            self.assertTrue(await llm.reserve(1, settings))
 
 
 if __name__ == "__main__":

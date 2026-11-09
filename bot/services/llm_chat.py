@@ -6,7 +6,7 @@ import math
 import os
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import discord
@@ -16,6 +16,8 @@ import psycopg
 from bot import config
 from bot.db import require_database_url
 from bot.services.llm_persona import Persona
+from bot.services import llm_limits as limits
+from bot.services.llm_limits import GeminiError, QuotaError, QUOTA_REPLY
 
 LOG = logging.getLogger("discord.ichiyon.llm")
 CONFIG_PATH = Path(os.getenv("LLM_CONFIG_PATH", "/app/secrets/llm_config.json"))
@@ -26,6 +28,7 @@ class Settings:
     enabled: bool = False
     channel_id: int = 1568969564769747006
     guild_id: int = 1515983621461245972
+    extra_channels: dict = field(default_factory=dict)
     model: str = "gemini-3.1-flash-lite"
     reply_chars: int = 400
     concurrency: int = 1
@@ -36,6 +39,7 @@ class Settings:
     user_interval: int = 5
     requests_per_minute: int = 5
     requests_per_day: int = 100
+    tokens_per_minute: int = 20000
     max_output_tokens: int = 600
     key_path: str = "/app/secrets/gemini_api_key"
     persona_path: str = "/app/secrets/llm_persona.json"
@@ -48,16 +52,28 @@ class Settings:
         settings = cls(**data)
         if type(settings.enabled) is not bool or not re.fullmatch(r"gemini-[a-z0-9.\-]+", settings.model):
             raise ValueError("invalid LLM settings")
+        if not isinstance(settings.extra_channels, dict) or len(settings.extra_channels) > 20:
+            raise ValueError("invalid extra LLM channels")
+        for channel, guild in settings.extra_channels.items():
+            if not isinstance(channel, str) or not channel.isdigit() or not 0 < int(channel) < 2**63 or type(guild) is not int or not 0 < guild < 2**63:
+                raise ValueError("invalid extra LLM channel identity")
         bounds = {"reply_chars": (40, 1800), "concurrency": (1, 1), "queue_size": (1, 5),
                   "history_size": (1, 20), "rag_count": (1, 8), "timeout": (3, 60),
-                  "user_interval": (1, 120), "requests_per_minute": (1, 20),
-                  "requests_per_day": (1, 1000), "max_output_tokens": (64, 1000),
+                  "user_interval": (1, 120), "requests_per_minute": (1, 1000),
+                  "requests_per_day": (1, 100000), "max_output_tokens": (64, 1000),
+                  "tokens_per_minute": (1, 10000000),
                   "channel_id": (1, 2**63 - 1), "guild_id": (1, 2**63 - 1)}
         for name, (low, high) in bounds.items():
             value = getattr(settings, name)
             if type(value) is not int or not low <= value <= high:
                 raise ValueError("invalid LLM setting " + name)
         return settings
+
+    def allows(self, message):
+        channel = getattr(message.channel, "id", None)
+        guild = getattr(getattr(message, "guild", None), "id", None)
+        return bool(guild and ((channel == self.channel_id and guild == self.guild_id)
+                              or self.extra_channels.get(str(channel)) == guild))
 
 
 async def database():
@@ -72,19 +88,11 @@ async def claim(message_id, settings):
         return await cur.fetchone() is not None
 
 
-async def reserve(message_id, settings):
-    # Persist API attempts before sending, including retries, across restarts/processes.
-    async with await database() as conn:
-        await conn.execute("SELECT pg_advisory_xact_lock(1568969564769747006)")
-        cur = await conn.execute("""SELECT
-            coalesce(sum(attempts) FILTER (WHERE last_attempt_at > now() - interval '1 minute'),0),
-            coalesce(sum(attempts) FILTER (WHERE last_attempt_at > now() - interval '24 hours'),0)
-            FROM llm_requests WHERE created_at > now() - interval '25 hours'""")
-        minute, day = await cur.fetchone()
-        if minute >= settings.requests_per_minute or day >= settings.requests_per_day:
-            return False
-        await conn.execute("UPDATE llm_requests SET attempts=attempts+1, last_attempt_at=now() WHERE message_id=%s", (message_id,))
-        return True
+async def reserve(message_id, settings, estimated_tokens=0):
+    result = await limits.check(settings, estimated_tokens, message_id)
+    if not result.allowed:
+        raise QuotaError(result.reason, result.until)
+    return True
 
 
 async def finish(message_id, status, *, reply_id=None, usage=None, elapsed=0):
@@ -94,12 +102,6 @@ async def finish(message_id, status, *, reply_id=None, usage=None, elapsed=0):
             input_tokens=%s, output_tokens=%s, latency_ms=%s WHERE message_id=%s""",
                            (status, reply_id, int(usage.get("promptTokenCount", 0)),
                             int(usage.get("candidatesTokenCount", 0)), int(elapsed * 1000), message_id))
-
-
-class GeminiError(Exception):
-    def __init__(self, status):
-        self.status = status
-        super().__init__(str(status))
 
 
 async def generate(settings, prompt, message_id, *, guide=""):
@@ -122,28 +124,42 @@ async def generate(settings, prompt, message_id, *, guide=""):
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.85, "maxOutputTokens": settings.max_output_tokens},
     }
+    # Conservative UTF-8 byte bound avoids an extra countTokens API request.
+    estimated_tokens = len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) + 128
     # TLS certificate loading in AsyncClient.__init__ performs synchronous disk I/O.
     client = await asyncio.to_thread(httpx.AsyncClient, timeout=httpx.Timeout(settings.timeout), follow_redirects=False)
     async with client:
         for attempt in range(2):
-            if not await reserve(message_id, settings):
-                raise GeminiError("local_quota")
+            if not await reserve(message_id, settings, estimated_tokens):
+                raise QuotaError("local")
             started = time.monotonic()
             try:
                 async with client.stream("POST", "https://generativelanguage.googleapis.com/v1beta/models/" + settings.model + ":generateContent",
                                          headers={"x-goog-api-key": key}, json=payload) as response:
-                    if response.status_code != 200:
-                        raise GeminiError(response.status_code)
                     raw = bytearray()
                     async for chunk in response.aiter_bytes():
                         raw.extend(chunk)
                         if len(raw) > 131072:
+                            if response.status_code == 429:
+                                raw = bytearray()
+                                break
                             raise GeminiError("response_size")
+                    if response.status_code != 200:
+                        try:
+                            error_data = json.loads(raw)
+                        except (ValueError, UnicodeError):
+                            error_data = {}
+                        quota_error = limits.parse_quota_error(response.status_code, error_data, response.headers)
+                        if quota_error:
+                            await limits.remember(settings, quota_error)
+                            raise quota_error
+                        raise GeminiError(response.status_code)
                 data = json.loads(raw)
                 parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
                 text = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
                 if not text:
                     raise GeminiError("empty_response")
+                await limits.record_usage(message_id, data.get("usageMetadata", {}))
                 return text[:settings.reply_chars], data.get("usageMetadata", {}), time.monotonic() - started
             except (httpx.TimeoutException, httpx.TransportError):
                 if attempt:
@@ -196,7 +212,6 @@ class Chat:
         self.worker = None
         self.recent_users = {}
         self.notice_at = 0.0
-        self.cooldown_until = 0.0
 
     async def reload(self, force=False):
         if force or time.monotonic() - self.loaded_at > 2:
@@ -217,19 +232,48 @@ class Chat:
         except discord.HTTPException:
             LOG.warning("LLM notice delivery failed")
 
+    async def quota_reply(self, message, settings, *, claimed=False):
+        if not claimed and not await claim(message.id, settings):
+            return
+        current = await self.reload(force=True)
+        if not current.enabled or not current.allows(message):
+            await finish(message.id, "disabled")
+            return
+        try:
+            reply = await message.reply(QUOTA_REPLY, mention_author=False,
+                                        allowed_mentions=discord.AllowedMentions.none())
+        except Exception:
+            # An ambiguous send must not be retried or followed by another notice.
+            try:
+                await finish(message.id, "quota_delivery_failed")
+            except Exception:
+                pass
+            LOG.warning("LLM quota reply delivery failed")
+            return
+        try:
+            await finish(message.id, "quota", reply_id=reply.id)
+        except Exception:
+            LOG.warning("LLM quota reply metadata update failed")
+
     async def handle(self, message):
         settings = await self.reload()
-        if getattr(message.channel, "id", None) != settings.channel_id or not message.guild or message.guild.id != settings.guild_id:
+        if not settings.allows(message):
             return False
         if config.BOT_INSTANCE_ID != "ichiyon" or message.author.bot:
             return True
         if not settings.enabled:
             return True
+        try:
+            available = await limits.check(settings)
+        except Exception as exc:
+            LOG.warning("LLM quota check failed error=%s", type(exc).__name__)
+            await self.notice(message, "会話機能が一時的に使えないみたい。")
+            return True
+        if not available.allowed:
+            await self.quota_reply(message, settings)
+            return True
         now = time.monotonic()
         self.recent_users = {key: when for key, when in self.recent_users.items() if now - when < 120}
-        if now < self.cooldown_until:
-            await self.notice(message, "いま会話APIが混んでるみたい。少し待ってね。")
-            return True
         if now - self.recent_users.get(message.author.id, 0) < settings.user_interval:
             return True
         if not message.content.strip():
@@ -250,15 +294,11 @@ class Chat:
                 settings = await self.reload(force=True)
                 if not settings.enabled or time.monotonic() - queued_at > 120:
                     continue
-                if message.channel.id != settings.channel_id or message.guild.id != settings.guild_id:
-                    continue
-                if time.monotonic() < self.cooldown_until:
+                if not settings.allows(message):
                     continue
                 await self.respond(message, settings)
             except GeminiError as exc:
                 LOG.warning("LLM generation failed status=%s", exc.status)
-                if exc.status == 429:
-                    self.cooldown_until = time.monotonic() + 300
                 await self.notice(message, "今ちょっと返事を作れなかった。少し時間を置いて試してね。")
             except Exception as exc:
                 # Never log HTTP exception strings, key paths, payloads or conversations.
@@ -274,6 +314,10 @@ class Chat:
         bot = messages.get_bot()
         own_id = bot.user.id
         try:
+            available = await limits.check(settings)
+            if not available.allowed:
+                await self.quota_reply(message, settings, claimed=True)
+                return
             async with message.channel.typing():
                 history, reference = await conversation(message, settings, own_id)
                 persona = await asyncio.to_thread(Persona.load, settings.persona_path)
@@ -302,7 +346,7 @@ class Chat:
                     monitor.cancel()
                     await asyncio.gather(monitor, return_exceptions=True)
                 current = await self.reload(force=True)
-                if not current.enabled or current.channel_id != settings.channel_id:
+                if not current.enabled or not current.allows(message):
                     await finish(message.id, "disabled")
                     return
                 # A failed/ambiguous send is never retried automatically.
@@ -313,6 +357,8 @@ class Chat:
                          usage.get("candidatesTokenCount", 0), len(examples),
                          int(bot.latency * 1000) if math.isfinite(bot.latency) else None, int(lag[0] * 1000),
                          getattr(persona, "last_search_ms", 0))
+        except QuotaError:
+            await self.quota_reply(message, settings, claimed=True)
         except Exception:
             await finish(message.id, "failed")
             raise
