@@ -127,6 +127,9 @@ class ChatTests(unittest.IsolatedAsyncioTestCase):
             key = Path(directory) / 'key'
             key.write_text('test-only-key')
             for content, ceiling, expected in (
+                ('それでいい？</div>', 40, 'それでいい？'),
+                ('<div>それでいい？</div>', 40, '<div>それでいい？</div>'),
+                ('```html\nそれでいい？</div>\n```', 40, '```html\nそれでいい？</div>\n```'),
                 ('理由を説明する文。' * 20, 1200, '理由を説明する文。' * 20),
                 ('あ' * 25 + '。' + 'い' * 60, 40, 'あ' * 25 + '。'),
                 ('あ' * 80, 40, 'あ' * 39 + '…'),

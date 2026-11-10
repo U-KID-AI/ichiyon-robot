@@ -162,6 +162,10 @@ async def generate(settings, prompt, message_id, *, guide=""):
                 data = json.loads(raw)
                 parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
                 text = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
+                # A sporadic model artifact: orphan HTML closers after a sentence.
+                # Keep intentional HTML/code and Discord markup intact.
+                if '```' not in text and not re.search(r'<(?:div|p|span)\b', text, re.I):
+                    text = re.sub(r'(?<=[。！？?!])(?:</(?:div|p|span)>\s*)+$', '', text, flags=re.I).rstrip()
                 if not text:
                     raise GeminiError("empty_response")
                 await limits.record_usage(message_id, data.get("usageMetadata", {}))
