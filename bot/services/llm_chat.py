@@ -41,8 +41,8 @@ class Settings:
     rag_count: int = 4
     timeout: int = 25
     user_interval: int = 5
-    requests_per_minute: int = 5
-    requests_per_day: int = 100
+    requests_per_minute: int = 4
+    requests_per_day: int = 18
     tokens_per_minute: int = 20000
     max_output_tokens: int = 4096
     key_path: str = "/app/secrets/gemini_api_key"

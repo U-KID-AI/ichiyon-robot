@@ -30,8 +30,8 @@
   "rag_count": 4,
   "timeout": 25,
   "user_interval": 5,
-  "requests_per_minute": 14,
-  "requests_per_day": 450,
+  "requests_per_minute": 4,
+  "requests_per_day": 18,
   "tokens_per_minute": 225000,
   "key_path": "/app/secrets/gemini_api_key",
   "persona_path": "/app/secrets/rachel_corpus.sqlite3",
@@ -43,7 +43,7 @@
 `history_after` は切替時刻のDiscord Snowflakeを文字列で設定し、それ以前の会話を読み込まない。
 再起動ごとに更新しない。旧AI停止を先に行い、新AIが未準備でも旧AIを復活させない。
 利用Tier・課金リスク・実API動作を確認するまで本番自動応答は有効にしない。
-14 RPM / 450 RPD / 225,000入力TPMは旧アプリから据え置く安全上限で、3.6の無料枠を示さない。
+2026-11-10に運用者がAI Studioで確認したDefault Gemini Projectの3.6 Free枠は5 RPM / 20 RPD / 250,000入力TPM。アプリは4 RPM / 18 RPD / 225,000入力TPMへ下げ、余裕を残す。実際のキーとの対応も有効化前に確認する。
 別キー等による同じプロジェクトの使用量は完全には観測できない。
 
 ## Gemini呼び出しと利用枠
