@@ -20,7 +20,7 @@
   "guild_id": "1392174489609179327",
   "webhook_id": "CONFIGURED_WEBHOOK_ID",
   "history_after": "0",
-  "model": "gemini-3.6-flash",
+  "model": "gemini-3.1-flash-lite",
   "thinking_level": "low",
   "reply_chars": 1600,
   "max_output_tokens": 4096,
@@ -30,8 +30,8 @@
   "rag_count": 4,
   "timeout": 25,
   "user_interval": 5,
-  "requests_per_minute": 4,
-  "requests_per_day": 18,
+  "requests_per_minute": 14,
+  "requests_per_day": 450,
   "tokens_per_minute": 225000,
   "key_path": "/app/secrets/gemini_api_key",
   "persona_path": "/app/secrets/rachel_corpus.sqlite3",
@@ -43,15 +43,15 @@
 `history_after` は切替時刻のDiscord Snowflakeを文字列で設定し、それ以前の会話を読み込まない。
 再起動ごとに更新しない。旧AI停止を先に行い、新AIが未準備でも旧AIを復活させない。
 利用Tier・課金リスク・実API動作を確認するまで本番自動応答は有効にしない。
-2026-11-10に運用者がAI Studioで確認したDefault Gemini Projectの3.6 Free枠は5 RPM / 20 RPD / 250,000入力TPM。アプリは4 RPM / 18 RPD / 225,000入力TPMへ下げ、余裕を残す。実際のキーとの対応も有効化前に確認する。
+2026-11-10に運用者がAI Studioで確認したDefault Gemini Projectの3.1 Flash-Lite Free枠は15 RPM / 500 RPD / 250,000入力TPM。アプリは14 RPM / 450 RPD / 225,000入力TPMで余裕を残す。実際のキーとの対応も有効化前に確認する。
 別キー等による同じプロジェクトの使用量は完全には観測できない。
 
 ## Gemini呼び出しと利用枠
 
-送信先は `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent`。
-要求モデルは原則 `gemini-3.6-flash`、`thinkingConfig.thinkingLevel=low`。
-承認済み3.5指定のGoogle側3.6解決も許容するが、アプリのモデル自動フォールバックはない。
-応答 `modelVersion` が承認済み3.5/3.6 Flash以外なら返信せず失敗する。
+送信先は `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent`。
+要求モデルは原則 `gemini-3.1-flash-lite`、`thinkingConfig.thinkingLevel=low`。
+最新の運用者指定により3.5/3.6から変更した。アプリのモデル自動フォールバックはない。
+応答 `modelVersion` が指定の3.1 Flash-Lite以外なら返信せず失敗する。
 `temperature`、`topP`、`topK`、`thinkingBudget` は送らない。
 出力4096トークン・Discord本文1600文字は上限であり目標長ではない。
 

@@ -33,7 +33,7 @@ class Settings:
     history_after: str = "0"
     webhook_path: str = "/app/secrets/rachel_webhook.json"
     thinking_level: str = "low"
-    model: str = "gemini-3.6-flash"
+    model: str = "gemini-3.1-flash-lite"
     reply_chars: int = 1600
     concurrency: int = 1
     queue_size: int = 5
@@ -41,8 +41,8 @@ class Settings:
     rag_count: int = 4
     timeout: int = 25
     user_interval: int = 5
-    requests_per_minute: int = 4
-    requests_per_day: int = 18
+    requests_per_minute: int = 14
+    requests_per_day: int = 450
     tokens_per_minute: int = 20000
     max_output_tokens: int = 4096
     key_path: str = "/app/secrets/gemini_api_key"
@@ -58,7 +58,7 @@ class Settings:
             raise ValueError("invalid LLM settings")
         if settings.channel_id != "1569571831894114354" or settings.guild_id != "1392174489609179327":
             raise ValueError("invalid Rachel channel")
-        if settings.model not in ("gemini-3.6-flash", "gemini-3.5-flash") or settings.thinking_level not in ("minimal", "low", "medium", "high"):
+        if settings.model != "gemini-3.1-flash-lite" or settings.thinking_level not in ("minimal", "low", "medium", "high"):
             raise ValueError("unapproved model or thinking level")
         for name in ("channel_id", "guild_id", "history_after"):
             value = getattr(settings, name)
@@ -167,7 +167,7 @@ async def generate(settings, prompt, message_id, *, guide=""):
                         raise GeminiError(response.status_code)
                 data = json.loads(raw)
                 version = data.get("modelVersion", "")
-                if not re.fullmatch(r"gemini-3\.[56]-flash(?:-\d[\w-]*)?", version):
+                if not re.fullmatch(r"gemini-3\.1-flash-lite(?:-\d[\w-]*)?", version):
                     raise GeminiError("unapproved_resolved_model")
                 LOG.info("Rachel requested_model=%s resolved_model=%s thinking_level=%s input_tokens=%s output_tokens=%s thoughts_tokens=%s total_tokens=%s",
                          settings.model, version, settings.thinking_level,

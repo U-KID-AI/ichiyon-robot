@@ -27,7 +27,7 @@ class MigrationTests(unittest.IsolatedAsyncioTestCase):
             path = Path(directory)/'config.json'
             with patch.object(chat, 'CONFIG_PATH', path):
                 self.assertFalse(chat.Settings.load().enabled)
-                for changes in ({'channel_id':'1568969564769747006'}, {'model':'gemini-3.1-flash-lite'},
+                for changes in ({'channel_id':'1568969564769747006'}, {'model':'gemini-3.6-flash'},
                                 {'guild_id':1392174489609179327}, {'enabled':True}):
                     path.write_text(json.dumps(asdict(replace(chat.Settings(), **changes))))
                     with self.assertRaises((ValueError, FileNotFoundError)):
@@ -101,18 +101,18 @@ class MigrationTests(unittest.IsolatedAsyncioTestCase):
         real_client=httpx.AsyncClient
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'key';path.write_text('test-key')
-            for version in ('gemini-3.6-flash','gemini-3.8-flash'):
+            for version in ('gemini-3.1-flash-lite','gemini-3.8-flash'):
                 calls=[]
                 def handler(request):
                     calls.append(request)
-                    self.assertEqual(request.url.path,'/v1beta/models/gemini-3.6-flash:generateContent')
+                    self.assertEqual(request.url.path,'/v1beta/models/gemini-3.1-flash-lite:generateContent')
                     generation=json.loads(request.content)['generationConfig']
                     self.assertEqual(generation,{'thinkingConfig':{'thinkingLevel':'low'},'maxOutputTokens':4096})
                     return httpx.Response(200,json={'modelVersion':version,'candidates':[{'content':{'parts':[{'text':'ok'}]}}]})
                 def client(**kwargs):return real_client(transport=httpx.MockTransport(handler),**kwargs)
                 with patch.object(chat.httpx,'AsyncClient',client),patch.object(chat,'reserve',AsyncMock(return_value=True)), \
                      patch.object(chat.limits,'record_usage',AsyncMock()):
-                    if version=='gemini-3.6-flash':
+                    if version=='gemini-3.1-flash-lite':
                         self.assertEqual((await chat.generate(chat.Settings(key_path=str(path)),'test',1))[0],'ok')
                     else:
                         with self.assertRaises(chat.GeminiError):

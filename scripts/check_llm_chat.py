@@ -109,7 +109,7 @@ class ChatTests(unittest.IsolatedAsyncioTestCase):
                 def handler(request):
                     calls.append(request)
                     self.assertNotIn("test-only-key", str(request.url))
-                    return httpx.Response(status, json={"modelVersion":"gemini-3.6-flash", "candidates": [{"content": {"parts": [{"text": "あ" * 80}]}}]})
+                    return httpx.Response(status, json={"modelVersion":"gemini-3.1-flash-lite", "candidates": [{"content": {"parts": [{"text": "あ" * 80}]}}]})
                 def client(**kwargs):
                     return real_client(transport=httpx.MockTransport(handler), **kwargs)
                 with patch.object(llm.httpx, "AsyncClient", client), patch.object(llm, "reserve", AsyncMock(return_value=True)), \
