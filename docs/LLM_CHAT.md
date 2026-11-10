@@ -1,24 +1,29 @@
-# いちよんロボのGemini会話
+# レイチェル竈門にぼのWebhook会話
 
-専用チャンネルは `1568969564769747006`、Guildは `1515983621461245972`。
-人格資料の対象IDは `748965361486921831`。提供済み資料のみを使用する。
-資料未登録時は暫定会話となる。過去ログ収集や人格資料への自動追加は実装しない。
+いちよんロボの非AI機能は維持し、AI会話だけを専用Webhookへ移行する。
+対象はランセ地方（Guild `1392174489609179327`）の内村家 `1569571831894114354` のみ。
+人格資料の著者は `699881916282699876`。人間・Bot・Webhookを別のIDとして扱う。
+旧いちよん人格、旧会話履歴、旧設定、旧追加チャンネルは読み込まない。
 
-## 本番設定
+## 設定と停止
 
-稼働コンテナの `/app/secrets` は `/home/ubuntu/ichiyon-shared/secrets` をread-onlyでマウントする。
-ホスト側で `llm_config.json` を編集する。設定は約2秒で再読込し、送信直前にも確認する。
-`enabled` を `false` にするとBot再起動なしでLLMだけ停止できる。
-設定なし、不正設定、キー読み取り失敗でも通常Botは起動する。
+ホスト `/home/ubuntu/ichiyon-shared/secrets/rachel_config.json` がコンテナの
+`/app/secrets/rachel_config.json` にread-onlyでマウントされる。
+`RACHEL_CONFIG_PATH` 以外の旧 `LLM_CONFIG_PATH` / `llm_config.json` は参照しない。
+設定は約2秒で再読込し、送信直前にも確認する。`enabled: false` でAIだけ停止する。
+ファイル欠落・不正設定・人格不足時は停止し、旧人格やBot名義の返信へ切り替えない。
 
 ```json
 {
-  "enabled": true,
-  "channel_id": 1568969564769747006,
-  "guild_id": 1515983621461245972,
-  "extra_channels": {},
-  "model": "gemini-3.1-flash-lite",
-  "reply_chars": 400,
+  "enabled": false,
+  "channel_id": "1569571831894114354",
+  "guild_id": "1392174489609179327",
+  "webhook_id": "CONFIGURED_WEBHOOK_ID",
+  "history_after": "0",
+  "model": "gemini-3.6-flash",
+  "thinking_level": "low",
+  "reply_chars": 1600,
+  "max_output_tokens": 4096,
   "concurrency": 1,
   "queue_size": 5,
   "history_size": 16,
@@ -28,99 +33,93 @@
   "requests_per_minute": 14,
   "requests_per_day": 450,
   "tokens_per_minute": 225000,
-  "max_output_tokens": 600,
   "key_path": "/app/secrets/gemini_api_key",
-  "persona_path": "/app/secrets/llm_persona.json"
+  "persona_path": "/app/secrets/rachel_corpus.sqlite3",
+  "webhook_path": "/app/secrets/rachel_webhook.json"
 }
 ```
 
-E2.1.Microでは同時生成数の許容値を1に制限する。キューは最大5、120秒より古い待機を破棄する。
-`extra_channels` は追加のチャンネルID文字列とGuild ID数値の対応表。許可するGuildとチャンネルの組だけを登録する。
-会話履歴は要求元チャンネルに限定し、利用枠は両チャンネルで共有する。
-API試行数はリトライも含めPostgreSQLで原子的に予約し、ローリング60秒と米国太平洋時間の暦日の上限を再起動後も維持する。
-日次リセットは `America/Los_Angeles` の午前0時（夏時間対応）。日本時間では通常17時、夏時間中は16時。
-入力TPMは送信前にJSONのUTF-8バイト数+128を保守的な見積りとして予約し、応答後に実トークン数へ置換する。countTokensへの追加API呼出しは行わない。
-Googleの429/RESOURCE_EXHAUSTEDは再試行せず、QuotaFailureの分/日/トークン種別とRetryInfo/Retry-Afterを読む。
-判明したGoogle上限値があれば、その95%と設定値の小さい方を採用する。Google側の待機期限をDBに保持し、期間中はAPIを呼ばない。
-種別不明429は60秒から最大1時間まで段階的に待機し、期限後の次の会話で復帰を試みる。日次と判明した場合は次の太平洋時間0時まで待つ。
-5xxと通信障害は利用上限と区別し、既存の1回までの再試行を維持する。
-利用上限時は `ゴソゴソ\nアイスがないよ` を固定返信する。通常の30秒通知間隔・利用者間隔による省略はせず、メッセージIDで一度だけ返信する。
-会話本文は保存しない。API試行・返信メタデータは7日より古いものを生成予約時に少量ずつ失効させる。人格原本・索引は対象外。
-Geminiプロジェクト側の上限はAI Studioで確認する。上記設定はアプリ側の上限であり、無料課金区分を変更する機能ではない。
-モデルの自動切替はない。無料枠で利用するGoogleプロジェクトの課金設定は運用者が管理する。
+有効化には実Webhook ID、非空の人格ガイド・資料、正の `history_after` が必要。
+`history_after` は切替時刻のDiscord Snowflakeを文字列で設定し、それ以前の会話を読み込まない。
+再起動ごとに更新しない。旧AI停止を先に行い、新AIが未準備でも旧AIを復活させない。
+利用Tier・課金リスク・実API動作を確認するまで本番自動応答は有効にしない。
+14 RPM / 450 RPD / 225,000入力TPMは旧アプリから据え置く安全上限で、3.6の無料枠を示さない。
+別キー等による同じプロジェクトの使用量は完全には観測できない。
 
-2026-11-09に運用者がAI Studioで確認したDefault Gemini Project（Free）の `gemini-3.1-flash-lite` は15 RPM / 500 RPD / 250,000入力TPM。
-この確認値に対して14 RPM / 450 RPD / 225,000入力TPMを設定する。他のAPIキー・アプリの利用量をBotから完全には観測できないため、余裕を残し、Googleの429を優先して待機する。
-公式情報: [利用上限とリセット](https://ai.google.dev/gemini-api/docs/rate-limits)、[料金](https://ai.google.dev/gemini-api/docs/pricing)。公開ページに全プロジェクト共通の実効上限値はない。
+## Gemini呼び出しと利用枠
 
-## 本人資料の登録
+送信先は `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent`。
+要求モデルは原則 `gemini-3.6-flash`、`thinkingConfig.thinkingLevel=low`。
+承認済み3.5指定のGoogle側3.6解決も許容するが、アプリのモデル自動フォールバックはない。
+応答 `modelVersion` が承認済み3.5/3.6 Flash以外なら返信せず失敗する。
+`temperature`、`topP`、`topK`、`thinkingBudget` は送らない。
+出力4096トークン・Discord本文1600文字は上限であり目標長ではない。
 
-本人が提供したJSONをホストの非公開領域に置く。形式は次のとおり。
-`guide` は本人作成の口調ガイド、`context` は返答の場面、`reply` は本人の発言。
-ガイドのみの登録も可能。以下の文字列は形式を示すプレースホルダー。
+API試行はPostgreSQLで原子的に予約し、60秒のRPM/入力TPMと米国太平洋時間0時リセットのRPDを保持する。
+入力TPMをJSON UTF-8バイト数+128で保守的に予約し、応答後に実値へ置換する。
+429/RESOURCE_EXHAUSTEDは即再試行せず、QuotaFailureとRetryInfo/Retry-Afterから待機する。
+判明したGoogle上限があれば95%とアプリ設定の小さい値を使う。
+不明な429は60秒から最大1時間の待機、日次上限は次の太平洋時間0時まで待機し、自動復帰する。
+5xx/通信障害のみ最大1回再試行する。利用上限時は次の固定文をWebhookで一度だけ送信する。
 
-```json
-{
-  "author_id": "748965361486921831",
-  "source": "direct_provision",
-  "guide": "本人提供の口調ガイド",
-  "examples": [
-    {"context": "相手の発言または場面", "reply": "本人提供の発言"}
-  ]
-}
+```text
+ゴソゴソ
+アイスがないよ
 ```
 
-稼働releaseのPython環境で `scripts/llm_persona_import.py INPUT --output OUTPUT` を実行する。
-コンテナのsecretsは読み取り専用なので、ホスト側Pythonから出力する。
-本番OUTPUTは `/home/ubuntu/ichiyon-shared/secrets/llm_persona.json`。
-インポートは全件置換。以前の資料を必要に応じて非公開の復旧領域に保持する。
-重複を除外し、別人IDや不正な形式を拒否する。最大2000例、各返信1000文字、ガイド6000文字、合計20万文字。
-資料を削除・修正した場合も次の生成で反映する。本人発言やキーをGitに追加しない。
+本文を通常ログやDBへ保存しない。要求モデル、応答modelVersion、推論レベル、入力・出力・思考・合計トークンをログに記録する。
+思考トークンが応答にない場合はログ上0として扱う。DBのoutput_tokensはcandidatesTokenCountのみ。
+API/返信メタデータは7日を過ぎたものから少量ずつ失効させ、人格原本・索引には触らない。
+料金・モデル枠は[Google料金表](https://ai.google.dev/gemini-api/docs/pricing)と対象プロジェクトのAI Studioで確認する。
+応答のserviceTier=standardだけでプロジェクトがFreeかPaidかを判定しない。
 
-検索は日本語の文字bigramと単語の転置索引、質問・冗談・挨拶・感情・雑談の意図加点を使う。
-候補を制限し、短すぎる発言を減点する。採用した本人replyと場面をFew-shotとして渡す。
-資料が増えた後の口調評価は別途実際の本人資料で行う。
+## 人格資料
 
-## 提供済みTXTの全件索引
+提供済みTXT 51,974件を独立した `rachel_corpus.sqlite3` に保存する。原本は変更しない。
+`python scripts/llm_corpus_import.py SOURCE --output NEW.sqlite3 --expected-count 51974`
+は日時順、重複ID、件数、UTF-8、複数行・空本文・添付注記・返信先と原文復元一致を検証する。
+原本に著者ID欄がないため、運用者指定の著者IDを来歴として記録する。
+他者の発言を推測で補わず、単独投稿を会話ペアに変換しない。
 
-大きな提供済みエクスポートには `scripts/llm_corpus_import.py SOURCE --output NEW.sqlite3 --expected-count COUNT` を使う。
-原本のUTF-8、日時順、ID重複、件数、本文とヘッダーの復元一致を検証する。出力は新規ファイルに限定する。
-全件の本文・原ヘッダー・添付注記・日時・サーバー・チャンネル・返信先IDをSQLiteへ保存する。
-原本に著者ID欄がない場合は、運用者が指定した本人IDを来歴として記録する。返信先の他者本文は補完しない。
-JSON資料形式も引き続き利用できる。
+索引のmetadataに私的なguide・guide_sha256・根拠IDと分類別の少数予備例を持つ。
+ガイドはこの著者の資料から作成し、旧人格の設定を流用しない。
+全件の本文・日時・サーバー・チャンネル・メッセージID・返信先・原ヘッダーを保存する。
+空本文、URL、コマンド、引用等も保持するがFew-shotでは通常会話を優先する。
+明らかな物真似の自己紹介は引用として減点する。分類はヒューリスティックであり完全ではない。
 
-本番の索引は `/home/ubuntu/ichiyon-shared/secrets/llm_persona_corpus_v2.sqlite3`。
-`llm_config.json` の `persona_path` を `/app/secrets/llm_persona_corpus_v2.sqlite3` に設定すると読み込む。
-既存索引を更新する場合は別名で新規作成・検証し、設定を原子的に切り替える。直前の索引を復旧用に保持する。
-インポート時の `.report.json` には発言例が含まれるため、索引・原本と同じ非公開領域に保存する。
+日本語bigram/単語のSQLite FTS5+BM25で候補48件と小さな分類別集合を検索し、話題・場面・長さを加点する。
+同文や書き出しの重複を抑え、最大4例を渡す。全件常駐・毎回全走査・Embeddingモデルは使わない。
+SQLite/ランキング期限500ms、非同期待機750ms、接続キャッシュ2MiB。検索はワーカースレッドで行う。
+一致不足・期限超過時は独立したレイチェルの予備例とガイドを使用する。
+Bot生成文を人格資料へ取り込む経路はない。
 
-索引は日本語bigram・単語のSQLite FTS5とBM25を使う。明示的なゲーム名を話題フィルターへ分離し、
-質問への応答、挨拶、短い反応などの場面と本文の一致を再評価する。分類はヒューリスティックで、
-引用・コピペや質問への回答であることを断定するものではない。
-空本文やURL・コマンド等も保存し、Few-shotでは通常会話を優先する。
-通常検索候補はFTS上位48件と小さな分類別候補に限定する。全件のPythonオブジェクト常駐や毎回の全件走査は行わない。
-SQLiteの進捗ハンドラーとランキングの期限は500ms、非同期側の待機上限は750ms。
-インポート時に本人の実際の発言を最大15件だけ予備例としてmetadataへ保存する。
-検索の時間超過・一致不足時は、この少数の予備例と口調ガイドで生成する。予備例も現在の意図・話題・直前との重複を考慮する。
-既存索引には `build_fallbacks(conn)` の返り値をJSON化してmetadataの `fallback_examples` に登録できる（オフライン処理）。
-SQLiteページキャッシュは接続当たり2MiB、接続は検索後に閉じる。
-検索・索引ロードはワーカースレッドで実行する。
+JSON資料も `author_id: "699881916282699876"`, `source: "direct_provision"`, `guide`,
+`examples: [{"context": "実際に提供された相手発言", "reply": "本人発言"}]` で登録できる。
+旧著者のJSON/SQLiteは拒否する。索引・原本・私的ガイド・評価例をGitへコミットしない。
 
-口調ガイドは非公開SQLiteの `metadata` テーブルの `guide` に最大6000文字で登録する。
-ガイドをsystem instructionへ、検索した本人発言をFew-shotデータとして渡す。
-現在の会話は本文合計6000文字、Few-shotは1件300文字、初期設定4件に制限し、実トークン数を記録する。
-過去のゲーム環境や人名を現在の事実として扱うことを避ける。
-検証には `python scripts/check_llm_corpus.py` も使用する。
+## 受信・履歴・Webhook
 
-## 会話と障害
+コマンドを優先した後、内村家の通常の人間メッセージをメンションなしで受け付ける。
+他チャンネル、DM、スレッド、Bot、自他Webhookは起動条件から除外する。
+直近16件・本文合計6000文字を目安に、発言者ID、表示名、順序、返信先を渡す。
+このWebhookの送信済み投稿は履歴に含め、別Webhook・旧Bot投稿・切替前の履歴は除外する。
+取得結果はメッセージIDで重複除去する。本文を永続記憶・会話要約として別途保存しない。
 
-直近16件をDiscordから読み、発言者ID、発言順、返信先をモデルへ渡す。
-順番待ち中に生成されたBotの返答も含める。別ユーザーの後続発言は先行要求へ混入させない。
-本文は各800文字に制限する。Bot/Webhook投稿を起動条件にしない。生成返信のメンションは無効。
-会話全文を通常ログやDBへ保存しない。`llm_requests` は重複防止、API試行数、トークン数、遅延、返信IDのみ保持する。
-送信結果不明時に再送しない設計のため、クラッシュ時の一部要求は未返信になる。
-再起動時に過去の要求を再生しない。
+専用Webhookは明示的に作成・保存したIDで管理し、起動時には作成しない。
+秘密JSONはid/channel_id/name/avatar/tokenを持ち、モード600で保管する。
+名前は「レイチェル竈門にぼ」、指定JPEGをデフォルトavatarへ登録する。
+投稿時username/avatar_urlは上書きせず、allowed_mentionsのparseを空にする。
+wait=trueの確定応答から投稿ID・Webhook ID・チャンネルを検証する。
+タイムアウト・権限失敗・結果不明時に自動再送やBot名義への代替送信をしない。
+確定送信後のメタデータ保存失敗も追加のエラー投稿に変えない。
+HTTPライブラリのURLログを抑止し、例外全文を通常ログへ出さない。
 
-検証は `python scripts/check_llm_chat.py`、`python scripts/check_llm_limits.py` と既存ルーターcheckを実行する。
-本番は既存immutable Compose adapterでmigrationを適用し、既存backupと直前releaseを復旧点とする。
-最初の切り戻し手段は `llm_config.json` の `enabled: false`。
+## 検証と配備
+
+`check_llm_chat.py`、`check_llm_corpus.py`、`check_llm_limits.py`、`check_llm_rachel.py`、
+`check_message_router.py` を使う。DB試験はLLM_TEST_DATABASE_URLの使い捨てDBのみ。
+実APIは少数、Webhook試験文は「AI会話テスト」と明示し、内村家に限定する。
+既存immutable Compose adapterで配備し、成功receipt、稼働SHA、Bot/admin/DBを確認する。
+共有secrets変更は配備ロック内で行い、バックアップと競合させない。
+復旧は `rachel_config.json` のenabled=falseを優先し、非AI機能を維持する。
+旧コードへの復旧が必要でも旧 `llm_config.json` はdisabledのまま保持する。
