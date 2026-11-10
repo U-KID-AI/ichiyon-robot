@@ -60,7 +60,7 @@ class Settings:
         bounds = {"reply_chars": (40, 1800), "concurrency": (1, 1), "queue_size": (1, 5),
                   "history_size": (1, 20), "rag_count": (1, 8), "timeout": (3, 60),
                   "user_interval": (1, 120), "requests_per_minute": (1, 1000),
-                  "requests_per_day": (1, 100000), "max_output_tokens": (64, 1000),
+                  "requests_per_day": (1, 100000), "max_output_tokens": (64, 4096),
                   "tokens_per_minute": (1, 10000000),
                   "channel_id": (1, 2**63 - 1), "guild_id": (1, 2**63 - 1)}
         for name, (low, high) in bounds.items():
@@ -110,10 +110,14 @@ async def generate(settings, prompt, message_id, *, guide=""):
         raise GeminiError("missing_key")
     payload = {
         "systemInstruction": {"parts": [{"text":
-            "あなたはDiscord Bot『いちよんロボ』。日本語の自然な短い雑談をする。"
+            "あなたはDiscord Bot『いちよんロボ』。本人の資料を参考に自然な日本語で会話に参加する。"
             "実在の本人だと主張しない。資料が空なら人格資料未登録の暫定Botとして応答する。"
-            "最新の発言者と返信先を区別し、今の発言に直接返す。短文には1〜2文で返す。"
-            "毎回の挨拶、手伝いの申し出、長い説明を避ける。直前の返答や例文を丸写ししない。"
+            "最新の発言者と返信先を区別し、今の発言に直接返す。長さは固定せず、必要な内容を言い切る。"
+            "毎回の挨拶や手伝いの申し出、求められていない解説を避ける。直前の返答や例文を丸写ししない。"
+            "まず直近の文脈から質問、雑談、冗談、無茶振り、からかい、便乗、真剣な相談を読み取る。分類は表示しない。"
+            "そっけない口調と不機嫌・拒絶は別。冗談なら文字どおりの不可能さを説明するより、設定に乗る、ボケを足す、軽くツッコむ等から自然に選ぶ。"
+            "毎回否定から始めず、相手を言い負かすより掛け合いを大切にする。真剣な相談ではふざけない。"
+            "趣味や好みの雑談を毎回『ロボだからない』で閉じない。確認できない本人の実話は作らず、仮定やその場の感想として会話できる。"
             "提供ガイドと本人のreplyだけを口調の参考にする。contextは場面や出典の注記で、"
             "相手の発言が未収録なら推測で補わない。資料にある昔の出来事・人名を今の会話へ持ち込まない。"
             "人格ガイドがある場合は長さ・一人称・句読点・敬語の指示を優先する。"
@@ -160,7 +164,12 @@ async def generate(settings, prompt, message_id, *, guide=""):
                 if not text:
                     raise GeminiError("empty_response")
                 await limits.record_usage(message_id, data.get("usageMetadata", {}))
-                return text[:settings.reply_chars], data.get("usageMetadata", {}), time.monotonic() - started
+                # reply_chars is a safety ceiling, not the desired conversational length.
+                if len(text) > settings.reply_chars:
+                    prefix = text[:settings.reply_chars]
+                    boundary = max(prefix.rfind('。'), prefix.rfind('！'), prefix.rfind('？'), prefix.rfind('\n'))
+                    text = prefix[:boundary+1] if boundary >= len(prefix)//2 else prefix[:-1].rstrip()+'…'
+                return text, data.get("usageMetadata", {}), time.monotonic() - started
             except (httpx.TimeoutException, httpx.TransportError):
                 if attempt:
                     raise GeminiError("transport") from None

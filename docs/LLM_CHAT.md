@@ -18,7 +18,7 @@
   "guild_id": 1515983621461245972,
   "extra_channels": {},
   "model": "gemini-3.1-flash-lite",
-  "reply_chars": 400,
+  "reply_chars": 1200,
   "concurrency": 1,
   "queue_size": 5,
   "history_size": 16,
@@ -28,7 +28,7 @@
   "requests_per_minute": 14,
   "requests_per_day": 450,
   "tokens_per_minute": 225000,
-  "max_output_tokens": 600,
+  "max_output_tokens": 1536,
   "key_path": "/app/secrets/gemini_api_key",
   "persona_path": "/app/secrets/llm_persona.json"
 }
@@ -89,8 +89,8 @@ Geminiプロジェクト側の上限はAI Studioで確認する。上記設定�
 原本に著者ID欄がない場合は、運用者が指定した本人IDを来歴として記録する。返信先の他者本文は補完しない。
 JSON資料形式も引き続き利用できる。
 
-本番の索引は `/home/ubuntu/ichiyon-shared/secrets/llm_persona_corpus_v2.sqlite3`。
-`llm_config.json` の `persona_path` を `/app/secrets/llm_persona_corpus_v2.sqlite3` に設定すると読み込む。
+本番の索引は `/home/ubuntu/ichiyon-shared/secrets/llm_persona_corpus_v3.sqlite3`。
+`llm_config.json` の `persona_path` を `/app/secrets/llm_persona_corpus_v3.sqlite3` に設定すると読み込む。
 既存索引を更新する場合は別名で新規作成・検証し、設定を原子的に切り替える。直前の索引を復旧用に保持する。
 インポート時の `.report.json` には発言例が含まれるため、索引・原本と同じ非公開領域に保存する。
 
@@ -100,7 +100,7 @@ JSON資料形式も引き続き利用できる。
 空本文やURL・コマンド等も保存し、Few-shotでは通常会話を優先する。
 通常検索候補はFTS上位48件と小さな分類別候補に限定する。全件のPythonオブジェクト常駐や毎回の全件走査は行わない。
 SQLiteの進捗ハンドラーとランキングの期限は500ms、非同期側の待機上限は750ms。
-インポート時に本人の実際の発言を最大15件だけ予備例としてmetadataへ保存する。
+インポート時に本人の実際の発言を分類別・長さ別に最大20件、運用者による選定分を含め最大24件だけ予備例としてmetadataへ保存する。
 検索の時間超過・一致不足時は、この少数の予備例と口調ガイドで生成する。予備例も現在の意図・話題・直前との重複を考慮する。
 既存索引には `build_fallbacks(conn)` の返り値をJSON化してmetadataの `fallback_examples` に登録できる（オフライン処理）。
 SQLiteページキャッシュは接続当たり2MiB、接続は検索後に閉じる。
@@ -111,6 +111,27 @@ SQLiteページキャッシュは接続当たり2MiB、接続は検索後に閉�
 現在の会話は本文合計6000文字、Few-shotは1件300文字、初期設定4件に制限し、実トークン数を記録する。
 過去のゲーム環境や人名を現在の事実として扱うことを避ける。
 検証には `python scripts/check_llm_corpus.py` も使用する。
+
+## 会話のノリと参考例の偏り
+
+短い常体と、不機嫌・拒絶を区別する。直近の文脈から冗談、無茶振り、からかい、便乗、
+普通の質問、真剣な相談を生成時に読み取り、分類専用APIは呼ばない。
+冗談では設定に乗る、ボケを足す、軽くツッコむなどから選び、真剣な相談を冗談で流さない。
+ロボ設定を理由に趣味の話などを毎回閉じず、未確認の本人の事実は創作しない。
+
+SQLite検索では軽量な場面ヒントを加点へ反映する。これは正確な意図分類ではなく、最終判断は現在の会話を読むモデルが行う。
+関連度上位の小さな候補集合から、同文・同じ書き出し・否定から始まる例の集中を抑える。
+否定表現は禁止せず、他の候補が不足する場合も実在する発言例を使う。
+説明を求められた場合は長めの参考例も加点し、予備例を短い相づちだけに限定しない。
+返答は常に短文にも長文にも固定しない。`reply_chars` と `max_output_tokens` は安全上限で、目標長ではない。
+通常は短い常体だが、理由や具体案が必要なら言い切れる長さにする。
+
+本人単独TXTには相手の本文がない。Few-shotのcontextに「未収録」と明示し、架空の会話ペアは作らない。
+実際に本人から提供された会話ペアは既存のJSON形式のcontext/replyで取り込める。
+Bot自身の生成返信・評価用の架空会話を本人資料へ登録する経路は設けない。
+比較試験の生成結果と本人資料はGitへ保存せず、非公開の評価領域へ分離する。
+本番切替前には新しい索引の件数・整合性・原本ハッシュを確認し、配備ロック内で設定を原子的に切り替える。
+配備のバックアップ実行中は共有secretsを変更しない。
 
 ## 会話と障害
 
