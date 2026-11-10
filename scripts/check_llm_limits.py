@@ -104,7 +104,7 @@ class ReplyTests(unittest.IsolatedAsyncioTestCase):
              patch.object(chat,'generate',AsyncMock(side_effect=chat.QuotaError('provider_day'))) as generate:
             await c.respond(m,s)
             generate.assert_awaited_once()
-            self.assertEqual(m.reply.await_args.args,('ゴソゴソ\nアイスがないよ',))
+            self.assertEqual(m.reply.await_args.args,('現在、会話機能の利用上限に達しています。時間をおいてお試しください。',))
 
     async def test_slow_search_keeps_real_fallback_examples(self):
         from bot import messages
@@ -137,7 +137,7 @@ class ReplyTests(unittest.IsolatedAsyncioTestCase):
             for m in messages:
                 await c.handle(m)
             for m in messages[:2]:
-                self.assertEqual(m.reply.await_args.args, ("ゴソゴソ\nアイスがないよ",))
+                self.assertEqual(m.reply.await_args.args, ("現在、会話機能の利用上限に達しています。時間をおいてお試しください。",))
                 self.assertFalse(m.reply.await_args.kwargs["mention_author"])
                 self.assertFalse(m.reply.await_args.kwargs["allowed_mentions"].everyone)
             messages[2].reply.assert_not_awaited()
