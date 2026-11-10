@@ -124,7 +124,7 @@ class ReplyTests(unittest.IsolatedAsyncioTestCase):
              patch.object(chat.Persona,'load',return_value=persona), \
              patch.object(chat,'generate',AsyncMock(return_value=('fixture response',{},.1))) as generate:
             await c.respond(m,s)
-            self.assertEqual(json.loads(generate.await_args.args[1])['examples'],examples)
+            self.assertEqual(json.loads(generate.await_args.args[1])['person_style_examples'],examples)
 
     async def test_exact_every_message_no_api_and_dedup(self):
         c = chat.Chat();s = chat.Settings(enabled=True)
