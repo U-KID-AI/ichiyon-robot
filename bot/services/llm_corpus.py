@@ -11,6 +11,7 @@ from pathlib import Path
 
 from bot.services.llm_persona import PERSON_ID, intent, terms
 from bot.services.llm_style import situation, diverse, NEGATIVE
+from bot.services.llm_context import response_mode
 
 HEADER = re.compile(
     r"^={50}\n日時: (?P<date>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) JST\n"
@@ -279,6 +280,14 @@ class IndexedPersona:
 
     def retrieve(self, text, limit, context="", avoid=()):
         started = time.monotonic()
+        if response_mode(text) == 'style_play':
+            # Topic-only matches about a voice/role are not instructions to reject a role-play request.
+            examples = [row for row in self.fallback_examples
+                        if re.fullmatch(r'(?:もちろん|いいね|おお|はい|そう|面白い|神)[!！]*', row['reply'])]
+            self.last_search_ms = round((time.monotonic() - started) * 1000, 2)
+            return [{"message_id": row['message_id'], "reply": row['reply'],
+                     "context": "本人の一般的な相槌の実例。役柄の実例ではない。依頼された口調を今回だけ実演してよい。"}
+                    for row in examples if row['reply'] not in avoid][:limit]
         conn = open_index(self.path, started + .5)
         candidates = {}
         weights = {}
@@ -287,6 +296,7 @@ class IndexedPersona:
             if re.search(r"何使|どれ|どこ|おすすめ|選べば|すべき|したらいい", text):
                 wanted = "question"
             style = situation(text, context)
+            explaining = response_mode(text) == 'explanation'
             if style == 'playful':
                 wanted = 'joke'
             topic = topic_for(text) or topic_for(context)
@@ -338,7 +348,7 @@ class IndexedPersona:
                 if wanted == "greeting" and row["category"] != "greeting":
                     score -= 12
                 if row["category"] == category:
-                    score += 10 if wanted == "question" else 2
+                    score += (10 if explaining else 4) if wanted == "question" else (4 if style == 'playful' else 2)
                 if wanted == "question" and "answer_cue" in tags:
                     score += 1
                 if wanted == "question" and row["category"] == "question":
@@ -350,9 +360,14 @@ class IndexedPersona:
                 if len(text) <= 5 and len(body) <= 5:
                     score += 5
                 if style == 'playful' and NEGATIVE.search(body):
-                    score -= 2
-                if re.search(r'理由|説明|詳しく|どう考え|相談', text) and len(body) >= 40:
+                    score -= 5
+                if explaining and len(body) >= 40:
                     score += 2
+                elif not explaining:
+                    if len(body) <= 40:
+                        score += 2
+                    elif len(body) > 80:
+                        score -= 3
                 scored.append((score, row))
             selected, seen = [], set()
             for score, row in sorted(scored, key=lambda item: (-item[0], -int(item[1]["id"]))):

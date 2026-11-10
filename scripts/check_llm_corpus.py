@@ -20,6 +20,16 @@ def record(mid, text, channel="雑談", extra=""):
 
 
 class CorpusTests(unittest.TestCase):
+    def test_roleplay_uses_real_agreement_examples_not_keyword_rejection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source=Path(directory)/'source.txt';output=Path(directory)/'corpus.sqlite3'
+            source.write_text(record(100,'お嬢様言葉は使いたくない')+record(101,'もちろん')+record(102,'いいね'),encoding='utf-8')
+            build_corpus(source,output,3)
+            rows=Persona.load(output).retrieve('お嬢様言葉で会話してみよう',4)
+            self.assertTrue(rows)
+            self.assertTrue(all(row['message_id'] in ('101','102') for row in rows))
+            self.assertTrue(all('役柄の実例ではない' in row['context'] for row in rows))
+
     def test_situation_and_diverse_rejections(self):
         from bot.services.llm_style import situation, diverse
         self.assertEqual(situation('真剣な相談、魔王の話ではない'), 'serious')

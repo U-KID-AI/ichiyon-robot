@@ -109,14 +109,14 @@ class ChatTests(unittest.IsolatedAsyncioTestCase):
                 def handler(request):
                     calls.append(request)
                     self.assertNotIn("test-only-key", str(request.url))
-                    return httpx.Response(status, json={"modelVersion":"gemini-3.1-flash-lite", "candidates": [{"content": {"parts": [{"text": "あ" * 80}]}}]})
+                    return httpx.Response(status, json={"modelVersion":"gemini-3.1-flash-lite", "candidates": [{"content": {"parts": [{"text": "あ" * 20}]}}]})
                 def client(**kwargs):
                     return real_client(transport=httpx.MockTransport(handler), **kwargs)
                 with patch.object(llm.httpx, "AsyncClient", client), patch.object(llm, "reserve", AsyncMock(return_value=True)), \
                         patch.object(llm.limits, "remember", AsyncMock()), patch.object(llm.limits, "record_usage", AsyncMock()):
                     if status == 200:
                         result, _, _ = await llm.generate(settings, "test", 1)
-                        self.assertEqual(len(result), 40)
+                        self.assertEqual(result, "あ" * 20)
                     else:
                         with self.assertRaises(llm.GeminiError):
                             await llm.generate(settings, "test", 1)

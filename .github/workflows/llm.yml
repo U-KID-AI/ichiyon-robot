@@ -28,6 +28,7 @@ jobs:
           LLM_TEST_DATABASE_URL: postgresql://llm_test:llm_test@localhost:5432/llm_test
       - run: python scripts/check_llm_corpus.py
       - run: python scripts/check_llm_rachel.py
+      - run: python scripts/check_llm_context.py
       - run: python scripts/check_llm_limits.py
         env:
           LLM_TEST_DATABASE_URL: postgresql://llm_test:llm_test@localhost:5432/llm_test
