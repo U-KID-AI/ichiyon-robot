@@ -10,7 +10,6 @@ from datetime import datetime
 from pathlib import Path
 
 from bot.services.llm_persona import PERSON_ID, intent, terms
-from bot.services.llm_style import situation, diverse, NEGATIVE
 
 HEADER = re.compile(
     r"^={50}\n日時: (?P<date>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) JST\n"
@@ -223,18 +222,19 @@ def build_fallbacks(conn):
     """Offline only: retain a tiny set of real utterances for busy-host fallback."""
     selected, seen = [], set()
     for category in ("greeting", "chat", "reply", "emotion", "joke"):
-        for low, high, count in ((1, 35, 2), (36, 80, 1), (81, 250, 1)):
-            rows = conn.execute("""SELECT max(id),body,category,topic FROM messages
-                WHERE category=? AND quality>=20 AND length(body) BETWEEN ? AND ?
-                AND body NOT LIKE '%http%' AND body NOT LIKE '%<%'
-                GROUP BY body,category,topic
-                ORDER BY count(*) DESC,CASE WHEN topic='' THEN 0 ELSE 1 END,max(id) DESC LIMIT 50""",
-                (category, low, high))
-            candidates = [{"message_id": str(mid), "reply": body, "category": kind, "topic": topic}
-                          for mid, body, kind, topic in rows if body not in seen]
-            chosen = diverse(candidates, count)
-            selected.extend(chosen)
-            seen.update(row["reply"] for row in chosen)
+        rows = conn.execute("""SELECT max(id),body,category,topic FROM messages
+            WHERE category=? AND quality>=20 AND length(body)<=35
+            AND body NOT LIKE '%http%' AND body NOT LIKE '%<%'
+            GROUP BY body,category,topic
+            ORDER BY count(*) DESC,CASE WHEN topic='' THEN 0 ELSE 1 END,max(id) DESC LIMIT 50""", (category,))
+        added = 0
+        for mid, body, kind, topic in rows:
+            if body in seen:
+                continue
+            selected.append({"message_id": str(mid), "reply": body, "category": kind, "topic": topic})
+            seen.add(body);added += 1
+            if added == 3:
+                break
     return selected
 
 
@@ -261,21 +261,19 @@ class IndexedPersona:
         if len(self.guide) > 6000:
             raise ValueError("guide too long")
         self.count = int(meta["count"])
-        self.fallback_examples = json.loads(meta.get("fallback_examples", "[]"))[:24]
+        self.fallback_examples = json.loads(meta.get("fallback_examples", "[]"))[:15]
         self.last_search_ms = 0
 
     def fallback(self, text, limit, context="", avoid=()):
         wanted = intent(text)
-        if situation(text, context) == 'playful':
-            wanted = 'joke'
         category = "reply" if wanted == "question" else wanted
         topic = topic_for(text) or topic_for(context)
         rows = sorted(self.fallback_examples, key=lambda row: (
             row["category"] != category, bool(row["topic"]) and row["topic"] != topic,
             len(row["reply"]) > max(20, len(text))))
-        return diverse([{"message_id": row["message_id"], "reply": row["reply"][:300],
+        return [{"message_id": row["message_id"], "reply": row["reply"][:300],
                  "context": "本人の予備発言例。相手の発言本文は未収録。内容を引用せず口調の参考にする。分類=" + row["category"]}
-                for row in rows], limit, avoid)
+                for row in rows if row["reply"] not in avoid][:limit]
 
     def retrieve(self, text, limit, context="", avoid=()):
         started = time.monotonic()
@@ -286,9 +284,6 @@ class IndexedPersona:
             wanted = intent(text)
             if re.search(r"何使|どれ|どこ|おすすめ|選べば|すべき|したらいい", text):
                 wanted = "question"
-            style = situation(text, context)
-            if style == 'playful':
-                wanted = 'joke'
             topic = topic_for(text) or topic_for(context)
             search_text = re.sub(r"原神|シャドウバース|シャドバ|パズドラ|スターレイル|スタレ|オレカ|マイクラ|ポケモン|ウルトラランブル|アイマス|モンハン", "", text) if topic else text
             tokens = sorted(terms(search_text) - STOP, key=lambda t: (-len(t), t))[:80]
@@ -349,10 +344,8 @@ class IndexedPersona:
                     score += 1
                 if len(text) <= 5 and len(body) <= 5:
                     score += 5
-                if style == 'playful' and NEGATIVE.search(body):
+                if len(body) > 160:
                     score -= 2
-                if re.search(r'理由|説明|詳しく|どう考え|相談', text) and len(body) >= 40:
-                    score += 2
                 scored.append((score, row))
             selected, seen = [], set()
             for score, row in sorted(scored, key=lambda item: (-item[0], -item[1]["id"])):
@@ -363,9 +356,9 @@ class IndexedPersona:
                 selected.append({"message_id": str(row["id"]),
                                  "context": "本人の発言。相手の発言本文は未収録。分類=" + row["category"] + " 話題=" + row["topic"],
                                  "reply": body})
-                if len(selected) >= limit * 3:
+                if len(selected) >= limit:
                     break
-            return diverse(selected, limit, avoid) or self.fallback(text, limit, context, avoid)
+            return selected or self.fallback(text, limit, context, avoid)
         except sqlite3.OperationalError as exc:
             if "interrupted" not in str(exc):
                 raise

@@ -20,29 +20,6 @@ def record(mid, text, channel="雑談", extra=""):
 
 
 class CorpusTests(unittest.TestCase):
-    def test_situation_and_diverse_rejections(self):
-        from bot.services.llm_style import situation, diverse
-        self.assertEqual(situation('真剣な相談、魔王の話ではない'), 'serious')
-        self.assertEqual(situation('じゃあ任せた', '今日は魔王になる設定'), 'playful')
-        self.assertEqual(situation('オレカの魔王の入手方法を教えて'), 'open')
-        rows=[{'reply':x} for x in ('いや、無理','知らない','いいね','そうなんだ')]
-        self.assertEqual([r['reply'] for r in diverse(rows,3)], ['いや、無理','いいね','そうなんだ'])
-        self.assertEqual(diverse(rows[:2], 4), rows[:2])  # Real expressions are not banned.
-        self.assertEqual(diverse(rows, 4, avoid=('いいね',)), [rows[0], rows[3], rows[1]])
-
-    def test_fallback_retains_longer_real_examples(self):
-        with tempfile.TemporaryDirectory() as directory:
-            source = Path(directory) / 'source.txt'
-            output = Path(directory) / 'corpus.sqlite3'
-            longer = '手持ちを確認してから組めるデッキを考えるといいと思う。' * 3
-            source.write_text(record(100, 'そうね') + record(101, longer), encoding='utf-8')
-            build_corpus(source, output, 2)
-            persona = Persona.load(output)
-            self.assertIn(longer, [row['reply'] for row in persona.fallback_examples])
-            self.assertLessEqual(len(persona.fallback_examples), 24)
-            result = persona.retrieve('デッキの選び方を詳しく説明して', 4)
-            self.assertIn(longer, [row['reply'] for row in result])
-            self.assertTrue(all('未収録' in row['context'] for row in result))
     def test_multiline_unicode_empty_and_metadata(self):
         text = record(100, "一行目\n\n二行目🙂\n", extra="返信先ID: 99\n添付: example.png\n") + record(101, "")
         rows = list(parse_export(text))
