@@ -11,7 +11,7 @@ import psycopg
 
 from bot.db import require_database_url
 
-QUOTA_REPLY = "ゴソゴソ\nアイスがないよ"
+QUOTA_REPLY = "現在、会話機能の利用上限に達しています。時間をおいてお試しください。"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 LOCK = 1568969564769747006
 

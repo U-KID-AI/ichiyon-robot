@@ -282,7 +282,7 @@ class Chat:
             return False
         if config.BOT_INSTANCE_ID != "ichiyon" or message.author.bot or getattr(message, "webhook_id", None):
             return True
-        if not settings.enabled:
+        if not settings.enabled or message.id <= int(settings.history_after):
             return True
         try:
             available = await limits.check(settings)
@@ -330,6 +330,8 @@ class Chat:
                 self.queue.task_done()
 
     async def respond(self, message, settings):
+        if message.id <= int(settings.history_after):
+            return
         if not await claim(message.id, settings):
             return
         from bot import messages

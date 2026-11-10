@@ -52,6 +52,19 @@ class MigrationTests(unittest.IsolatedAsyncioTestCase):
             quota.assert_not_awaited()
             self.assertEqual(worker.queue.qsize(),0)
 
+    async def test_activation_cutoff_rejects_old_events_and_queued_requests(self):
+        settings=chat.Settings(enabled=True,history_after='100')
+        worker=chat.Chat()
+        with patch.object(worker,'reload',AsyncMock(return_value=settings)), \
+             patch.object(chat.limits,'check',AsyncMock()) as quota, \
+             patch.object(chat,'claim',AsyncMock()) as claim:
+            for mid in (90,100):
+                await worker.handle(message(mid))
+                await worker.respond(message(mid),settings)
+            quota.assert_not_awaited()
+            claim.assert_not_awaited()
+            self.assertEqual(worker.queue.qsize(),0)
+
     async def test_history_cutoff_webhook_and_reply(self):
         current=message(100)
         own=message(98);own.author.bot=True;own.webhook_id=99
