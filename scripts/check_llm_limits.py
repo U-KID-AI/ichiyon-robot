@@ -20,9 +20,9 @@ from bot.services import llm_chat as chat, llm_limits as limits
 NOW = datetime(2026, 11, 9, 9, tzinfo=timezone.utc)
 
 
-def event(mid=1, channel=1568969564769747006, bot=False):
+def event(mid=1, channel=1569571831894114354, bot=False):
     return SimpleNamespace(id=mid, content="やあ", channel=SimpleNamespace(id=channel),
-        guild=SimpleNamespace(id=1515983621461245972),
+        guild=SimpleNamespace(id=1392174489609179327),
         author=SimpleNamespace(id=42, bot=bot), reply=AsyncMock(return_value=SimpleNamespace(id=mid+100)))
 
 
@@ -71,14 +71,19 @@ class WindowTests(unittest.TestCase):
 
 
 class ReplyTests(unittest.IsolatedAsyncioTestCase):
-    async def test_added_channel_and_cross_guild_isolation(self):
-        s=chat.Settings(enabled=True,extra_channels={"1417484793674731622":1392174489609179327})
-        m=event(channel=1417484793674731622)
-        self.assertFalse(s.allows(m))
-        m.guild.id=1392174489609179327
-        self.assertTrue(s.allows(m))
-        self.assertTrue(s.allows(event()))
-        m.channel.id=123
+    async def asyncSetUp(self):
+        import discord
+        async def deliver(settings, message, text):
+            return await message.reply(text, mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+        self.transport = patch.object(chat, 'webhook_send', side_effect=deliver)
+        self.transport.start()
+        self.addCleanup(self.transport.stop)
+
+    async def test_old_channels_are_always_excluded(self):
+        s=chat.Settings(enabled=True)
+        for channel in (1568969564769747006,1569403401446359040,1417484793674731622):
+            self.assertFalse(s.allows(event(channel=channel)))
+        m=event();self.assertTrue(s.allows(m));m.guild=None
         self.assertFalse(s.allows(m))
 
     async def test_inflight_provider_limit_gets_exact_reply(self):

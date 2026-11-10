@@ -15,9 +15,9 @@ from bot.services import llm_chat as llm
 from bot.services.llm_persona import Persona, PERSON_ID
 
 
-def message(mid=10, channel=1568969564769747006, bot=False, author=42):
+def message(mid=10, channel=1569571831894114354, bot=False, author=42):
     return SimpleNamespace(id=mid, content="今日は何してた？", reference=None,
-        guild=SimpleNamespace(id=1515983621461245972),
+        guild=SimpleNamespace(id=1392174489609179327),
         channel=SimpleNamespace(id=channel),
         author=SimpleNamespace(id=author, bot=bot, display_name="テスト"), reply=AsyncMock())
 
@@ -45,6 +45,14 @@ class PersonaTests(unittest.TestCase):
 
 
 class ChatTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        import discord
+        async def deliver(settings, message, text):
+            return await message.reply(text, mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+        self.transport = patch.object(llm, 'webhook_send', side_effect=deliver)
+        self.transport.start()
+        self.addCleanup(self.transport.stop)
+
     async def test_channel_boundary_disabled_and_bot(self):
         chat = llm.Chat()
         with patch.object(chat, "reload", AsyncMock(return_value=llm.Settings())):
@@ -84,7 +92,8 @@ class ChatTests(unittest.IsolatedAsyncioTestCase):
         m.channel.history = history
         m.channel.fetch_message = AsyncMock(return_value=old)
         m.reference = SimpleNamespace(message_id=8, channel_id=m.channel.id)
-        rows, ref = await llm.conversation(m, llm.Settings(), 99)
+        old.webhook_id = 99; last_reply.webhook_id = 99
+        rows, ref = await llm.conversation(m, llm.Settings(webhook_id="99"), "99")
         self.assertEqual([row["message_id"] for row in rows], ["8", "10", "12"])
         self.assertEqual(ref["speaker_id"], "99")
         self.assertEqual(rows[1]["reply_to"], "8")
@@ -100,7 +109,7 @@ class ChatTests(unittest.IsolatedAsyncioTestCase):
                 def handler(request):
                     calls.append(request)
                     self.assertNotIn("test-only-key", str(request.url))
-                    return httpx.Response(status, json={"candidates": [{"content": {"parts": [{"text": "あ" * 80}]}}]})
+                    return httpx.Response(status, json={"modelVersion":"gemini-3.1-flash-lite", "candidates": [{"content": {"parts": [{"text": "あ" * 80}]}}]})
                 def client(**kwargs):
                     return real_client(transport=httpx.MockTransport(handler), **kwargs)
                 with patch.object(llm.httpx, "AsyncClient", client), patch.object(llm, "reserve", AsyncMock(return_value=True)), \

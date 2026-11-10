@@ -111,7 +111,9 @@ class RoutingChecks(unittest.IsolatedAsyncioTestCase):
 
     async def test_llm_channels_preserve_existing_commands_without_logging_chat(self):
         from bot.services.llm_chat import chat, Settings
-        settings=Settings(enabled=True,extra_channels={'456':123})
+        settings=Settings(enabled=True)
+        self.message.channel.id=1569571831894114354
+        self.message.guild.id=1392174489609179327
         with patch.object(chat,'reload',AsyncMock(return_value=settings)), \
              patch.object(chat,'handle',AsyncMock(return_value=True)) as llm:
             self.mocks['handle_voice_command'].return_value=True
