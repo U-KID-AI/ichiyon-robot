@@ -121,6 +121,30 @@ class ChatTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(llm.Settings, "load", side_effect=ValueError("bad")):
             self.assertFalse((await llm.Chat().reload(force=True)).enabled)
 
+    async def test_reply_ceiling_preserves_explanation_and_sentence_boundary(self):
+        real_client = httpx.AsyncClient
+        with tempfile.TemporaryDirectory() as directory:
+            key = Path(directory) / 'key'
+            key.write_text('test-only-key')
+            for content, ceiling, expected in (
+                ('それでいい？</div>', 40, 'それでいい？'),
+                ('<div>それでいい？</div>', 40, '<div>それでいい？</div>'),
+                ('```html\nそれでいい？</div>\n```', 40, '```html\nそれでいい？</div>\n```'),
+                ('理由を説明する文。' * 20, 1200, '理由を説明する文。' * 20),
+                ('あ' * 25 + '。' + 'い' * 60, 40, 'あ' * 25 + '。'),
+                ('あ' * 80, 40, 'あ' * 39 + '…'),
+            ):
+                def handler(request):
+                    return httpx.Response(200, json={'candidates': [{'content': {'parts': [
+                        {'text': 'internal thought', 'thought': True}, {'text': content}]}}]})
+                def client(**kwargs):
+                    return real_client(transport=httpx.MockTransport(handler), **kwargs)
+                with patch.object(llm.httpx, 'AsyncClient', client), \
+                        patch.object(llm, 'reserve', AsyncMock(return_value=True)), \
+                        patch.object(llm.limits, 'record_usage', AsyncMock()):
+                    text, _, _ = await llm.generate(llm.Settings(key_path=str(key), reply_chars=ceiling), 'test', 1)
+                    self.assertEqual(text, expected)
+
 
 @unittest.skipUnless(os.getenv("LLM_TEST_DATABASE_URL"), "requires disposable llm_test database")
 class DatabaseTests(unittest.IsolatedAsyncioTestCase):
