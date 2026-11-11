@@ -1,13 +1,9 @@
+import { isLiving as alive, nearbyLiving as near, findOwner, claimOwner } from "./companion_owner.js";
 export const GARBAGE = "ichiyon:garbage_molcar";
 export const PAW = "ichiyon:bartholomew_kuma_paw";
 export const OWNER = "garbage_molcar:owner";
 const inventory = (entity) => entity.getComponent("minecraft:inventory")?.container;
 const held = (player) => inventory(player)?.getItem(player.selectedSlotIndex);
-const alive = (entity) => entity?.isValid && entity.getComponent("minecraft:health")?.currentValue > 0;
-const near = (player, entity) => alive(player) && alive(entity)
-  && player.dimension.id === entity.dimension.id
-  && Math.hypot(player.location.x - entity.location.x, player.location.y - entity.location.y,
-    player.location.z - entity.location.z) <= 6;
 
 export function canStore(entity, drop) {
   if (!entity.getDynamicProperty(OWNER)) return true;
@@ -116,8 +112,7 @@ export function createGarbageMolcar({ world, system, ActionFormData, report = co
     entity.setDynamicProperty(OWNER, undefined);
   }
   function start(player, entity) {
-    if (!near(player, entity) || held(player) || entity.getDynamicProperty(OWNER)) return;
-    entity.setDynamicProperty(OWNER, player.id);
+    if (!near(player, entity) || held(player) || !claimOwner(entity, OWNER, player)) return;
     entity.triggerEvent("ichiyon:garbage_start");
     system.run(() => {
       try {
@@ -208,7 +203,7 @@ export function createGarbageMolcar({ world, system, ActionFormData, report = co
           if (!alive(entity)) continue;
           try {
             const ownerId = entity.getDynamicProperty(OWNER);
-            const player = ownerId ? world.getAllPlayers().find((p) => p.id === ownerId) : undefined;
+            const player = ownerId ? findOwner(world.getAllPlayers(), entity, OWNER) : undefined;
             const pickupAllowed = !forms.has(entity.id) && (!ownerId || (player
               && player.dimension.id === dimension.id
               && Math.hypot(player.location.x - entity.location.x, player.location.z - entity.location.z) <= 8));

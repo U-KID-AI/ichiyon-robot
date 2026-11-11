@@ -11,21 +11,8 @@ def build_temperance(source, vanilla, bp, rp, geometry, write_json):
         with ZipFile(BytesIO(archive.read(next(n for n in archive.namelist() if n.endswith('/resources.zip'))))) as resources:
             models = {Path(n).stem: json.loads(resources.read(n)) for n in resources.namelist()
                       if n.startswith('assets/minecraft/models/item/game/temperance/') and n.endswith('.json')}
-            # Ten source faces reference an undefined texture. Match adjacent metal
-            # rather than adding Minecraft's missing-texture checkerboard.
-            for name, model in models.items():
-                if any(f['texture'] == '#missing' for e in model['elements'] for f in e['faces'].values()):
-                    model['textures']['missing'] = 'block/chain' if name == 'balance' else 'block/anvil'
-            textures = sorted({v for m in models.values() for v in m['textures'].values() if not v.startswith('#')})
-            sheet, atlas, x, y, row = Image.new('RGBA', (256, 256)), {}, 0, 0, 0
-            for texture in textures:
-                name = 'assets/minecraft/textures/' + texture + '.png'
-                img = Image.open(BytesIO((resources if name in resources.namelist() else base).read(name))).convert('RGBA')
-                if x + img.width > 256:
-                    x, y, row = 0, y + row, 0
-                assert y + img.height <= 256
-                sheet.paste(img, (x, y)); atlas[texture] = (x, y, img.width, img.height)
-                x += img.width; row = max(row, img.height)
+            from junket_model_geometry import texture_atlas
+            sheet, atlas = texture_atlas(resources, base, models, (256, 256))
             sheet.save(rp / 'textures/entity/junket_temperance.png')
     geos = []
     for name, model in models.items():
@@ -71,4 +58,4 @@ def build_temperance(source, vanilla, bp, rp, geometry, write_json):
             'geometry': "Array.frames[query.property('junket:temperance_frame')]" if prop else 'Geometry.f0',
             'materials': [{'*': 'Material.default'}], 'textures': ['Texture.default']}}})
     return {'models': len(models), 'atlas_size': [256, 256], 'elements': {k: len(v['elements']) for k, v in models.items()},
-            'adaptations': ['Ten undefined #missing faces use adjacent chain/anvil texture.', 'Constant root scale preserves Java nonuniform display transforms.']}
+            'adaptations': ['Undefined faces are omitted by the shared source surface converter.', 'Constant root scale preserves Java nonuniform display transforms.']}

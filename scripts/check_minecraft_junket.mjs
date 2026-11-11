@@ -85,37 +85,89 @@ await test("table membership, game isolation, stale forms and cleanup", () => {
 
 function fixture() {
   const forms = [], timers = [], signals = {};
-  const online = ["one", "two", "spectator"].map(id => ({ id, name: id, typeId: "minecraft:player",
-    messages: [], sendMessage(message) { this.messages.push(message); } }));
+  const venueEntities = [], venueProperties = new Map();
+  const venueDimension = {
+    id: "minecraft:overworld",
+    getEntities({ tags = [], location, maxDistance } = {}) {
+      return venueEntities.filter(entity => !entity.removed &&
+        tags.every(tag => entity.hasTag(tag)) &&
+        (!location || Math.hypot(entity.location.x - location.x,
+          entity.location.y - location.y, entity.location.z - location.z) <= maxDistance));
+    },
+    spawnEntity(typeId, location) {
+      const tags = new Set(), properties = new Map();
+      const entity = {
+        typeId, location: { ...location }, dimension: venueDimension, nameTag: "", removed: false,
+        addTag(tag) { tags.add(tag); }, hasTag(tag) { return tags.has(tag); },
+        getTags() { return [...tags]; }, remove() { this.removed = true; },
+        teleport(at) { this.location = { ...at }; },
+        setProperty(name, value) { properties.set(name, value); },
+        setDynamicProperty(name, value) { properties.set(name, value); },
+        getDynamicProperty(name) { return properties.get(name); },
+        getComponent(name) { return name === "minecraft:health" ? { currentValue: 20, effectiveMax: 20 } : undefined; },
+      };
+      venueEntities.push(entity);
+      return entity;
+    },
+  };
+  const online = ["one", "two", "spectator"].map(id => ({ id, name: id, typeId: "minecraft:player", connected: true,
+    dimension: venueDimension, location: { x: 0, y: 0, z: 0 }, messages: [],
+    sendMessage(message) { this.messages.push(message); },
+    teleport(location, options) { this.location = { ...location }; this.dimension = options?.dimension ?? this.dimension; },
+    onScreenDisplay: { setActionBar() {}, setTitle() {} } }));
   const signal = name => ({ subscribe(fn) { signals[name] = fn; } });
+  const leaveSignal = { subscribe(fn) {
+    signals.leave = event => {
+      const player = online.find(candidate => candidate.id === event.playerId);
+      if (player) player.connected = false;
+      fn(event);
+    };
+  } };
   class Form {
     title(value) { this.heading = value; return this; }
     body(value) { this.text = value; return this; }
-    button() { return this; }
+    button(value) { (this.buttons ??= []).push(value); return this; }
     textField() { return this; }
     show(player) { return new Promise(resolve => forms.push({ player, form: this, resolve })); }
   }
-  const world = { getAllPlayers: () => online, beforeEvents: { playerInteractWithEntity: signal("interact") },
-    afterEvents: { playerLeave: signal("leave") } };
+  const world = { getAllPlayers: () => online.filter(player => player.connected),
+    beforeEvents: { playerInteractWithEntity: signal("interact") },
+    afterEvents: { playerLeave: leaveSignal },
+    getDimension: () => venueDimension,
+    getDynamicProperty: key => venueProperties.get(key),
+    setDynamicProperty: (key, value) => venueProperties.set(key, value) };
   const system = { run: fn => fn(), runTimeout(fn) { timers.push(fn); }, afterEvents: { scriptEventReceive: signal("script") } };
-  return { ...createRuntime({ world, system, ActionFormData: Form, ModalFormData: Form }), online, forms, timers, signals };
+  return { ...createRuntime({ world, system, ActionFormData: Form, ModalFormData: Form }), online, forms, timers, signals, venueEntities };
 }
 const flush = () => new Promise(resolve => setImmediate(resolve));
 async function submit(f, response) { f.forms.shift().resolve(response); await flush(); }
+async function clickBox(f, player, choice) {
+  const target = f.venueEntities.find(entity => !entity.removed &&
+    entity.hasTag("junket:venue_box") && entity.getDynamicProperty("junket:box") === choice);
+  assert.ok(target, `Expected the ${choice} box`);
+  const event = { player, target, cancel: false };
+  f.signals.interact(event);
+  assert.equal(event.cancel, true);
+  await flush();
+}
 await test("runtime two voluntary joins, private choice, reveal and disconnect", async () => {
   const f = fixture(), [a, b, spectator] = f.online;
   let pending = f.open(a); await submit(f, { selection: 0 }); await pending;
   pending = f.open(b); await submit(f, { selection: 0 }); await pending;
+  assert.ok(f.manager.forPlayer(a.id), [...a.messages, ...b.messages].join(" | "));
   assert.equal(f.manager.forPlayer(a.id).state.phase, "bet");
-  pending = f.open(a); await submit(f, { selection: 0 }); await submit(f, { formValues: ["1000001"] }); await pending;
-  pending = f.open(a); await submit(f, { selection: 0 }); await submit(f, { selection: 1 }); await pending;
+  pending = f.open(a); await submit(f, { formValues: ["1000001"] }); await pending;
+  assert.equal(f.manager.forPlayer(a.id).state.phase, "hide");
+  await clickBox(f, a, "small");
   assert.equal(f.manager.forPlayer(b.id).state.phase, "choose");
   assert.equal(b.messages.some(message => message.includes("宝石=小箱")), false);
   assert.equal(spectator.messages.length, 0);
-  pending = f.open(b); await submit(f, { selection: 0 }); await submit(f, { selection: 1 }); await pending;
+  await clickBox(f, b, "small");
   assert.deepEqual(f.manager.forPlayer(b.id).state.money, [49_500_000, 50_500_000]);
   assert.ok(b.messages.some(message => message.includes("宝石=小箱")));
   f.signals.leave({ playerId: a.id });
+  assert.ok(f.timers.length > 0, "disconnect must arm the reconnect grace timer");
+  f.timers.at(-1)();
   assert.equal(f.manager.forPlayer(b.id), null);
   for (const timer of f.timers) timer();
   assert.equal(f.forms.length, 0);
@@ -126,12 +178,14 @@ await test("UI cancellation, duplicate open, stale reply after a new match", asy
   await submit(f, { canceled: true }); await pending;
   assert.equal(f.manager.forPlayer(a.id), null);
   f.manager.join("sparrow", "sparrow", a.id); f.manager.join("sparrow", "sparrow", b.id);
-  pending = f.open(a); await submit(f, { selection: 0 });
+  pending = f.open(a);
   f.signals.leave({ playerId: b.id });
+  f.timers.at(-1)();
+  assert.equal(f.manager.forPlayer(a.id), null);
   f.manager.join("sparrow", "sparrow", a.id); f.manager.join("sparrow", "sparrow", b.id);
   await submit(f, { formValues: ["1000000"] }); await pending;
   assert.equal(f.manager.forPlayer(a.id).state.phase, "bet");
-  assert.ok(a.messages.some(message => message.includes("古く")));
+  assert.equal(f.manager.forPlayer(a.id).state.phase, "bet", "disconnection invalidates the old pending form");
 });
 await test("only tagged receptionist opens UI; spectators cannot abort", async () => {
   const f = fixture(), [a, b, spectator] = f.online;
@@ -141,18 +195,66 @@ await test("only tagged receptionist opens UI; spectators cannot abort", async (
   f.signals.script({ id: "junket:leave", sourceEntity: spectator });
   assert.ok(f.manager.forPlayer(a.id));
   f.signals.interact({ player: a, target: { hasTag: tag => tag === "junket:reception" } });
-  await submit(f, { selection: 1 });
+  const leave = f.forms[0].form.buttons.indexOf("退出");
+  assert.notEqual(leave, -1);
+  await submit(f, { selection: leave });
   assert.equal(f.manager.forPlayer(a.id), null);
+});
+await test("catalog return fixture does not also abort or move a Sparrow participant", () => {
+  const f = fixture(), [a, b] = f.online;
+  f.manager.join("sparrow", "sparrow", a.id); f.manager.join("sparrow", "sparrow", b.id);
+  const before = { ...a.location };
+  f.signals.interact({ player: a, target: { hasTag: tag => tag === "junket:return" } });
+  assert.ok(f.manager.forPlayer(a.id), "shared warp route requires an explicit leave first");
+  assert.deepEqual(a.location, before);
+  assert.equal(f.forms.length, 0);
+});
+await test("recovery hook fences a pending private form without closing membership or undoing evacuation", async () => {
+  const f = fixture(), [a, b] = f.online;
+  f.manager.join("sparrow", "sparrow", a.id); f.manager.join("sparrow", "sparrow", b.id);
+  f.venue.ensure();
+  const pending = f.open(a);
+  assert.ok(f.forms.length, "private bet form must be pending");
+  const table = f.manager.view("sparrow");
+  a.location = { x: 10000, y: 65, z: 10000 };
+  await f.resetSession(table, "test reset", { evacuated: true });
+  await pending;
+  assert.ok(f.manager.forPlayer(a.id), "the recovery controller alone closes membership");
+  assert.deepEqual(a.location, { x: 10000, y: 65, z: 10000 });
+  f.manager.close("sparrow");
+  f.manager.join("sparrow", "sparrow", a.id); f.manager.join("sparrow", "sparrow", b.id);
+  await submit(f, { formValues: ["1000000"] });
+  assert.equal(f.manager.forPlayer(a.id).state.phase, "bet", "late private form must not reach the rematch");
 });
 await test("independent pack manifest uses stable modules and unique UUIDs", () => {
   const manifest = JSON.parse(readFileSync(new URL("../minecraft/behavior_packs/ichiyon_junket_bp/manifest.json", import.meta.url)));
   const uuids = [manifest.header.uuid, ...manifest.modules.map(m => m.uuid)];
   assert.equal(new Set(uuids).size, uuids.length);
-  assert.deepEqual(manifest.header.version, [0, 9, 6]);
+  assert.deepEqual(manifest.header.version, [0, 9, 27]);
   assert.deepEqual(manifest.header.min_engine_version, [1, 26, 44]);
-  assert.deepEqual(manifest.modules.map(module => module.version), [[0, 9, 6], [0, 9, 6]]);
+  assert.deepEqual(manifest.modules.map(module => module.version), [[0, 9, 27], [0, 9, 27]]);
   assert.equal(manifest.modules.find(module => module.type === "script").entry, "scripts/main.js");
   assert.deepEqual(manifest.dependencies.map(d => d.module_name), ["@minecraft/server", "@minecraft/server-ui"]);
   assert.ok(manifest.dependencies.every(d => !d.version.includes("beta")));
+});
+await test("Hope judges are persistent custom entities without trader despawn", () => {
+  const behavior = JSON.parse(readFileSync(new URL(
+    "../minecraft/behavior_packs/ichiyon_junket_bp/entities/hope_judge.json", import.meta.url)));
+  const entity = behavior["minecraft:entity"];
+  assert.equal(entity.description.identifier, "junket:hope_judge");
+  assert.equal(entity.description.is_spawnable, false);
+  assert.ok(entity.components["minecraft:persistent"]);
+  assert.equal(entity.components["minecraft:despawn"], undefined);
+  assert.equal(entity.components["minecraft:timer"], undefined);
+  assert.equal(entity.components["minecraft:physics"].has_collision, true);
+
+  const resource = JSON.parse(readFileSync(new URL(
+    "../minecraft/resource_packs/ichiyon_junket_rp/entity/junket_hope_judge.entity.json", import.meta.url)));
+  const client = resource["minecraft:client_entity"].description;
+  assert.equal(client.identifier, "junket:hope_judge");
+  assert.equal(client.materials.default, "wandering_trader");
+  assert.equal(client.geometry.default, "geometry.villager_v2");
+  assert.equal(client.textures.default, "textures/entity/wandering_trader");
+  assert.deepEqual(client.render_controllers, ["controller.render.wandering_trader"]);
 });
 console.log(`${count} JUNKET checks passed (offline; no Bedrock runtime).`);

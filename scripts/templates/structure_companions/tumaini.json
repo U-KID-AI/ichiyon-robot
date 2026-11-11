@@ -1,0 +1,136 @@
+{
+  "format_version": "1.26.10",
+  "minecraft:entity": {
+    "description": {
+      "identifier": "ichiyon:tumaini",
+      "spawn_category": "creature",
+      "is_spawnable": true,
+      "is_summonable": true,
+      "is_experimental": false
+    },
+    "component_groups": {
+      "ichiyon:taketumi_home": {
+        "minecraft:home": {
+          "restriction_radius": 0,
+          "restriction_type": "none"
+        }
+      },
+      "ichiyon:taketumi_returning_home": {
+        "minecraft:behavior.move_towards_home_restriction": {
+          "priority": 4,
+          "speed_multiplier": 0.8
+        }
+      }
+    },
+    "components": {
+      "minecraft:type_family": {
+        "family": [
+          "ichiyon_avatar",
+          "tumaini",
+          "mob"
+        ]
+      },
+      "minecraft:physics": {},
+      "minecraft:collision_box": {
+        "width": 0.6,
+        "height": 1.8
+      },
+      "minecraft:health": {
+        "value": 500,
+        "max": 500
+      },
+      "minecraft:attack": {
+        "damage": 30
+      },
+      "minecraft:movement": {
+        "value": 0.22
+      },
+      "minecraft:movement.basic": {},
+      "minecraft:navigation.walk": {
+        "can_path_over_water": true,
+        "avoid_damage_blocks": true,
+        "can_pass_doors": true,
+        "can_open_doors": false
+      },
+      "minecraft:jump.static": {},
+      "minecraft:nameable": {},
+      "minecraft:leashable": {},
+      "minecraft:pushable_by_entity": {},
+      "minecraft:pushable_by_block": {},
+      "minecraft:behavior.hurt_by_target": {
+        "priority": 1
+      },
+      "minecraft:behavior.nearest_attackable_target": {
+        "priority": 2,
+        "within_radius": 16,
+        "must_see": false,
+        "must_reach": true,
+        "scan_interval": 20,
+        "entity_types": [
+          {
+            "filters": {
+              "test": "is_family",
+              "subject": "other",
+              "value": "spider"
+            },
+            "max_dist": 16
+          },
+          {
+            "filters": {
+              "test": "is_family",
+              "subject": "other",
+              "value": "cavespider"
+            },
+            "max_dist": 16
+          }
+        ]
+      },
+      "minecraft:behavior.melee_box_attack": {
+        "priority": 3,
+        "track_target": true,
+        "speed_multiplier": 1.05
+      }
+    },
+    "events": {
+      "minecraft:entity_spawned": {
+        "add": {
+          "component_groups": [
+            "ichiyon:taketumi_home"
+          ]
+        }
+      },
+      "ichiyon:taketumi_reset_home": {
+        "sequence": [
+          {
+            "remove": {
+              "component_groups": [
+                "ichiyon:taketumi_home"
+              ]
+            }
+          },
+          {
+            "add": {
+              "component_groups": [
+                "ichiyon:taketumi_home"
+              ]
+            }
+          }
+        ]
+      },
+      "ichiyon:taketumi_start_return_home": {
+        "add": {
+          "component_groups": [
+            "ichiyon:taketumi_returning_home"
+          ]
+        }
+      },
+      "ichiyon:taketumi_stop_return_home": {
+        "remove": {
+          "component_groups": [
+            "ichiyon:taketumi_returning_home"
+          ]
+        }
+      }
+    }
+  }
+}

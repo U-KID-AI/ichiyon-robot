@@ -1,0 +1,20 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "junket:hope_code",
+      "materials": {
+        "default": "entity_alphatest"
+      },
+      "textures": {
+        "default": "textures/entity/junket/hope_code"
+      },
+      "geometry": {
+        "default": "geometry.junket.hope.code"
+      },
+      "render_controllers": [
+        "controller.render.junket.hope_code"
+      ]
+    }
+  }
+}

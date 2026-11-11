@@ -4,6 +4,8 @@ export const SILENCE_PLAY_TICKS = 2000;
 export const SILENCE_MAX_HP = 60000;
 export const SILENCE_DURATIONS = Object.freeze([0, 20, 30]);
 export const SILENCE_TICKS_PER_SECOND = 20;
+// game:zzz_hp/1 -> /2 after 1t -> /1 after 4t consumes the last damage once per 5 ticks.
+export const SILENCE_DAMAGE_PERIOD = 5;
 
 const copyOrder = value => Array.isArray(value) ? [...value] : value;
 const sameOrder = order => Array.isArray(order) && order.length === 3 &&
@@ -25,13 +27,17 @@ export function createSilence() {
     phase: "arrange",
     actor: 1,
     arranger: 1,
+    round: 1,
     chooser: 0,
     arrangements: [null, null],
+    arrangeDrafts: [[20, 30, 0], [20, 30, 0]],
+    arrangeSelected: null,
     hp: [SILENCE_MAX_HP, SILENCE_MAX_HP],
     guard: [false, false],
     totalSeconds: 0,
     remainingTicks: SILENCE_PLAY_TICKS,
     playTicks: 0,
+    damageClock: 0,
     playSeat: null,
     last: null,
     winner: null,
@@ -57,6 +63,38 @@ export function advanceSilence(state, seat, action, value) {
     };
   }
 
+  if (action === "arrange-select") {
+    requireTurn(state, seat, "arrange");
+    if (seat !== state.arranger) throw new Error("配置するプレイヤーではありません。");
+    if (!Number.isInteger(value) || value < 0 || value > 2) throw new Error("ジャケットを選んでください。");
+    const arrangeDrafts = state.arrangeDrafts.map(order => copyOrder(order));
+    if (state.arrangeSelected === null) {
+      return { ...state, arrangeSelected: value };
+    }
+    if (state.arrangeSelected !== value) {
+      const selected = state.arrangeSelected;
+      [arrangeDrafts[seat][selected], arrangeDrafts[seat][value]] =
+        [arrangeDrafts[seat][value], arrangeDrafts[seat][selected]];
+    }
+    return { ...state, arrangeDrafts, arrangeSelected: null };
+  }
+
+  if (action === "arrange-confirm") {
+    requireTurn(state, seat, "arrange");
+    if (seat !== state.arranger) throw new Error("配置するプレイヤーではありません。");
+    const order = state.arrangeDrafts[seat];
+    if (!sameOrder(order)) throw new Error("0秒・20秒・30秒を1枚ずつ配置してください。");
+    const arrangements = state.arrangements.map(copyOrder);
+    arrangements[seat] = [...order];
+    return {
+      ...state,
+      arrangements,
+      phase: "choose",
+      actor: state.chooser,
+      arrangeSelected: null,
+    };
+  }
+
   if (action === "choose") {
     requireTurn(state, seat, "choose");
     if (!Number.isInteger(value) || value < 0 || value > 2) throw new Error("ジャケットを選んでください。");
@@ -71,14 +109,23 @@ export function advanceSilence(state, seat, action, value) {
     };
     const next = {
       ...state,
-      phase: "playback",
+      phase: "set",
       actor: state.chooser,
       playSeat: state.chooser,
       playTicks,
       totalSeconds: state.totalSeconds + duration,
       last,
     };
-    return playTicks === 0 ? { ...next, phase: "return" } : next;
+    return next;
+  }
+
+  if (action === "set") {
+    requireTurn(state, seat, "set");
+    return {
+      ...state,
+      phase: state.playTicks === 0 ? "return" : "playback",
+      actor: state.playSeat,
+    };
   }
 
   if (action === "guard") {
@@ -98,10 +145,14 @@ export function advanceSilence(state, seat, action, value) {
       ...state,
       phase: "arrange",
       arranger,
+      round: (state.round ?? 1) + 1,
       chooser: 1 - arranger,
       actor: arranger,
       playSeat: null,
       playTicks: 0,
+      arrangeSelected: null,
+      arrangeDrafts: state.arrangeDrafts.map((order, index) =>
+        index === arranger ? [20, 30, 0] : copyOrder(order)),
     };
   }
   throw new Error("不正な操作です。");
@@ -125,10 +176,13 @@ export function silenceSystem(state, action, value) {
     if (remainingTicks < 0) return guarded[seat] ? 2000 : 6000;
     return guarded[seat] ? 140 : 190;
   };
-  hp[active] -= damageFor(active);
-  if (value?.otherInside !== false) hp[other] -= damageFor(other);
+  const damageClock = ((state.damageClock ?? 0) + 1) % SILENCE_DAMAGE_PERIOD;
+  if (damageClock === 0) {
+    hp[active] -= damageFor(active);
+    if (value?.otherInside !== false) hp[other] -= damageFor(other);
+  }
   const playTicks = state.playTicks - 1;
-  const next = { ...state, hp, remainingTicks, playTicks };
+  const next = { ...state, hp, remainingTicks, playTicks, damageClock };
   const ended = terminal(next);
   if (ended.phase === "finished") return ended;
   return playTicks === 0 ? { ...next, phase: "return" } : next;
@@ -138,8 +192,11 @@ export function silenceView(state) {
   return {
     phase: state.phase,
     actor: state.actor,
+    round: state.round,
     arranger: state.arranger,
     chooser: state.chooser,
+    arrangeDraft: null,
+    arrangeSelected: null,
     hp: [...state.hp],
     guard: [...state.guard],
     totalSeconds: state.totalSeconds,
@@ -152,6 +209,15 @@ export function silenceView(state) {
   };
 }
 
+export function silenceViewForPlayer(state, seat) {
+  const view = silenceView(state);
+  if (seat === state.arranger && state.phase === "arrange") {
+    view.arrangeDraft = [...state.arrangeDrafts[seat]];
+    view.arrangeSelected = state.arrangeSelected;
+  }
+  return view;
+}
+
 export const silenceGame = Object.freeze({
   id: "silence",
   title: "サウンド・オブ・サイレンス",
@@ -159,5 +225,6 @@ export const silenceGame = Object.freeze({
   create: createSilence,
   advance: advanceSilence,
   view: silenceView,
+  viewForPlayer: silenceViewForPlayer,
   systemAdvance: silenceSystem,
 });

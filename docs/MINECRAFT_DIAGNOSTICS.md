@@ -51,8 +51,9 @@ part of the response. The API must remain on the restricted management network.
 
 This change does not deploy the Control API. Production access follows the user-authorized scope and existing credentials; AGENTS.md does not impose the old Runner change policy. No automatic diagnostic request is wired into LocalRunner.
 
-Before later activation, install `minecraft_control_api.py`,
-`minecraft_cosmetics_apply.py` and `minecraft_diagnostics.py` together, provision
+Before later activation, install `minecraft_control_api.py`, `minecraft_cosmetics_apply.py`,
+`minecraft_diagnostics.py`, `minecraft_storage.py`, `minecraft_junket_overlay.py` and
+`junket_static_overlay.py` from the same revision, provision
 the distinct read-only secret outside the repository,
 verify actual container names/port, executable availability and banner formats,
 and constrain management-network access. Do not modify worlds, downgrade BDS or

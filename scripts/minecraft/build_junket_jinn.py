@@ -12,20 +12,8 @@ def build_jinn(source, vanilla, bp, rp, geometry, write_json):
         with ZipFile(BytesIO(archive.read(next(n for n in archive.namelist() if n.endswith('/resources.zip'))))) as resources:
             models = {Path(n).stem: json.loads(resources.read(n))
                       for n in resources.namelist() if n.startswith(prefix) and n.endswith('.json')}
-            textures = sorted({value for model in models.values()
-                               for value in model['textures'].values() if not value.startswith('#')})
-            sheet, atlas, x, y, row = Image.new('RGBA', (256, 256)), {}, 0, 0, 0
-            for texture in textures:
-                name = 'assets/minecraft/textures/' + texture + '.png'
-                image = Image.open(BytesIO((resources if name in resources.namelist() else base).read(name))).convert('RGBA')
-                if x + image.width > sheet.width:
-                    x, y, row = 0, y + row, 0
-                if y + image.height > sheet.height:
-                    raise ValueError(f'Jinn texture atlas overflow at {texture}')
-                sheet.paste(image, (x, y))
-                atlas[texture] = (x, y, image.width, image.height)
-                x += image.width
-                row = max(row, image.height)
+            from junket_model_geometry import texture_atlas
+            sheet, atlas = texture_atlas(resources, base, models, (256, 256))
             sheet.save(rp / 'textures/entity/junket_jinn.png')
 
     groups = {

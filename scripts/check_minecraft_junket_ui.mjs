@@ -21,7 +21,7 @@ function player(id) {
 class Form {
   title() { return this; }
   body(value) { this.text = value; return this; }
-  button() { return this; }
+  button(value) { (this.buttons ??= []).push(value); return this; }
   dropdown() { return this; }
   textField() { return this; }
   toggle() { return this; }
@@ -30,8 +30,8 @@ class Form {
   }
 }
 
-function harness(game) {
-  const events = {}, forms = [], timers = [], players = [];
+function harness(game, { venue = undefined } = {}) {
+  const events = {}, forms = [], timers = [], intervals = [], players = [];
   const signal = name => ({ subscribe(callback) { events[name] = callback; } });
   const world = {
     getAllPlayers: () => players,
@@ -41,7 +41,7 @@ function harness(game) {
   const system = {
     run(callback) { callback(); },
     runTimeout(callback) { timers.push(callback); return timers.length; },
-    runInterval(callback) { timers.push(callback); return timers.length; },
+    runInterval(callback) { intervals.push(callback); return intervals.length; },
     clearRun() {},
     afterEvents: { scriptEventReceive: signal("script") },
   };
@@ -52,8 +52,9 @@ function harness(game) {
   const runtime = createCompleteRuntime({
     game, world, system, manager,
     ActionFormData: HarnessForm, ModalFormData: HarnessForm,
+    venue,
   });
-  return { game, events, forms, timers, players, manager, runtime };
+  return { game, events, forms, timers, intervals, players, manager, runtime };
 }
 
 async function join(test, value) {
@@ -71,7 +72,20 @@ async function join(test, value) {
   await flush();
 }
 
-const actorForms = new Map();
+async function pressControl(test, playerValue, action) {
+  const event = {
+    player: playerValue, cancel: false,
+    target: {
+      hasTag: tag => tag === `junket:${test.game.id}:control`,
+      getDynamicProperty: name => name === "junket:venue_action" ? action : undefined,
+    },
+  };
+  test.events.interact(event);
+  await flush();
+  assert.equal(event.cancel, true, `${test.game.id}: ${action} must be handled as a venue control`);
+}
+
+const started = new Map();
 const cases = [
   [aceGame, 4],
   [STRATEGY_GAMES.find(game => game.id === "grail"), 2],
@@ -103,7 +117,7 @@ for (const [game, count] of cases) {
     await flush();
     const lateIndex = test.forms.findIndex(entry => entry.player === late);
     assert.notEqual(lateIndex, -1, "hope: full table should return a form");
-    test.forms.splice(lateIndex, 1)[0].resolve({ selection: 0 });
+    test.forms.splice(lateIndex, 1)[0].resolve({ canceled: true });
     await flush();
     assert.equal(test.manager.forPlayer(late.id), null, "hope: a 17th player must be rejected");
   }
@@ -118,18 +132,140 @@ for (const [game, count] of cases) {
   if (game.id === "hope") assert.equal(joined.players.length, 16);
   const actorId = joined.players[joined.state.actor];
   const actorForm = test.forms.find(entry => entry.player.id === actorId);
-  assert.ok(actorForm, `${game.id}: first actor receives an input form`);
-  actorForms.set(game.id, { test, actorForm, actorId });
+  assert.equal(actorForm, undefined,
+    `${game.id}: turn input must use the physical venue controls, not a form`);
+  const formCount = test.forms.length;
+  test.runtime.resume(actorId);
+  test.runtime.resume(actorId);
+  assert.equal(test.forms.length, formCount,
+    `${game.id}: repeated spawn/resume must not open a turn form`);
+  started.set(game.id, {
+    test, actorId, actor: test.players.find(value => value.id === actorId),
+  });
+  const participant = test.players[0];
+  const pending = test.runtime.openReception(participant);
+  await flush();
+  const navigation = test.forms.findIndex(entry => entry.player === participant);
+  assert.notEqual(navigation, -1, `${game.id}: explicit reception opens participant navigation`);
+  const menu = test.forms.splice(navigation, 1)[0];
+  assert.ok(menu.form.buttons.includes("説明"));
+  assert.ok(menu.form.buttons.includes("退出"));
+  menu.resolve({ canceled: true }); await pending;
+  assert.equal(test.forms.length, formCount, `${game.id}: closing navigation never autoopens another turn form`);
 }
 
 {
-  const { test: rabbit, actorForm: oniForm, actorId: oniId } = actorForms.get("rabbit");
-  rabbit.forms.splice(rabbit.forms.indexOf(oniForm), 1)[0].resolve({ formValues: ["26"] });
+  const hope = harness(BOARD_GAMES.find(game => game.id === "hope"));
+  const member = player("early-start"), guest = player("not-joined");
+  await join(hope, member);
+  assert.equal(hope.manager.forPlayer(member.id).state, null);
+  assert.throws(() => hope.runtime.startRegistration(guest), /開始できる参加受付/);
+  hope.runtime.startRegistration(member);
+  assert.ok(hope.manager.forPlayer(member.id).state);
+  assert.throws(() => hope.runtime.startRegistration(member), /開始できる参加受付/);
+}
+
+{
+  const { test: rabbit, actor: oni } = started.get("rabbit");
+  for (const tile of ["26", "1", "13", "37", "49"]) {
+    await pressControl(rabbit, oni, `floor_${tile}`);
+  }
+  const move = rabbit.manager.forPlayer(oni.id).state;
+  assert.equal(move.phase, "move", "rabbit: five physical traps start the human move");
+  assert.equal(move.actor, 0, "rabbit: the escaper takes the move turn");
+  assert.equal(rabbit.forms.length, 0,
+    "rabbit: trap placement must not open a form or notify the escaper");
+  const escaper = rabbit.players.find(value => value.id !== oni.id);
+  assert.equal(escaper.messages.some(message => /罠 26/.test(message)), false,
+    "rabbit: the trap position must stay hidden from the escaper");
+}
+
+{
+  const { test: ace, actorId, actor } = started.get("ace");
+  const outsider = player("outsider");
+  await testInteraction(ace, outsider, "ace_tray_1", { control: true }, "受付から");
+  await testInteraction(ace, ace.players.find(value => value.id !== actorId), "ace_tray_2",
+    { control: true }, "現在の手番");
+  await testInteraction(ace, ace.players.find(value => value.id === actorId), "ace_tray_2",
+    { control: true }, "自分の操作物");
+  await testInteraction(ace, ace.players.find(value => value.id === actorId), "ace_tray_1",
+    { control: true }, "この局面");
+  const token = ace.manager.forPlayer(actorId).token;
+  const formsBeforeDisplay = ace.forms.length;
+  await testInteraction(ace, ace.players.find(value => value.id === actorId), "display",
+    { display: true });
+  assert.equal(ace.manager.forPlayer(actorId).token, token,
+    "display navigation must not mutate game state");
+  assert.equal(ace.forms.length, formsBeforeDisplay + 1, "display interaction opens readable status navigation");
+  const displayMenu = ace.forms.pop();
+  assert.deepEqual(displayMenu.form.buttons, ["ゲーム操作", "説明", "退出", "カタログへ戻る", "閉じる"]);
+  displayMenu.resolve({ canceled: true });
   await flush();
-  const escaperForm = rabbit.forms.find(entry => entry.player.id !== oniId);
-  assert.ok(escaperForm, "rabbit: escaper receives the move form after the trap");
-  assert.match(escaperForm.form.text, /罠 非公開/);
-  assert.doesNotMatch(escaperForm.form.text, /罠 26/);
+  await pressControl(ace, actor, "ace_table_10_up");
+  await pressControl(ace, actor, "ace_table_confirm");
+  assert.equal(ace.manager.forPlayer(actorId).state.phase, "roll",
+    "ace: the physical table-bet dial starts the first roll turn");
+  assert.equal(ace.forms.length, formsBeforeDisplay,
+    "ace: a physical turn must not open a replacement form");
+}
+
+{
+  const garden = BOARD_GAMES.find(game => game.id === "garden");
+  let landingPolls = 0;
+  const updates = [];
+  const venue = {
+    start() {},
+    update(id, current) { updates.push({ id, phase: current?.state?.phase }); },
+    pollGardenLanding(current) {
+      landingPolls += 1;
+      assert.equal(current.state.phase, "drop");
+      return 1;
+    },
+  };
+  const test = harness(garden, { venue });
+  await join(test, player("garden-p1"));
+  await join(test, player("garden-p2"));
+  assert.equal(test.manager.forPlayer("garden-p1").state.phase, "choose");
+  test.manager.systemAct("garden", "timeout");
+  assert.equal(test.manager.forPlayer("garden-p1").state.phase, "drop");
+  assert.equal(test.manager.forPlayer("garden-p1").state.dropRemaining, 3);
+  const formsBeforeLanding = test.forms.length;
+  test.intervals[0]();
+  await flush();
+  assert.equal(landingPolls, 0,
+    "the landing observer must stay inert while the source pre-drop delay runs");
+  test.manager.systemAct("garden", "tick", 1);
+  test.manager.systemAct("garden", "tick", 1);
+  test.manager.systemAct("garden", "tick", 1);
+  test.intervals[0]();
+  await flush();
+  const landed = test.manager.forPlayer("garden-p1").state;
+  assert.equal(landingPolls, 1, "the one-tick observer must poll the physical drop area");
+  assert.equal(landed.phase, "result", "brown-wool landing must advance without a form");
+  assert.equal(landed.loser, 1);
+  assert.equal(landed.winner, 0);
+  assert.equal(test.forms.length, formsBeforeLanding,
+    "a physical landing must not require a replacement form UI");
+  assert.ok(updates.some(update => update.phase === "result"));
+}
+
+async function testInteraction(test, playerValue, action, roles, expected) {
+  const tags = new Set();
+  if (roles.control) tags.add(`junket:${test.game.id}:control`);
+  if (roles.display) tags.add(`junket:${test.game.id}:display`);
+  const event = {
+    player: playerValue,
+    cancel: false,
+    target: {
+      hasTag: tag => tags.has(tag),
+      getDynamicProperty: name => name === "junket:venue_action" ? action : undefined,
+    },
+  };
+  test.events.interact(event);
+  await flush();
+  assert.equal(event.cancel, true);
+  if (expected) assert.ok(playerValue.messages.some(message => message.includes(expected)),
+    `${test.game.id}: expected refusal containing ${expected}: ${playerValue.messages.join(" | ")}`);
 }
 
 console.log("PASS 12 shared runtime flows: reception click, join, start/timer, 16-player Hope and first-actor UI");

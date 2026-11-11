@@ -1,0 +1,41 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "junket:walker_label",
+      "materials": {
+        "default": "entity_alphatest"
+      },
+      "textures": {
+        "a": "textures/entity/junket/walker_label_a",
+        "ka": "textures/entity/junket/walker_label_ka",
+        "sa": "textures/entity/junket/walker_label_sa",
+        "ta": "textures/entity/junket/walker_label_ta",
+        "na": "textures/entity/junket/walker_label_na",
+        "ha": "textures/entity/junket/walker_label_ha",
+        "ma": "textures/entity/junket/walker_label_ma",
+        "ya": "textures/entity/junket/walker_label_ya",
+        "ra": "textures/entity/junket/walker_label_ra",
+        "one": "textures/entity/junket/walker_label_one",
+        "six": "textures/entity/junket/walker_label_six",
+        "dead_o": "textures/entity/junket/walker_label_o",
+        "dead_ko": "textures/entity/junket/walker_label_ko",
+        "dead_so": "textures/entity/junket/walker_label_so",
+        "dead_to": "textures/entity/junket/walker_label_to",
+        "dead_no": "textures/entity/junket/walker_label_no",
+        "dead_ho": "textures/entity/junket/walker_label_ho",
+        "dead_mo": "textures/entity/junket/walker_label_mo",
+        "dead_yo": "textures/entity/junket/walker_label_yo",
+        "dead_ro": "textures/entity/junket/walker_label_ro",
+        "dead_five": "textures/entity/junket/walker_label_five",
+        "dead_zero": "textures/entity/junket/walker_label_zero"
+      },
+      "geometry": {
+        "default": "geometry.junket.walker.label"
+      },
+      "render_controllers": [
+        "controller.render.junket.walker_label"
+      ]
+    }
+  }
+}

@@ -29,3 +29,14 @@ Codexは `danger-full-access` と `approval_policy="never"` で実行する。�
 - **報告は節目・失敗・完了時のみ簡潔に行う。** 進展のない「引き続き監視します」の反復や、完了した項目の再説明を避ける。
 
 ここで抑制するのは**エージェントによる重複した手動確認と無目的なツール実行**である。デプロイ実行器自身の必要なpoll、heartbeat、ロック、復旧、完了証明は削除・省略しない。
+
+## Minecraftの容量管理
+
+- 小修正は所有・ブランチ・未保存差分を確認して既存worktreeを再利用する。並行作業の隔離、異なる基点、runner専用契約などの必要性がなければ新規clone/worktreeを作らない。
+- 作業開始時に `python -B scripts/minecraft/minecraft_storage_plan.py --project . --capacity-only` 等で空きを一度確認する。Windows 100GB未満、Ubuntu 10GB未満は警告。Ubuntu 10GB未満で新規大容量テストを作らない。復旧経路は停止しない。
+- 最小限のofflineテストを先行し、同一入力・runtime・probeの検証済み環境/証明を再利用する。失敗環境や固有worldは上書きしない。cached proofを今回実機テストした結果と報告しない。
+- 本番変更前の復旧ポイント、現行・直前成功・world由来・明示pin・private原本を保持する。稼働データをhardlink共有しない。`.minecraft-storage` は復旧原本であり削除可能キャッシュではない。
+- 整理候補はdry-runのみ。年齢・catalog digest・空き不足だけで削除しない。実削除は別の明示的な依頼とfreshな参照/hash/復旧確認を要する。pruneや自動削除を追加しない。
+- `%USERPROFILE%\Minecraft-Preservation\20261027-115643-JST` は変更禁止。private素材・音源・world・CAS blobを公開GitHubへ追加しない。
+- 完了時に、新規作成容量・残した環境・復旧元を記録する。配備/隔離helperの `storage-receipt.json` を一次資料とし、同じ大規模計測を繰り返さない。
+- 詳細は [Minecraft容量管理](docs/operations/minecraft-storage-management.md)。ローカル実装と本番適用を区別する。

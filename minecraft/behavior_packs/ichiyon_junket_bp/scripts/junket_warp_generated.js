@@ -25,382 +25,1158 @@ export const WARP_CONFIG = Object.freeze({
       10051,
       66,
       10077
-    ]
+    ],
+    "command": "tp @p -44 75 210",
+    "command_block_type": "minecraft:command_block",
+    "command_block_states": {
+      "facing_direction": 2,
+      "conditional_bit": false
+    },
+    "sign_type": "minecraft:wall_sign",
+    "sign_states": {
+      "facing_direction": 2
+    },
+    "button_type": "minecraft:wooden_button",
+    "button_states": {
+      "facing_direction": 1,
+      "button_pressed_bit": false
+    },
+    "require_nonblank_sign": true
   },
+  "WARP_ROW": {
+    "first_command_block": [
+      10048,
+      65,
+      10102
+    ],
+    "axis": "z",
+    "stride": -2,
+    "sign_offset": [
+      1,
+      0,
+      0
+    ],
+    "button_offset": [
+      0,
+      1,
+      0
+    ],
+    "slot_order": "catalog_order_from_corridor_entrance_descending_z"
+  },
+  "WARP_CONTROL_SCHEMA": 3,
   "WARP_CONTROLS": [
     {
       "id": "sparrow",
       "title": "ウラギリスズメ",
-      "readiness": "implemented",
+      "readiness": "in-progress",
       "enabled": true,
       "command_block": [
-        10053,
+        10048,
         65,
-        10077
+        10102
       ],
       "sign": [
-        10053,
+        10049,
         65,
-        10076
+        10102
       ],
       "button": [
-        10053,
-        65,
-        10078
+        10048,
+        66,
+        10102
       ],
-      "command": "scriptevent junket:warp sparrow"
+      "command_block_type": "minecraft:command_block",
+      "command_block_states": {
+        "facing_direction": 5,
+        "conditional_bit": false
+      },
+      "sign_type": "minecraft:acacia_wall_sign",
+      "sign_states": {
+        "facing_direction": 5
+      },
+      "button_type": "minecraft:acacia_button",
+      "button_states": {
+        "facing_direction": 1,
+        "button_pressed_bit": false
+      },
+      "command": "execute as @a[tag=junket:warp_sparrow,x=10048,y=66,z=10102,r=4] run scriptevent junket:warp sparrow"
     },
     {
       "id": "temperance",
       "title": "ブルー・テンパランス",
-      "readiness": "implemented",
+      "readiness": "in-progress",
       "enabled": true,
       "command_block": [
-        10055,
+        10048,
         65,
-        10077
+        10100
       ],
       "sign": [
-        10055,
+        10049,
         65,
-        10076
+        10100
       ],
       "button": [
-        10055,
-        65,
-        10078
+        10048,
+        66,
+        10100
       ],
-      "command": "scriptevent junket:warp temperance"
+      "command_block_type": "minecraft:command_block",
+      "command_block_states": {
+        "facing_direction": 5,
+        "conditional_bit": false
+      },
+      "sign_type": "minecraft:acacia_wall_sign",
+      "sign_states": {
+        "facing_direction": 5
+      },
+      "button_type": "minecraft:acacia_button",
+      "button_states": {
+        "facing_direction": 1,
+        "button_pressed_bit": false
+      },
+      "command": "execute as @a[tag=junket:warp_temperance,x=10048,y=66,z=10100,r=4] run scriptevent junket:warp temperance"
     },
     {
       "id": "lucy",
       "title": "気分屋ルーシー",
-      "readiness": "implemented",
+      "readiness": "in-progress",
       "enabled": true,
       "command_block": [
-        10057,
+        10048,
         65,
-        10077
+        10098
       ],
       "sign": [
-        10057,
+        10049,
         65,
-        10076
+        10098
       ],
       "button": [
-        10057,
-        65,
-        10078
+        10048,
+        66,
+        10098
       ],
-      "command": "scriptevent junket:warp lucy"
+      "command_block_type": "minecraft:command_block",
+      "command_block_states": {
+        "facing_direction": 5,
+        "conditional_bit": false
+      },
+      "sign_type": "minecraft:acacia_wall_sign",
+      "sign_states": {
+        "facing_direction": 5
+      },
+      "button_type": "minecraft:acacia_button",
+      "button_states": {
+        "facing_direction": 1,
+        "button_pressed_bit": false
+      },
+      "command": "execute as @a[tag=junket:warp_lucy,x=10048,y=66,z=10098,r=4] run scriptevent junket:warp lucy"
     },
     {
       "id": "silence",
       "title": "サウンド・オブ・サイレンス",
-      "readiness": "implemented",
+      "readiness": "in-progress",
       "enabled": true,
       "command_block": [
-        10059,
+        10048,
         65,
-        10077
+        10096
       ],
       "sign": [
-        10059,
+        10049,
         65,
-        10076
+        10096
       ],
       "button": [
-        10059,
-        65,
-        10078
+        10048,
+        66,
+        10096
       ],
-      "command": "scriptevent junket:warp silence"
+      "command_block_type": "minecraft:command_block",
+      "command_block_states": {
+        "facing_direction": 5,
+        "conditional_bit": false
+      },
+      "sign_type": "minecraft:acacia_wall_sign",
+      "sign_states": {
+        "facing_direction": 5
+      },
+      "button_type": "minecraft:acacia_button",
+      "button_states": {
+        "facing_direction": 1,
+        "button_pressed_bit": false
+      },
+      "command": "execute as @a[tag=junket:warp_silence,x=10048,y=66,z=10096,r=4] run scriptevent junket:warp silence"
     },
     {
       "id": "jinn",
       "title": "ジャックポット・ジニー",
-      "readiness": "implemented",
+      "readiness": "in-progress",
       "enabled": true,
       "command_block": [
-        10061,
+        10048,
         65,
-        10077
+        10094
       ],
       "sign": [
-        10061,
+        10049,
         65,
-        10076
+        10094
       ],
       "button": [
-        10061,
-        65,
-        10078
+        10048,
+        66,
+        10094
       ],
-      "command": "scriptevent junket:warp jinn"
+      "command_block_type": "minecraft:command_block",
+      "command_block_states": {
+        "facing_direction": 5,
+        "conditional_bit": false
+      },
+      "sign_type": "minecraft:acacia_wall_sign",
+      "sign_states": {
+        "facing_direction": 5
+      },
+      "button_type": "minecraft:acacia_button",
+      "button_states": {
+        "facing_direction": 1,
+        "button_pressed_bit": false
+      },
+      "command": "execute as @a[tag=junket:warp_jinn,x=10048,y=66,z=10094,r=4] run scriptevent junket:warp jinn"
     },
     {
       "id": "ace",
       "title": "タンブリング・エース",
-      "readiness": "implemented",
+      "readiness": "in-progress",
       "enabled": true,
       "command_block": [
-        10063,
+        10048,
         65,
-        10077
+        10092
       ],
       "sign": [
-        10063,
+        10049,
         65,
-        10076
+        10092
       ],
       "button": [
-        10063,
-        65,
-        10078
+        10048,
+        66,
+        10092
       ],
-      "command": "scriptevent junket:warp ace"
+      "command_block_type": "minecraft:command_block",
+      "command_block_states": {
+        "facing_direction": 5,
+        "conditional_bit": false
+      },
+      "sign_type": "minecraft:acacia_wall_sign",
+      "sign_states": {
+        "facing_direction": 5
+      },
+      "button_type": "minecraft:acacia_button",
+      "button_states": {
+        "facing_direction": 1,
+        "button_pressed_bit": false
+      },
+      "command": "execute as @a[tag=junket:warp_ace,x=10048,y=66,z=10092,r=4] run scriptevent junket:warp ace"
     },
     {
       "id": "grail",
       "title": "アンハッピー・ホーリーグレイル",
-      "readiness": "implemented",
+      "readiness": "in-progress",
       "enabled": true,
       "command_block": [
-        10065,
+        10048,
         65,
-        10077
+        10090
       ],
       "sign": [
-        10065,
+        10049,
         65,
-        10076
+        10090
       ],
       "button": [
-        10065,
-        65,
-        10078
+        10048,
+        66,
+        10090
       ],
-      "command": "scriptevent junket:warp grail"
+      "command_block_type": "minecraft:command_block",
+      "command_block_states": {
+        "facing_direction": 5,
+        "conditional_bit": false
+      },
+      "sign_type": "minecraft:acacia_wall_sign",
+      "sign_states": {
+        "facing_direction": 5
+      },
+      "button_type": "minecraft:acacia_button",
+      "button_states": {
+        "facing_direction": 1,
+        "button_pressed_bit": false
+      },
+      "command": "execute as @a[tag=junket:warp_grail,x=10048,y=66,z=10090,r=4] run scriptevent junket:warp grail"
     },
     {
       "id": "hope",
       "title": "ザ・ショートホープ",
-      "readiness": "implemented",
+      "readiness": "in-progress",
       "enabled": true,
       "command_block": [
-        10067,
+        10048,
         65,
-        10077
+        10088
       ],
       "sign": [
-        10067,
+        10049,
         65,
-        10076
+        10088
       ],
       "button": [
-        10067,
-        65,
-        10078
+        10048,
+        66,
+        10088
       ],
-      "command": "scriptevent junket:warp hope"
+      "command_block_type": "minecraft:command_block",
+      "command_block_states": {
+        "facing_direction": 5,
+        "conditional_bit": false
+      },
+      "sign_type": "minecraft:acacia_wall_sign",
+      "sign_states": {
+        "facing_direction": 5
+      },
+      "button_type": "minecraft:acacia_button",
+      "button_states": {
+        "facing_direction": 1,
+        "button_pressed_bit": false
+      },
+      "command": "execute as @a[tag=junket:warp_hope,x=10048,y=66,z=10088,r=4] run scriptevent junket:warp hope"
     },
     {
       "id": "auction",
       "title": "ライフ・イズ・オークショニア",
-      "readiness": "implemented",
+      "readiness": "in-progress",
       "enabled": true,
       "command_block": [
-        10069,
+        10048,
         65,
-        10077
+        10086
       ],
       "sign": [
-        10069,
+        10049,
         65,
-        10076
+        10086
       ],
       "button": [
-        10069,
-        65,
-        10078
+        10048,
+        66,
+        10086
       ],
-      "command": "scriptevent junket:warp auction"
+      "command_block_type": "minecraft:command_block",
+      "command_block_states": {
+        "facing_direction": 5,
+        "conditional_bit": false
+      },
+      "sign_type": "minecraft:acacia_wall_sign",
+      "sign_states": {
+        "facing_direction": 5
+      },
+      "button_type": "minecraft:acacia_button",
+      "button_states": {
+        "facing_direction": 1,
+        "button_pressed_bit": false
+      },
+      "command": "execute as @a[tag=junket:warp_auction,x=10048,y=66,z=10086,r=4] run scriptevent junket:warp auction"
     },
     {
       "id": "fire",
       "title": "シヴァリング・ファイア",
-      "readiness": "implemented",
+      "readiness": "in-progress",
       "enabled": true,
       "command_block": [
-        10071,
+        10048,
         65,
-        10077
+        10084
       ],
       "sign": [
-        10071,
+        10049,
         65,
-        10076
+        10084
       ],
       "button": [
-        10071,
-        65,
-        10078
+        10048,
+        66,
+        10084
       ],
-      "command": "scriptevent junket:warp fire"
+      "command_block_type": "minecraft:command_block",
+      "command_block_states": {
+        "facing_direction": 5,
+        "conditional_bit": false
+      },
+      "sign_type": "minecraft:acacia_wall_sign",
+      "sign_states": {
+        "facing_direction": 5
+      },
+      "button_type": "minecraft:acacia_button",
+      "button_states": {
+        "facing_direction": 1,
+        "button_pressed_bit": false
+      },
+      "command": "execute as @a[tag=junket:warp_fire,x=10048,y=66,z=10084,r=4] run scriptevent junket:warp fire"
     },
     {
       "id": "pig",
       "title": "ピーキー・ピッグ・パレス",
-      "readiness": "implemented",
+      "readiness": "in-progress",
       "enabled": true,
       "command_block": [
-        10073,
+        10048,
         65,
-        10077
+        10082
       ],
       "sign": [
-        10073,
+        10049,
         65,
-        10076
+        10082
       ],
       "button": [
-        10073,
-        65,
-        10078
+        10048,
+        66,
+        10082
       ],
-      "command": "scriptevent junket:warp pig"
+      "command_block_type": "minecraft:command_block",
+      "command_block_states": {
+        "facing_direction": 5,
+        "conditional_bit": false
+      },
+      "sign_type": "minecraft:acacia_wall_sign",
+      "sign_states": {
+        "facing_direction": 5
+      },
+      "button_type": "minecraft:acacia_button",
+      "button_states": {
+        "facing_direction": 1,
+        "button_pressed_bit": false
+      },
+      "command": "execute as @a[tag=junket:warp_pig,x=10048,y=66,z=10082,r=4] run scriptevent junket:warp pig"
     },
     {
       "id": "light",
       "title": "デッドマンズ・キャンドルライト",
-      "readiness": "implemented",
+      "readiness": "in-progress",
       "enabled": true,
       "command_block": [
-        10075,
+        10048,
         65,
-        10077
+        10080
       ],
       "sign": [
-        10075,
+        10049,
         65,
-        10076
+        10080
       ],
       "button": [
-        10075,
-        65,
-        10078
+        10048,
+        66,
+        10080
       ],
-      "command": "scriptevent junket:warp light"
+      "command_block_type": "minecraft:command_block",
+      "command_block_states": {
+        "facing_direction": 5,
+        "conditional_bit": false
+      },
+      "sign_type": "minecraft:acacia_wall_sign",
+      "sign_states": {
+        "facing_direction": 5
+      },
+      "button_type": "minecraft:acacia_button",
+      "button_states": {
+        "facing_direction": 1,
+        "button_pressed_bit": false
+      },
+      "command": "execute as @a[tag=junket:warp_light,x=10048,y=66,z=10080,r=4] run scriptevent junket:warp light"
     },
     {
       "id": "mine",
       "title": "デビルズマイン・ツインズ",
-      "readiness": "implemented",
+      "readiness": "in-progress",
       "enabled": true,
       "command_block": [
-        10077,
-        65,
-        10077
-      ],
-      "sign": [
-        10077,
-        65,
-        10076
-      ],
-      "button": [
-        10077,
+        10048,
         65,
         10078
       ],
-      "command": "scriptevent junket:warp mine"
+      "sign": [
+        10049,
+        65,
+        10078
+      ],
+      "button": [
+        10048,
+        66,
+        10078
+      ],
+      "command_block_type": "minecraft:command_block",
+      "command_block_states": {
+        "facing_direction": 5,
+        "conditional_bit": false
+      },
+      "sign_type": "minecraft:acacia_wall_sign",
+      "sign_states": {
+        "facing_direction": 5
+      },
+      "button_type": "minecraft:acacia_button",
+      "button_states": {
+        "facing_direction": 1,
+        "button_pressed_bit": false
+      },
+      "command": "execute as @a[tag=junket:warp_mine,x=10048,y=66,z=10078,r=4] run scriptevent junket:warp mine"
     },
     {
       "id": "clock",
       "title": "ヘル・オ・クロック",
-      "readiness": "implemented",
+      "readiness": "in-progress",
       "enabled": true,
       "command_block": [
-        10079,
+        10048,
         65,
-        10077
+        10076
       ],
       "sign": [
-        10079,
+        10049,
         65,
         10076
       ],
       "button": [
-        10079,
-        65,
-        10078
+        10048,
+        66,
+        10076
       ],
-      "command": "scriptevent junket:warp clock"
+      "command_block_type": "minecraft:command_block",
+      "command_block_states": {
+        "facing_direction": 5,
+        "conditional_bit": false
+      },
+      "sign_type": "minecraft:acacia_wall_sign",
+      "sign_states": {
+        "facing_direction": 5
+      },
+      "button_type": "minecraft:acacia_button",
+      "button_states": {
+        "facing_direction": 1,
+        "button_pressed_bit": false
+      },
+      "command": "execute as @a[tag=junket:warp_clock,x=10048,y=66,z=10076,r=4] run scriptevent junket:warp clock"
     },
     {
       "id": "walker",
       "title": "ザ・クレバス・ウォーカー",
-      "readiness": "implemented",
+      "readiness": "in-progress",
       "enabled": true,
       "command_block": [
-        10081,
+        10048,
         65,
-        10077
+        10074
       ],
       "sign": [
-        10081,
+        10049,
         65,
-        10076
+        10074
       ],
       "button": [
-        10081,
-        65,
-        10078
+        10048,
+        66,
+        10074
       ],
-      "command": "scriptevent junket:warp walker"
+      "command_block_type": "minecraft:command_block",
+      "command_block_states": {
+        "facing_direction": 5,
+        "conditional_bit": false
+      },
+      "sign_type": "minecraft:acacia_wall_sign",
+      "sign_states": {
+        "facing_direction": 5
+      },
+      "button_type": "minecraft:acacia_button",
+      "button_states": {
+        "facing_direction": 1,
+        "button_pressed_bit": false
+      },
+      "command": "execute as @a[tag=junket:warp_walker,x=10048,y=66,z=10074,r=4] run scriptevent junket:warp walker"
     },
     {
       "id": "garden",
       "title": "ジュエルシャワー・ハイガーデン",
-      "readiness": "implemented",
+      "readiness": "in-progress",
       "enabled": true,
       "command_block": [
-        10083,
+        10048,
         65,
-        10077
+        10072
       ],
       "sign": [
-        10083,
+        10049,
         65,
-        10076
+        10072
       ],
       "button": [
-        10083,
-        65,
-        10078
+        10048,
+        66,
+        10072
       ],
-      "command": "scriptevent junket:warp garden"
+      "command_block_type": "minecraft:command_block",
+      "command_block_states": {
+        "facing_direction": 5,
+        "conditional_bit": false
+      },
+      "sign_type": "minecraft:acacia_wall_sign",
+      "sign_states": {
+        "facing_direction": 5
+      },
+      "button_type": "minecraft:acacia_button",
+      "button_states": {
+        "facing_direction": 1,
+        "button_pressed_bit": false
+      },
+      "command": "execute as @a[tag=junket:warp_garden,x=10048,y=66,z=10072,r=4] run scriptevent junket:warp garden"
     },
     {
       "id": "rabbit",
       "title": "ザ・ラビットホール",
-      "readiness": "implemented",
+      "readiness": "in-progress",
       "enabled": true,
       "command_block": [
-        10085,
+        10048,
         65,
-        10077
+        10070
       ],
       "sign": [
-        10085,
+        10049,
         65,
-        10076
+        10070
       ],
       "button": [
-        10085,
-        65,
-        10078
+        10048,
+        66,
+        10070
       ],
-      "command": "scriptevent junket:warp rabbit"
+      "command_block_type": "minecraft:command_block",
+      "command_block_states": {
+        "facing_direction": 5,
+        "conditional_bit": false
+      },
+      "sign_type": "minecraft:acacia_wall_sign",
+      "sign_states": {
+        "facing_direction": 5
+      },
+      "button_type": "minecraft:acacia_button",
+      "button_states": {
+        "facing_direction": 1,
+        "button_pressed_bit": false
+      },
+      "command": "execute as @a[tag=junket:warp_rabbit,x=10048,y=66,z=10070,r=4] run scriptevent junket:warp rabbit"
     }
-  ]
+  ],
+  "MISPLACED_ROW_CLEANUP": {
+    "scan_bounds": [
+      10053,
+      64,
+      10076,
+      10085,
+      67,
+      10079
+    ],
+    "entity_bounds": [
+      10046,
+      62,
+      10068,
+      10092,
+      76,
+      10090
+    ],
+    "cells": [
+      {
+        "location": [
+          10053,
+          65,
+          10076
+        ],
+        "current_type": "minecraft:oak_sign",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10055,
+          65,
+          10076
+        ],
+        "current_type": "minecraft:oak_sign",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10057,
+          65,
+          10076
+        ],
+        "current_type": "minecraft:oak_sign",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10059,
+          65,
+          10076
+        ],
+        "current_type": "minecraft:oak_sign",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10061,
+          65,
+          10076
+        ],
+        "current_type": "minecraft:oak_sign",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10063,
+          65,
+          10076
+        ],
+        "current_type": "minecraft:oak_sign",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10065,
+          65,
+          10076
+        ],
+        "current_type": "minecraft:oak_sign",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10067,
+          65,
+          10076
+        ],
+        "current_type": "minecraft:oak_sign",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10069,
+          65,
+          10076
+        ],
+        "current_type": "minecraft:oak_sign",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10071,
+          65,
+          10076
+        ],
+        "current_type": "minecraft:oak_sign",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10073,
+          65,
+          10076
+        ],
+        "current_type": "minecraft:oak_sign",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10075,
+          65,
+          10076
+        ],
+        "current_type": "minecraft:oak_sign",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10077,
+          65,
+          10076
+        ],
+        "current_type": "minecraft:oak_sign",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10079,
+          65,
+          10076
+        ],
+        "current_type": "minecraft:oak_sign",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10081,
+          65,
+          10076
+        ],
+        "current_type": "minecraft:oak_sign",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10083,
+          65,
+          10076
+        ],
+        "current_type": "minecraft:oak_sign",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10085,
+          65,
+          10076
+        ],
+        "current_type": "minecraft:oak_sign",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10053,
+          65,
+          10077
+        ],
+        "current_type": "minecraft:command_block",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10055,
+          65,
+          10077
+        ],
+        "current_type": "minecraft:command_block",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10057,
+          65,
+          10077
+        ],
+        "current_type": "minecraft:command_block",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10059,
+          65,
+          10077
+        ],
+        "current_type": "minecraft:command_block",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10061,
+          65,
+          10077
+        ],
+        "current_type": "minecraft:command_block",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10063,
+          65,
+          10077
+        ],
+        "current_type": "minecraft:command_block",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10065,
+          65,
+          10077
+        ],
+        "current_type": "minecraft:command_block",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10067,
+          65,
+          10077
+        ],
+        "current_type": "minecraft:command_block",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10069,
+          65,
+          10077
+        ],
+        "current_type": "minecraft:command_block",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10071,
+          65,
+          10077
+        ],
+        "current_type": "minecraft:command_block",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10073,
+          65,
+          10077
+        ],
+        "current_type": "minecraft:command_block",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10075,
+          65,
+          10077
+        ],
+        "current_type": "minecraft:command_block",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10077,
+          65,
+          10077
+        ],
+        "current_type": "minecraft:command_block",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10079,
+          65,
+          10077
+        ],
+        "current_type": "minecraft:command_block",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10081,
+          65,
+          10077
+        ],
+        "current_type": "minecraft:command_block",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10083,
+          65,
+          10077
+        ],
+        "current_type": "minecraft:command_block",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10085,
+          65,
+          10077
+        ],
+        "current_type": "minecraft:command_block",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10053,
+          65,
+          10078
+        ],
+        "current_type": "minecraft:acacia_button",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10055,
+          65,
+          10078
+        ],
+        "current_type": "minecraft:acacia_button",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10057,
+          65,
+          10078
+        ],
+        "current_type": "minecraft:acacia_button",
+        "restore_type": "minecraft:air"
+      },
+      {
+        "location": [
+          10053,
+          64,
+          10077
+        ],
+        "current_type": "minecraft:dirt",
+        "restore_type": "minecraft:grass_block"
+      },
+      {
+        "location": [
+          10055,
+          64,
+          10077
+        ],
+        "current_type": "minecraft:dirt",
+        "restore_type": "minecraft:grass_block"
+      },
+      {
+        "location": [
+          10057,
+          64,
+          10077
+        ],
+        "current_type": "minecraft:dirt",
+        "restore_type": "minecraft:grass_block"
+      },
+      {
+        "location": [
+          10059,
+          64,
+          10077
+        ],
+        "current_type": "minecraft:dirt",
+        "restore_type": "minecraft:grass_block"
+      },
+      {
+        "location": [
+          10061,
+          64,
+          10077
+        ],
+        "current_type": "minecraft:dirt",
+        "restore_type": "minecraft:grass_block"
+      },
+      {
+        "location": [
+          10063,
+          64,
+          10077
+        ],
+        "current_type": "minecraft:dirt",
+        "restore_type": "minecraft:grass_block"
+      },
+      {
+        "location": [
+          10067,
+          64,
+          10077
+        ],
+        "current_type": "minecraft:dirt",
+        "restore_type": "minecraft:grass_block"
+      },
+      {
+        "location": [
+          10069,
+          64,
+          10077
+        ],
+        "current_type": "minecraft:dirt",
+        "restore_type": "minecraft:grass_block"
+      },
+      {
+        "location": [
+          10071,
+          64,
+          10077
+        ],
+        "current_type": "minecraft:dirt",
+        "restore_type": "minecraft:grass_block"
+      },
+      {
+        "location": [
+          10073,
+          64,
+          10077
+        ],
+        "current_type": "minecraft:dirt",
+        "restore_type": "minecraft:grass_block"
+      },
+      {
+        "location": [
+          10075,
+          64,
+          10077
+        ],
+        "current_type": "minecraft:dirt",
+        "restore_type": "minecraft:grass_block"
+      },
+      {
+        "location": [
+          10077,
+          64,
+          10077
+        ],
+        "current_type": "minecraft:dirt",
+        "restore_type": "minecraft:grass_block"
+      },
+      {
+        "location": [
+          10079,
+          64,
+          10077
+        ],
+        "current_type": "minecraft:dirt",
+        "restore_type": "minecraft:grass_block"
+      },
+      {
+        "location": [
+          10081,
+          64,
+          10077
+        ],
+        "current_type": "minecraft:dirt",
+        "restore_type": "minecraft:grass_block"
+      },
+      {
+        "location": [
+          10083,
+          64,
+          10077
+        ],
+        "current_type": "minecraft:dirt",
+        "restore_type": "minecraft:grass_block"
+      },
+      {
+        "location": [
+          10085,
+          64,
+          10077
+        ],
+        "current_type": "minecraft:dirt",
+        "restore_type": "minecraft:grass_block"
+      }
+    ],
+    "entity_tags": [
+      "junket:misplaced_warp",
+      "junket:warp_label"
+    ]
+  }
 });

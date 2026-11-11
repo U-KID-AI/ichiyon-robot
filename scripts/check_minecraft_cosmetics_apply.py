@@ -6,6 +6,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from zipfile import ZipFile
 import json
+import os
+import stat
 import asyncio
 from copy import deepcopy
 import shutil
@@ -221,6 +223,166 @@ class SplitApplyChecks(unittest.TestCase):
     def refs(self):
         return deploy.read_json(self.api.DATA_DIR / 'worlds/test-world/world_resource_packs.json')
 
+    def test_repeated_backup_keeps_one_blob_copy_and_records_recovery_sources(self):
+        first = self.submit()
+        first_directory = self.manager.root / first['operation_id']
+        self.manager._backup(first_directory)
+        self.manager._save(first, status='failed')
+        store = self.manager._storage_root()
+        blobs_before = {p.relative_to(store).as_posix(): p.read_bytes()
+                        for p in store.rglob('*') if p.is_file()}
+        second = self.submit()
+        second_directory = self.manager.root / second['operation_id']
+        self.manager._backup(second_directory)
+        snapshot = deploy.read_json(second_directory / 'original/state.json')['storage_snapshot']
+        self.assertEqual(snapshot['new_blob_bytes'], 0)
+        self.assertGreater(snapshot['reused_blob_bytes'], 0)
+        self.assertEqual(blobs_before, {p.relative_to(store).as_posix(): p.read_bytes()
+                                      for p in store.rglob('*') if p.is_file()})
+        self.assertFalse((second_directory / 'original' / deploy.PACKS[0]).exists())
+        self.manager._save(second, status='installing')
+        self.manager._run(second, recovering=True)
+        self.assertEqual(self.snapshot(), self.original)
+        receipt = deploy.read_json(second_directory / 'storage-receipt.json')
+        self.assertIn(str(store), receipt['recovery_sources'])
+
+    def test_invalid_snapshot_cannot_remove_live_files_before_restore_validation(self):
+        job = self.submit()
+        directory = self.manager.root / job['operation_id']
+        self.manager._backup(directory)
+        manifest = directory / 'original/storage-snapshot.json'
+        manifest.write_text('{}', encoding='utf-8')
+        before = self.snapshot()
+        with self.assertRaises((ValueError, KeyError)):
+            self.manager._restore(directory)
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual((self.manager.root / 'active.json').read_bytes(), self.old_active)
+
+    def test_cas_lock_contention_cannot_remove_live_files_and_restore_retains_lock(self):
+        from contextlib import ExitStack
+        import minecraft_storage as storage
+        job = self.submit()
+        directory = self.manager.root / job['operation_id']
+        self.manager._backup(directory)
+        store = self.manager._storage_root()
+        original_inventory = self.manager._backup_inventory
+        with ExitStack() as stack:
+            def contend_after_inventory(target):
+                inventory = original_inventory(target)
+                stack.enter_context(storage._locked_store(store))
+                return inventory
+            with patch.object(self.manager, '_backup_inventory', side_effect=contend_after_inventory), \
+                 patch.object(self.manager, '_before_restore') as hook:
+                with self.assertRaises(storage.StorageIntegrityError):
+                    self.manager._restore(directory)
+                hook.assert_not_called()
+            self.assertEqual(self.snapshot(), self.original)
+            self.assertEqual((self.manager.root / 'active.json').read_bytes(), self.old_active)
+        original_remove = shutil.rmtree
+        checked = []
+        def remove_with_lock_assertion(target, *args, **kwargs):
+            with self.assertRaises(storage.StorageIntegrityError):
+                storage.validate_snapshot(directory / 'original/storage-snapshot.json', store)
+            checked.append(target)
+            return original_remove(target, *args, **kwargs)
+        def before_restore_with_lock_assertion(target):
+            with self.assertRaises(storage.StorageIntegrityError):
+                storage.validate_snapshot(directory / 'original/storage-snapshot.json', store)
+        with patch.object(deploy.shutil, 'rmtree', side_effect=remove_with_lock_assertion), \
+             patch.object(self.manager, '_before_restore', side_effect=before_restore_with_lock_assertion) as hook:
+            self.manager._restore(directory)
+        hook.assert_called_once_with(directory)
+        self.assertTrue(checked)
+        self.assertEqual(self.snapshot(), self.original)
+
+    def test_first_deployment_can_recover_an_empty_prior_installation(self):
+        project = self.api.PROJECT_DIR / 'first-install'
+        project.mkdir()
+        api = API(project)
+        manager = deploy.PackApplications(api)
+        job = manager.submit(str(uuid.uuid4()), self.archive())
+        directory = manager.root / job['operation_id']
+        manager._backup(directory)
+        manifest = deploy.validate_snapshot(directory / 'original/storage-snapshot.json',
+                                            manager._storage_root())
+        self.assertEqual(manifest['paths'], [])
+        manager._install(directory)
+        manager._restore(directory)
+        self.assertFalse(any(p.is_file() for p in api.DATA_DIR.rglob('*')))
+        self.assertFalse(manager.managed())
+
+    def test_another_valid_snapshot_cannot_replace_the_committed_recovery_point(self):
+        first = self.submit()
+        first_directory = self.manager.root / first['operation_id']
+        self.manager._backup(first_directory)
+        self.manager._save(first, status='failed')
+        changed = self.api.DATA_DIR / deploy.PACKS[0] / 'unrelated-later-change.txt'
+        changed.write_bytes(b'later generation; not the first recovery point')
+        second = self.submit()
+        second_directory = self.manager.root / second['operation_id']
+        self.manager._backup(second_directory)
+        # This is a fully valid snapshot in the same store with identical roots,
+        # but it belongs to another backup generation.
+        shutil.copy2(second_directory / 'original/storage-snapshot.json',
+                     first_directory / 'original/storage-snapshot.json')
+        before = self.snapshot()
+        with self.assertRaisesRegex(ValueError, 'committed recovery point'):
+            self.manager._restore(first_directory)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_snapshot_restore_preserves_read_only_source_mode(self):
+        asset = self.api.DATA_DIR / deploy.PACKS[0] / 'read-only-source.txt'
+        asset.write_bytes(b'original immutable asset')
+        os.chmod(asset, 0o400)
+        original_mode = stat.S_IMODE(asset.stat().st_mode)
+        job = self.submit()
+        directory = self.manager.root / job['operation_id']
+        self.manager._backup(directory)
+        os.chmod(asset, 0o600)
+        asset.write_bytes(b'changed live copy')
+        self.manager._restore(directory)
+        self.assertEqual(asset.read_bytes(), b'original immutable asset')
+        self.assertEqual(stat.S_IMODE(asset.stat().st_mode), original_mode)
+
+    def test_legacy_full_copy_backup_still_restores(self):
+        job = self.submit()
+        directory = self.manager.root / job['operation_id']
+        backup = directory / 'original'
+        backup.mkdir()
+        paths = self.manager._paths(directory)
+        missing = []
+        for relative in paths:
+            source = self.api.DATA_DIR / relative
+            if not source.exists():
+                missing.append(relative)
+                continue
+            destination = backup / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if source.is_dir():
+                shutil.copytree(source, destination)
+            else:
+                shutil.copy2(source, destination)
+        shutil.copy2(self.manager.root / 'active.json', backup / 'active.json')
+        deploy.atomic_json(backup / 'state.json', {'paths': paths, 'active_exists': True})
+        deploy.atomic_json(backup / 'missing.json', missing)
+        self.manager._install(directory)
+        self.manager._restore(directory)
+        self.assertEqual(self.snapshot(), self.original)
+        self.assertEqual((self.manager.root / 'active.json').read_bytes(), self.old_active)
+
+    def test_identical_installed_packs_keep_their_live_files(self):
+        self.apply()
+        before = {pack: (self.api.DATA_DIR / pack / 'manifest.json').stat().st_ino
+                  for pack in self.packs}
+        original_copy = shutil.copytree
+        with patch.object(deploy.shutil, 'copytree', wraps=original_copy) as copies:
+            job = self.apply()
+        copies.assert_not_called()
+        self.assertEqual(before, {pack: (self.api.DATA_DIR / pack / 'manifest.json').stat().st_ino
+                                  for pack in self.packs})
+        receipt = deploy.read_json(self.manager.root / job['operation_id'] / 'storage-receipt.json')
+        self.assertEqual(receipt['metadata']['live_pack_copy']['copied_live_packs'], [])
+
     def assert_restored(self):
         self.assertEqual(self.manager.status()['status'], 'failed')
         self.assertEqual(self.snapshot(), self.original)
@@ -234,9 +396,9 @@ class SplitApplyChecks(unittest.TestCase):
         self.assertEqual(self.refs()[0]['extra'], 'preserve')
         self.assertFalse((self.api.DATA_DIR / deploy.PACKS[2]).exists())
         backup = self.manager.root / job['operation_id'] / 'original'
-        self.assertEqual((backup / deploy.PACKS[2] / 'manifest.json').read_bytes(), self.original[deploy.PACKS[2] + '/manifest.json'])
+        self.assertEqual((self.manager.backup_source(backup.parent, deploy.PACKS[2]) / 'manifest.json').read_bytes(), self.original[deploy.PACKS[2] + '/manifest.json'])
         self.assertEqual((backup / 'active.json').read_bytes(), self.old_active)
-        self.assertEqual((backup / 'worlds/test-world/world_resource_packs.json').read_bytes(),
+        self.assertEqual(self.manager.backup_source(backup.parent, 'worlds/test-world/world_resource_packs.json').read_bytes(),
                          self.original['worlds/test-world/world_resource_packs.json'])
         self.assertEqual(len(deploy.read_json(self.manager.root / 'active.json')['packs']), 8)
         for pack in deploy.BEHAVIOR_PACKS:
@@ -284,7 +446,7 @@ class SplitApplyChecks(unittest.TestCase):
             self.assertEqual((self.api.DATA_DIR / pack / 'content.txt').read_bytes(), pack.encode())
         self.assertEqual((self.api.DATA_DIR / 'worlds/test-world/level.dat').read_bytes(), b'world data must survive')
         backup = self.manager.root / job['operation_id'] / 'original'
-        self.assertEqual((backup / big / 'manifest.json').read_bytes(), self.original[big + '/manifest.json'])
+        self.assertEqual((self.manager.backup_source(backup.parent, big) / 'manifest.json').read_bytes(), self.original[big + '/manifest.json'])
         first = self.snapshot()
         self.apply()
         self.assertEqual(self.snapshot(), first)  # Reconciliation never bumps again.

@@ -1,28 +1,109 @@
 import { WARP_CONFIG } from "./junket_warp_generated.js";
+import { createSafeWarpController } from "./safe_warp.js";
+import { getSharedLoader } from "./shared_loader.js";
+import { registerCatalogReturn } from "./venue_presentation.js";
+import { isServiceGuide } from "./service_controls.js";
 
 const RETURN_TAG = "junket:return";
 const CONTROL_TAG = "junket:warp_control";
+const TICKING_NAME = "junket_install";
+const WARP_REQUEST_TIMEOUT = 30;
+const SIGN_COMPONENT_ATTEMPTS = 100;
 
-const floorLocation = location => ({
-  x: Math.floor(location.x),
-  y: Math.floor(location.y),
-  z: Math.floor(location.z),
+const location = value => ({ x: value[0], y: value[1], z: value[2] });
+const floorLocation = value => ({
+  x: Math.floor(value.x),
+  y: Math.floor(value.y),
+  z: Math.floor(value.z),
 });
-const key = (dimension, location) => {
-  const at = floorLocation(location);
-  return `${dimension}:${at.x},${at.y},${at.z}`;
+const key = (dimensionId, value) => {
+  const at = floorLocation(value);
+  return `${dimensionId}:${at.x},${at.y},${at.z}`;
 };
-const enabled = game => game.readiness === "verified" || game.readiness === "implemented";
+const enabled = game => game.enabled === true;
+const requestTag = gameId => `junket:warp_${gameId}`;
+
+function boundsForPoints(points) {
+  if (!points.length) throw new Error("ワープ設備の座標がありません。");
+  const coordinates = points.map(point => [point[0], point[1], point[2]]);
+  return [
+    Math.min(...coordinates.map(point => point[0])),
+    Math.min(...coordinates.map(point => point[1])),
+    Math.min(...coordinates.map(point => point[2])),
+    Math.max(...coordinates.map(point => point[0])),
+    Math.max(...coordinates.map(point => point[1])),
+    Math.max(...coordinates.map(point => point[2])),
+  ];
+}
 
 export function createWarpSystem({ world, system, manager, destinations = {}, catalog = WARP_CONFIG }) {
+  const sharedLoader = getSharedLoader(world, system);
+  const safe = createSafeWarpController({ world, system, manager, destinations, catalog });
   const dimensions = new Map();
+  const activeWarps = new Map();
   let installing = false;
+  let legacyNavigator = null;
   const games = new Map(catalog.WARP_CONTROLS.map(game => [game.id, game]));
   const buttons = new Map(catalog.WARP_CONTROLS.map(game =>
-    [key(catalog.WARP_DIMENSION, { x: game.button[0], y: game.button[1], z: game.button[2] }), game]));
+    [key(catalog.WARP_DIMENSION, location(game.button)), game]));
 
   function tell(player, message) {
     try { player?.sendMessage(`[JUNKET WARP] ${message}`); } catch { /* Player disconnected. */ }
+  }
+  function taggedPlayers(gameId) {
+    const tag = requestTag(gameId);
+    return (world.getAllPlayers?.() ?? []).filter(player => {
+      try { return player.hasTag(tag); } catch { return false; }
+    });
+  }
+  function releaseRequest(player, gameId) {
+    try {
+      player.removeTag(requestTag(gameId));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  function claimPress(player, gameId) {
+    // A command block can only select by tag, so leave exactly one tagged
+    // player per game. If another press is still pending, honour it now
+    // instead of letting the new press erase that player's request.
+    const pendingPresses = taggedPlayers(gameId)
+      .filter(pending => pending.id !== player.id);
+    for (const pending of pendingPresses) {
+      // Clear every earlier tag synchronously so the command block can never
+      // observe two candidates. The earlier press still gets its transfer in
+      // a deferred callback outside the read-only interaction event.
+      if (!releaseRequest(pending, gameId)) continue;
+      system.run(() => void warp(pending, gameId));
+    }
+    player.addTag(requestTag(gameId));
+  }
+  function handleWarpRequest(event) {
+    if (safe.handleRequest(event)) return;
+    const message = event.message.trim();
+    const separator = message.indexOf(" ");
+    const gameId = separator < 0 ? message : message.slice(0, separator);
+    const source = [event.initiator, event.sourceEntity]
+      .find(candidate => candidate?.typeId === "minecraft:player");
+    if (source) {
+      let tagged = false;
+      try { tagged = source.hasTag(requestTag(gameId)); } catch { tagged = false; }
+      if (!tagged) {
+        tell(source, "通路のボタンを押してから移動してください。");
+        return;
+      }
+      if (releaseRequest(source, gameId)) void warp(source, gameId);
+      return;
+    }
+    // Bedrock command-block script events have no source entity, and selector
+    // tokens in the freeform message are not a reliable identity channel.
+    // Require one unambiguous presser; concurrent presses are serialized by
+    // claimPress and retain their interaction timeout fallback.
+    const pending = taggedPlayers(gameId);
+    if (pending.length !== 1) return;
+    const [target] = pending;
+    if (releaseRequest(target, gameId)) void warp(target, gameId);
   }
   function dimension(id) {
     let value = dimensions.get(id);
@@ -41,8 +122,10 @@ export function createWarpSystem({ world, system, manager, destinations = {}, ca
   function teleportDimension(value) {
     return typeof value === "string" ? dimension(value) : value;
   }
-  function warp(player, gameId) {
+  async function warp(player, gameId) {
+    if (!player?.id) return false;
     const game = games.get(gameId);
+    if (safe.native(game)) return safe.warp(player, gameId);
     if (!game) {
       tell(player, "ゲームIDが不正です。");
       return false;
@@ -51,25 +134,47 @@ export function createWarpSystem({ world, system, manager, destinations = {}, ca
       tell(player, `${game.title}は準備中です。完成確認後に公開します。`);
       return false;
     }
-    const route = destination(game, player);
+    if (activeWarps.has(player.id)) {
+      tell(player, "移動処理中です。完了後に操作してください。");
+      return false;
+    }
+    activeWarps.set(player.id, gameId);
+    let keepGuard = false;
+    let route = destination(game, player);
     if (!route) {
+      activeWarps.delete(player.id);
       tell(player, `${game.title}の会場がまだ設置されていません。`);
       return false;
     }
-    if (route.open) {
-      system.run(() => route.open(player));
+    try {
+      if (route.open) {
+        await route.open(player);
+        return true;
+      }
+      if (route.beforeTeleport) await route.beforeTeleport(player);
+      const refreshed = destination(game, player);
+      if (refreshed && !refreshed.open) route = refreshed;
+      player.teleport(route.location, {
+        dimension: teleportDimension(route.dimension),
+        rotation: route.rotation ? { x: 0, y: route.rotation } : undefined,
+      });
+      keepGuard = true;
+      system.runTimeout(() => activeWarps.delete(player.id), 20);
+      if (route.afterTeleport) await route.afterTeleport(player);
       return true;
+    } catch (error) {
+      tell(player, `${game.title}へ移動できませんでした: ${error?.message ?? error}`);
+      return false;
+    } finally {
+      if (!keepGuard) activeWarps.delete(player.id);
     }
-    player.teleport(route.location, {
-      dimension: teleportDimension(route.dimension),
-      rotation: route.rotation ? { x: 0, y: route.rotation } : undefined,
-    });
-    if (route.afterTeleport) system.run(() => route.afterTeleport(player));
-    return true;
   }
   function returnToEntry(player) {
+    if (catalog.WARP_OFFLINE_INSTALLED === true && catalog.WARP_CONTROLS.some(game => safe.native(game))) {
+      return safe.returnToEntry(player);
+    }
     if (manager?.forPlayer(player.id)) {
-      tell(player, "試合参加中は退出操作を完了してから入口へ戻ってください。");
+      tell(player, "試合参加中は退出操作を完了してからカタログへ戻ってください。");
       return false;
     }
     const point = catalog.WARP_RETURN_POINT;
@@ -79,247 +184,458 @@ export function createWarpSystem({ world, system, manager, destinations = {}, ca
     });
     return true;
   }
-  function targetCells(game) {
-    return [game.command_block, game.sign, game.button];
+  function blockAt(blockDimension, value) {
+    try { return blockDimension.getBlock(location(value)); } catch { return undefined; }
   }
-  function installedControlState() {
-    const d = dimension(catalog.WARP_DIMENSION);
-    let complete = true;
-    for (const game of catalog.WARP_CONTROLS) {
-      const expected = [
-        [game.command_block, "minecraft:command_block"],
-        [game.sign, "minecraft:oak_sign"],
-        [game.button, "minecraft:wooden_button"],
-      ];
-      for (const [location, typeId] of expected) {
-        const block = d.getBlock({ x: location[0], y: location[1], z: location[2] });
-        if (block?.typeId !== typeId) complete = false;
-      }
+  function stateMatches(block, expected = {}, allowPressedButton = false) {
+    const permutation = block?.permutation;
+    if (!permutation || typeof permutation.getState !== "function") return !allowPressedButton;
+    return Object.entries(expected).every(([name, value]) => {
+      try {
+        const actual = permutation.getState(name);
+        // A button may be held while preflight runs. Its transient press state
+        // is legal in either position; type, orientation and other states stay exact.
+        if (allowPressedButton && name === "button_pressed_bit") {
+          return actual === 0 || actual === 1 || actual === false || actual === true;
+        }
+        return actual === value;
+      } catch { return false; }
+    });
+  }
+  function signComponent(block) {
+    try {
+      return block?.getComponent("minecraft:sign");
+    } catch {
+      return undefined;
     }
-    return { dimension: d, complete };
   }
-  function preflight() {
+  function signText(block) {
+    const sign = signComponent(block);
+    if (!sign || typeof sign.getText !== "function") return undefined;
+    try {
+      const text = sign.getText();
+      return typeof text === "string" ? text : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  function verifyAnchor(d) {
     const anchor = catalog.PROTECTED_ANCHOR;
     if (!anchor) throw new Error("保護対象の拠点行き座標が設定されていません。");
-    const d = dimension(catalog.WARP_DIMENSION);
     const expected = [
-      [anchor.command_block, "minecraft:command_block"],
-      [anchor.sign, "minecraft:wall_sign"],
-      [anchor.button, "minecraft:wooden_button"],
+      [anchor.command_block, anchor.command_block_type, anchor.command_block_states],
+      [anchor.sign, anchor.sign_type, anchor.sign_states],
+      [anchor.button, anchor.button_type, anchor.button_states],
     ];
-    for (const [location, typeId] of expected) {
-      const block = d.getBlock({ x: location[0], y: location[1], z: location[2] });
-      if (block === undefined || block.typeId === typeId) continue;
-      if (block?.typeId !== typeId) {
-        throw new Error(`${anchor.label}の既存設備が想定と異なるため中止しました: (${location.join(",")})`);
+    for (const [at, typeId, states] of expected) {
+      const block = blockAt(d, at);
+      if (!block) throw new Error(`拠点行き設備のチャンクを読み込めません: (${at.join(",")})`);
+      if (block.typeId !== typeId || !stateMatches(block, states)) {
+        throw new Error(`${anchor.label}の既存設備が想定と異なるため中止しました: (${at.join(",")})`);
       }
     }
-    const cells = new Set();
-    for (const game of catalog.WARP_CONTROLS) {
-      for (const location of targetCells(game)) {
-        const expectedType = location === game.command_block
-          ? "minecraft:command_block"
-          : location === game.sign ? "minecraft:oak_sign" : "minecraft:wooden_button";
-        const position = key(catalog.WARP_DIMENSION, { x: location[0], y: location[1], z: location[2] });
-        if (cells.has(position)) throw new Error(`JUNKET操作位置が重複しています: ${position}`);
-        cells.add(position);
-        const block = d.getBlock({ x: location[0], y: location[1], z: location[2] });
-        if (block === undefined || block.typeId === expectedType) continue;
-        if (!block?.isAir) throw new Error(`増設予定位置が空ではありません: (${location.join(",")})`);
+    if (anchor.require_nonblank_sign) {
+      const text = signText(blockAt(d, anchor.sign));
+      if (typeof text !== "string") {
+        throw new Error("拠点行き看板の表示を読み取れないため、既存設備を保護して中止しました。");
+      }
+      if (!text.trim()) throw new Error("拠点行き看板が空のため、既存設備を保護して中止しました。");
+    }
+  }
+  function observedAnchor(d) {
+    const anchor = catalog.PROTECTED_ANCHOR;
+    return JSON.stringify([anchor.command_block, anchor.sign, anchor.button].map(at => {
+      const block = blockAt(d, at);
+      if (!block) throw new Error(`拠点行き記録位置のチャンクを読み込めません: (${at.join(",")})`);
+      return { at, typeId: block.typeId, states: block.permutation?.getAllStates?.(), text: signText(block) };
+    }));
+  }
+  function inBounds(locationValue, bounds) {
+    return locationValue.x >= bounds[0] && locationValue.x <= bounds[3] &&
+      locationValue.y >= bounds[1] && locationValue.y <= bounds[4] &&
+      locationValue.z >= bounds[2] && locationValue.z <= bounds[5];
+  }
+  function cleanupMisplacedRow(d) {
+    const cleanup = catalog.MISPLACED_ROW_CLEANUP;
+    if (!cleanup) return { blocks: 0, entities: 0 };
+    const controlCells = new Set([
+      ...catalog.WARP_CONTROLS.flatMap(game => [game.command_block, game.sign, game.button]),
+      catalog.PROTECTED_ANCHOR.command_block,
+      catalog.PROTECTED_ANCHOR.sign,
+      catalog.PROTECTED_ANCHOR.button,
+    ].map(value => key(catalog.WARP_DIMENSION, location(value))));
+    const restore = [];
+    for (const cell of cleanup.cells) {
+      const at = key(catalog.WARP_DIMENSION, location(cell.location));
+      if (controlCells.has(at)) throw new Error(`誤設置撤去対象が現行設備と重複しています: ${at}`);
+      const block = blockAt(d, cell.location);
+      if (!block) throw new Error(`誤設置撤去対象のチャンク未読込: ${at}`);
+      if (block.typeId === cell.restore_type) continue;
+      if (block.typeId !== cell.current_type) {
+        throw new Error(`誤設置撤去対象に別ブロックがあるため中止しました: ${at} ${block.typeId}`);
+      }
+      restore.push({ cell, at });
+    }
+    let removedEntities = 0;
+    const bounds = cleanup.entity_bounds ?? cleanup.scan_bounds;
+    const center = {
+      x: (bounds[0] + bounds[3]) / 2,
+      y: (bounds[1] + bounds[4]) / 2,
+      z: (bounds[2] + bounds[5]) / 2,
+    };
+    const maxDistance = Math.ceil(Math.hypot(
+      bounds[3] - bounds[0], bounds[4] - bounds[1], bounds[5] - bounds[2],
+    ) / 2) + 4;
+    const removed = new Set();
+    if (typeof d.getEntities === "function") {
+      for (const tag of cleanup.entity_tags ?? []) {
+        const entities = d.getEntities({ tags: [tag], location: center, maxDistance });
+        for (const entity of entities) {
+          if (entity.typeId === "minecraft:player") continue;
+          if (typeof entity.hasTag !== "function" || !entity.hasTag(tag)) continue;
+          if (!inBounds(entity.location, bounds)) continue;
+          if (removed.has(entity)) continue;
+          entity.remove();
+          removed.add(entity);
+          removedEntities++;
+        }
       }
     }
-    return d;
+    for (const { cell, at } of restore) {
+      const [x, y, z] = cell.location;
+      runChecked(d, `setblock ${x} ${y} ${z} ${cell.restore_type}`);
+      const restored = blockAt(d, cell.location);
+      if (restored?.typeId !== cell.restore_type) {
+        throw new Error(`誤設置ブロックを復元できませんでした: ${at}`);
+      }
+    }
+    verifyAnchor(d);
+    return { blocks: restore.length, entities: removedEntities };
+  }
+  function expectedCells() {
+    return catalog.WARP_CONTROLS.flatMap(game => [
+      { game, role: "command_block", location: game.command_block,
+        typeId: game.command_block_type, states: game.command_block_states },
+      { game, role: "sign", location: game.sign, typeId: game.sign_type, states: game.sign_states },
+      { game, role: "button", location: game.button, typeId: game.button_type, states: game.button_states },
+    ]);
+  }
+  function verifyCells(d) {
+    const cells = expectedCells();
+    const seen = new Set();
+    for (const cell of cells) {
+      const at = key(catalog.WARP_DIMENSION, location(cell.location));
+      if (seen.has(at)) throw new Error(`JUNKET操作位置が重複しています: ${at}`);
+      seen.add(at);
+      const block = blockAt(d, cell.location);
+      if (!block) return { ready: false, reason: `チャンク未読込: ${at}` };
+      if (block.typeId !== cell.typeId || !stateMatches(block, cell.states, cell.role === "button")) {
+        return { ready: false, reason: `既存設備の種類または状態が不一致: ${at}` };
+      }
+    }
+    if (seen.size !== 51) throw new Error(`JUNKET既存枠が51セルではありません: ${seen.size}`);
+    return { ready: true, reason: "" };
   }
   function commandBlockData(game) {
-    return JSON.stringify({
-      Command: game.command,
-      CustomName: `JUNKET ${game.title}`,
-      auto: false,
-      powered: false,
-      conditionMet: true,
-    });
+    // Bedrock consumes SNBT here. JSON.stringify would quote the keys and can
+    // be rejected by the block-data parser, leaving a commandless block.
+    return `{Command:${JSON.stringify(String(game.command))},` +
+      `CustomName:${JSON.stringify(`JUNKET ${game.title}`)},` +
+      "auto:0b,powered:0b,conditionMet:1b}";
   }
-  function signData(game) {
-    const state = enabled(game) ? "OPEN" : "準備中";
-    return JSON.stringify({
-      FrontText: { Text: `${game.title}\n${state}`, TextOwner: "JUNKET" },
-    });
-  }
-  function runChecked(blockDimension, command) {
-    const result = blockDimension.runCommand(command);
+  function runChecked(d, command) {
+    const result = d.runCommand(command);
     if ((result?.successCount ?? 0) < 1) throw new Error(`ブロック操作に失敗しました: ${command}`);
   }
-  function placeChecked(blockDimension, location, typeId, placed) {
-    const at = { x: location[0], y: location[1], z: location[2] };
-    let block;
-    try { block = blockDimension.getBlock(at); } catch (error) {
-      throw new Error(`JUNKET control chunk unavailable: ${typeId}: ${error.message}`);
-    }
-    if (!block) throw new Error(`JUNKET control target unavailable: ${typeId}`);
-    block.setType(typeId);
-    placed.push(location);
-    if (blockDimension.getBlock(at)?.typeId !== typeId) {
-      throw new Error(`JUNKET control placement mismatch: ${typeId}`);
-    }
+  function waitTicks(ticks) {
+    return new Promise(resolve => system.runTimeout(resolve, ticks));
   }
-  function installControls(player = null) {
+  async function waitForAllCells(d, attempts = 60) {
+    for (let remaining = attempts; remaining > 0; remaining--) {
+      const state = verifyCells(d);
+      if (state.ready) return;
+      if (!state.reason.startsWith("チャンク未読込")) throw new Error(state.reason);
+      await waitTicks(20);
+    }
+    throw new Error("JUNKET control chunks did not become ready");
+  }
+  async function waitForCleanupCells(d, attempts = 60) {
+    const cells = catalog.MISPLACED_ROW_CLEANUP?.cells ?? [];
+    for (let remaining = attempts; remaining > 0; remaining--) {
+      const missing = cells.find(cell => !blockAt(d, cell.location));
+      if (!missing) return;
+      await waitTicks(20);
+    }
+    throw new Error("JUNKET misplaced-row cleanup chunks did not become ready");
+  }
+  async function waitForAnchor(d) {
+    let lastError;
+    for (let remaining = SIGN_COMPONENT_ATTEMPTS; remaining > 0; remaining--) {
+      try {
+        verifyAnchor(d);
+        return;
+      } catch (error) {
+        lastError = error;
+        const message = String(error?.message);
+        if (!message.includes("表示を読み取れない") && !message.includes("チャンクを読み込めません")) {
+          throw error;
+        }
+        await waitTicks(2);
+      }
+    }
+    throw lastError;
+  }
+  async function waitForSignComponents(d) {
+    let missing = [];
+    for (let remaining = SIGN_COMPONENT_ATTEMPTS; remaining > 0; remaining--) {
+      missing = [];
+      for (const game of catalog.WARP_CONTROLS) {
+        const block = blockAt(d, game.sign);
+        if (!block) {
+          missing.push(`${game.id}: チャンク未読込`);
+          continue;
+        }
+        if (block.typeId !== game.sign_type) {
+          throw new Error(`看板の種類が不一致: ${game.id}`);
+        }
+        const sign = signComponent(block);
+        if (!sign || typeof sign.setText !== "function") missing.push(`${game.id}: 看板コンポーネント未読込`);
+      }
+      if (!missing.length) return;
+      await waitTicks(2);
+    }
+    throw new Error(`看板コンポーネントを読み込めません: ${missing.join(", ")}`);
+  }
+  function verifyAssignableSigns(d) {
+    let blank = 0;
+    let configured = 0;
+    for (const game of catalog.WARP_CONTROLS) {
+      const block = blockAt(d, game.sign);
+      if (!block) throw new Error(`JUNKET看板のチャンクを読み込めません: ${game.id}`);
+      if (block.typeId !== game.sign_type) {
+        throw new Error(`JUNKET看板の種類が不一致: ${game.id}`);
+      }
+      const text = signText(block);
+      if (typeof text !== "string") {
+        throw new Error(`JUNKET看板の表示を読み取れません: ${game.id}`);
+      }
+      const trimmed = text.trim();
+      if (!trimmed) {
+        blank++;
+        continue;
+      }
+      if (trimmed.includes(game.title)) {
+        configured++;
+        continue;
+      }
+      throw new Error(
+        `既存看板が別用途で使用中のため中止しました: ${game.id} (${trimmed.slice(0, 40)})`);
+    }
+    return { blank, configured };
+  }
+  async function waitForSignTexts(d) {
+    let mismatched = [];
+    for (let remaining = SIGN_COMPONENT_ATTEMPTS; remaining > 0; remaining--) {
+      mismatched = [];
+      for (const game of catalog.WARP_CONTROLS) {
+        const block = blockAt(d, game.sign);
+        if (!block) {
+          mismatched.push(`${game.id}: チャンク未読込`);
+          continue;
+        }
+        if (block.typeId !== game.sign_type) {
+          throw new Error(`看板の種類が不一致: ${game.id}`);
+        }
+        const text = signText(block);
+        if (typeof text !== "string" || !text.includes(game.title)) {
+          mismatched.push(`${game.id}: ${typeof text === "string" ? "表示不一致" : "表示未読込"}`);
+        }
+      }
+      if (!mismatched.length) return;
+      await waitTicks(2);
+    }
+    throw new Error(`看板の表示を確認できません: ${mismatched.join(", ")}`);
+  }
+  async function installControls(player = null) {
     if (installing) {
-      tell(player, "ワープ設備の設置処理中です。");
+      tell(player, "ワープ設備の設定処理中です。");
       return false;
     }
     installing = true;
-    const placed = [];
     let ticking = false;
+    const d = dimension(catalog.WARP_DIMENSION);
     try {
-      const state = installedControlState();
-      if (state.complete) return true;
-      const d = preflight();
-      try { d.runCommand("tickingarea remove junket_install"); } catch { /* No prior temporary area. */ }
-      runChecked(d, "tickingarea add circle 10053 65 10077 4 junket_install");
+      if (catalog.WARP_OFFLINE_INSTALLED === true) {
+        // Native impulse commands were written and verified in a stopped-world
+        // LevelDB transaction. Bedrock has no supported /blockdata writer.
+        // Here only inspect the existing row; do not repair terrain or touch
+        // the unrelated historical row and protected return controls.
+        const bounds = boundsForPoints([
+          ...expectedCells().map(cell => cell.location),
+          catalog.PROTECTED_ANCHOR.command_block,
+          catalog.PROTECTED_ANCHOR.sign,
+          catalog.PROTECTED_ANCHOR.button,
+        ]);
+        return await sharedLoader.withArea({ dimension: d, bounds }, async () => {
+          await waitForAllCells(d);
+          const preserveObserved = catalog.WARP_PRESERVE_OBSERVED_ANCHOR === true;
+          const anchorBefore = preserveObserved ? observedAnchor(d) : null;
+          if (!preserveObserved) await waitForAnchor(d);
+          await waitForSignTexts(d);
+          if (preserveObserved && anchorBefore !== observedAnchor(d)) {
+            throw new Error("拠点行き記録位置の状態が検証中に変化しました。");
+          }
+          tell(player, "本番NBTで設定した17枠の種類・ボタン配置・正式看板名を確認しました。コマンドの永続化はoffline検証記録を参照してください。");
+          return true;
+        });
+      }
+      const tickingBounds = boundsForPoints([
+        ...expectedCells().map(cell => cell.location),
+        ...(catalog.MISPLACED_ROW_CLEANUP?.cells ?? []).map(cell => cell.location),
+        catalog.MISPLACED_ROW_CLEANUP.entity_bounds.slice(0, 3),
+        catalog.MISPLACED_ROW_CLEANUP.entity_bounds.slice(3, 6),
+        catalog.PROTECTED_ANCHOR.command_block,
+        catalog.PROTECTED_ANCHOR.sign,
+        catalog.PROTECTED_ANCHOR.button,
+      ]);
+      try { d.runCommand(`tickingarea remove ${TICKING_NAME}`); } catch { /* No prior temporary area. */ }
+      runChecked(d, `tickingarea add ${tickingBounds.join(" ")} ${TICKING_NAME}`);
       ticking = true;
+      await waitTicks(20);
+      verifyCells(d);
+      await waitForAnchor(d);
+      await waitForAllCells(d);
+      await waitForCleanupCells(d);
+      await waitForSignComponents(d);
+      const signState = verifyAssignableSigns(d);
+      verifyAnchor(d);
+      const cleaned = cleanupMisplacedRow(d);
+
       for (const game of catalog.WARP_CONTROLS) {
         const [x, y, z] = game.command_block;
-        const [sx, sy, sz] = game.sign;
-        const [bx, by, bz] = game.button;
-        placeChecked(d, game.command_block, "minecraft:command_block", placed);
         runChecked(d, `blockdata ${x} ${y} ${z} ${commandBlockData(game)}`);
-        placeChecked(d, game.sign, "minecraft:oak_sign", placed);
-        runChecked(d, `blockdata ${sx} ${sy} ${sz} ${signData(game)}`);
-        placeChecked(d, game.button, "minecraft:wooden_button", placed);
       }
-      tell(player, "17ゲーム分のワープ操作設備を増設しました。既存の拠点行き設備は変更していません。");
+      await waitForSignComponents(d);
+      for (const game of catalog.WARP_CONTROLS) {
+        const sign = signComponent(blockAt(d, game.sign));
+        if (!sign || typeof sign.setText !== "function") {
+          throw new Error(`看板コンポーネントを読み込めません: ${game.id}`);
+        }
+        try {
+          sign.setText(game.title);
+        } catch (error) {
+          // /blockdata remains the persistence source; report only after verification.
+          console.warn(`[JUNKET WARP] 看板API設定を保留: ${game.id} ${error?.message ?? error}`);
+        }
+      }
+      await waitTicks(2);
+      const state = verifyCells(d);
+      if (!state.ready) throw new Error(state.reason);
+      await waitForSignTexts(d);
+      verifyAnchor(d);
+      tell(player, `既存通路の17ゲーム用コマンドブロックと看板を設定・検証しました。空欄看板${signState.blank}件 / 設定済み看板${signState.configured}件。誤設置撤去: ブロック${cleaned.blocks}件 / エンティティ${cleaned.entities}件。`);
       return true;
     } catch (error) {
       console.warn(`[JUNKET WARP] ${error.message}`);
-      for (const [x, y, z] of placed.reverse()) {
-        try { dimension(catalog.WARP_DIMENSION).runCommand(`setblock ${x} ${y} ${z} minecraft:air`); } catch { /* Best-effort rollback. */ }
-      }
-      tell(player, `設置を中止しました: ${error.message}`);
+      tell(player, `設定を中止しました。既存ブロックは削除していません: ${error.message}`);
       return false;
     } finally {
       if (ticking) {
-        try { dimension(catalog.WARP_DIMENSION).runCommand("tickingarea remove junket_install"); } catch { /* Best effort cleanup. */ }
+        try { d.runCommand(`tickingarea remove ${TICKING_NAME}`); } catch { /* Best-effort cleanup. */ }
       }
       installing = false;
     }
-  }
-  function installControlsScheduled(player = null) {
-    return new Promise(resolve => {
-      if (installing) {
-        tell(player, "ワープ設備の設置処理中です。");
-        /*
-        tell(player, "繝ｯ繝ｼ繝苓ｨｭ蛯吶・險ｭ鄂ｮ蜃ｦ逅・ｸｭ縺ｧ縺吶・);
-        */
-        resolve(false);
-        return;
-      }
-      installing = true;
-      const placed = [];
-      let ticking = false;
-      const cleanup = () => {
-        if (ticking) {
-          try { dimension(catalog.WARP_DIMENSION).runCommand("tickingarea remove junket_install"); } catch { /* Best effort cleanup. */ }
-          ticking = false;
-        }
-        installing = false;
-      };
-      const fail = error => {
-        console.warn(`[JUNKET WARP] ${error.message}`);
-        for (const [x, y, z] of placed.reverse()) {
-          try { dimension(catalog.WARP_DIMENSION).runCommand(`setblock ${x} ${y} ${z} minecraft:air`); } catch { /* Best-effort rollback. */ }
-        }
-        tell(player, `險ｭ鄂ｮ繧剃ｸｭ豁｢縺励∪縺励◆: ${error.message}`);
-        cleanup();
-        resolve(false);
-      };
-      const run = (attempts, d) => {
-        try {
-          const first = d.getBlock({ x: 10053, y: 65, z: 10077 });
-          if (!first) {
-            if (attempts > 0) {
-              system.runTimeout(() => run(attempts - 1, d), 20);
-              return;
-            }
-            throw new Error("JUNKET control chunk did not become ready");
-          }
-          world.structureManager.place(
-            "junket:warp_row", d, { x: 10053, y: 65, z: 10076 },
-            { includeEntities: false },
-          );
-          for (const game of catalog.WARP_CONTROLS) {
-            const expected = [
-              [game.command_block, "minecraft:command_block"],
-              [game.sign, "minecraft:oak_sign"],
-              [game.button, "minecraft:wooden_button"],
-            ];
-            for (const [location, typeId] of expected) {
-              const block = d.getBlock({ x: location[0], y: location[1], z: location[2] });
-              if (!block) throw new Error(`JUNKET control target unavailable: ${typeId}`);
-              if (block.typeId !== typeId) throw new Error(`JUNKET control placement mismatch: ${typeId}`);
-              if (typeId === "minecraft:oak_sign") {
-                const sign = block.getComponent("minecraft:sign");
-                if (!sign) throw new Error(`JUNKET sign component unavailable: ${game.id}`);
-                sign.setText(game.title);
-              }
-              placed.push(location);
-            }
-          }
-          tell(player, "17ゲーム分のワープ設備を設置しました。");
-          /*
-          tell(player, "17繧ｲ繝ｼ繝蛻・・繝ｯ繝ｼ繝玲桃菴懆ｨｽ蛯吶ｒ蠅苓ｨｭ縺励∪縺励◆縲・);
-          */
-          cleanup();
-          resolve(true);
-        } catch (error) {
-          const retryable = /unavailable|not become ready/.test(error.message);
-          if (retryable && attempts > 0) {
-            system.runTimeout(() => run(attempts - 1, d), 20);
-          } else {
-            fail(error);
-          }
-        }
-      };
-      try {
-        if (installedControlState().complete) {
-          cleanup();
-          resolve(true);
-          return;
-        }
-        const d = preflight();
-        try { d.runCommand("tickingarea remove junket_install"); } catch { /* No prior temporary area. */ }
-        runChecked(d, "tickingarea add circle 10053 65 10077 4 junket_install");
-        ticking = true;
-        system.runTimeout(() => run(6, d), 20);
-      } catch (error) {
-        fail(error);
-      }
-    });
   }
 
   world.beforeEvents.playerInteractWithBlock.subscribe(event => {
     const game = buttons.get(key(event.block.dimension.id, event.block.location));
     if (!game) return;
-    event.cancel = true;
-    system.run(() => warp(event.player, game.id));
+    if (legacyNavigator) {
+      event.cancel = true;
+      const id = event.player.id;
+      system.run(() => { const p = world.getAllPlayers().find(p => p.id === id); if (p) legacyNavigator(p, game); });
+      return;
+    }
+    if (safe.native(game)) { safe.capture(event, game); return; }
+    // Offline-installed native commands directly teleport the nearby presser.
+    // Let the physical button/redstone run and avoid a second scripted warp.
+    if (catalog.WARP_OFFLINE_INSTALLED === true && game.command_mode === "native_tp") return;
+    if (!enabled(game)) {
+      event.cancel = true;
+      tell(event.player, `${game.title}は準備中です。完成確認後に公開します。`);
+      return;
+    }
+    const tag = requestTag(game.id);
+    const presserId = event.player.id;
+    system.run(() => { try {
+      const presser = (world.getAllPlayers?.() ?? []).find(value => value.id === presserId);
+      if (!presser) return;
+      claimPress(presser, game.id);
+      // The command block executes as a block, so ScriptEventReceive has no
+      // sourceEntity/initiator. The temporary tag carries the exact presser to
+      // the command block. This fallback keeps the button usable if redstone or
+      // the command block fails, without ever selecting a nearby bystander.
+      system.runTimeout(() => {
+        try {
+          if (!presser.hasTag(tag)) return;
+          presser.removeTag(tag);
+          void warp(presser, game.id);
+        } catch { /* Player disconnected or tag already consumed. */ }
+      }, WARP_REQUEST_TIMEOUT);
+    } catch (error) {
+      tell((world.getAllPlayers?.() ?? []).find(value => value.id === presserId), `ワープ要求を作成できませんでした: ${error?.message ?? error}`);
+    } });
   });
+  world.afterEvents.playerSpawn.subscribe(event => {
+    if (!event.initialSpawn) return;
+    safe.cancel(event.player.id);
+    // Tags survive a crash. Clear a request that never reached its command
+    // block so a later button press cannot move the reconnecting player.
+    for (const gameId of games.keys()) {
+      try { event.player.removeTag(requestTag(gameId)); } catch { /* Player disconnected. */ }
+    }
+  });
+  world.afterEvents.playerLeave?.subscribe(event => safe.cancel(event.playerId));
   world.beforeEvents.playerInteractWithEntity.subscribe(event => {
+    if (isServiceGuide(world, event.target)) return;
     if (!event.target.hasTag(RETURN_TAG)) return;
     event.cancel = true;
     system.run(() => returnToEntry(event.player));
   });
   system.afterEvents.scriptEventReceive.subscribe(event => {
     const player = event.sourceEntity;
-    if (player?.typeId !== "minecraft:player") return;
-    if (event.id === "junket:warpadmin") {
-      if (event.message.trim() === "install") void installControlsScheduled(player);
-      else tell(player, "/scriptevent junket:warpadmin install");
+    if (event.id === "junket:warpcheck" && !player) {
+      const [command, requestId = ""] = event.message.trim().split(/\s+/);
+      if (command === "all") void safe.checkAll(requestId);
       return;
     }
     if (event.id === "junket:warp") {
-      warp(player, event.message.trim());
+      handleWarpRequest(event);
+      return;
+    }
+    if (player?.typeId !== "minecraft:player") return;
+    if (event.id === "junket:warpadmin") {
+      const command = event.message.trim();
+      if (command === "install") void installControls(player);
+      else if (command === "cleanup") {
+        try {
+          const d = dimension(catalog.WARP_DIMENSION);
+          verifyAnchor(d);
+          const cleaned = cleanupMisplacedRow(d);
+          tell(player, `誤設置撤去を検証しました: ブロック${cleaned.blocks}件 / エンティティ${cleaned.entities}件。`);
+        } catch (error) {
+          tell(player, `誤設置撤去を中止しました: ${error?.message ?? error}`);
+        }
+      } else tell(player, "/scriptevent junket:warpadmin install | cleanup");
       return;
     }
     if (event.id === "junket:warpreturn") returnToEntry(player);
   });
-  return { warp, returnToEntry, installControls: installControlsScheduled, destination, controls: catalog.WARP_CONTROLS, tag: CONTROL_TAG };
+  registerCatalogReturn(world, player => safe.returnToEntryAndWait(player));
+  return {
+    setLegacyNavigator: navigate => { legacyNavigator = navigate; },
+    warp, returnToEntry, returnToEntryAndWait: player => safe.returnToEntryAndWait(player),
+    evacuateForRecovery: (player, gameId) => safe.evacuateForRecovery(player, gameId), installControls, destination, checkDestinations: safe.checkAll,
+    controls: catalog.WARP_CONTROLS, tag: CONTROL_TAG,
+  };
 }

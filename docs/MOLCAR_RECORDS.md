@@ -67,3 +67,30 @@ activation/toggle and mounted event delivery were verified independently.
 Local coverage: `python scripts/check_molcar_records.py` (five checks plus
 13 focused JavaScript regressions). Evidence is retained outside the repository
 in `C:/Users/syoub/AppData/Local/Temp/ichiyon-record-smoke-20260924/`.
+
+## Additional supplied recordings
+
+`build_molcar_record.py` accepts a validated `--key` and `--name`, upserts one
+registration, and retains existing catalog entries, sounds, atlas entries and
+localized names. Existing identifiers and SoundInstance playback are unchanged.
+For supplied recordings, always set `--root` to a private authoring tree; do not
+write their audio or icons into this public repository.
+
+`build_molcar_records_private.py` prepares the additional recordings in a new,
+explicit private `--output` directory. It verifies unchanged MP3 inputs, converts
+without overwriting existing OGG files, checks decoded sample length, and exports
+registration additions plus private proof. It does not deploy or replace the
+managed pack. `check_molcar_record_additions.py --private <output>` checks that
+private candidate against its input/proof and the unchanged public baseline.
+
+The added recordings and their generated item/sound/atlas/catalog registrations
+are intentionally absent from the public default packs until assembled with
+their complete private media by the existing private overlay workflow. Keep MP3,
+OGG, supplied icons, candidate packs and path-bearing conversion proofs private.
+
+Offline regressions use synthetic data:
+
+```text
+python -B scripts/test_molcar_record_import.py
+node scripts/check_molcar_record_additions.mjs
+```

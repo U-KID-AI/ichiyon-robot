@@ -30,11 +30,31 @@ function timeoutWinner(state) {
   if (state.phase === "lock") {
     const completed = state.progress.map(value => value >= LUCY_ROWS);
     if (completed[0] === completed[1]) return null;
-    // ver1.09's timeout functions penalize the player who has already completed
-    // the five vault rows while the other player has not.
+    // Vault ownership is inverted: box 0 is configured by player 1.
+    // The player who has not finished configuring the opponent vault loses.
     return completed[0] ? 1 : 0;
   }
   return state.actor === 0 ? 1 : state.actor === 1 ? 0 : null;
+}
+
+const lockBox = seat => 1 - seat;
+
+function validateCell(value) {
+  if (!value || !Number.isInteger(value.row) || !Number.isInteger(value.column) ||
+      value.row < 0 || value.row >= LUCY_ROWS ||
+      value.column < 0 || value.column >= LUCY_COLUMNS) {
+    throw new Error("鍵穴を選んでください。");
+  }
+}
+
+function completeLock(state, patterns, progress, lockDrafts) {
+  if (!progress.every(count => count === LUCY_ROWS)) {
+    return { ...state, patterns, progress, lockDrafts };
+  }
+  return {
+    ...state, patterns, progress, lockDrafts,
+    phase: "attempt", actor: 0, round: 1,
+  };
 }
 
 export function createLucy() {
@@ -44,6 +64,7 @@ export function createLucy() {
     round: 1,
     progress: [0, 0],
     patterns: [grid(), grid()],
+    lockDrafts: [grid(), grid()],
     attempted: [grid(), grid()],
     remaining: [LUCY_ROWS, LUCY_ROWS],
     hp: [LUCY_MAX_HP, LUCY_MAX_HP],
@@ -58,20 +79,50 @@ export function advanceLucy(state, seat, action, value) {
   if (state.phase === "finished") throw new Error("試合は終了しています。");
   if (action === "lock") {
     if (state.phase !== "lock") throw new Error("金庫の当たり指定は完了しています。");
-    const row = state.progress[player];
+    const box = lockBox(player);
+    const row = state.progress[box];
     if (row >= LUCY_ROWS) throw new Error("このプレイヤーは指定を完了しています。");
     if (!Array.isArray(value) || value.length !== LUCY_COLUMNS || value.some(cell => typeof cell !== "boolean")) {
       throw new Error("各列の指定状態が不正です。");
     }
     if (!value.some(Boolean)) throw new Error("各行で最低一つの当たりを指定してください。");
     const patterns = state.patterns.map(cloneGrid);
-    patterns[player][row] = [...value];
+    const lockDrafts = state.lockDrafts.map(cloneGrid);
+    patterns[box][row] = [...value];
+    lockDrafts[box][row] = Array(LUCY_COLUMNS).fill(false);
     const progress = [...state.progress];
-    progress[player]++;
-    if (!progress.every(count => count === LUCY_ROWS)) {
-      return { ...state, patterns, progress };
+    progress[box]++;
+    return completeLock(state, patterns, progress, lockDrafts);
+  }
+
+  if (action === "lock-toggle") {
+    if (state.phase !== "lock") throw new Error("金庫の当たり指定は完了しています。");
+    validateCell(value);
+    const box = lockBox(player);
+    const row = state.progress[box];
+    if (row >= LUCY_ROWS) throw new Error("このプレイヤーは指定を完了しています。");
+    if (value.row !== row) throw new Error("現在指定できるのは次の面だけです。");
+    const lockDrafts = state.lockDrafts.map(cloneGrid);
+    lockDrafts[box][row][value.column] = !lockDrafts[box][row][value.column];
+    return { ...state, lockDrafts };
+  }
+
+  if (action === "lock-confirm") {
+    if (state.phase !== "lock") throw new Error("金庫の当たり指定は完了しています。");
+    const box = lockBox(player);
+    const row = state.progress[box];
+    if (row >= LUCY_ROWS) throw new Error("このプレイヤーは指定を完了しています。");
+    if (!value || value.row !== row) throw new Error("現在指定できるのは次の面だけです。");
+    const lockDrafts = state.lockDrafts.map(cloneGrid);
+    if (!lockDrafts[box][row].some(Boolean)) {
+      throw new Error("各行で最低一つの当たりを指定してください。");
     }
-    return { ...state, patterns, progress, phase: "attempt", actor: 0, round: 1 };
+    const patterns = state.patterns.map(cloneGrid);
+    patterns[box][row] = [...lockDrafts[box][row]];
+    lockDrafts[box][row] = Array(LUCY_COLUMNS).fill(false);
+    const progress = [...state.progress];
+    progress[box]++;
+    return completeLock(state, patterns, progress, lockDrafts);
   }
 
   if (action === "attempt") {
@@ -80,6 +131,8 @@ export function advanceLucy(state, seat, action, value) {
         value.row < 0 || value.row >= LUCY_ROWS || value.column < 0 || value.column >= LUCY_COLUMNS) {
       throw new Error("鍵穴を選んでください。");
     }
+    const currentRow = LUCY_ROWS - state.remaining[player];
+    if (value.row !== currentRow) throw new Error("現在開錠している面の鍵穴を選んでください。");
     if (state.attempted[player][value.row][value.column]) {
       throw new Error("その鍵穴はすでに選ばれています。");
     }
@@ -122,6 +175,8 @@ export function lucyView(state) {
     actor: state.actor,
     round: state.round,
     progress: [...state.progress],
+    // Drafts are private; public props must not reveal the configured pattern.
+    lockDrafts: [grid(), grid()],
     attempted: state.attempted.map(player =>
       player.map(row => row.map(value => value ? 1 : 0))),
     remaining: [...state.remaining],
@@ -132,6 +187,12 @@ export function lucyView(state) {
   };
 }
 
+export function lucyViewForPlayer(state, seat) {
+  const view = lucyView(state);
+  if (seat === 0 || seat === 1) view.lockDrafts[lockBox(seat)] = cloneGrid(state.lockDrafts[lockBox(seat)]);
+  return view;
+}
+
 export const lucyGame = Object.freeze({
   id: "lucy",
   title: "気分屋ルーシー",
@@ -139,5 +200,6 @@ export const lucyGame = Object.freeze({
   create: createLucy,
   advance: advanceLucy,
   view: lucyView,
+  viewForPlayer: lucyViewForPlayer,
   systemAdvance: lucySystem,
 });

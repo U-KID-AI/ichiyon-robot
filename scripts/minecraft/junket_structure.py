@@ -7,12 +7,14 @@ from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 import struct
-import leveldb
 import nbtlib as n
 
 
 class ConvertedWorld:
     def __init__(self, path):
+        # Geometry/profile helpers may import this adapter without opening a
+        # world. Require the optional native library only at actual DB access.
+        import leveldb
         self.db = leveldb.LevelDB(str(Path(path) / 'db'))
 
     def get(self, key):

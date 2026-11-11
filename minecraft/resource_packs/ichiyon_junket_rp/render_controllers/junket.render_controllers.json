@@ -11,6 +11,72 @@
       "textures": [
         "Texture.default"
       ]
+    },
+    "controller.render.junket.fire": {
+      "geometry": "query.property('junket:frame') == 5 ? Geometry.television : query.property('junket:frame') >= 6 ? Geometry.glass : Geometry.default",
+      "materials": [
+        {
+          "*": "Material.default"
+        }
+      ],
+      "textures": [
+        "query.property('junket:frame') == 0 ? Texture.default : query.property('junket:frame') == 1 ? Texture.used : query.property('junket:frame') == 2 ? Texture.hot : query.property('junket:frame') == 3 ? Texture.ice : query.property('junket:frame') == 4 ? Texture.active : query.property('junket:frame') == 5 ? Texture.television : query.property('junket:frame') == 6 ? Texture.glass0 : query.property('junket:frame') == 7 ? Texture.glass1 : query.property('junket:frame') == 8 ? Texture.glass2 : query.property('junket:frame') == 9 ? Texture.glass3 : query.property('junket:frame') == 10 ? Texture.glass4 : query.property('junket:frame') == 11 ? Texture.glass5 : Texture.glass5"
+      ]
+    },
+    "controller.render.junket.hope_tv": {
+      "geometry": "Geometry.default",
+      "materials": [
+        {
+          "*": "Material.default"
+        }
+      ],
+      "textures": [
+        "Texture.default"
+      ]
+    },
+    "controller.render.junket.hope_code": {
+      "geometry": "Geometry.default",
+      "materials": [
+        {
+          "*": "Material.default"
+        }
+      ],
+      "textures": [
+        "Texture.default"
+      ]
+    },
+    "controller.render.junket.hope_code_display": {
+      "geometry": "Geometry.default",
+      "materials": [
+        {
+          "*": "Material.default"
+        }
+      ],
+      "textures": [
+        "query.property('junket:frame') == 1 ? Texture.broken : Texture.normal"
+      ]
+    },
+    "controller.render.junket.rabbit_floor": {
+      "geometry": "Geometry.default",
+      "materials": [
+        {
+          "*": "Material.default"
+        }
+      ],
+      "textures": [
+        "query.property('junket:frame') == 1 ? Texture.trap : query.property('junket:frame') == 2 ? Texture.guarded : query.property('junket:frame') == 3 ? Texture.falling : Texture.normal"
+      ]
+    },
+    "controller.render.junket.walker_label": {
+      "geometry": "Geometry.default",
+      "materials": [
+        {
+          "*": "Material.default"
+        }
+      ],
+      "textures": [
+        "query.property('junket:frame') == 0 ? Texture.a : query.property('junket:frame') == 1 ? Texture.ka : query.property('junket:frame') == 2 ? Texture.sa : query.property('junket:frame') == 3 ? Texture.ta : query.property('junket:frame') == 4 ? Texture.na : query.property('junket:frame') == 5 ? Texture.ha : query.property('junket:frame') == 6 ? Texture.ma : query.property('junket:frame') == 7 ? Texture.ya : query.property('junket:frame') == 8 ? Texture.ra : query.property('junket:frame') == 9 ? Texture.one : query.property('junket:frame') == 10 ? Texture.six : query.property('junket:frame') == 11 ? Texture.dead_o : query.property('junket:frame') == 12 ? Texture.dead_ko : query.property('junket:frame') == 13 ? Texture.dead_so : query.property('junket:frame') == 14 ? Texture.dead_to : query.property('junket:frame') == 15 ? Texture.dead_no : query.property('junket:frame') == 16 ? Texture.dead_ho : query.property('junket:frame') == 17 ? Texture.dead_mo : query.property('junket:frame') == 18 ? Texture.dead_yo : query.property('junket:frame') == 19 ? Texture.dead_ro : query.property('junket:frame') == 20 ? Texture.dead_five : Texture.dead_zero"
+      ]
     }
   }
 }

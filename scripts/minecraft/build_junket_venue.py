@@ -33,39 +33,11 @@ def write_json(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
 
-def geometry(model, identifier, atlas, texture_size=(256, 128)):
-    bones = []
-    for i, element in enumerate(model['elements']):
-        a, b = element['from'], element['to']
-        cube = {'origin': [8 - b[0], a[1] - 8, a[2] - 8],
-                'size': [b[j] - a[j] for j in range(3)], 'uv': {}}
-        for face, data in element['faces'].items():
-            texture = data['texture']
-            while texture.startswith('#'):
-                texture = model['textures'][texture[1:]]
-            x, y, width, height = atlas[texture]
-            u, v, u2, v2 = data['uv']
-            uv = {'uv': [x + u * width / 16, y + v * height / 16],
-                  'uv_size': [(u2 - u) * width / 16, (v2 - v) * height / 16]}
-            if data.get('rotation'):
-                uv['uv_rotation'] = data['rotation']
-            cube['uv'][{'east': 'west', 'west': 'east'}.get(face, face)] = uv
-        bone = {'name': f'element_{i}', 'cubes': [cube]}
-        rotation = element.get('rotation')
-        if rotation and rotation['angle']:
-            assert not rotation.get('rescale'), 'Rescaled rotations require manual review'
-            origin = rotation['origin']
-            bone['pivot'] = [8 - origin[0], origin[1] - 8, origin[2] - 8]
-            bone['rotation'] = [0, 0, 0]
-            axis = 'xyz'.index(rotation['axis'])
-            bone['rotation'][axis] = rotation['angle'] * (-1 if axis < 2 else 1)
-        bones.append(bone)
-    return {'description': {'identifier': identifier, 'texture_width': texture_size[0], 'texture_height': texture_size[1],
-                            'visible_bounds_width': 8, 'visible_bounds_height': 8, 'visible_bounds_offset': [0, 0, 0]},
-            'bones': bones}
+# Shared by the five legacy converters and all seventeen source model groups.
+from junket_model_geometry import geometry
 
 
-def build(source, converted, vanilla, output):
+def build(source, converted, vanilla, output, models_only=False):
     output = output.resolve()
     private = Path('data/junket-private').resolve()
     if not output.is_relative_to(private):
@@ -81,16 +53,8 @@ def build(source, converted, vanilla, output):
             models['partition'] = {'textures': {'0': 'block/oak_planks'}, 'elements': [{
                 'from': [7.6, -16, -14.4], 'to': [8.4, 32, 30.4],
                 'faces': {face: {'texture': '#0', 'uv': [0, 0, 16, 16]} for face in ['north', 'south', 'east', 'west', 'up', 'down']}}]}
-            textures = sorted({v for model in models.values() for v in model['textures'].values() if not v.startswith('#')})
-            sheet, atlas, x, y, row = Image.new('RGBA', (256, 128)), {}, 0, 0, 0
-            for texture in textures:
-                name = 'assets/minecraft/textures/' + texture + '.png'
-                image = Image.open(BytesIO((resources if name in resources.namelist() else base).read(name))).convert('RGBA')
-                if x + image.width > 256:
-                    x, y, row = 0, y + row, 0
-                assert y + image.height <= 128
-                sheet.paste(image, (x, y)); atlas[texture] = (x, y, image.width, image.height)
-                x += image.width; row = max(row, image.height)
+            from junket_model_geometry import texture_atlas
+            sheet, atlas = texture_atlas(resources, base, models, (256, 128))
             (rp / 'textures/entity').mkdir(parents=True, exist_ok=True)
             sheet.save(rp / 'textures/entity/junket_sparrow.png')
             geometries = [geometry(model, 'geometry.junket.' + key.replace('-', '_'), atlas) for key, model in models.items()]
@@ -111,6 +75,8 @@ def build(source, converted, vanilla, output):
                     'modules': [{'type': kind, 'uuid': module, 'version': VERSION}]}
         if kind == 'data':
             manifest['dependencies'] = [{'uuid': RP_UUID, 'version': VERSION}]
+        else:
+            manifest['capabilities'] = ['pbr']
         write_json(path / 'manifest.json', manifest)
     for name, scale, width in [('bigbox', .5, .6), ('littlebox', .25, .4), ('diamond', .5, .3), ('tv', 1, .2), ('partition', 1, .05)]:
         frames = ([name + '-closed'] + [f'{name}-open-{i}-{outcome}' for outcome in ['out', 'hit'] for i in range(1, 4)]) if name.endswith('box') else ([name, 'tv-result'] if name == 'tv' else [name])
@@ -138,14 +104,16 @@ def build(source, converted, vanilla, output):
     (rp / 'texts/ja_JP.lang').write_text('action.interact.junket=選択・操作\n', encoding='utf-8')
     (rp / 'texts/en_US.lang').write_text('action.interact.junket=Select / interact\n', encoding='utf-8')
     write_json(rp / 'texts/languages.json', ['en_US', 'ja_JP'])
-    world = ConvertedWorld(converted)
-    try:
-        structures = {key: world.export(bounds, bp / f'structures/junket/{key}.mcstructure') for key, bounds in BOUNDS.items()}
-        for i in range(13):
-            key = f'temperance_beam_{i}'
-            structures[key] = world.export([[88,101,263+i],[100,113,263+i]], bp / f'structures/junket/{key}.mcstructure')
-    finally:
-        world.db.close()
+    structures = {}
+    if not models_only:
+        world = ConvertedWorld(converted)
+        try:
+            structures = {key: world.export(bounds, bp / f'structures/junket/{key}.mcstructure') for key, bounds in BOUNDS.items()}
+            for i in range(13):
+                key = f'temperance_beam_{i}'
+                structures[key] = world.export([[88,101,263+i],[100,113,263+i]], bp / f'structures/junket/{key}.mcstructure')
+        finally:
+            world.db.close()
     report = {'source_sha256': hashlib.sha256(source.read_bytes()).hexdigest(), 'structures': structures,
               'models': len(models), 'model_elements': {key: len(model['elements']) for key, model in models.items()},
               'atlas_size': [256, 128], 'original_sound_files': 0,
@@ -173,5 +141,6 @@ if __name__ == '__main__':
     parser.add_argument('--converted', type=Path, default=Path('data/junket-private/conversion/bedrock-four-games'))
     parser.add_argument('--vanilla', type=Path, default=Path('data/junket-private/tools/java-1.21.3-client.jar'))
     parser.add_argument('--output', type=Path, default=Path('data/junket-private/assets'))
+    parser.add_argument('--models-only', action='store_true', help='Regenerate models without reading or writing world structures')
     args = parser.parse_args()
-    build(args.source or next((Path.home() / 'Downloads').glob('*JUNKET*1.09*.zip')), args.converted, args.vanilla, args.output)
+    build(args.source or next((Path.home() / 'Downloads').glob('*JUNKET*1.09*.zip')), args.converted, args.vanilla, args.output, args.models_only)

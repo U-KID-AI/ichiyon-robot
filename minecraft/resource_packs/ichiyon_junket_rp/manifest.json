@@ -7,7 +7,7 @@
     "version": [
       0,
       8,
-      0
+      9
     ],
     "min_engine_version": [
       1,
@@ -22,8 +22,11 @@
       "version": [
         0,
         8,
-        0
+        9
       ]
     }
+  ],
+  "capabilities": [
+    "pbr"
   ]
 }
